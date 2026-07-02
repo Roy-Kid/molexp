@@ -1,68 +1,50 @@
 # Quick Start
 
-The fastest way to understand MolExp is to see one small script move through the whole lifecycle. The example below defines a workflow, declares it on a workspace experiment, executes one tracked run, and reads the persisted result back.
+The fastest way to understand MolExp is to see one small script move through the whole lifecycle: define a workflow, execute one tracked run, and read the result back.
 
 ## One Small Script
 
 ```python
-import asyncio
-
 import molexp as me
-from molexp.workflow import WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import WorkflowCompiler
 
 wf = WorkflowCompiler(name="sum")
 
 
 @wf.task
-async def fetch(scale: float = 1.0) -> dict:
+def fetch(scale: float = 1.0) -> dict:
     return {"values": [1.0, 4.0, 9.0], "scale": scale}
 
 
 @wf.task(depends_on=["fetch"])
-async def summarize(values: list[float], scale: float = 1.0) -> float:
+def summarize(values: list[float], scale: float = 1.0) -> float:
     return sum(values) * scale
 
 
-compiled = wf.compile()
-
 ws = me.Workspace("./lab", name="lab")
-exp = ws.project("demo").experiment("sum").run(compiled, params={"scale": [1.0]})
+run = ws.project("demo").experiment("sum").add_run(params={"scale": 2.0})
 
-
-async def main() -> None:
-    run = exp.list_runs()[0]
-    with run.start() as ctx:
-        result = await WorkflowRuntime().execute(compiled, run_context=ctx)
-        ctx.set_result("total", result.outputs["summarize"])
-        ctx.artifact.save("metrics.json", {"total": result.outputs["summarize"]})
-    print(run.status, run.get_result("total"))
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+result = run.execute(wf)
+print(run.status, result.outputs["summarize"])
 ```
+
+Running the file prints `succeeded 28.0`. That is the whole loop: two plain functions become a dependency graph, one `Run` gives the execution a durable home on disk, and `run.execute(wf)` drives it end to end — compiling the workflow, opening the run's tracked lifecycle, executing the graph, and persisting every task's output — before handing back the result. `result.outputs` maps each task's name to what it returned.
 
 ## What This Script Does
 
-The workflow itself is only the graph created by `WorkflowCompiler(...)`, the two task definitions, and `compiled = wf.compile()`. Everything after that is about persistence. The workspace creates a durable root on disk. The project groups related work. The experiment binds the compiled workflow to one named research definition via `exp.run(compiled, params=...)` — `params` is the sweep, and MolExp materializes one content-addressed `Run` per parameter cell. Each run gives one concrete execution attempt a stable directory and metadata record.
+Tasks are ordinary functions — synchronous `def` is fine (an `async def` task works exactly the same way when you need it). Data flows along the graph's edges and binds to each task's named parameters: the root task `fetch` receives the run's `params` by name, which is why declaring a `scale` parameter hands it `2.0`; because `fetch` returns a dictionary, `summarize`'s `values` and `scale` parameters are filled from that dictionary's keys. A parameter with no matching input falls back to its declared default.
 
-Because run ids are derived from the run's parameters, re-declaring the same sweep is idempotent: repeated invocations rediscover the same runs instead of creating duplicates.
+The workspace half is the persistent hierarchy `Workspace -> Project -> Experiment -> Run`: the workspace is a durable root directory, the project groups related work, the experiment names one repeatable definition, and each run records one execution with its parameters, status, and outputs. Everything `run.execute` produced is still there after the process exits — `run.get_result("summarize")` reads the persisted value back in a later session.
 
-Inside a task body, the data flowing in along the graph's edges is bound to the task's own named parameters. The root task `fetch` receives the run's sweep params by name, which is why declaring a `scale` parameter hands it the swept value; a downstream task like `summarize` receives its upstream's output by name — because `fetch` returns a dictionary, `summarize`'s `values` and `scale` parameters are filled from that dictionary's keys. Build-time and profile configuration fields bind the same way, by parameter name, and any parameter with no matching input falls back to its declared default. The task context object (`ctx`) is optional and now exposes only `ctx.workdir`, a content-addressed scratch directory, so neither task above declares it. Workspace helpers are separate and live on the driver-side `RunContext` opened by `run.start()` — a distinct object from the task context: `ctx.set_result(...)` stores lightweight result values on the run record (read them back with the public `run.get_result(key)`), and `ctx.artifact.save(...)` writes a file under the run's artifact directory and registers it as an `ArtifactAsset` in the workspace catalog. See [Unified Asset Model](../guide/assets.md) for the full shape of artifacts, logs, checkpoints, and data assets.
+`run.execute` is deliberately strict about state: a run that already succeeded refuses to silently re-execute (pass `fresh=True` for a new attempt), and a failed run raises instead of returning quietly — calling `run.execute(wf)` again on it resumes from where it stopped. [Track a Run](tracked-runs.md) covers those semantics.
 
 ## Running the Script
 
-If you execute the file directly with Python, the `main()` function above will execute one tracked run and print its status and result. The `exp.run(...)` declaration also registers the workspace for CLI discovery, so the same script can be driven by `molexp run` instead:
-
-```bash
-molexp run train.py
-```
-
-At that point the CLI owns run selection, deterministic run ids, and the `RunContext` lifecycle. That is usually where profiles, resume behavior, and scheduler-backed execution start to matter.
+Execute the file directly with `python`. The same workflow can also be declared on the experiment for CLI-driven execution (`molexp run train.py`), which adds profiles, schedulers, and resume flags on top of the identical execution path — see [CLI and Profiles](cli-and-profiles.md).
 
 ## After the First Run
 
-The next useful page depends on what felt most mysterious. If the workflow definition itself was the unfamiliar part, continue with [Your First Workflow](first-workflow.md). If the new part was the workspace hierarchy and tracked run state, continue with [Track a Run](tracked-runs.md). If the script already makes sense and you want to move to `molexp run`, continue with [CLI and Profiles](cli-and-profiles.md).
+The next useful page depends on what felt most mysterious. If the workflow definition itself was the unfamiliar part, continue with [Your First Workflow](first-workflow.md). If the new part was the workspace hierarchy and tracked run state — or you want to fan one workflow out over a parameter sweep — continue with [Track a Run](tracked-runs.md). If the script already makes sense and you want to move to `molexp run`, continue with [CLI and Profiles](cli-and-profiles.md).
 
 ## Runnable Example
 

@@ -21,7 +21,23 @@ edges missing, that is by design — switch to `to_graph_ir()`; you do not need 
 hand-patch the IR to inject them.
 
 ```python
-compiled = wf.compile()
+from molexp.workflow import (
+    CompiledWorkflow,
+    Task,
+    TaskContext,
+    WorkflowCompiler,
+    default_registry,
+)
+
+
+# ``to_ir`` needs a task_type slug per task; register the class to get one.
+@default_registry.register("docs.fetch")
+class Fetch(Task):
+    async def execute(self, ctx: TaskContext) -> dict:
+        return {"n": 42}
+
+
+compiled = WorkflowCompiler(name="demo").add(Fetch()).compile()
 
 graph = compiled.to_graph_ir()          # full graph (UI / observability)
 parallel_edges = [e for e in graph.edges if e.kind == "parallel"]

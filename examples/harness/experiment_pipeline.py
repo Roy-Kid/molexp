@@ -1,20 +1,20 @@
 """NL experiment goal → plan → generated tests → REAL execution → final report.
 
-The flagship harness demo: one natural-language goal flows through both
-harness modes on a single ``workspace.Run``:
+The flagship harness demo: one natural-language goal flows through the
+single canonical ``PlanMode`` pipeline on one ``workspace.Run`` (the
+earlier two-class PlanMode/RunMode split is retired):
 
-- ``PlanMode`` (9 stages) — ``SaveUserPlan → GenerateExperimentReport →
-  ExtractWorkflowIR → ValidateWorkflowIR → BindMolcraftsTasks →
-  ValidateBoundWorkflow → GenerateWorkflowSource → ValidateWorkflowSource →
-  ApprovalGate`` — expands the goal into an experiment plan and validated,
-  runnable ``molexp.workflow`` source.
-- ``RunMode`` (10 stages) — ``GenerateTestSpec → ValidateTestSpec →
-  GenerateTestCode → ValidateTestSource → MaterializeExecution →
-  ExecuteTests → ExecuteWorkflow → GenerateFinalReport → ApprovalGate →
-  GenerateAuditReport`` — writes unit tests for the generated workflow,
-  REALLY runs them with pytest, executes the workflow on the real
-  ``molexp.workflow`` engine in an executor subprocess, and writes the final
-  experiment report from the actual results.
+- The default nine visible steps — draft proposal → draft spec → resolve
+  capabilities → workflow IR → tasks + per-task tests → input set →
+  compile/dry-run → review gate → execution report — expand the goal into
+  an experiment plan, validated runnable ``molexp.workflow`` source,
+  generated unit tests, and a compile-only dry run.
+- ``PlanMode(execute=True)`` (used here) appends the opt-in real-execution
+  tail — ``ExecuteWorkflow → GenerateFinalReport →
+  ApprovalGate(approve_execution) → GenerateAuditReport`` — which REALLY
+  runs the generated tests with pytest, executes the workflow on the real
+  ``molexp.workflow`` engine in an executor subprocess, and writes the
+  final experiment report from the actual results.
 
 OFFLINE BY DEFAULT — zero network, zero API keys, deterministic: the
 in-file :class:`CannedGateway` implements the public ``AgentGateway``
@@ -43,12 +43,11 @@ import tempfile
 from pathlib import Path
 
 import molexp
-from molexp.harness import (
+from molexp.harness import AgentGateway, PlanMode
+from molexp.harness.errors import AgentResponseNotRegisteredError
+from molexp.harness.schemas import (
     AgentCallResult,
     AgentCallSpec,
-    AgentGateway,
-    AgentResponseNotRegisteredError,
-    ArtifactRef,
     BoundTask,
     BoundWorkflow,
     DependencyEdge,
@@ -59,15 +58,15 @@ from molexp.harness import (
     FinalReport,
     InputSet,
     ParameterValue,
-    PlanMode,
+    PlanArtifactRef,
+    PlanTaskIR,
+    PlanWorkflowIR,
     ResourcePolicy,
     SpecVariable,
     SweepAxis,
-    TaskIR,
     TestSource,
     TestSpec,
     TestSpecBundle,
-    WorkflowIR,
     WorkflowSource,
 )
 from molexp.harness.store.file_artifact_store import FileArtifactStore
@@ -223,7 +222,7 @@ def _canned_responses() -> dict[str, tuple[str, dict]]:
             ),
         ],
     )
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-random-walk",
         name="random_walk_diffusion",
         objective="Estimate D from the MSD of seeded 1D random walks",
@@ -233,7 +232,7 @@ def _canned_responses() -> dict[str, tuple[str, dict]]:
             "seed": ParameterValue(value=20260610, source="agent_inferred", approved=True),
         },
         tasks=[
-            TaskIR(
+            PlanTaskIR(
                 id="generate_walks",
                 name="Generate walks",
                 purpose="Simulate the seeded walker ensemble",
@@ -241,7 +240,7 @@ def _canned_responses() -> dict[str, tuple[str, dict]]:
                 inputs={},
                 outputs={"displacements": "final displacements"},
             ),
-            TaskIR(
+            PlanTaskIR(
                 id="compute_msd",
                 name="Compute MSD",
                 purpose="Ensemble mean squared displacement",
@@ -249,7 +248,7 @@ def _canned_responses() -> dict[str, tuple[str, dict]]:
                 inputs={},
                 outputs={"msd": "mean squared displacement"},
             ),
-            TaskIR(
+            PlanTaskIR(
                 id="estimate_d",
                 name="Estimate D",
                 purpose="Einstein relation D = MSD/(2 d t)",
@@ -432,7 +431,7 @@ def _live_gateway(store: FileArtifactStore) -> AgentGateway:
     )
 
 
-def _print_stage_table(label: str, names: list[str], refs: tuple[ArtifactRef, ...]) -> None:
+def _print_stage_table(label: str, names: list[str], refs: tuple[PlanArtifactRef, ...]) -> None:
     print(f"\n{label}")
     for name, ref in zip(names, refs, strict=True):
         print(f"  {name:<26} {ref.kind:<20} {ref.id}")

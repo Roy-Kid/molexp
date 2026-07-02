@@ -2,7 +2,7 @@
 
 This page is for contributors who need to understand — or modify — how a `WorkflowCompiler` produces a `CompiledWorkflow` and how that artifact becomes an executable graph. End-users should read the [Quick Start](../getting-started/quick-start.md) first.
 
-There is **no intermediate JSON representation on the execution path**. Compilation happens in memory, in one pass, when `wf.compile()` is called. The lowering lives in `molexp.workflow._pydantic_graph.*`, which is private to the workflow package and the **sole** sanctioned `import pydantic_graph` site in the repo — though after the values-on-edges rewrite that surface is just the `End` sentinel re-export; the plan and engine are molexp-owned plain Python.
+There is **no intermediate JSON representation on the execution path**. Compilation happens in memory, in one pass, when `wf.compile()` is called. The lowering lives in `molexp.workflow._engine.*`, which is private to the workflow package. The plan and engine are molexp-owned plain Python — the former `pydantic_graph` dependency is gone entirely (no import anywhere in the repo; the `End` sentinel is molexp's own, in `molexp.workflow.types`).
 
 ## Compilation Flow
 
@@ -40,7 +40,7 @@ src/molexp/workflow/
 ├── cache_store.py         # CacheStore / FileCacheStore storage primitives
 ├── snapshot.py            # TaskSnapshot (AST-normalized code hash + config hash)
 ├── ir.py                  # WorkflowGraphIR (to_graph_ir export for UI / server)
-└── _pydantic_graph/       # PRIVATE — sole sanctioned pydantic_graph import site (End re-export only)
+└── _engine/               # PRIVATE — molexp-owned lowering + engine (zero pydantic_graph)
     ├── compiler.py        # WorkflowGraphCompiler — stages 1–5: validation + structural lowering
     ├── plan.py            # ExecutionPlan — frozen lowering artifact (plain data, no pg import)
     ├── engine.py          # run_plan — values-on-edges structural engine
@@ -53,13 +53,23 @@ src/molexp/workflow/
     └── persistence.py     # coalescing workflow.json writer + read_node_outputs (resume seed source)
 ```
 
-The outer API (`molexp.workflow.__init__`) is the public boundary. Anything under `_pydantic_graph/` is an implementation detail and can break between releases.
+The outer API (`molexp.workflow.__init__`) is the public boundary. Anything under `_engine/` is an implementation detail and can break between releases.
 
 ## Deterministic Workflow ID
 
 `workflow_id` is a 16-hex-character `sha256` over the workflow `name` plus, for each task, `name + type(fn_or_class).__qualname__ + sorted(depends_on)` (see `_helpers._stable_workflow_id`):
 
 ```python
+from molexp.workflow import WorkflowCompiler
+
+wf = WorkflowCompiler(name="demo")
+
+
+@wf.task
+async def fetch() -> int:
+    return 42
+
+
 compiled = wf.compile()
 print(compiled.workflow_id)   # e.g. "c3f9e2b8a7d4e1f0"
 ```
@@ -74,7 +84,7 @@ Pair `workflow_id` with `config_hash` on `RunMetadata` and the experiment's pers
 
 ## Validation and Lowering
 
-`compile_registrations` hands the declaration set to `WorkflowGraphCompiler` (`_pydantic_graph/compiler.py`), which runs five stages — all synchronous from `wf.compile()`, before any user task code runs:
+`compile_registrations` hands the declaration set to `WorkflowGraphCompiler` (`_engine/compiler.py`), which runs five stages — all synchronous from `wf.compile()`, before any user task code runs:
 
 1. **Data-DAG validation** — the `depends_on` graph must be acyclic (`CycleError`) and reference only registered tasks (`UnknownTaskError`).
 2. **Edge-set construction** — explicit `wf.control` / `wf.branch` declarations bucket into per-source `UnconditionalEdges` / `BranchEdges`; `wf.parallel` expands into `map_over → body → join` control edges; `wf.loop` expands into a `{"continue", "exit"}` branch on its `until` task; tasks with no explicit edges get a fan-out synthesised from their reverse data edges. Mixing branch + unconditional edges on one source raises `EdgeShapeError`.
@@ -98,9 +108,10 @@ For a workspace run, the runtime pre-sets every root task's inputs to `{"params"
 
 ## Runtime Entry
 
-`WorkflowRuntime` (in `_pydantic_graph/runtime.py`, re-exported publicly) owns execution:
+`WorkflowRuntime` (in `_engine/runtime.py`, re-exported publicly) owns execution:
 
 ```python
+# docs: skip — signature overview (``...`` placeholders, not runnable values)
 runtime = WorkflowRuntime()
 result = await runtime.execute(compiled, run_context=ctx, seed_outputs=..., cache=...)
 handle = await runtime.start(compiled)            # background, returns WorkflowExecution
@@ -131,12 +142,14 @@ The **code hash** uses AST normalization — comments, whitespace, and decorator
 The combined identity key is `f"{code_hash}:{config_hash}"`; the full cache key adds the input hash. `Caching` (`cache.py`) is orthogonal to the lowering — the engine's per-task cache hook (`node_cache.run_task_body_cached`, batch `Task` bodies only, never `Actor`s) consults it when a cache is supplied:
 
 ```python
-from molexp.workflow import Caching, FileCacheStore
+import molexp as me
+from molexp.workflow import Caching, FileCacheStore, WorkflowRuntime
+
+ws = me.Workspace("./lab", name="lab")
 
 # Workspace-rooted cache (preferred for tracked runs): built automatically
 # from ``run_context`` via ``ws.cache.as_cache_store()``; or pass explicitly:
-cache = Caching(store=workspace.cache.as_cache_store(), max_entries=1000)
-cache.initialize()
+cache = Caching(store=ws.cache.as_cache_store(), max_entries=1000)
 
 result = await WorkflowRuntime().execute(compiled, cache=cache)
 ```
@@ -164,8 +177,8 @@ All other public behaviour should route through `molexp.workflow`'s re-exports.
 
 - `molexp.workflow._helpers._stable_workflow_id` — workflow ID hash
 - `molexp.workflow.compiler.compile_registrations` — validation + snapshotting + lowering entry
-- `molexp.workflow._pydantic_graph.compiler.WorkflowGraphCompiler` — topology → `ExecutionPlan`
-- `molexp.workflow._pydantic_graph.plan.ExecutionPlan` — the frozen lowering artifact
-- `molexp.workflow._pydantic_graph.engine.run_plan` — the values-on-edges structural engine
+- `molexp.workflow._engine.compiler.WorkflowGraphCompiler` — topology → `ExecutionPlan`
+- `molexp.workflow._engine.plan.ExecutionPlan` — the frozen lowering artifact
+- `molexp.workflow._engine.engine.run_plan` — the values-on-edges structural engine
 - `molexp.workflow.snapshot.TaskSnapshot` — code/config identity
 - `molexp.workflow.cache.Caching` — LRU cache keyed by snapshot + inputs

@@ -64,13 +64,13 @@ The firewall is enforced by `tests/test_agent/test_import_guard.py`.
 construction site is hidden behind a lazy import that fires only on the
 first `AgentRunner.run()` call.
 
-### pydantic-graph confinement
+### pydantic-graph removal
 
-`pydantic_graph` is exclusively imported under
-`src/molexp/workflow/_pydantic_graph/`. **Nothing under
-`src/molexp/agent/` may import it.** The agent never schedules a
-workflow itself; the harness does, and even there the engine runs in an
-executor subprocess rather than in-process.
+molexp has no `pydantic_graph` dependency — the workflow engine
+(`src/molexp/workflow/_engine/`) is molexp-owned, and **nothing under
+`src/` may import `pydantic_graph`** (agent included). The agent never
+schedules a workflow itself; the harness does, and even there the
+engine runs in an executor subprocess rather than in-process.
 
 ## Don't Reinvent pydantic-ai
 

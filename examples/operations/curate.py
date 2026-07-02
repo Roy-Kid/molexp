@@ -32,9 +32,9 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
-from molexp.harness import auto_grant_approver
+from molexp.harness.stages import auto_grant_approver
 from molexp.harness.store.file_artifact_store import FileArtifactStore
-from molexp.server.curate_runtime import build_curation_proposal, run_curation_proposal
+from molexp.services.curate_runtime import build_curation_proposal, run_curation_proposal
 
 
 async def main() -> None:

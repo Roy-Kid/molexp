@@ -11,7 +11,13 @@ import molexp as me
 from molexp.workflow import WorkflowCompiler
 
 wf = WorkflowCompiler(name="sum")
-# ... @wf.task definitions ...
+
+
+@wf.task
+async def fetch(scale: float) -> list[float]:
+    # Root task: the run's sweep param ``scale`` binds by name.
+    return [1.0 * scale, 2.0 * scale, 3.0 * scale]
+
 
 (
     me.Workspace("./lab", name="lab")
@@ -69,11 +75,11 @@ async def compute(
     return sum(fetch) * lr
 ```
 
-Here `fetch` (the list from the upstream task of that name) binds from the graph edge, while `optimizer` and `skip_heavy_compute` bind by name from the resolved profile; each falls back to its declared default when the active profile omits it.
+Here `fetch` (the list from the upstream task of that name) binds from the graph edge, while `optimizer` and `skip_heavy_compute` bind by name from the resolved profile; each falls back to its declared default when the active profile omits it. (In a real script, task definitions like this one sit *before* the fluent `.run(wf.compile(), ...)` chain, so the compiled workflow contains them — see the complete `train.py` in the runnable example below.)
 
 The important design choice is that MolExp stores the profile and injects it, but does not assign domain meaning to its keys. Your task code decides what `epochs`, `skip_heavy_compute`, or `optimizer.lr` actually mean.
 
-## Profiles, Overrides, and Resume
+## Profiles, Overrides, Resume, and Rerun
 
 The CLI can resolve one profile, apply one-off overrides after that resolution, and then persist the chosen config onto the run metadata:
 
@@ -81,9 +87,10 @@ The CLI can resolve one profile, apply one-off overrides after that resolution, 
 molexp run train.py --profile smoke
 molexp run train.py --profile smoke --override optimizer.lr=0.0005
 molexp run train.py --profile smoke --resume
+molexp run train.py --profile smoke --rerun
 ```
 
-`--resume` is profile-aware. A resumed run must match the selected profile and must not already be `succeeded`. This keeps resume tied to one execution stream rather than letting a new profile reinterpret an old run.
+Each verb owns a disjoint job. Plain `molexp run` **starts what has not run**: it creates missing runs and executes `pending` ones, and leaves everything else — `failed`, `cancelled`, `succeeded`, `running` — alone, because retrying is always explicit. `--resume` applies only to `failed` / `cancelled` runs: it reopens each run's *existing* execution, seeds the task outputs that already completed from disk, and recomputes only the unfinished nodes. `--rerun` also applies only to `failed` / `cancelled` runs, but opens a *fresh* execution attempt and re-executes from the top of the graph (the content-addressed cache may still serve unchanged deterministic tasks — see [Rerun, Resume, and the Cache](../guide/workflow-persistence.md#rerun-resume-and-the-cache)). The two flags are mutually exclusive, and both are profile-aware: the resolved profile is part of the run's identity, so a different profile addresses a different run rather than reinterpreting an old one.
 
 The CLI also folds parameters, replica index, and active profile metadata into the run id it generates. That is why repeated `molexp run` invocations can rediscover the same run — the same content-addressing that makes `exp.run(..., params=...)` idempotent. Only `exp.add_run(...)` without an explicit `id=` creates a fresh run identity.
 

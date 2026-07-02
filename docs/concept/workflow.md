@@ -36,6 +36,12 @@ result = await WorkflowRuntime().execute(compiled)
 Or it can run under a tracked `Run` by forwarding the run's context:
 
 ```python
+import molexp as me
+
+ws = me.Workspace("./lab", name="lab")
+exp = ws.project("demo").experiment("baseline").run(compiled, params=None)
+run = exp.list_runs()[0]
+
 with run.start() as ctx:
     result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 ```

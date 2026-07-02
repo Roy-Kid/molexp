@@ -103,6 +103,21 @@ class can appear in multiple workflows — the lightest form of reuse when you d
 not need a whole sub-pipeline as one node:
 
 ```python
+class Fetch(Task):
+    async def execute(self, ctx: TaskContext) -> list[float]:
+        return [3.0, 1.0, 4.0]
+
+
+class Clean(Task):
+    async def execute(self, ctx: TaskContext, fetch: list[float]) -> list[float]:
+        return [x for x in fetch if x > 1.0]
+
+
+class Augment(Task):
+    async def execute(self, ctx: TaskContext, clean: list[float]) -> list[float]:
+        return clean + [x * 2 for x in clean]
+
+
 baseline = (
     WorkflowCompiler(name="baseline")
     .add(Fetch())

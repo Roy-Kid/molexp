@@ -62,12 +62,14 @@ At this point you have a Python object, not yet a fully materialized directory t
 That delayed materialization is important if you want to compose workspace objects without leaving empty directories behind. When you do want a strict load-from-disk path, use:
 
 ```python
-ws = me.Workspace.load("./lab")
+ws.materialize()                  # write workspace.json (a first child project also does this)
+
+ws = me.Workspace.load("./lab")   # strict: reads what is on disk
 ```
 
 `Workspace.load()` raises if `workspace.json` is missing; use it when you want to fail loud rather than silently create a new workspace.
 
-Once a workspace exists, its core properties are straightforward. `ws.id` and `ws.name` come from `workspace.json`. `ws.root` is the resolved filesystem root. `ws.assets` gives access to the workspace-level asset catalog view. `ws.save()` persists metadata changes when you deliberately update the workspace record itself.
+Once a workspace exists, its core properties are straightforward. `ws.id` and `ws.name` come from `workspace.json`. `ws.root` is the resolved filesystem root. `ws.assets` gives access to the workspace-level asset view — a read-only query surface over the per-scope `assets.json` manifests. `ws.save()` persists metadata changes when you deliberately update the workspace record itself.
 
 ## Projects Are Stable Children of a Workspace
 
@@ -80,9 +82,9 @@ project = ws.add_project("QM9")      # same operation, explicit spelling
 
 This operation is idempotent by project slug. If the corresponding directory already exists, Molexp loads it. If it does not exist, Molexp creates a new `Project`, writes `project.json`, and returns it. Repeated calls with the same project name inside one process return the same in-memory object, which lets later code keep bound state on child objects without accidentally duplicating handles.
 
-Projects expose descriptive metadata such as `project.description`, `project.owner`, `project.tags`, and `project.config`. They also expose `project.project_dir`, which is the concrete directory under `<workspace>/projects/<project_id>/`, `project.assets`, which is a catalog view scoped to the project, and `project.data_assets`, which is the `DataAssetLibrary` for imported external data.
+Projects expose descriptive metadata such as `project.description`, `project.owner`, `project.tags`, and `project.config`. They also expose `project.project_dir`, which is the concrete directory under `<workspace>/projects/<project_id>/`, `project.assets`, which is an asset view scoped to the project, and `project.data_assets`, which is the `DataAssetLibrary` for imported external data.
 
-Project lookup works in three styles. `ws.get_project(name)` is the strict getter (raises `ProjectNotFoundError` if absent), `ws.has_project(name)` tests existence, and `ws.list_projects()` scans the on-disk tree. Deletion is explicit through `ws.remove_project(name)`, which removes the project directory from disk and cascades the catalog rows.
+Project lookup works in three styles. `ws.get_project(name)` is the strict getter (raises `ProjectNotFoundError` if absent), `ws.has_project(name)` tests existence, and `ws.list_projects()` scans the on-disk tree. Deletion is explicit through `ws.remove_project(name)`, which removes the project directory — and everything recorded beneath it — from disk.
 
 ## Experiments Bind Workflow Identity to Parameters
 
@@ -108,7 +110,13 @@ Experiments also own `exp.assets`, the experiment-scoped asset view, and `exp.ex
 Creating an experiment does not automatically attach executable workflow code. The sanctioned way to pair the two is `Experiment.run(workflow, params=...)`:
 
 ```python
-from molexp.workflow import WorkflowCompiler
+from molexp.workflow import Task, TaskContext, WorkflowCompiler
+
+
+class TrainTask(Task):
+    async def execute(self, ctx: TaskContext, lr: float = 1e-3) -> float:
+        return lr
+
 
 compiled = WorkflowCompiler(name="train").add(TrainTask()).compile()
 
@@ -139,7 +147,7 @@ The CLI uses the content-addressing mechanism to achieve repeatable runs. `molex
 
 Each `Run` stores its data in `<experiment>/runs/run-<run_id>/`. The most important fields live on `run.metadata`, a `RunMetadata` model. Direct convenience properties such as `run.id`, `run.parameters`, `run.status`, and `run.run_dir` simply expose the corresponding metadata fields in a more ergonomic form, and `run.get_result(key)` reads back a result value persisted by `RunContext.set_result` — falling back, when no driver-side result exists, to the completed workflow node of that name in the run's most recent execution (so results of CLI-executed runs are readable through the same accessor).
 
-One logical run may be executed more than once. Molexp does not flatten those attempts; instead it appends `ExecutionRecord` entries to `run.metadata.execution_history`, with per-attempt state under `executions/<exec_id>/`.
+One logical run may be executed more than once. Molexp does not flatten those attempts; instead it appends `ExecutionRecord` entries to `run.execution_history`, with per-attempt state under `executions/<exec_id>/`. (Hot operational state — status, ownership, heartbeat, the execution records — lives in the run's `_ops/run.json` sidecar, not in the `run.json` entity file; `run.status` and `run.execution_history` read from it transparently.)
 
 If a run should be marked dead without completing normally, `run.cancel()` transitions it to `cancelled` and writes the terminal timestamp.
 
@@ -150,11 +158,11 @@ If a run should be marked dead without completing normally, `run.cancel()` trans
 ```python
 from molexp.workflow import WorkflowRuntime
 
-with run.start(profile_config=cfg) as ctx:
+with run.start() as ctx:
     result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 ```
 
-Entering the context creates the run directories if necessary, loads previously saved result values, stores the active profile metadata onto the run, stamps the run with temporary ownership labels, switches status to `running`, and appends a fresh `ExecutionRecord` for the current attempt.
+Entering the context creates the run directories if necessary, loads previously saved result values, stores the active profile metadata onto the run (pass it as `run.start(profile_config=cfg)` with a resolved `ProfileConfig`), stamps the run with temporary ownership labels, switches status to `running`, and appends a fresh `ExecutionRecord` for the current attempt.
 
 Leaving the context closes the lifecycle. A normal exit marks the run as `succeeded`, unless the workflow execution recorded a failed run status. An exception marks the run as `failed`, writes `ErrorInfo` into metadata, and stores a traceback under `executions/<execution_id>/error.txt`. In both cases the execution history entry is finalized with its end time and final status.
 
@@ -162,27 +170,31 @@ The most commonly used `RunContext` helpers fall into three groups. Note that th
 
 The first group deals with results and metadata. `ctx.set_result(key, value)` and `ctx.get_result(key)` read and write the lightweight result map persisted into `run.json`; `run.get_result(key)` is the public read-back on the entity itself; when the key was never `set_result`-persisted (typical for `molexp run` CLI executions, which have no driver script calling `set_result`), it falls back to the persisted node output of the same name from the run's latest execution. Node outputs whose original value was not JSON-serializable are persisted only as lossy observability renderings and are never returned as results — `get_result` logs a warning and returns `None` for those. `ctx.set_workflow(payload)` stores a workflow-shaped dictionary onto the serialized run-context — the payload type is opaque to workspace; the workflow layer gives the dict its shape. This is distinct from the binding-registry association made by `Experiment.run(...)`, which records the live `CompiledWorkflow` instance for downstream consumers within the same process.
 
-The second group deals with files, through typed accessors. `ctx.artifact.save(name, data)` writes under `<run_dir>/artifacts/`, automatically choosing JSON, binary, file-copy, or string serialization, and registers an `ArtifactAsset` in the catalog with a populated `Producer`. `ctx.log(name)` returns a bound log handle whose `.append(line)` writes a line into the run's logs and keeps the `LogAsset` up to date. `ctx.checkpoint(name, data=...)` writes a `CheckpointAsset`, linearly chained to the previous checkpoint of the same run.
+The second group deals with files, through typed accessors. `ctx.artifact.save(name, data)` writes under `<run_dir>/artifacts/`, automatically choosing JSON, binary, file-copy, or string serialization, and registers an `ArtifactAsset` in the run's `assets.json` manifest with a populated `Producer`. `ctx.log(name)` returns a bound log handle whose `.append(line)` writes a line into the run's logs and keeps the `LogAsset` up to date. `ctx.checkpoint(name, data=...)` writes a `CheckpointAsset`, linearly chained to the previous checkpoint of the same run.
 
-The third group deals with asset lookup across the unified catalog. `ctx.find_asset(name)` searches in run → experiment → project → workspace order and returns a typed `Asset` subclass. `ctx.get_data_dir(asset_name, fallback=...)` first tries that hierarchical lookup; if nothing is found and a fallback path is provided, it creates that directory under the workspace root and returns it. For typed queries against the catalog use `ws.catalog.query_assets(kind=..., producer_run=..., scope=...)`.
+The third group deals with asset lookup across the unified asset model. `ctx.find_asset(name)` searches in run → experiment → project → workspace order and returns a typed `Asset` subclass. `ctx.get_data_dir(asset_name, fallback=...)` first tries that hierarchical lookup; if nothing is found and a fallback path is provided, it creates that directory under the workspace root and returns it. For typed queries use a scope's `assets` view — `ws.assets.query(kind=..., producer_run=..., recursive=True)` — which scans the authoritative per-scope `assets.json` manifests directly; the module-level helpers `molexp.workspace.assets.scan.scan_assets` / `get_asset` / `find_by_content_hash` do the same when all you hold is a workspace root.
 
 Finally, `RunContext.open(run_dir)` reconstructs a full workspace, project, experiment, and run chain from an existing run directory. This is what worker-style entry points use when they only know the run path on disk.
 
 ## Assets Are Unified, Typed, and Scoped
 
-Every persistent byproduct of an experiment — imported datasets, task artifacts, logs, checkpoints, captured exceptions, workflow execution state — is a typed `Asset` subclass indexed by the workspace catalog. Each workspace, project, experiment, and run scope exposes an `assets` property that returns a read-only catalog view and a `data_assets` property for importing external data:
+Every persistent byproduct of an experiment — imported datasets, task artifacts, logs, checkpoints, captured exceptions, workflow execution state — is a typed `Asset` subclass recorded in a per-scope `assets.json` manifest. Each workspace, project, experiment, and run scope exposes an `assets` property that returns a read-only, manifest-scanning view and a `data_assets` property for importing external data:
 
 ```python
-ws.assets.list()                # every asset in the workspace
-project.assets.list()           # assets attributable to this project
-exp.assets.list()               # assets attributable to this experiment
-ws.data_assets.import_asset("qm9", "/data/qm9.tar.bz2")
-project.data_assets.import_asset("features", "/tmp/features", action="move")
+from pathlib import Path
+
+ws.assets.list()                          # assets registered at workspace scope
+ws.assets.query(recursive=True)           # every asset in the workspace, any scope
+exp.assets.query(recursive=True)          # assets under this experiment (its runs included)
+
+Path("qm9.csv").write_text("mol,energy\nH2O,-76.4\n")
+ws.data_assets.import_asset("qm9", "qm9.csv")
+project.data_assets.import_asset("features", "qm9.csv")
 ```
 
-`import_asset(name, src, action="copy", meta=None)` writes the payload under `<scope>/data_assets/<asset_id>/payload/` and registers a `DataAsset`. Supported actions are `copy`, `move`, `symlink`, and `hardlink`. The asset then appears in the same catalog as artifacts, logs, and checkpoints produced by runs.
+`import_asset(name, src, action="copy", meta=None)` writes the payload under `<scope>/data_assets/<asset_id>/payload/` and registers a `DataAsset`. Supported actions are `copy`, `move`, `symlink`, and `hardlink`. The asset then appears in the same manifest-backed queries as artifacts, logs, and checkpoints produced by runs.
 
-Lookup during execution walks outward automatically. `ctx.find_asset(name)` searches run → experiment → project → workspace until it matches, so common datasets can live once at workspace scope while derived artifacts stay attached to the run that produced them. For the complete mental model — scopes, producer attribution, the catalog, and the per-kind subclasses — see the [Unified Asset Model](assets.md) guide.
+Lookup during execution walks outward automatically. `ctx.find_asset(name)` searches run → experiment → project → workspace until it matches, so common datasets can live once at workspace scope while derived artifacts stay attached to the run that produced them. For the complete mental model — scopes, producer attribution, the manifest-scanning queries, and the per-kind subclasses — see the [Unified Asset Model](assets.md) guide.
 
 ## Parameter Spaces Drive the Sweep
 
@@ -245,7 +257,7 @@ async def compute(ctx: TaskContext, lr: float, scale: float = 1.0) -> float:
 compiled = wf.compile()
 
 ws = me.Workspace("./lab", name="lab")
-exp = ws.project("demo").experiment("baseline").run(compiled, params={"lr": [1e-3]})
+exp = ws.project("walkthrough").experiment("baseline").run(compiled, params={"lr": [1e-3]})
 
 run = exp.list_runs()[0]
 with run.start() as ctx:
@@ -254,7 +266,7 @@ with run.start() as ctx:
     ctx.artifact.save("metrics.json", {"scaled_lr": result.outputs["compute"]})
 
 print(run.status)
-print(run.metadata.execution_history[-1].status)
+print(run.execution_history[-1].status)
 print(run.get_result("scaled_lr"))
 ```
 

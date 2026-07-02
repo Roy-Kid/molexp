@@ -126,6 +126,9 @@ wf.loop(body=["step"], until="check", max_iters=10, on_exit="report")
 !!! warning "Loops and parallel joins don't fuse"
     A parallel-`join` and a loop-`until` cannot be fused onto the same task — use separate tasks (have the `wf.parallel` join feed a distinct `until` task).
 
+!!! warning "A dict riding an edge is always unpacked by key"
+    Values on edges follow one rule everywhere, loops included: a **dict** output is unpacked into per-key named parameters, a **scalar** binds positionally. So you cannot thread a whole state dict through `until` → body as a single `state` parameter — the receiving task must declare one parameter per key it consumes (the delivery error lists exactly which keys were available). To carry several values around a loop, either declare a parameter per field, or wrap the state in a non-dict container (e.g. a dataclass or tuple) that binds as one value.
+
 ## Fan-Out Over a Runtime List
 
 Use `wf.parallel` when you need to fan out over a list produced by an upstream task:

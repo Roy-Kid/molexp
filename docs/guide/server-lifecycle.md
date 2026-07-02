@@ -80,6 +80,7 @@ uvicorn molexp.server.app:app --reload --port 8000
 `molexp.server.manager.ServerManager` is a lifecycle helper kept around for programmatic use (e.g. integration tests that want a real server running in the background).
 
 ```python
+# docs: skip — starts live server processes (ports, pid files, daemons)
 from molexp.server import ServerManager
 
 manager = ServerManager()
@@ -146,6 +147,7 @@ Pass a custom `config_dir=Path("./.local")` to the constructor to relocate them.
 `create_app()` looks for the SPA bundle via:
 
 ```python
+# docs: skip — illustrative fragment (``mount``/``app`` are create_app internals)
 from importlib.resources import files
 webapp = files("molexp") / "_webapp"
 if webapp.is_dir() and (webapp / "index.html").exists():

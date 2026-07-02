@@ -4,9 +4,9 @@ Reproducibility in MolExp is not only about being able to rerun Python code. It 
 
 ## Assets as Named Resources
 
-MolExp represents every persistent byproduct — imported data, task artifacts, logs, checkpoints, captured exceptions, workflow execution state — as a typed `Asset` subclass scoped to the workspace, a project, an experiment, or a single run. External data enters through a `DataAssetLibrary` exposed as `ws.data_assets`, `project.data_assets`, or `exp.data_assets`. Run-time outputs attach to the run they were produced in through the `RunContext` accessors (`ctx.artifact.save(...)`, `ctx.log(name).append(...)`, `ctx.checkpoint(name, data=...)`). Every asset is indexed by a workspace-wide catalog so a single query can cross scopes.
+MolExp represents every persistent byproduct — imported data, task artifacts, logs, checkpoints, captured exceptions, workflow execution state — as a typed `Asset` subclass scoped to the workspace, a project, an experiment, or a single run. External data enters through a `DataAssetLibrary` exposed as `ws.data_assets`, `project.data_assets`, or `exp.data_assets`. Run-time outputs attach to the run they were produced in through the `RunContext` accessors (`ctx.artifact.save(...)`, `ctx.log(name).append(...)`, `ctx.checkpoint(name, data=...)`). Every asset is recorded in its scope's `assets.json` manifest, and queries scan those authoritative manifests across scopes in one pass.
 
-This design keeps execution attempts transient while allowing useful outputs to become durable named resources. A task can later ask for `ctx.find_asset("training_data")` or `ctx.find_asset("feature-cache")` without hard-coding where those resources happen to live on disk, and tooling can ask the catalog for "all failed-run stack traces in experiment X" without walking the filesystem.
+This design keeps execution attempts transient while allowing useful outputs to become durable named resources. A task can later ask for `ctx.find_asset("training_data")` or `ctx.find_asset("feature-cache")` without hard-coding where those resources happen to live on disk, and tooling can ask one manifest-scanning query for "all error traces in experiment X" (`exp.assets.query(kind="error_trace", recursive=True)`) without walking the filesystem by hand.
 
 ## Reproducibility Records
 

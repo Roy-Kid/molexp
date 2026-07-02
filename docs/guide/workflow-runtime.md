@@ -3,11 +3,22 @@
 Execution lives on `WorkflowRuntime`, not on the compiled artifact. You instantiate the runtime (it is cheap and stateless apart from an optional cache) and hand it a `CompiledWorkflow`:
 
 ```python
-from molexp.workflow import WorkflowRuntime
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
+
+wf = WorkflowCompiler(name="demo")
+
+
+@wf.task
+async def compute(scale: float = 1.0) -> float:
+    return 42.0 * scale
+
+
+compiled = wf.compile()
 
 runtime = WorkflowRuntime()
-result = await runtime.execute(compiled)
-handle = await runtime.start(compiled)
+result = await runtime.execute(compiled)      # block until done
+handle = await runtime.start(compiled)        # background handle
+result = await handle.wait()
 ```
 
 The compiled artifact carries a frozen, molexp-owned `ExecutionPlan` that a structural engine executes with values-on-edges semantics (task inputs are delivered from upstream outputs; `pydantic-graph` survives only as the `End` sentinel re-export) â€” but most user code should treat that as an implementation detail rather than as a direct API surface.
@@ -42,10 +53,16 @@ The user-home `~/.molexp/cache/` shortcut from earlier MolExp versions is gone â
 There are two practical execution modes. The first is pure in-memory execution with no workspace attached. The second is execution under an opened `RunContext`:
 
 ```python
+import molexp as me
+
 await runtime.execute(compiled)
 await runtime.execute(compiled, config={"scale": 2.0})
 
-with run.start(profile_config=cfg) as ctx:
+ws = me.Workspace("./lab", name="lab")
+exp = ws.project("demo").experiment("baseline").run(compiled, params={"scale": [2.0]})
+run = exp.list_runs()[0]
+
+with run.start() as ctx:      # run.start(profile_config=cfg) to attach a resolved profile
     await runtime.execute(compiled, run_context=ctx)
 ```
 

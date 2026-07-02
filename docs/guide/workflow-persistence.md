@@ -92,16 +92,35 @@ Use these to group, compare, and replay runs.
     ├── project.json
     └── experiments/<exp_id>/
         ├── experiment.json
-        └── runs/run-<id>/
-            ├── run.json                      ← RunMetadata (pydantic frozen)
-            ├── artifacts/
-            ├── logs/
-            └── execution/<exec_id>/
-                ├── error.txt                 ← on failure
-                └── ...
+        └── runs/run-<run_id>/
+            ├── run.json                  ← RunMetadata: identity/provenance only
+            │                                (params, config_hash, profile, target —
+            │                                 NO status / execution history)
+            ├── _ops/run.json             ← hot state: status, ownership,
+            │                                heartbeat, execution records
+            ├── assets.json               ← run-scoped asset manifest
+            ├── artifacts/                ← final products
+            └── executions/<exec_id>/     ← one dir per attempt
+                ├── execution.json
+                ├── workflow.json         ← per-node status + outputs (resume seed source)
+                ├── logs/<name>.log
+                └── error.txt             ← on failure: why, with traceback
 ```
 
-All JSON files use `json.dumps(..., default=str, indent=2)` with atomic writes; structure is discovered by scanning directories, so you can move, inspect, or archive experiments independently without rewriting parent metadata.
+A run's `run.json` entity file is pure identity and provenance; the hot operational state — status, ownership stamps, heartbeat, the `ExecutionRecord` list — lives in the `_ops/run.json` sidecar, which is what `run.status` and `run.execution_history` read. Per-attempt files live under `executions/<exec_id>/` (the exec id is `exec-<run_id>` plus an optional `-N` suffix for reruns); when an attempt fails, `executions/<exec_id>/error.txt` records what went wrong. Run-lifecycle milestones (created / started / completed / failed) are also appended to a workspace-level timeline at `<workspace_root>/workspace.events.sqlite` — `molexp runs info` shows a run's recent events, and reading the timeline never creates the file.
+
+All JSON files are written atomically (temp file + `os.rename`); structure is discovered by scanning directories, so you can move, inspect, or archive experiments independently without rewriting parent metadata.
+
+## Rerun, Resume, and the Cache
+
+A run that ended `failed` or `cancelled` can be re-executed on the **same** `run_id` in exactly two ways — there is no "clone into a new run" operation:
+
+- **`--resume`** reopens the *existing* execution: completed task outputs are seeded from that execution's persisted `workflow.json`, and only unfinished/failed nodes (and their downstream) recompute. Same `exec_id`, continued in place.
+- **`--rerun`** opens a *fresh* attempt (`exec-<run_id>-N`): a new `ExecutionRecord`, executed from the top of the graph.
+
+`--rerun` interacts with the content-addressed cache. A rerun does not seed anything, but every task whose cache identity (code + config + upstream outputs + sweep params) is unchanged **may hit the cache** — a deterministic task that already succeeded can be served its previous output instead of recomputing. That is usually what you want; when it is not (say the task reads mutable external state the cache key cannot see), pass `--rerun --fresh` to bypass cache *reads* for that execution, forcing every node to genuinely re-execute while still writing fresh cache entries.
+
+Neither verb touches `pending` or `succeeded` runs, and a live `running` run must be cancelled first — retrying is always an explicit verb, never implicit.
 
 ## Runnable Example
 

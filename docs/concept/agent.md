@@ -61,12 +61,14 @@ Two loops ship today:
   `read_file` / `list_directory` / `search_code` tools.
 
 ```python
-from molexp.agent import AgentRunner, AgentSession
+# docs: skip — requires an LLM API key (live network call)
+from molexp.agent import AgentRunner
 from molexp.agent.loops import ChatLoop, ChatLoopConfig
 
 config = ChatLoopConfig(system_prompt="…")
 runner = AgentRunner(loop=ChatLoop(config=config), model="anthropic:claude-sonnet-4-5")
-result = await runner.run(AgentSession(), "summarize this dataset")
+session = runner.session("chat-demo")     # named AgentSession, persisted on disk
+result = await runner.run(session, "summarize this dataset")
 print(result.text)
 ```
 
@@ -83,7 +85,7 @@ harness ──uses──▶ agent ──uses──▶ workspace
                   (agent and workflow are siblings — no edge between them)
 ```
 
-- **workspace** — `Workspace`, `Run`, `RunContext`, `AssetCatalog`,
+- **workspace** — the generic `Folder` machinery behind
   the `Agent` / `AgentSession` folders. Sessions persist as folders in
   the workspace through workspace's generic `add_folder` CRUD; the
   workspace layer stays unaware of their agent-specific shape.
@@ -104,8 +106,9 @@ Two import-boundary rules keep the layer light and honest:
   `messages_codec.py`, …). `import molexp.agent` does **not** eagerly load
   it; the router is constructed lazily on the first `AgentRunner.run()`, so
   call sites that never reach the LLM stay cold.
-- `pydantic_graph` is **never** imported under `agent/` — that is the
-  workflow layer's private concern.
+- `pydantic_graph` is **never** imported under `agent/` — nor anywhere
+  else in `src/`; molexp dropped the dependency (the workflow engine is
+  molexp-owned).
 
 `tests/test_agent/test_import_guard.py` mechanically enforces both rules
 (plus the public surface in `tests/test_agent/test_public_surface.py`).
@@ -128,20 +131,23 @@ Pipeline orchestration is **not** in this layer. It moved up to
 `molexp.harness` and is reached through the `agent.router.Router`
 Protocol — the single sanctioned `harness → agent` import edge.
 
-- `PlanMode` and `RunMode` are `molexp.harness.modes` `Mode` pipelines,
-  not agent loops. `PlanMode()` constructs with **no** config object and
+- `PlanMode` is the one canonical `molexp.harness.modes` `Mode` pipeline,
+  not an agent loop (the earlier PlanMode/RunMode split is retired —
+  `PlanMode(execute=True)` appends the former RunMode back half as an
+  opt-in tail). `PlanMode()` constructs with **no** config object and
   runs as:
 
   ```python
+  # docs: skip — illustrative call shape; needs a prepared Run + AgentGateway (LLM)
   from molexp.harness.modes.plan import PlanMode
 
   result = await PlanMode().run(run=run, user_input=draft, gateway=gateway)
   ```
 
 - The production entry point is the **`molexp plan [--execute]`** CLI
-  (`src/molexp/cli/plan_cmd.py`): it drives `PlanMode` against a
-  content-addressed `Run`, and with `--execute` chains `RunMode` on the
-  same Run.
+  (`src/molexp/cli/plan_cmd.py`): it drives the single `PlanMode` against
+  a content-addressed `Run`; `--execute` enables the real-execution tail
+  on the same Run.
 
 The harness reaches LLM reasoning through an `AgentGateway` whose
 production implementation (`RouterBackedAgentGateway`) drives an

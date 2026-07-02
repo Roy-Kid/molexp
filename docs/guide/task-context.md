@@ -53,9 +53,16 @@ Running `execute(compiled, config={"lr": 5e-4})` fills `lr`; `batch` falls back 
 When execution happens under a persistent run, the workspace helpers live on the `RunContext` the **driver** opened via `run.start()` — outside the task bodies:
 
 ```python
-from molexp.workflow import WorkflowRuntime
+import molexp as me
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
-with run.start(profile_config=cfg) as ctx:
+compiled = WorkflowCompiler(name="train").add(Train()).compile()
+
+ws = me.Workspace("./lab", name="lab")
+exp = ws.project("demo").experiment("baseline").run(compiled, params={"lr": [1e-3]})
+run = exp.list_runs()[0]
+
+with run.start() as ctx:                  # run.start(profile_config=cfg) to attach a profile
     result = await WorkflowRuntime().execute(compiled, run_context=ctx)
     ctx.set_result("final_loss", result.outputs["train"])
     ctx.artifact.save("metrics.json", result.outputs["train"])
@@ -64,7 +71,7 @@ with run.start(profile_config=cfg) as ctx:
 print(run.get_result("final_loss"))   # public read-back on the Run entity
 ```
 
-`ctx.set_result(...)` stores lightweight values on the run record, `ctx.artifact.save(...)` registers an `ArtifactAsset`, `ctx.log(name)` appends to a `LogAsset`, `ctx.checkpoint(...)` chains `CheckpointAsset`s, and `ctx.find_asset(...)` walks run → experiment → project → workspace. Assets written this way carry a `Producer` record automatically; while a task body is executing, the engine tags the active task id so queries like `catalog.query_assets(producer_task="train")` work. See the [Unified Asset Model](assets.md) guide for the complete picture of scopes, catalog, and per-kind subclasses.
+`ctx.set_result(...)` stores lightweight values on the run record, `ctx.artifact.save(...)` registers an `ArtifactAsset`, `ctx.log(name)` appends to a `LogAsset`, `ctx.checkpoint(...)` chains `CheckpointAsset`s, and `ctx.find_asset(...)` walks run → experiment → project → workspace. Assets written this way carry a `Producer` record automatically; while a task body is executing, the engine tags the active task id so queries like `run.assets.query(producer_task="train")` work. See the [Unified Asset Model](assets.md) guide for the complete picture of scopes, the per-scope `assets.json` manifests, and the per-kind subclasses.
 
 Inside the task, the run shows up only as data: a root task's sweep `params` bind to its like-named parameters, `ctx.workdir` points into the execution directory, and the resolved profile config binds by name too. The same task code therefore runs unchanged in pure in-memory execution — there is simply no workdir, and whatever `config=` the caller passed binds the same way.
 
@@ -73,6 +80,9 @@ Inside the task, the run shows up only as data: a root task's sweep `params` bin
 Streaming `Actor` bodies receive the **same** `TaskContext` as batch tasks — there is no separate context type — and bind their non-`ctx` parameters by name from the same merged map (`{config} | {upstream outputs | run params}`). The only streaming-specific behaviour is that the engine drives the async generator to exhaustion and records the **last yielded value** as the task's output:
 
 ```python
+from molexp.workflow import Actor
+
+
 class Monitor(Actor):
     async def run(self, ctx: TaskContext, source: list[int]):
         for item in source:            # ``source`` binds the upstream output

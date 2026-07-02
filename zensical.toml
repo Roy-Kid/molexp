@@ -32,8 +32,10 @@ nav = [
         ]},
         { "Records and Assets" = [
             { "Workspace API" = "guide/workspace-api.md" },
+            { "Parameter Sweeps" = "guide/sweeps.md" },
             { "Workspace Architecture" = "guide/workspace-architecture.md" },
             { "Assets" = "guide/assets.md" },
+            { "Notes and Literature" = "guide/knowledge.md" },
             { "Workflow Persistence" = "guide/workflow-persistence.md" },
             { "Run Profiles" = "guide/run-profiles.md" }
         ]},

@@ -20,7 +20,7 @@ the workflow for real and writes the final + audit reports.
 
 A `Mode` is an ordered list of `Stage`s run against one
 content-addressed `Run`. `Mode.stages(user_input)` returns the
-sequence; the runner executes each `Stage.run(ctx) -> ArtifactRef`,
+sequence; the runner executes each `Stage.run(ctx) -> PlanArtifactRef`,
 brackets it with `stage_started` / `artifact_created` / `stage_completed`
 events, and auto-wires `derived_from` lineage between artifacts. Each
 completed stage is recorded in a ledger keyed by the Run's fingerprint,
@@ -28,9 +28,9 @@ so re-running the **same draft** resumes on the same Run and skips
 already-completed stages.
 
 Run-level provenance (params, config hash, code/script identity) is
-owned by **workspace** (`RunMetadata` / `AssetCatalog`). Harness lineage
-covers only the agent-pipeline artifacts and stamps each edge with its
-stage plus the workspace `run_id`.
+owned by **workspace** (`RunMetadata` + the per-scope `AssetManifest`s).
+Harness lineage covers only the agent-pipeline artifacts and stamps each
+edge with its stage plus the workspace `run_id`.
 
 ## PlanMode flow (9 steps)
 
@@ -103,7 +103,7 @@ runs the workflow for real. Both `ExecuteTests` (pytest) and the materialized
 ## Validation
 
 Validators under `harness/validators/` are pure, synchronous, and
-deterministic. They return a `ValidationReport` and **never raise** —
+deterministic. They return a `PlanValidationReport` and **never raise** —
 the owning stage decides whether a report's violations should lift to a
 `StageExecutionError`. Each `Validate*` stage pairs with its `Generate*`
 predecessor (`ValidateWorkflowIR`, `ValidateBoundWorkflow`,

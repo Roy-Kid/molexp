@@ -90,13 +90,13 @@ molexp run train.py --profile smoke --override epochs=5 --override batch_size=16
 
 Values are coerced from strings into `bool`, `int`, `float`, or `str`, in that order. This makes one-off exploratory runs cheap while keeping the canonical configuration in versioned files.
 
-`--resume` is scoped to the selected profile. A resumed run is eligible only when its persisted profile matches the one requested on the CLI and its status is not `succeeded`.
+`--resume` is scoped to the selected profile. A resumed run is eligible only when its persisted profile matches the one requested on the CLI and its status is `failed` or `cancelled` — `pending` runs belong to plain `molexp run`, `succeeded` runs are done, and a live `running` run must be cancelled first.
 
 ```bash
 molexp run train.py --profile smoke --resume
 ```
 
-That behavior is deliberate. Resume is meant to continue one execution stream, not to reinterpret an old run under a new profile.
+That behavior is deliberate. Resume is meant to continue one execution stream, not to reinterpret an old run under a new profile. The sibling verb `--rerun` (same `failed`/`cancelled` domain, fresh execution from the top, optionally `--fresh` to bypass cache reads) is covered in [Workflow Persistence](workflow-persistence.md#rerun-resume-and-the-cache).
 
 ## Run Metadata Preserves the Chosen Profile
 

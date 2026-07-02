@@ -57,6 +57,17 @@ For instance registration, chain `.add(...)` calls and finish with `.compile()`:
 ```python
 from molexp.workflow import WorkflowCompiler
 
+
+class Process(Task):
+    async def execute(self, ctx: TaskContext, fetch: dict) -> int:
+        return fetch["n"] * 2                       # upstream output binds by its task name
+
+
+class Report(Task):
+    async def execute(self, ctx: TaskContext, process: int) -> str:
+        return f"n = {process}"
+
+
 compiled = (
     WorkflowCompiler(name="pipeline")
     .add(Fetch())                                   # auto-named "fetch"
@@ -122,7 +133,7 @@ Not implemented:
 
 - Inter-task message-passing channels (`receive` / `send` / `emit`). An earlier, never-wired channel surface was removed — every path raised `NotImplementedError`. If you need streaming *between* concurrently-running tasks, open an issue; today an actor yields outputs, it does not exchange messages mid-run with peers.
 
-Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.TaskContext`, `molexp.workflow.protocols.Streamable`, and the drain loop in `molexp.workflow._pydantic_graph.node`.
+Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.TaskContext`, `molexp.workflow.protocols.Streamable`, and the drain loop in `molexp.workflow._engine.node`.
 
 ## Task Name Resolution
 

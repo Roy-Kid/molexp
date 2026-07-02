@@ -6,12 +6,12 @@ dry-run, etc. — must be represented through this layer.
 
 The execution engine is molexp-owned: compilation lowers the workflow
 to a frozen `ExecutionPlan` walked by a structural values-on-edges
-engine. The `pydantic-graph` dependency survives only as the `End`
-sentinel re-export, and it is private: anything that imports
-`pydantic_graph` directly must live under
-`src/molexp/workflow/_pydantic_graph/`. No class under `workflow/`
-subclasses `pydantic_graph.BaseNode` — user-side `Task` and `Actor`
-included.
+engine. molexp has **no** `pydantic-graph` dependency — the `End`
+sentinel is molexp's own (`molexp.workflow.types.End`), the private
+engine package is `src/molexp/workflow/_engine/`, and nothing under
+`src/` may import `pydantic_graph`. No class under `workflow/`
+subclasses any third-party engine base class — user-side `Task` and
+`Actor` included.
 
 ## Layer position
 
@@ -31,7 +31,7 @@ Concretely the workflow layer reaches downward for:
   folder, backing the content-addressed result cache. The user-home
   `~/.molexp/cache/` shortcut is gone.
 - `workspace.atomic_write_json` — used by the execution-document
-  writer (`_pydantic_graph/persistence.py`) to write `workflow.json`
+  writer (`_engine/persistence.py`) to write `workflow.json`
   under each run's `executions/<exec_id>/` directory. Atomicity is
   workspace's guarantee, not a workflow-layer reinvention.
 - `workspace.Run`, `workspace.RunContext` — accepted as the canonical
@@ -39,7 +39,7 @@ Concretely the workflow layer reaches downward for:
   `WorkflowRuntime.run_on(...)`.
 
 The workflow layer does **not** import from `molexp.agent`,
-`molexp.plugins`, `molexp.server`, `molexp.cli`, or `molexp.sweep`.
+`molexp.plugins`, `molexp.server`, or `molexp.cli`.
 Cross-layer payloads coming *down* from the agent (e.g. opaque
 RunContext-shaped objects, `Mapping[str, JSONValue]` config) flow
 through duck-typed parameters that the workflow scheduler treats as
@@ -61,7 +61,7 @@ opaque.
   `CacheStore` (`FileCacheStore` for plain directories,
   `ws.cache.as_cache_store()` for workspace-rooted caches)
 - **persistence**: the coalescing execution-document writer
-  (`_pydantic_graph/persistence.py` — `open_execution_document` /
+  (`_engine/persistence.py` — `open_execution_document` /
   bounded-staleness flush / mandatory synchronous flush on failures
   and terminal states) writes a single `workflow.json` per execution
   attempt through workspace's atomic-write helper
@@ -72,7 +72,7 @@ opaque.
   scheduling (data deps, branching, loops, parallel fan-out,
   `max_concurrency`) and structural deadlock detection
   (`WorkflowDeadlockError`, zero timing constants)
-- the `End` re-export — `molexp.workflow.End is pydantic_graph.End`
+- the `End` sentinel — molexp-owned, defined in `molexp.workflow.types`
 
 It does **not** own scheduler dispatch (Slurm, PBS, …), job
 monitoring, backend-specific transport, or session orchestration.
@@ -120,15 +120,15 @@ from molexp.workflow import (
 Forbidden outside `molexp.workflow`:
 
 ```python
-from pydantic_graph import Graph, BaseNode  # pg is workflow's private dep
-import pydantic_graph
-import molexp.workflow._pydantic_graph        # private subtree
+import pydantic_graph                 # dependency removed — forbidden everywhere in src/
+import molexp.workflow._engine        # private subtree
 ```
 
 The import-boundary firewall is enforced by
 `tests/test_workflow/test_import_guard.py` (forbids upstream layers,
-confines `pydantic_graph` to `_pydantic_graph/`) and
-`tests/test_workflow/test_pydantic_graph_boundary.py` (`End` is the
-`pydantic_graph.End` re-export, no duplicate `End` sentinel, no
-`BaseNode` subclasses or new scheduler-shaped classes under
-`workflow/`, the lowering compiler never builds a pg `Graph`).
+zero `pydantic_graph` imports under `workflow/`) and
+`tests/test_workflow/test_engine_boundary.py` (zero `pydantic_graph`
+imports anywhere under `src/`, `End` is molexp-owned in
+`workflow/types.py` with no duplicate sentinel, no `BaseNode`
+subclasses or new scheduler-shaped classes under `workflow/`, the
+lowering compiler never builds a pg `Graph`).

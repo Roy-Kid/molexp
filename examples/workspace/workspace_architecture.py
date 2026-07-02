@@ -48,7 +48,11 @@ async def main() -> None:
         if path.is_dir():
             continue
         rel = path.relative_to(root)
-        print(f"  {rel}  ({path.stat().st_size} bytes)")
+        try:
+            size = path.stat().st_size
+        except FileNotFoundError:
+            continue  # transient sidecars (SQLite -shm/-wal) may vanish mid-walk
+        print(f"  {rel}  ({size} bytes)")
 
 
 if __name__ == "__main__":
