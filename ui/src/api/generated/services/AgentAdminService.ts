@@ -2,105 +2,104 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { McpServerListResponse } from '../models/McpServerListResponse';
+import type { McpServerResponse } from '../models/McpServerResponse';
+import type { McpServerUpsertRequest } from '../models/McpServerUpsertRequest';
+import type { ProviderResponse } from '../models/ProviderResponse';
+import type { ProviderTestResponse } from '../models/ProviderTestResponse';
+import type { ProviderUpdateRequest } from '../models/ProviderUpdateRequest';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class AgentAdminService {
     /**
-     * Agent Admin Disabled
-     * @param path
-     * @returns any Successful Response
+     * List Mcp Servers
+     * Merged user + workspace MCP server entries (workspace shadows user).
+     * @returns McpServerListResponse Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiAgentAdminPathPut(
-        path: string,
-    ): CancelablePromise<any> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/agent/admin/{path}',
-            path: {
-                'path': path,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Agent Admin Disabled
-     * @param path
-     * @returns any Successful Response
-     * @throws ApiError
-     */
-    public static agentAdminDisabledApiAgentAdminPathPut1(
-        path: string,
-    ): CancelablePromise<any> {
+    public static listMcpServersApiAgentMcpServersGet(): CancelablePromise<McpServerListResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/agent/admin/{path}',
-            path: {
-                'path': path,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
+            url: '/api/agent/mcp/servers',
         });
     }
     /**
-     * Agent Admin Disabled
-     * @param path
-     * @returns any Successful Response
+     * Create Mcp Server
+     * Upsert one MCP server entry at the requested scope.
+     * @param requestBody
+     * @returns McpServerResponse Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiAgentAdminPathPut2(
-        path: string,
-    ): CancelablePromise<any> {
-        return __request(OpenAPI, {
-            method: 'PATCH',
-            url: '/api/agent/admin/{path}',
-            path: {
-                'path': path,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Agent Admin Disabled
-     * @param path
-     * @returns any Successful Response
-     * @throws ApiError
-     */
-    public static agentAdminDisabledApiAgentAdminPathPut3(
-        path: string,
-    ): CancelablePromise<any> {
+    public static createMcpServerApiAgentMcpServersPost(
+        requestBody: McpServerUpsertRequest,
+    ): CancelablePromise<McpServerResponse> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/agent/admin/{path}',
-            path: {
-                'path': path,
-            },
+            url: '/api/agent/mcp/servers',
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },
         });
     }
     /**
-     * Agent Admin Disabled
-     * @param path
-     * @returns any Successful Response
+     * Get Provider
+     * Current provider settings from the operator config (keys masked).
+     * @returns ProviderResponse Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiAgentAdminPathPut4(
-        path: string,
-    ): CancelablePromise<any> {
+    public static getProviderApiAgentProviderGet(): CancelablePromise<ProviderResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/provider',
+        });
+    }
+    /**
+     * Update Provider
+     * Persist submitted provider fields, then re-bridge the live process.
+     *
+     * The write goes through the shared :func:`set_operator_values` (same file,
+     * same atomic writer as ``molexp config set``). The bridged
+     * ``molexp.config`` keys this PUT changes are cleared before re-bridging so
+     * the running server serves the new values immediately.
+     * @param requestBody
+     * @returns ProviderResponse Successful Response
+     * @throws ApiError
+     */
+    public static updateProviderApiAgentProviderPut(
+        requestBody: ProviderUpdateRequest,
+    ): CancelablePromise<ProviderResponse> {
         return __request(OpenAPI, {
             method: 'PUT',
-            url: '/api/agent/admin/{path}',
-            path: {
-                'path': path,
+            url: '/api/agent/provider',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * Test Provider
+     * Preflight the agent stack for the submitted (or stored) model.
+     *
+     * Constructor + credential validation only — no disk writes, no network,
+     * no LLM call (the honest scope of a settings-page "test" that must never
+     * spend tokens or mutate state). ``reply`` describes what was verified.
+     * @param requestBody
+     * @returns ProviderTestResponse Successful Response
+     * @throws ApiError
+     */
+    public static testProviderApiAgentProviderTestPost(
+        requestBody: ProviderUpdateRequest,
+    ): CancelablePromise<ProviderTestResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agent/provider/test',
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

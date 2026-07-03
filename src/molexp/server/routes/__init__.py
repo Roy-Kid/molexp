@@ -81,8 +81,11 @@ def create_api_router() -> APIRouter:
     """
     api_router = APIRouter()
 
-    api_router.include_router(agent.router)
+    # agent_admin BEFORE agent: both mount under /agent, and agent.router ends
+    # in a legacy 503 catch-all — registration order decides which wins, so
+    # the real provider/mcp routes must come first.
     api_router.include_router(agent_admin.router)
+    api_router.include_router(agent.router)
     api_router.include_router(agent_tasks.router)
     api_router.include_router(approvals.router)
     api_router.include_router(knowledge.router)

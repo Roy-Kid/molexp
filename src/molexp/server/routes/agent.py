@@ -52,9 +52,9 @@ _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
 _GONE_DETAIL = (
-    "Agent HTTP routes are temporarily disabled while the layer is rebuilt "
-    "around AgentRunner; restoration is tracked by the server-routes-agent-"
-    "rectification spec."
+    "This legacy agent HTTP route is retired. Live agent surfaces: "
+    "/api/agent-tasks (sessions), /api/agent/provider and /api/agent/mcp/servers "
+    "(settings), /api/approvals (approvals inbox)."
 )
 
 

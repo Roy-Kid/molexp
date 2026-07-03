@@ -21,6 +21,7 @@ for every shell, while keys still never come from ``os.environ``.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -83,6 +84,64 @@ def configured_api_keys(config: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def save_operator_config(config: dict[str, Any], path: Path | None = None) -> None:
+    """Persist *config* to the operator config file atomically.
+
+    The ONE serialization path for the operator config — the CLI
+    (``molexp config set``) and the server's Settings PUT both write through
+    here (temp file + ``rename``, mode ``0o600`` — the file may carry API
+    keys and must never be world-readable, nor half-written).
+    """
+    target = path if path is not None else OPERATOR_CONFIG_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(".tmp")
+    # Create the temp file 0600 BEFORE writing: the config may carry API
+    # keys, and a default-umask window between write and chmod would leave
+    # them world-readable on shared hosts.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(json.dumps(config, indent=2))
+    tmp.replace(target)
+
+
+def set_operator_values(
+    updates: dict[str, str | int | float | bool],
+    *,
+    unset: list[str] | None = None,
+    path: Path | None = None,
+) -> dict[str, Any]:
+    """Apply dotted-key *updates* (and *unset* removals) to the operator config.
+
+    Loads, mutates a copy, and saves atomically via
+    :func:`save_operator_config`. Dotted keys create intermediate sections
+    (``"agent.model"`` → ``{"agent": {"model": …}}``); unsetting a missing
+    key is a no-op. Returns the saved config dict.
+    """
+    config = load_operator_config(path)
+    for key, value in updates.items():
+        parts = key.split(".")
+        node: dict[str, Any] = config
+        for part in parts[:-1]:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                child = {}
+                node[part] = child
+            node = child
+        node[parts[-1]] = value
+    for key in unset or []:
+        parts = key.split(".")
+        node = config
+        for part in parts[:-1]:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                node = {}  # missing section — nothing to unset
+                break
+            node = child
+        node.pop(parts[-1], None)
+    save_operator_config(config, path)
+    return config
+
+
 def bridge_operator_config(path: Path | None = None) -> None:
     """Bridge operator-config values into the in-code ``molexp.config``.
 
@@ -115,4 +174,6 @@ __all__ = [
     "configured_agent_model",
     "configured_api_keys",
     "load_operator_config",
+    "save_operator_config",
+    "set_operator_values",
 ]
