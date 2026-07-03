@@ -12,9 +12,10 @@ A Typer group with two front-ends onto the **one** curation execution stack
   directly and gated.
 
 Both share the ``run_curation_proposal`` backend (Python ≡ UI). Destructive ops
-are gated by an :class:`InteractiveApprover` (``[y/N]`` on a TTY; auto-granted on
-``--yes`` / non-interactive). Heavy imports are deferred into command bodies so
-plain ``molexp --help`` stays fast.
+are gated by an :class:`InteractiveApprover` (``[y/N]`` on a TTY; auto-granted
+only with an explicit ``--yes``). Off a TTY without ``--yes`` the gate suspends
+pending (exit 2) — it never grants implicitly. Heavy imports are deferred into
+command bodies so plain ``molexp --help`` stays fast.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ import typer
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from molexp.harness.errors import ApprovalPendingError as ApprovalPendingError
     from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ChangeProposal
     from molexp.workspace.run import Run
@@ -47,10 +49,12 @@ class InteractiveApprover:
     """``Approver`` for the curation ChangeProposal gate.
 
     A callable approver (mirrors the ``Approver`` protocol via :meth:`__call__`).
-    It **auto-grants without prompting** when ``assume_yes`` is set or stdin is
-    not a TTY (CI, pipes, the test runner). On an interactive terminal it prints
-    the proposed high-risk op and prompts ``[y/N]`` before the mutation runs; a
-    rejection is *recorded* by the gate (``status="rejected"``) — no mutation.
+    It auto-grants **only via an explicit ``--yes``** — the command constructs
+    it solely on a TTY or with ``--yes`` (see :func:`_build_approver`); off a
+    TTY without ``--yes`` the gate suspends pending instead. On an interactive
+    terminal it prints the proposed high-risk op and prompts ``[y/N]`` before
+    the mutation runs; a rejection is *recorded* by the gate
+    (``status="rejected"``) — no mutation.
     """
 
     def __init__(self, *, assume_yes: bool = False) -> None:
@@ -67,12 +71,14 @@ class InteractiveApprover:
         from molexp.harness.schemas import ApprovalDecision
 
         if not self._interactive():
+            # Only reachable via --yes (the command passes approve=None off a
+            # TTY without --yes, suspending instead): explicit blanket consent.
             return ApprovalDecision(
                 request_id=request.id,
                 granted=True,
-                decided_by="cli-non-interactive",
+                decided_by="cli---yes",
                 decided_at=datetime.now(tz=UTC),
-                reason="auto-granted (non-interactive: --yes or no TTY)",
+                reason="auto-granted (--yes)",
             )
 
         from molexp.cli._common import rprint
@@ -90,6 +96,33 @@ class InteractiveApprover:
             decided_at=datetime.now(tz=UTC),
             reason=f"operator answered {answer!r}",
         )
+
+
+def _build_approver(*, assume_yes: bool) -> InteractiveApprover | None:
+    """Explicit or suspended, never implicit.
+
+    An :class:`InteractiveApprover` exists only on a TTY or with ``--yes``;
+    otherwise ``None`` — the gate resolves store-first and suspends pending
+    (the command exits 2 with instructions), never auto-grants.
+    """
+    import sys
+
+    return (
+        InteractiveApprover(assume_yes=assume_yes) if (assume_yes or sys.stdin.isatty()) else None
+    )
+
+
+def _print_suspended(exc: ApprovalPendingError) -> None:
+    """Print the pending request(s) + the three ways to proceed."""
+    from molexp.cli._common import rprint
+
+    rprint(f"[yellow]Curation suspended — approval pending:[/yellow] {exc}")
+    for request in exc.requests:
+        rprint(f"  - [{request.intent}] {request.reason}")
+    rprint(
+        "[dim]To proceed: decide in the UI approvals inbox, re-run this command "
+        "on a TTY to answer interactively, or re-run with --yes.[/dim]"
+    )
 
 
 def _configured_model() -> str | None:
@@ -140,13 +173,14 @@ def curate_ask(
         typer.Option(
             "--yes/--non-interactive",
             "-y",
-            help="Auto-approve destructive curation steps (default auto-approves off a TTY).",
+            help="Auto-approve destructive curation steps (off a TTY without --yes: suspend, exit 2).",
         ),
     ] = False,
 ) -> None:
     """Plan + run one curation capability from a natural-language request (LLM)."""
     from molexp._typing import JSONValue
     from molexp.cli._common import deterministic_run_id, rprint
+    from molexp.harness import ApprovalPendingError
     from molexp.services.curate_runtime.flow import CurationArgumentError, run_curation_flow
     from molexp.workspace import Workspace
 
@@ -182,12 +216,15 @@ def curate_ask(
                 experiment=exp,
                 run=run,
                 gateway=gateway,
-                approve=InteractiveApprover(assume_yes=yes),
+                approve=_build_approver(assume_yes=yes),
             )
         )
     except CurationArgumentError as exc:
         rprint(f"[red]Could not build the curation action:[/red] {exc}")
         raise typer.Exit(1) from exc
+    except ApprovalPendingError as exc:
+        _print_suspended(exc)
+        raise typer.Exit(2) from exc
 
     rprint("\n[green]OK[/green] curation complete:")
     rprint(f"  capability : {result.capability_id}")
@@ -241,11 +278,17 @@ def _execute_proposal(
     )
     rprint(f"[bold]molexp curate {label}[/bold] — proposal [bold]{proposal.id}[/bold]")
 
-    result = asyncio.run(
-        run_curation_proposal(
-            proposal, workspace=ws, run=run, approve=InteractiveApprover(assume_yes=yes)
+    from molexp.harness import ApprovalPendingError
+
+    try:
+        result = asyncio.run(
+            run_curation_proposal(
+                proposal, workspace=ws, run=run, approve=_build_approver(assume_yes=yes)
+            )
         )
-    )
+    except ApprovalPendingError as exc:
+        _print_suspended(exc)
+        raise typer.Exit(2) from exc
     outcome = result.execution_result
     status = outcome.status if outcome is not None else "failed"
     color = "green" if status == "executed" else "yellow"

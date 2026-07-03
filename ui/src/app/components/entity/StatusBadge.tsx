@@ -14,6 +14,7 @@ const STATUS_TONE: Record<string, StatusTone> = {
   running: "running",
   pending: "neutral",
   waiting_for_review: "warning",
+  waiting_approval: "warning",
   approved: "success",
   rejected: "error",
   expired: "neutral",

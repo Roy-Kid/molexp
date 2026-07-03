@@ -65,6 +65,16 @@ class PlanTaskRegistry:
         """Return every live task under ``workspace_root``."""
         return list(self._by_workspace.get(workspace_root, {}).values())
 
+    def pending_approvals(self, workspace_root: str) -> list[PlanTask]:
+        """Return every ``waiting_approval`` task under ``workspace_root``.
+
+        Each returned task carries its pending :class:`ApprovalRequest`\\ s on
+        ``task.pending_requests`` — the approvals-inbox aggregation source.
+        """
+        return [
+            task for task in self.list_tasks(workspace_root) if task.status == "waiting_approval"
+        ]
+
     async def aclose(self) -> None:
         """Cancel and await every in-flight task — the lifespan shutdown hook."""
         tasks = [task for tasks in self._by_workspace.values() for task in tasks.values()]

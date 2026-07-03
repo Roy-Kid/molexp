@@ -278,22 +278,26 @@ def test_approval_gate_passes_when_all_granted(ctx) -> None:
     assert ref.kind == "analysis_result"
 
 
-def test_approval_gate_default_approver_auto_grants(ctx) -> None:
-    """Without an explicit approver the gate auto-grants — at run time.
+def test_approval_gate_no_approver_suspends_never_grants(ctx) -> None:
+    """Without an approver (and no stored grant) the gate SUSPENDS.
 
-    The decision is produced when the gate runs (``decided_at`` is the
-    decision moment, ``decided_by`` names the auto-approver), and recorded
-    on the event log like any human decision.
+    The vision-loop-01 wall: ``approve=None`` never substitutes the
+    auto-granter — the request is recorded and the gate raises
+    :class:`ApprovalPendingError` so the pipeline waits for a human
+    decision. Explicit injection of :func:`auto_grant_approver` remains
+    the only unattended grant (covered above).
     """
+    from molexp.harness.errors import ApprovalPendingError
     from molexp.harness.stages.approval_gate import ApprovalGate
 
-    stage = ApprovalGate(requests=[_req("final_report")])
-    ref = asyncio.run(stage.run(ctx))
+    request = _req("final_report")
+    stage = ApprovalGate(requests=[request])
+    with pytest.raises(ApprovalPendingError) as excinfo:
+        asyncio.run(stage.run(ctx))
 
-    assert ref.kind == "analysis_result"
+    assert [r.id for r in excinfo.value.requests] == [request.id]
     granted = [e for e in ctx.event_log.list_events(ctx.run_id) if e.type == "approval_granted"]
-    assert len(granted) == 1
-    assert granted[0].payload["decided_by"] == "auto-approver"
+    assert granted == []
 
 
 def test_approval_gate_raises_on_any_rejected(ctx) -> None:

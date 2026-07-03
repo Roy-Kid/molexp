@@ -69,6 +69,7 @@ from molexp.harness.schemas import (
     TestSpecBundle,
     WorkflowSource,
 )
+from molexp.harness.stages.approval_gate import auto_grant_approver
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.workspace import Workspace
 
@@ -464,7 +465,10 @@ def main() -> int:
 
         # One end-to-end mode: the 9-step plan + the opt-in real-execution tail.
         # Default LocalExecutor → real pytest + real engine for steps 7 and the tail.
-        mode = PlanMode(execute=True)
+        # Approvals never auto-grant by default — an unattended demo run opts in
+        # EXPLICITLY with auto_grant_approver (interactive flows use a TTY prompt
+        # or the server's approvals inbox instead).
+        mode = PlanMode(approver=auto_grant_approver, execute=True)
         names = [s.name for s in mode.stages(GOAL)]
         result = asyncio.run(mode.run(run=run, user_input=GOAL, gateway=gateway))
         _print_stage_table(

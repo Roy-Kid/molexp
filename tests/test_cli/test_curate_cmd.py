@@ -103,8 +103,9 @@ class TestCurateCmd:
         assert len(recorder["calls"]) == 1, "the shared flow must be called exactly once"
         call = recorder["calls"][0]
         assert call["request"] == "inventory the workspace"
-        # The CLI gates destructive steps through its InteractiveApprover.
-        assert isinstance(call["approve"], InteractiveApprover)
+        # Off a TTY without --yes the CLI passes approve=None — the gate
+        # suspends pending instead of granting (vision-loop-01 wall).
+        assert call["approve"] is None
         # The Run filed under the (default) curate project/experiment is threaded in.
         assert call["run"] is not None
         assert call["experiment"] is not None
@@ -190,7 +191,7 @@ class TestInteractiveApprover:
     """The destructive-capability gate on ``molexp curate``."""
 
     def test_auto_grants_when_assume_yes(self) -> None:
-        """Under --yes (or no TTY) the approver auto-grants without prompting."""
+        """Under an explicit --yes the approver auto-grants, named in the audit."""
         import asyncio
         from datetime import UTC, datetime
 
@@ -206,4 +207,4 @@ class TestInteractiveApprover:
         )
         decision = asyncio.run(approver(request))
         assert decision.granted is True
-        assert decision.decided_by == "cli-non-interactive"
+        assert decision.decided_by == "cli---yes"

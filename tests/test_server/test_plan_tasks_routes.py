@@ -226,6 +226,29 @@ def _await_terminal(client: TestClient, task_id: str, tries: int = 400) -> dict[
     return body
 
 
+def _drive_through_approvals(
+    client: TestClient, task_id: str, *, kind: str = "plan", rounds: int = 8
+) -> dict[str, Any]:
+    """Grant every gate via the approvals inbox until the task leaves suspension.
+
+    The vision-loop-01 wall: server tasks never auto-grant — the HTTP path to a
+    completed pipeline IS suspend → decide (inbox) → resume, once per gate.
+    """
+    body = _await_terminal(client, task_id)
+    for _ in range(rounds):
+        if body["status"] != "waiting_approval":
+            return body
+        inbox = client.get("/api/approvals").json()
+        item = next(i for i in inbox["items"] if i["taskId"] == task_id)
+        resp = client.post(
+            f"/api/approvals/{kind}/{task_id}/decisions",
+            json={"requestId": item["requestId"], "granted": True},
+        )
+        assert resp.status_code == 200, resp.text
+        body = _await_terminal(client, task_id)
+    return body
+
+
 def test_create_plan_task_runs_pipeline_and_persists_workflow(plan_client: TestClient) -> None:
     # ground=false keeps the test offline (no molmcp spawn).
     resp = plan_client.post(
@@ -236,7 +259,7 @@ def test_create_plan_task_runs_pipeline_and_persists_workflow(plan_client: TestC
     assert started["status"] == "running"
     assert started["runId"]
 
-    final = _await_terminal(plan_client, started["taskId"])
+    final = _drive_through_approvals(plan_client, started["taskId"])
     assert final["status"] == "completed", final
     assert final["workflowPersisted"] is True
 
@@ -300,7 +323,7 @@ def test_grounded_plan_task_threads_capability_registry(
 
     resp = plan_client.post(_BASE, json={"draft": "grounded run", "model": "stub-model"})
     assert resp.status_code == 201, resp.text
-    final = _await_terminal(plan_client, resp.json()["taskId"])
+    final = _drive_through_approvals(plan_client, resp.json()["taskId"])
     assert final["status"] == "completed", final
     assert final["workflowPersisted"] is True
     assert called, "grounding resolver was not invoked for ground=true"

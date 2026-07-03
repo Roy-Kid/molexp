@@ -22,6 +22,7 @@ from molexp.harness.schemas.change_proposal import (
     ObjectRef,
     StateSnapshot,
 )
+from molexp.harness.stages.approval_gate import auto_grant_approver
 from molexp.workspace import Workspace
 from molexp.workspace.folder import Folder
 
@@ -113,7 +114,9 @@ def test_dry_default_no_executor(tmp_path: Path) -> None:
     """ac-001 — executor=None keeps the advisory dry behavior (granted, no run)."""
     _workspace(tmp_path)
     ctx = _ctx(tmp_path)
-    result = asyncio.run(gate_change_proposal(ctx, _move_run_proposal()))
+    result = asyncio.run(
+        gate_change_proposal(ctx, _move_run_proposal(), approve=auto_grant_approver)
+    )
     assert result.execution_result is not None
     assert result.execution_result.status == "granted"
     assert _run_in(tmp_path, "e1")  # not executed → run stayed put
@@ -128,7 +131,9 @@ def test_granted_executed_move_run(tmp_path: Path) -> None:
     _workspace(tmp_path)
     ctx = _ctx(tmp_path)
     result = asyncio.run(
-        gate_change_proposal(ctx, _move_run_proposal(), executor=_curation_executor())
+        gate_change_proposal(
+            ctx, _move_run_proposal(), approve=auto_grant_approver, executor=_curation_executor()
+        )
     )
     assert result.execution_result.status == "executed"
     assert result.execution_result.result_artifact_ids
@@ -141,7 +146,11 @@ def test_granted_executed_artifact_delete(tmp_path: Path) -> None:
     _workspace(tmp_path)
     ctx = _ctx(tmp_path)
     proposal = _proposal("artifact_delete", [ObjectRef(kind="folder", id="scratch")], {})
-    result = asyncio.run(gate_change_proposal(ctx, proposal, executor=_curation_executor()))
+    result = asyncio.run(
+        gate_change_proposal(
+            ctx, proposal, approve=auto_grant_approver, executor=_curation_executor()
+        )
+    )
     assert result.execution_result.status == "executed"
     assert not Workspace(root=tmp_path, name="Lab").has_folder("scratch", cls=Folder)
 
@@ -150,7 +159,11 @@ def test_timeline_requested_granted_completed(tmp_path: Path) -> None:
     """ac-003 — the event timeline is approval_requested → approval_granted → tool_completed."""
     _workspace(tmp_path)
     ctx = _ctx(tmp_path)
-    asyncio.run(gate_change_proposal(ctx, _move_run_proposal(), executor=_curation_executor()))
+    asyncio.run(
+        gate_change_proposal(
+            ctx, _move_run_proposal(), approve=auto_grant_approver, executor=_curation_executor()
+        )
+    )
     types = [e.type for e in ctx.event_log.list_events("run-ge3")]
     assert "approval_requested" in types
     assert "approval_granted" in types
@@ -166,7 +179,11 @@ def test_single_gate_one_approval_round(tmp_path: Path) -> None:
     """ac-004 — the mutation is gated exactly once (one approval round, one move)."""
     _workspace(tmp_path)
     ctx = _ctx(tmp_path)
-    asyncio.run(gate_change_proposal(ctx, _move_run_proposal(), executor=_curation_executor()))
+    asyncio.run(
+        gate_change_proposal(
+            ctx, _move_run_proposal(), approve=auto_grant_approver, executor=_curation_executor()
+        )
+    )
     types = [e.type for e in ctx.event_log.list_events("run-ge3")]
     assert types.count("approval_requested") == 1
     assert types.count("approval_granted") == 1
@@ -205,7 +222,9 @@ def test_runtime_failure_recorded_not_raised(tmp_path: Path) -> None:
     ws.get_project("p").get_experiment("e2").add_run(id="r1")  # collision on move
     ctx = _ctx(tmp_path)
     result = asyncio.run(
-        gate_change_proposal(ctx, _move_run_proposal(), executor=_curation_executor())
+        gate_change_proposal(
+            ctx, _move_run_proposal(), approve=auto_grant_approver, executor=_curation_executor()
+        )
     )
     assert result.execution_result.status == "failed"
 
@@ -222,7 +241,11 @@ def test_unknown_op_propagates_past_gate(tmp_path: Path) -> None:
     # workflow_change has no registered curation handler
     proposal = _proposal("workflow_change", [ObjectRef(kind="workflow", id="wf-1")], {})
     with pytest.raises(UnhandledHighRiskOpError):
-        asyncio.run(gate_change_proposal(ctx, proposal, executor=_curation_executor()))
+        asyncio.run(
+            gate_change_proposal(
+                ctx, proposal, approve=auto_grant_approver, executor=_curation_executor()
+            )
+        )
 
 
 def test_out_of_bounds_recorded_failed_no_mutation(tmp_path: Path) -> None:
@@ -235,6 +258,10 @@ def test_out_of_bounds_recorded_failed_no_mutation(tmp_path: Path) -> None:
         [ObjectRef(kind="run", id="r1")],
         {"curation_op": "move_run", "target_experiment": {"kind": "experiment", "id": "e2"}},
     )
-    result = asyncio.run(gate_change_proposal(ctx, proposal, executor=_curation_executor()))
+    result = asyncio.run(
+        gate_change_proposal(
+            ctx, proposal, approve=auto_grant_approver, executor=_curation_executor()
+        )
+    )
     assert result.execution_result.status == "failed"
     assert _run_in(tmp_path, "e1")  # unmutated

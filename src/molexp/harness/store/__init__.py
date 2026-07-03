@@ -1,6 +1,6 @@
 """Persistence backends for ``molexp.harness``.
 
-Three stores, each a Protocol + concrete impl pair (mirroring
+Four stores, each a Protocol + concrete impl pair (mirroring
 :mod:`molexp.workflow.cache_store`):
 
 - :class:`ArtifactStore` Protocol / :class:`FileArtifactStore` — content +
@@ -14,13 +14,17 @@ Three stores, each a Protocol + concrete impl pair (mirroring
   stage + run id) + BFS lineage traversals. Scoped strictly to
   pipeline-artifact lineage; run-level provenance (params, config, env,
   workflow identity) is owned by :mod:`molexp.workspace`.
+- :class:`ApprovalStore` Protocol / :class:`SQLiteApprovalStore` — persisted
+  approval decisions (store-first gates, pending-approval inbox, grant
+  replay across ledger re-entry). Shares the run's ``harness.sqlite``.
 
-The private ``_sqlite`` helper is shared between the two SQLite-backed
-stores and is not part of the public surface.
+The private ``_sqlite`` helper is shared between the SQLite-backed stores
+and is not part of the public surface.
 """
 
 from __future__ import annotations
 
+from molexp.harness.store.approval_store import ApprovalStore, SQLiteApprovalStore
 from molexp.harness.store.artifact_store import ArtifactStore
 from molexp.harness.store.event_log import EventLog
 from molexp.harness.store.file_artifact_store import FileArtifactStore
@@ -29,10 +33,12 @@ from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
 __all__ = [
+    "ApprovalStore",
     "ArtifactLineageStore",
     "ArtifactStore",
     "EventLog",
     "FileArtifactStore",
+    "SQLiteApprovalStore",
     "SQLiteArtifactLineageStore",
     "SQLiteEventLog",
 ]

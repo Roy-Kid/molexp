@@ -193,6 +193,7 @@ class TestPlanCmd:
                 "--model",
                 "stub-model",
                 "--verbose",
+                "--yes",
             ],
         )
 
@@ -232,6 +233,7 @@ class TestPlanCmd:
                 str(tmp_path / "lab"),
                 "--model",
                 "stub-model",
+                "--yes",
             ],
         )
 
@@ -280,6 +282,7 @@ class TestPlanCmd:
             str(tmp_path),
             "--model",
             "stub-model",
+            "--yes",
         ]
 
         first = runner.invoke(app, args)
@@ -321,6 +324,7 @@ class TestPlanCmd:
                 "stub-model",
                 "--execute",
                 "--verbose",
+                "--yes",
             ],
         )
 
@@ -370,6 +374,7 @@ class TestPlanUiParity:
                 "lab",
                 "--experiment",
                 "nemd",
+                "--yes",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -427,17 +432,17 @@ class TestPlanUiParity:
 class TestInteractiveApprover:
     """The experiment-report review checkpoint on ``molexp plan``."""
 
-    def test_plan_non_interactive_default_auto_grants(
+    def test_plan_non_interactive_suspends_without_yes(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """ac-007 — under CliRunner (stdin is not a TTY) the experiment-spec
-        review checkpoint auto-grants, with and without --yes; neither blocks."""
+        """vision-loop-01 — off a TTY without --yes the first gate SUSPENDS
+        (exit 2, pending printed); an explicit --yes completes unattended."""
         _patch_gateway(monkeypatch)
         base = ["plan", "Simulate NEMD", "--workspace", str(tmp_path), "--model", "stub-model"]
 
         default_run = runner.invoke(app, base)
-        assert default_run.exit_code == 0, default_run.output
-        assert "9 steps completed" in default_run.output
+        assert default_run.exit_code == 2, default_run.output
+        assert "approval pending" in default_run.output.lower()
 
         yes_run = runner.invoke(app, [*base, "--yes"])
         assert yes_run.exit_code == 0, yes_run.output
@@ -465,7 +470,7 @@ class TestInteractiveApprover:
         )
         decision = asyncio.run(approver(request))
         assert decision.granted is True
-        assert decision.decided_by == "cli-non-interactive"
+        assert decision.decided_by == "cli---yes"
 
 
 # Canned per-task test outputs (step 5) + the execute-tail final report. The
@@ -543,7 +548,7 @@ class TestPlanZeroResidue:
     def _invoke_in_empty_dir(self, runner: CliRunner, tmp_path: Path, args: list[str]) -> Any:
         target = tmp_path / "lab"
         assert not target.exists()
-        result = runner.invoke(app, ["plan", "a draft", "--workspace", str(target), *args])
+        result = runner.invoke(app, ["plan", "a draft", "--workspace", str(target), "--yes", *args])
         assert result.exit_code == 1, result.output
         assert "Traceback" not in result.output
         assert not target.exists(), "a failed preflight must leave no residue"
@@ -636,7 +641,15 @@ class TestPlanNineStepBanner:
         _patch_gateway(monkeypatch)
         result = runner.invoke(
             app,
-            ["plan", "Simulate NEMD", "--workspace", str(tmp_path), "--model", "stub-model"],
+            [
+                "plan",
+                "Simulate NEMD",
+                "--workspace",
+                str(tmp_path),
+                "--model",
+                "stub-model",
+                "--yes",
+            ],
         )
         assert result.exit_code == 0, result.output
         text = self._normalized(result.output)
@@ -668,6 +681,7 @@ class TestPlanNineStepBanner:
                 "--model",
                 "stub-model",
                 "-v",
+                "--yes",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -690,6 +704,7 @@ class TestPlanNineStepBanner:
                 "--model",
                 "stub-model",
                 "--execute",
+                "--yes",
             ],
         )
         assert result.exit_code == 0, result.output

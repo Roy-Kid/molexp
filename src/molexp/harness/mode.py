@@ -57,6 +57,7 @@ from molexp.harness.core.stage import Stage
 from molexp.harness.core.stage_runner import run_stage_bracketed
 from molexp.harness.errors import ArtifactNotFoundError, StagePersistedFailureError
 from molexp.harness.schemas import ModeResult, PlanArtifactRef
+from molexp.harness.store.approval_store import SQLiteApprovalStore
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
@@ -296,6 +297,7 @@ class Mode(ABC):
             lineage_store=SQLiteArtifactLineageStore(path=db_path, artifact_store=artifact_store),
             agent_gateway=gateway,
             capability_registry=capability_registry,
+            approval_store=SQLiteApprovalStore(path=db_path),
         )
 
     def _ledger_path(self, run: Any, user_input: Any) -> Path:  # noqa: ANN401

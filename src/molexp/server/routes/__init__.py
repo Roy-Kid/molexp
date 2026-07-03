@@ -10,6 +10,7 @@ from . import (
     agent,
     agent_admin,
     agent_tasks,
+    approvals,
     asset,
     catalog,
     curate_tasks,
@@ -83,6 +84,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(agent.router)
     api_router.include_router(agent_admin.router)
     api_router.include_router(agent_tasks.router)
+    api_router.include_router(approvals.router)
     api_router.include_router(knowledge.router)
     api_router.include_router(curate_tasks.router)
     api_router.include_router(plan_tasks.router)

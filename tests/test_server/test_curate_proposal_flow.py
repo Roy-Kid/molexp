@@ -17,6 +17,7 @@ import pytest
 from molexp.harness.change_proposal_gate import approval_level_for
 from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
 from molexp.harness.schemas.change_proposal import ObjectRef
+from molexp.harness.stages.approval_gate import auto_grant_approver
 from molexp.workspace import Workspace
 
 
@@ -114,7 +115,9 @@ def test_backend_move_run_grant(tmp_path: Path) -> None:
     proposal = curation_invocation_to_proposal(
         "molexp.curation.move_run", {"run": "r1", "target_experiment": "e2"}
     )
-    result = asyncio.run(run_curation_proposal(proposal, workspace=ws, run=run))
+    result = asyncio.run(
+        run_curation_proposal(proposal, workspace=ws, run=run, approve=auto_grant_approver)
+    )
     assert result.execution_result.status == "executed"
     fresh = Workspace(root=tmp_path, name="Lab")
     assert not fresh.get_project("p").get_experiment("e1").has_run("r1")
@@ -132,7 +135,9 @@ def test_backend_delete_grant(tmp_path: Path) -> None:
     ws = _workspace(tmp_path)
     run = _audit_run(ws)
     proposal = curation_invocation_to_proposal("molexp.curation.delete_folder", {"folder": "r1"})
-    result = asyncio.run(run_curation_proposal(proposal, workspace=ws, run=run))
+    result = asyncio.run(
+        run_curation_proposal(proposal, workspace=ws, run=run, approve=auto_grant_approver)
+    )
     assert result.execution_result.status == "executed"
     assert (
         not Workspace(root=tmp_path, name="Lab").get_project("p").get_experiment("e1").has_run("r1")

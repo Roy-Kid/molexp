@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import molexp.harness as harness
 
-# The frozen public surface: 13 baseline symbols + 6 doc-cited symbols.
+# The frozen public surface: 13 baseline symbols + 6 doc-cited symbols
+# + 2 approval-inbox symbols (vision-loop-01: the suspend signal and the
+# persisted-decision store the server decide-route constructs).
 EXPECTED_ALL = {
     # baseline — Mode/Stage machinery + the shipped pipeline
     "Mode",
@@ -42,6 +44,9 @@ EXPECTED_ALL = {
     "SQLiteEventLog",
     "SQLiteArtifactLineageStore",
     "replay_metadata",
+    # approval inbox (vision-loop-01)
+    "ApprovalPendingError",
+    "SQLiteApprovalStore",
 }
 
 

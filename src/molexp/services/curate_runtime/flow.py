@@ -41,6 +41,7 @@ from molexp.harness.capabilities import curation_capabilities
 from molexp.harness.capability import resolve_callable
 from molexp.harness.prompts.capability_catalog import render_capability_catalog
 from molexp.harness.schemas import AgentCallSpec
+from molexp.harness.store.approval_store import SQLiteApprovalStore
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
@@ -198,6 +199,7 @@ def _build_ctx(
         lineage_store=SQLiteArtifactLineageStore(path=db_path, artifact_store=artifact_store),
         agent_gateway=gateway,
         capability_registry=registry,
+        approval_store=SQLiteApprovalStore(path=db_path),
     )
 
 

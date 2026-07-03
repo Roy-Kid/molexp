@@ -36,7 +36,17 @@ def test_move_run_relocates(runner: CliRunner, tmp_path: Path) -> None:
     _seed(tmp_path)
     result = runner.invoke(
         app,
-        ["curate", "move-run", "--run", "subject", "--to", "target", "--workspace", str(tmp_path)],
+        [
+            "curate",
+            "move-run",
+            "--run",
+            "subject",
+            "--to",
+            "target",
+            "--workspace",
+            str(tmp_path),
+            "--yes",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "executed" in result.output
@@ -50,7 +60,7 @@ def test_delete_folder_removes(runner: CliRunner, tmp_path: Path) -> None:
     _seed(tmp_path)
     result = runner.invoke(
         app,
-        ["curate", "delete-folder", "--folder", "subject", "--workspace", str(tmp_path)],
+        ["curate", "delete-folder", "--folder", "subject", "--workspace", str(tmp_path), "--yes"],
     )
     assert result.exit_code == 0, result.output
     assert "executed" in result.output
@@ -79,6 +89,7 @@ def test_rehome_asset_reimports(runner: CliRunner, tmp_path: Path) -> None:
             "target",
             "--workspace",
             str(tmp_path),
+            "--yes",
         ],
     )
     assert result.exit_code == 0, result.output

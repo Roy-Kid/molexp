@@ -57,18 +57,21 @@ class InteractiveApprover:
     """``Approver`` for ``molexp plan``'s review checkpoints.
 
     A callable approver (mirrors the ``Approver`` protocol via
-    :meth:`__call__`). It **auto-grants without prompting** when ``assume_yes``
-    is set or stdin is not a TTY (CI, pipes, the test runner) — so
-    non-interactive pipelines never block. On an interactive terminal it gates
-    each checkpoint, branching on the request intent:
+    :meth:`__call__`). It auto-grants **only under an explicit ``--yes``**;
+    the command constructs it solely on a TTY or with ``--yes``, and passes
+    ``approver=None`` otherwise — the gate then suspends pending instead of
+    granting. On an interactive terminal it gates each checkpoint, branching
+    on the request intent:
 
     - ``experiment_spec`` — the **pre-compile** gate. Prints the concrete
       ``experiment_spec`` (the resolved variables/conditions + answered
       questions) and prompts ``[y/N]`` BEFORE the spec is fed to the LLM to
       build the workflow. A rejection stops the pipeline before any IR/source.
-    - ``final_report`` — the terminal whole-plan review.
+    - ``final_report`` — the whole-plan review and (with ``--execute``) the
+      executed-result review.
 
-    ``PlanMode(approver=InteractiveApprover(...))`` wires it into both gates.
+    ``PlanMode(approver=InteractiveApprover(...))`` wires it into all three
+    gates.
     """
 
     def __init__(self, *, run: Run, assume_yes: bool = False) -> None:
@@ -86,12 +89,15 @@ class InteractiveApprover:
         from molexp.harness.schemas import ApprovalDecision
 
         if not self._interactive():
+            # Only reachable via --yes: the command constructs this approver
+            # solely on a TTY or with --yes, so a non-interactive call IS the
+            # operator's explicit blanket consent — named in the audit trail.
             return ApprovalDecision(
                 request_id=request.id,
                 granted=True,
-                decided_by="cli-non-interactive",
+                decided_by="cli---yes",
                 decided_at=datetime.now(tz=UTC),
-                reason="auto-granted (non-interactive: --yes or no TTY)",
+                reason="auto-granted (--yes)",
             )
 
         if request.intent == "experiment_spec":
@@ -310,7 +316,7 @@ def plan(
 ) -> None:
     """Turn an experiment draft into validated molexp.workflow source (PlanMode)."""
     from molexp.cli._common import deterministic_run_id, rprint
-    from molexp.harness import PlanMode, StageExecutionError
+    from molexp.harness import ApprovalPendingError, PlanMode, StageExecutionError
     from molexp.services.plan_runtime import PlanPreflightError
     from molexp.workspace import Workspace
 
@@ -345,8 +351,14 @@ def plan(
     exp = ws.add_project(project).add_experiment(experiment)
     run = exp.add_run(params, id=deterministic_run_id(params))
 
+    # Explicit or suspended, never implicit: an interactive approver exists
+    # only on a TTY or with --yes; otherwise approver=None means the gates
+    # resolve store-first and SUSPEND pending (exit 2) instead of granting.
+    import sys
+
+    approver = InteractiveApprover(run=run, assume_yes=yes) if (yes or sys.stdin.isatty()) else None
     mode = PlanMode(
-        approver=InteractiveApprover(run=run, assume_yes=yes),
+        approver=approver,
         executor=PlanRuntime.build_executor(),
         execute=execute,
         compute_target=_resolve_compute_target(run, ws),
@@ -386,6 +398,18 @@ def plan(
                 capability_registry=capability_registry,
             )
         )
+    except ApprovalPendingError as exc:
+        # Suspended, not failed: the pending request is persisted in the run's
+        # approval store; a decision lets a re-run resume past the gate.
+        rprint(f"[yellow]Plan suspended — approval pending:[/yellow] {exc}")
+        for request in exc.requests:
+            rprint(f"  - [{request.intent}] {request.reason}")
+        rprint(
+            "[dim]To proceed: decide in the UI approvals inbox, re-run this "
+            "command on a TTY to answer interactively, or re-run with --yes. "
+            "Completed stages stay in the ledger — the re-run resumes.[/dim]"
+        )
+        raise typer.Exit(2) from exc
     except StageExecutionError as exc:
         rprint(f"[red]Plan pipeline failed:[/red] {exc}")
         rprint(

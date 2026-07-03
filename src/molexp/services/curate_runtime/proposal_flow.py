@@ -28,6 +28,7 @@ from molexp.harness.capabilities import curation_capabilities
 from molexp.harness.change_proposal_gate import approval_level_for, gate_change_proposal
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.schemas import ChangeProposal, ChangeSpec, ObjectRef, StateSnapshot
+from molexp.harness.store.approval_store import SQLiteApprovalStore
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
@@ -231,6 +232,7 @@ def _build_ctx(workspace: Workspace, run: Run) -> HarnessRunContext:
         artifact_store=artifact_store,
         event_log=SQLiteEventLog(path=db_path),
         lineage_store=SQLiteArtifactLineageStore(path=db_path, artifact_store=artifact_store),
+        approval_store=SQLiteApprovalStore(path=db_path),
     )
 
 

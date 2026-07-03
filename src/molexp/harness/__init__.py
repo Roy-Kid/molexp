@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from molexp.harness.audit import replay_metadata
 from molexp.harness.core import HarnessRunContext, Stage, StageRunner
-from molexp.harness.errors import StageExecutionError
+from molexp.harness.errors import ApprovalPendingError, StageExecutionError
 from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
 from molexp.harness.mode import Mode
@@ -47,6 +47,7 @@ from molexp.harness.stages import ApprovalGate
 from molexp.harness.store import (
     ArtifactStore,
     FileArtifactStore,
+    SQLiteApprovalStore,
     SQLiteArtifactLineageStore,
     SQLiteEventLog,
 )
@@ -54,6 +55,7 @@ from molexp.harness.store import (
 __all__ = [
     "AgentGateway",
     "ApprovalGate",
+    "ApprovalPendingError",
     "ArtifactStore",
     "CapabilityRegistry",
     "DryRunExecutor",
@@ -65,6 +67,7 @@ __all__ = [
     "ModeResult",
     "PlanMode",
     "RouterBackedAgentGateway",
+    "SQLiteApprovalStore",
     "SQLiteArtifactLineageStore",
     "SQLiteEventLog",
     "Stage",

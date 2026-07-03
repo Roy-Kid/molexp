@@ -72,9 +72,12 @@ flowchart TD
    runs `run_workflow.py --compile-only` (builds + compiles the DAG, checks
    the input-set params — **no** task bodies run, no real compute). Produces
    an `execution_result` tagged `metadata.mode="compile"`.
-8. **Review** — `ApprovalGate(approve_plan)`, the single human (or
-   auto-grant) gate over the whole verified plan. `PlanMode(approver=…)`
-   injects the approver (default auto-grant).
+8. **Review** — `ApprovalGate(approve_plan)`, the human gate over the whole
+   verified plan. `PlanMode(approver=…)` injects the approver; with no
+   approver the gate resolves store-first (a persisted grant replays) and
+   otherwise **suspends** with `ApprovalPendingError` — it never
+   auto-grants. `auto_grant_approver` survives as an explicit injection for
+   deliberately unattended runs.
 9. **Execution report** — `GenerateExecutionReport` synthesizes a
    descriptive `ExecutionReport` (which machine, which account, scheduler,
    resource policy, environment) from the bound workflow + an injected

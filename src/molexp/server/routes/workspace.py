@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import mimetypes
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -40,6 +40,9 @@ from ..schemas import (
     compute_workspace_runs_stats,
 )
 from ..workspace_targets import WorkspaceTarget
+
+if TYPE_CHECKING:
+    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
 
 
 class DirectoryCreateRequest(BaseModel):
@@ -658,7 +661,7 @@ class CurateResponse(BaseModel):
     resultArtifactIds: list[str] = Field(default_factory=list)
 
 
-async def _curate_reject_approver(request):  # noqa: ANN001, ANN202
+async def _curate_reject_approver(request: ApprovalRequest) -> ApprovalDecision:
     from datetime import UTC, datetime
 
     from molexp.harness.schemas import ApprovalDecision
@@ -666,9 +669,28 @@ async def _curate_reject_approver(request):  # noqa: ANN001, ANN202
     return ApprovalDecision(
         request_id=request.id,
         granted=False,
-        decided_by="http",
+        decided_by="http-operator",
         decided_at=datetime.now(tz=UTC),
         reason="approve=false",
+    )
+
+
+async def _curate_grant_approver(request: ApprovalRequest) -> ApprovalDecision:
+    """Grant carried by the HTTP request body's explicit ``approve: true``.
+
+    An explicit per-request decision by the HTTP caller — NOT a silent
+    default — so ``decided_by`` names the caller, never "auto-approver".
+    """
+    from datetime import UTC, datetime
+
+    from molexp.harness.schemas import ApprovalDecision
+
+    return ApprovalDecision(
+        request_id=request.id,
+        granted=True,
+        decided_by="http-operator",
+        decided_at=datetime.now(tz=UTC),
+        reason="approve=true (explicit in the request body)",
     )
 
 
@@ -683,7 +705,6 @@ async def curate_workspace(
     UI). ``approve=false`` (default) records the proposal and refuses; ``true``
     executes the mutation. Either way the §8 ``change_proposal`` artifact is the audit.
     """
-    from molexp.harness.stages import auto_grant_approver
     from molexp.services.curate_runtime import build_curation_proposal, run_curation_proposal
     from molexp.workspace.utils import derive_run_id
 
@@ -707,7 +728,7 @@ async def curate_workspace(
         .add_experiment(request.experiment)
         .add_run(params, id=derive_run_id(params))
     )
-    approver = auto_grant_approver if request.approve else _curate_reject_approver
+    approver = _curate_grant_approver if request.approve else _curate_reject_approver
     result = await run_curation_proposal(
         proposal, workspace=workspace, run=audit_run, approve=approver
     )

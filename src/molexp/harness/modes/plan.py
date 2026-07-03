@@ -254,7 +254,12 @@ class PlanMode(Mode):
         return [
             ExecuteWorkflow(self._executor),
             GenerateFinalReport(),
-            ApprovalGate(requests=[self._execution_request()], name="approve_execution"),
+            # The tail gate rides the same approver as the other two gates.
+            ApprovalGate(
+                requests=[self._execution_request()],
+                approve=self._approver,
+                name="approve_execution",
+            ),
             GenerateAuditReport(),
         ]
 

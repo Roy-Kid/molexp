@@ -24,6 +24,7 @@ import pytest
 from molexp.harness import Mode, ModeResult, PlanMode
 from molexp.harness.gateways.stub import StubAgentGateway
 from molexp.harness.schemas import ExecutionResult, WorkflowSource
+from molexp.harness.stages.approval_gate import auto_grant_approver
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 from molexp.workspace import Workspace
@@ -451,7 +452,9 @@ class TestPlanModeRun:
         run = _make_run(tmp_path)
         gateway = _fixture_gateway(run)
 
-        result = asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+        result = asyncio.run(
+            PlanMode(approver=auto_grant_approver).run(run=run, user_input=_DRAFT, gateway=gateway)
+        )
 
         assert isinstance(result, ModeResult)
         assert result.mode_name == "plan"
@@ -478,7 +481,9 @@ class TestPlanModeRun:
         gateway = _fixture_gateway(run)
         store = FileArtifactStore(root=run.run_dir / "artifacts")
 
-        asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+        asyncio.run(
+            PlanMode(approver=auto_grant_approver).run(run=run, user_input=_DRAFT, gateway=gateway)
+        )
 
         # The only execution_result in plan-only mode is the compile dry run.
         exec_ref = store.latest_by_kind("execution_result")
@@ -493,7 +498,9 @@ class TestPlanModeRun:
         gateway = _fixture_gateway(run)
         store = FileArtifactStore(root=run.run_dir / "artifacts")
 
-        result = asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+        result = asyncio.run(
+            PlanMode(approver=auto_grant_approver).run(run=run, user_input=_DRAFT, gateway=gateway)
+        )
         src_ref = next(a for a in result.stage_artifacts if a.kind == "workflow_source")
         user_plan_ref = next(a for a in result.stage_artifacts if a.kind == "user_plan")
 
@@ -509,7 +516,9 @@ class TestPlanModeRun:
         gateway = _fixture_gateway(run)
         store = FileArtifactStore(root=run.run_dir / "artifacts")
 
-        result = asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+        result = asyncio.run(
+            PlanMode(approver=auto_grant_approver).run(run=run, user_input=_DRAFT, gateway=gateway)
+        )
         src_refs = [a for a in result.stage_artifacts if a.kind == "workflow_source"]
         assert len(src_refs) == 1
         ws_obj = WorkflowSource.model_validate_json(store.get(src_refs[0].id))
@@ -527,7 +536,9 @@ class TestPlanModeExecute:
         store = FileArtifactStore(root=run.run_dir / "artifacts")
 
         result = asyncio.run(
-            PlanMode(execute=True).run(run=run, user_input=_DRAFT, gateway=gateway)
+            PlanMode(approver=auto_grant_approver, execute=True).run(
+                run=run, user_input=_DRAFT, gateway=gateway
+            )
         )
 
         kinds = {a.kind for a in result.stage_artifacts}
@@ -549,7 +560,11 @@ class TestPlanModeExecute:
         from molexp.harness.errors import StagePersistedFailureError
 
         with pytest.raises(StagePersistedFailureError):
-            asyncio.run(PlanMode(execute=True).run(run=run, user_input=_DRAFT, gateway=gateway))
+            asyncio.run(
+                PlanMode(approver=auto_grant_approver, execute=True).run(
+                    run=run, user_input=_DRAFT, gateway=gateway
+                )
+            )
 
         # In-function import: a module-level `TestResult` would be collected by
         # pytest as a test class (house pattern for Test*-named schemas).
@@ -606,12 +621,16 @@ class TestPlanModeGateAndResume:
         run = _make_run(tmp_path)
         gateway = _fixture_gateway(run)
 
-        first = asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+        first = asyncio.run(
+            PlanMode(approver=auto_grant_approver).run(run=run, user_input=_DRAFT, gateway=gateway)
+        )
 
         # Nothing registered: any re-run of an LLM stage body would raise, so
         # completing proves every stage was skipped via the completion ledger.
         empty = StubAgentGateway(FileArtifactStore(root=run.run_dir / "artifacts"))
-        second = asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=empty))
+        second = asyncio.run(
+            PlanMode(approver=auto_grant_approver).run(run=run, user_input=_DRAFT, gateway=empty)
+        )
 
         assert [a.id for a in second.stage_artifacts] == [a.id for a in first.stage_artifacts]
 

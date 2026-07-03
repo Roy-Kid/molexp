@@ -10,10 +10,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from molexp.harness.schemas import PlanArtifactRef
+    from molexp.harness.schemas import ApprovalRequest, PlanArtifactRef
 
 __all__ = [
     "AgentResponseNotRegisteredError",
+    "ApprovalPendingError",
     "ArtifactNotFoundError",
     "CapabilityAlreadyRegisteredError",
     "CapabilityCallValidationError",
@@ -78,6 +79,37 @@ class StagePersistedFailureError(StageExecutionError):
     def __init__(self, persisted_ref: PlanArtifactRef, message: str) -> None:
         super().__init__(message)
         self.persisted_ref = persisted_ref
+
+
+class ApprovalPendingError(StageExecutionError):
+    """Raised by an approval gate that has no interactive approver and no
+    stored grant: the pipeline **suspends** instead of granting.
+
+    Subclasses :class:`StageExecutionError` so existing ``except
+    StageExecutionError`` call sites still stop the pipeline — but callers
+    that distinguish suspension from failure (task stores, CLI exit codes,
+    record materialization) must catch this subclass FIRST: a suspension is
+    "waiting for a human decision", never a failure to analyze.
+
+    The pending request(s) are recorded in the run's
+    :class:`~molexp.harness.store.approval_store.ApprovalStore` before this
+    is raised, so the server inbox can list them and a later decision lets a
+    ledger-resumed re-entry pass the gate.
+
+    Attributes:
+        requests: The :class:`ApprovalRequest`\\ s awaiting a decision.
+        run_id: The harness run whose approval store holds them.
+    """
+
+    def __init__(self, requests: list[ApprovalRequest], run_id: str) -> None:
+        intents = ", ".join(request.intent for request in requests)
+        super().__init__(
+            f"approval pending for run {run_id!r}: {len(requests)} request(s) "
+            f"await a decision (intents: {intents}); decide via the approvals "
+            "inbox (UI), an interactive TTY, or --yes, then re-run to resume"
+        )
+        self.requests = list(requests)
+        self.run_id = run_id
 
 
 class AgentResponseNotRegisteredError(HarnessError):

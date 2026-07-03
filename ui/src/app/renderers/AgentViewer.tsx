@@ -30,6 +30,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
+import { ApprovalsInbox } from "./agent/ApprovalsInbox";
 import { ConversationTurnView } from "./agent/conversation";
 import { DeliverablesPanel, hasDeliverables } from "./agent/DeliverablesPanel";
 import { PlanProgressRail } from "./agent/PlanProgressRail";
@@ -802,6 +803,8 @@ const AgentSessionViewer = ({
                 )}
               </div>
             )}
+
+            <ApprovalsInbox onDecided={onRefresh} />
 
             <div className="flex justify-center">
               <div className="inline-flex rounded-md border border-border/60 bg-card p-0.5 text-xs font-medium">

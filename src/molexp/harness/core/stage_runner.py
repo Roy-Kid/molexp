@@ -40,7 +40,11 @@ import asyncio
 
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
-from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
+from molexp.harness.errors import (
+    ApprovalPendingError,
+    StageExecutionError,
+    StagePersistedFailureError,
+)
 from molexp.harness.schemas import PlanArtifactRef
 
 __all__ = ["StageRunner", "run_stage_bracketed"]
@@ -104,6 +108,19 @@ async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> PlanArtif
 
     try:
         ref = await stage.run(ctx)
+    except ApprovalPendingError as exc:
+        # Suspension, not failure: the gate already recorded the pending
+        # request (approval store + approval_requested event). Close the
+        # stage bracket honestly and re-raise UNCHANGED so task drivers can
+        # distinguish "waiting for a decision" from a failed stage.
+        await asyncio.to_thread(
+            ctx.event_log.append,
+            run_id=ctx.run_id,
+            type="stage_suspended",
+            actor="harness",
+            payload={"stage": stage.name, "pending": [r.id for r in exc.requests]},
+        )
+        raise
     except StagePersistedFailureError as exc:
         await _record_artifact(ctx, stage, exc.persisted_ref)
         await asyncio.to_thread(

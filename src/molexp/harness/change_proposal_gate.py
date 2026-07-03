@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, get_args
 
 from molexp.harness.core.run_context import HarnessRunContext
+from molexp.harness.errors import ApprovalPendingError
 from molexp.harness.policy.event_log import ApprovalEventRecorder
 from molexp.harness.schemas import ApprovalRequest
 from molexp.harness.schemas.change_proposal import (
@@ -29,7 +30,7 @@ from molexp.harness.schemas.change_proposal import (
     ProposalOutcome,
     Reversibility,
 )
-from molexp.harness.stages.approval_gate import Approver, auto_grant_approver
+from molexp.harness.stages.approval_gate import Approver
 
 if TYPE_CHECKING:
     from molexp.harness.actions import ProposalExecutor
@@ -123,8 +124,11 @@ async def gate_change_proposal(
     Args:
         ctx: The harness run context (artifact store + event log + run id).
         proposal: The change proposal to gate.
-        approve: The :class:`Approver` resolving the request (default
-            :func:`auto_grant_approver`).
+        approve: The :class:`Approver` resolving the request. ``None`` means
+            store-first then suspend: a persisted grant passes, otherwise the
+            gate records the request pending and raises
+            :class:`~molexp.harness.errors.ApprovalPendingError` — it never
+            auto-grants.
         now: Timestamp stamped on the approval request (default aware-UTC now).
         executor: When provided, the :class:`ProposalExecutor` a *granted*
             proposal is dispatched through (guarded execution). ``None`` keeps
@@ -133,7 +137,6 @@ async def gate_change_proposal(
     Returns:
         A copy of *proposal* with ``execution_result`` filled.
     """
-    approve = approve if approve is not None else auto_grant_approver
     now = now if now is not None else datetime.now(tz=UTC)
 
     proposal_ref = ctx.artifact_store.put_json(
@@ -145,7 +148,27 @@ async def gate_change_proposal(
 
     request = _to_approval_request(proposal, now=now)
     ApprovalEventRecorder.record_request(ctx.event_log, ctx.run_id, request)
-    decision = await approve(request)
+
+    # Store-first (same contract as ApprovalGate): a persisted grant is durable
+    # consent; with no approver and no stored grant the gate suspends pending —
+    # ``approve=None`` NEVER auto-grants. A §8.3 *denial* by a live approver
+    # still records ``status="rejected"`` without raising (pending ≠ denial).
+    stored = (
+        ctx.approval_store.granted_decision_for(request.id)
+        if ctx.approval_store is not None
+        else None
+    )
+    if stored is not None:
+        decision = stored
+    elif approve is not None:
+        decision = await approve(request)
+        if ctx.approval_store is not None:
+            ctx.approval_store.record_pending(ctx.run_id, request)
+            ctx.approval_store.record_decision(decision)
+    else:
+        if ctx.approval_store is not None:
+            ctx.approval_store.record_pending(ctx.run_id, request)
+        raise ApprovalPendingError([request], ctx.run_id)
     ApprovalEventRecorder.record_decision(ctx.event_log, ctx.run_id, request, decision)
 
     if decision.granted and executor is not None:

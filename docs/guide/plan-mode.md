@@ -72,12 +72,15 @@ repeated. Change the draft and you get a new run.
 ## Approval gates
 
 The plan ends at a review `ApprovalGate` (step 8); the `--execute` tail
-adds a second gate over the final report. In non-interactive use an
-auto-grant approver lets the pipeline proceed; in an interactive or
-server-driven flow a human approves the verified plan (and, with
-`--execute`, the final report) before the pipeline continues. Approval is
-recorded in the run's event log alongside the machine-validation result,
-so "a human approved it" and "machine validation passed" stay distinct.
+adds a second gate over the final report. Approvals are never granted
+implicitly: on a TTY the CLI asks `[y/N]`; with `--yes` the grant is
+explicit and named in the audit trail; anywhere else (server tasks, piped
+CLI) the gate **suspends** — the pending request lands in the approvals
+inbox (`/api/approvals`, surfaced in the UI's Agents hub), and a granted
+decision is persisted in the run's approval store so a re-run resumes past
+the gate (grants replay; rejections re-ask). Approval is recorded in the
+run's event log alongside the machine-validation result, so "a human
+approved it" and "machine validation passed" stay distinct.
 
 ## Chatting instead of planning
 

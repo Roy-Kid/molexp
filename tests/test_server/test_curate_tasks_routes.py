@@ -160,9 +160,21 @@ def test_route_matches_python_path_for_destructive_move(
     request_text = "move subject run to target-exp"
 
     # ── Route path ──────────────────────────────────────────────────────────
+    # Destructive over HTTP suspends at the ChangeProposal gate (never
+    # auto-granted); the operator grants it via the approvals inbox and the
+    # resumed flow executes on the stored grant (content-derived proposal id).
     proj = workspace.get_project("test-project")
     proj.get_experiment("curate-exp").add_run({"seed": 0}, id="subject")
     started = curate_client.post(_BASE, json={"request": request_text, "model": "m"}).json()
+    suspended = _await_terminal(curate_client, started["taskId"])
+    assert suspended["status"] == "waiting_approval", suspended
+    inbox = curate_client.get("/api/approvals").json()
+    item = next(i for i in inbox["items"] if i["taskId"] == started["taskId"])
+    decided = curate_client.post(
+        f"/api/approvals/curate/{started['taskId']}/decisions",
+        json={"requestId": item["requestId"], "granted": True},
+    )
+    assert decided.status_code == 200, decided.text
     final = _await_terminal(curate_client, started["taskId"])
     assert final["status"] == "completed", final
 

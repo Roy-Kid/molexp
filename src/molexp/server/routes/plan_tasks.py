@@ -1,10 +1,12 @@
 """Plan-task routes — run the harness ``PlanMode`` pipeline as a background task.
 
 ``POST /projects/{p}/experiments/{e}/plan-tasks`` files a content-addressed Run
-under the experiment and starts PlanMode on it in the background (auto-grant
-approvals, no LLM blocking the request). ``GET .../{task_id}`` polls status; on
-completion the generated workflow is persisted onto the experiment, so the
-existing workflow-graph renderer (``GET .../workflow``) shows it.
+under the experiment and starts PlanMode on it in the background (no LLM
+blocking the request). Approval gates suspend the task (``waiting_approval``)
+until a decision lands via the ``/api/approvals`` inbox — never auto-granted.
+``GET .../{task_id}`` polls status; on completion the generated workflow is
+persisted onto the experiment, so the existing workflow-graph renderer
+(``GET .../workflow``) shows it.
 
 The route is the UI counterpart to the ``molexp plan`` CLI: same content-
 addressed Run, same harness pipeline, reached over HTTP instead of a TTY.

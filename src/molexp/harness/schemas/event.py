@@ -29,6 +29,7 @@ EventType = Literal[
     "stage_started",
     "stage_completed",
     "stage_failed",
+    "stage_suspended",
     "artifact_created",
     "artifact_validated",
     "validation_passed",
