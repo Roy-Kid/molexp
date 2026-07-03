@@ -44,8 +44,6 @@ if TYPE_CHECKING:
     from molexp.harness.registry.capability_registry import CapabilityRegistry
     from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ModeResult
     from molexp.harness.store.file_artifact_store import FileArtifactStore
-    from molexp.workspace import Workspace
-    from molexp.workspace.models import ComputeTarget
     from molexp.workspace.run import Run
 
 __all__ = ["plan"]
@@ -317,7 +315,7 @@ def plan(
     """Turn an experiment draft into validated molexp.workflow source (PlanMode)."""
     from molexp.cli._common import deterministic_run_id, rprint
     from molexp.harness import ApprovalPendingError, PlanMode, StageExecutionError
-    from molexp.services.plan_runtime import PlanPreflightError
+    from molexp.services.plan_runtime import PlanPreflightError, resolve_plan_compute_target
     from molexp.workspace import Workspace
 
     draft_text = _resolve_draft(draft, file)
@@ -361,7 +359,7 @@ def plan(
         approver=approver,
         executor=PlanRuntime.build_executor(),
         execute=execute,
-        compute_target=_resolve_compute_target(run, ws),
+        compute_target=resolve_plan_compute_target(run, ws),
     )
     groups = mode.step_groups(draft_text)
     plan_steps = [g for g in groups if not g.tail]
@@ -467,20 +465,6 @@ def _numbered(groups: list[PlanStep]) -> list[tuple[str, PlanStep]]:
             step_no += 1
             labeled.append((f"{step_no}.", group))
     return labeled
-
-
-def _resolve_compute_target(run: Run, ws: Workspace) -> ComputeTarget | None:
-    """Resolve the run's intended ``ComputeTarget`` from the workspace registry.
-
-    ``RunMetadata.target`` names a target registered in
-    ``WorkspaceMetadata.targets``; the step-9 execution report describes it.
-    A fresh workspace with no targets resolves to ``None`` (a local default).
-    """
-    target_name = getattr(run.metadata, "target", None)
-    if not target_name:
-        return None
-    targets = getattr(getattr(ws, "metadata", None), "targets", []) or []
-    return next((t for t in targets if t.name == target_name), None)
 
 
 def _print_final_report(run: Run, result: ModeResult) -> None:

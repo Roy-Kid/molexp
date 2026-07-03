@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.schemas import ApprovalRequest, ModeResult
     from molexp.workspace.experiment import Experiment
+    from molexp.workspace.models import ComputeTarget
     from molexp.workspace.run import Run
 
 __all__ = ["PlanTask", "PlanTaskStatus"]
@@ -48,6 +49,8 @@ class PlanTask:
         created_at: str,
         ground: bool = True,
         workspace_root: str = "",
+        execute: bool = False,
+        compute_target: ComputeTarget | None = None,
     ) -> None:
         self.task_id = task_id
         self.run = run
@@ -57,6 +60,8 @@ class PlanTask:
         self.created_at = created_at
         self.ground = ground
         self.workspace_root = workspace_root
+        self.execute = execute
+        self.compute_target = compute_target
         self.status: PlanTaskStatus = "running"
         self.error: BaseException | None = None
         self.workflow_persisted = False
@@ -78,8 +83,19 @@ class PlanTask:
         gateway: AgentGateway,
         ground: bool = True,
         workspace_root: str = "",
+        execute: bool = False,
+        compute_target: ComputeTarget | None = None,
     ) -> PlanTask:
-        """Build a task and spawn its background PlanMode run."""
+        """Build a task and spawn its background PlanMode run.
+
+        ``execute=True`` appends the real-execution tail — the driver runs as
+        an executor subprocess **of the serving host** (exactly what the CLI
+        does on its host); ``compute_target`` only feeds the step-9
+        *descriptive* execution report, it never schedules to molq. Every
+        gate (including ``approve_execution``) suspends into the approvals
+        inbox — server-side execution is unreachable without granted
+        decisions.
+        """
         task = cls(
             task_id=task_id,
             run=run,
@@ -89,6 +105,8 @@ class PlanTask:
             created_at=created_at,
             ground=ground,
             workspace_root=workspace_root,
+            execute=execute,
+            compute_target=compute_target,
         )
         task._gateway = gateway
         task._task = asyncio.create_task(task._drive(gateway))
@@ -112,7 +130,7 @@ class PlanTask:
             # plan Run's status is honest (running -> succeeded | failed) —
             # the same shared path `molexp plan` uses.
             self.result = await drive_plan_mode(
-                PlanMode(),
+                PlanMode(execute=self.execute, compute_target=self.compute_target),
                 run=self.run,
                 user_input=self.draft,
                 gateway=gateway,

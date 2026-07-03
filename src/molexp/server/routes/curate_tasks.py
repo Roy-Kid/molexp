@@ -117,7 +117,7 @@ async def create_curate_task(
 
     text = request.request.strip()
     if not text:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "request is empty")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "request is empty")
 
     model = request.model or _configured_model()
     if not model:

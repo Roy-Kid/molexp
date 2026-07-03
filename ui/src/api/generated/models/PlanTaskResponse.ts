@@ -9,6 +9,7 @@ export type PlanTaskResponse = {
     createdAt: string;
     draftPreview: string;
     error?: (string | null);
+    execute?: boolean;
     experimentId: string;
     model: string;
     projectId: string;

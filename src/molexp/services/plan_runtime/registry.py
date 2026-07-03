@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from molexp.harness.gateways.gateway import AgentGateway
     from molexp.services.plan_runtime.task import PlanTask
     from molexp.workspace.experiment import Experiment
+    from molexp.workspace.models import ComputeTarget
     from molexp.workspace.run import Run
 
 __all__ = ["PlanTaskRegistry"]
@@ -39,6 +40,8 @@ class PlanTaskRegistry:
         created_at: str,
         gateway: AgentGateway,
         ground: bool = True,
+        execute: bool = False,
+        compute_target: ComputeTarget | None = None,
     ) -> PlanTask:
         """Build, start, and register a background plan task."""
         from molexp.services.plan_runtime.task import PlanTask
@@ -52,6 +55,8 @@ class PlanTaskRegistry:
             created_at=created_at,
             gateway=gateway,
             ground=ground,
+            execute=execute,
+            compute_target=compute_target,
             workspace_root=workspace_root,
         )
         self._by_workspace.setdefault(workspace_root, {})[task_id] = task

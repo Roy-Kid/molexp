@@ -55,6 +55,15 @@ already gate the plan — red tests block the review gate.) Tests and the
 workflow both run in **executor subprocesses**, so a generation bug can
 never crash the planning process.
 
+The same tail is reachable from the server/UI: `POST .../plan-tasks` with
+`execute: true` (the PlanComposer's "Execute after approvals" opt-in).
+Server-side execution runs on the **serving host** — the compute target is
+descriptive (it feeds the step-9 execution report) and nothing schedules
+to molq — and every gate, including `approve_execution`, suspends into the
+approvals inbox until a human decides. CLI and server resolve the target
+through one shared service (`resolve_plan_compute_target`); naming an
+unknown target fails the request with the known names listed.
+
 ## What it produces
 
 Everything lands under the run directory:

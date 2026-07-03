@@ -21,6 +21,7 @@ from molexp.services.plan_runtime.materialize import materialize_plan_records
 from molexp.services.plan_runtime.persist import persist_plan_workflow_to_experiment
 from molexp.services.plan_runtime.record import record_plan_outputs
 from molexp.services.plan_runtime.registry import PlanTaskRegistry
+from molexp.services.plan_runtime.targets import resolve_plan_compute_target
 from molexp.services.plan_runtime.task import PlanTask, PlanTaskStatus
 
 __all__ = [
@@ -35,5 +36,6 @@ __all__ = [
     "preflight_plan_router",
     "record_plan_outputs",
     "reset_plan_gateway_factory",
+    "resolve_plan_compute_target",
     "set_plan_gateway_factory",
 ]

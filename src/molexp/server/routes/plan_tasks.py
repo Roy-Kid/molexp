@@ -48,6 +48,23 @@ class PlanTaskCreateRequest(BaseModel):
             "molmcp MCP server. Skips with a notice when molmcp is unavailable."
         ),
     )
+    execute: bool = Field(
+        False,
+        description=(
+            "Append the real-execution tail (ExecuteWorkflow -> GenerateFinalReport -> "
+            "ApprovalGate(approve_execution) -> GenerateAuditReport). Runs the "
+            "materialized driver as an executor subprocess OF THE SERVER HOST — "
+            "exactly what the CLI does on its host; it never schedules to molq. "
+            "Every gate suspends into the approvals inbox."
+        ),
+    )
+    compute_target: str | None = Field(
+        None,
+        description=(
+            "Named workspace compute target for the step-9 DESCRIPTIVE execution "
+            "report. Unknown names are rejected (422) listing the known targets."
+        ),
+    )
 
 
 class PlanTaskResponse(BaseModel):
@@ -62,6 +79,7 @@ class PlanTaskResponse(BaseModel):
     model: str
     draftPreview: str
     workflowPersisted: bool = False
+    execute: bool = False
     error: str | None = None
 
 
@@ -94,6 +112,7 @@ def _to_response(task: PlanTask, *, project_id: str, experiment_id: str) -> Plan
         model=task.model,
         draftPreview=preview,
         workflowPersisted=task.workflow_persisted,
+        execute=task.execute,
         error=repr(task.error) if task.error is not None else None,
     )
 
@@ -114,13 +133,14 @@ async def create_plan_task(
     from molexp._typing import JSONValue
     from molexp.ids import generate_id
     from molexp.server.deps.plan_runtime import get_plan_runtime
+    from molexp.services.plan_runtime import resolve_plan_compute_target
     from molexp.services.plan_runtime.gateway import build_plan_gateway
     from molexp.workspace.errors import RunNotFoundError
     from molexp.workspace.utils import derive_run_id
 
     draft = request.draft.strip()
     if not draft:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "draft is empty")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "draft is empty")
 
     model = request.model or _configured_model()
     if not model:
@@ -139,6 +159,13 @@ async def create_plan_task(
     except RunNotFoundError:
         run = experiment.add_run(params, id=run_id)
 
+    # One shared resolution path with the CLI (Python = UI law). An unknown
+    # explicit name fails the REQUEST (422 + candidates), never falls back.
+    try:
+        compute_target = resolve_plan_compute_target(run, workspace, name=request.compute_target)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
     gateway = build_plan_gateway(model=model, run=run)
     task = get_plan_runtime().create(
         workspace_root=str(workspace.root),
@@ -150,6 +177,8 @@ async def create_plan_task(
         created_at=datetime.now(tz=UTC).isoformat(),
         gateway=gateway,
         ground=request.ground,
+        execute=request.execute,
+        compute_target=compute_target,
     )
     return _to_response(task, project_id=project_id, experiment_id=experiment_id)
 
