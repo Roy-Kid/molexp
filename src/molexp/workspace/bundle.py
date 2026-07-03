@@ -7,8 +7,8 @@ depth — as one management entry point: :meth:`walk` (depth-first Concept
 enumeration), :meth:`get` (path-as-identity resolution), :meth:`put`
 (idempotent materialization), :meth:`link` (a semantic edge written as a
 markdown link, round-tripping through :meth:`Folder.out_edges`), plus a derived
-rollup :meth:`build_index` (→ ``index.json`` machine + ``INDEX.md`` human/agent)
-filtered by :meth:`search`.
+rollup :meth:`build_index` (→ ``index.json`` machine + ``INDEX.md`` human/agent),
+queried by :meth:`search` (body-aware retrieval returning :class:`SearchResult`).
 
 It is a thin runtime container (explicit ``__init__``, no pydantic): it records
 the root path + filesystem and does **no** disk I/O on construction. The
@@ -37,11 +37,14 @@ from .bundle_index import (
     INDEX_MD_FILENAME,
     BundleIndex,
     ConceptIndexEntry,
+    SearchHit,
+    SearchResult,
     extract_title,
 )
 from .edges import DEFAULT_EDGE_ROLE, EdgeRole
 from .errors import ConceptNotFoundError
 from .folder import (
+    INDEX_FILENAME,
     META_YAML_FILENAME,
     OPS_DIR,
     Folder,
@@ -59,6 +62,10 @@ if TYPE_CHECKING:
     from .doc_embed import EntitySummary
 
 __all__ = ["Backlink", "Bundle"]
+
+#: Body-search size cap — mirrors the agent file-tools read cap so one
+#: pathological ``index.md`` cannot stall retrieval.
+_MAX_BODY_SEARCH_BYTES = 512 * 1024
 
 REFERENCES_GROUP = "references"
 SOURCES_FILENAME = "sources.json"
@@ -137,7 +144,7 @@ class Bundle:
         only its own name — but a **layout-aware entity** (``Project`` /
         ``Experiment`` / ``Run``) replays its container segment (``projects/`` …)
         on top of that anchor, doubling the path (``.../projects/projects/<id>``).
-        This is the nested-mount bug ``server/plan_runtime/record.py`` root-mounts
+        This is the nested-mount bug ``services/plan_runtime/record.py`` root-mounts
         to dodge. We detect the replay (``resolve() != child_dir``) and re-anchor
         the thin parent the exact number of levels up that makes the entity's own
         layout replay reproduce *child_dir* — without touching entity
@@ -661,35 +668,98 @@ class Bundle:
         *,
         concept_type: str | None = None,
         tag: str | None = None,
+        scope: str | None = None,
+        limit: int = 50,
+        include_body: bool = True,
         rebuild: bool = True,
-    ) -> list[ConceptIndexEntry]:
-        """Filter the index by *concept_type* / *tag* / *text* (AND semantics).
+    ) -> SearchResult:
+        """Body-aware retrieval over the Concept tree (AND semantics).
 
-        *text* matches a case-insensitive substring of ``path`` or ``title``.
+        *text* matches case-insensitively against ``path``, ``title``, tags
+        and — when *include_body* — the Concept's ``index.md`` body. Bodies
+        are read **lazily**, only for entries that survive the index-level
+        filters and did not already match on path/title/tag; a body larger
+        than ``_MAX_BODY_SEARCH_BYTES`` (or undecodable) is skipped for body
+        matching, but the entry still matches on its index fields. Results
+        keep the deterministic index order (path ascending).
 
         Args:
-            text: Case-insensitive substring matched against ``path``/``title``.
+            text: Case-insensitive needle; ``None`` **or empty** keeps
+                filter-only behavior (hits carry ``snippet=None``,
+                ``matched_fields=()``).
             concept_type: Exact ``type`` to match.
             tag: A tag that must be present on the Concept.
-            rebuild: Refresh the index first (default); otherwise reuse the last
-                written ``index.json`` (built on demand if absent).
+            scope: Bundle-relative path prefix — restricts hits to that
+                subtree (cheap ``startswith``).
+            limit: Maximum hits returned; a cut result reports
+                ``truncated=True`` (never a silent cap).
+            include_body: ``False`` skips all body I/O (the old, cheaper
+                index-only behavior).
+            rebuild: Refresh the index first (default); otherwise reuse the
+                last written ``index.json`` (built on demand if absent).
 
         Returns:
-            The matching :class:`ConceptIndexEntry` rows.
+            A :class:`SearchResult` of :class:`SearchHit` rows.
         """
         index = self.build_index() if rebuild else self._load_index()
+        # An empty needle degrades EXPLICITLY to filter-only (documented above);
+        # only a non-empty string triggers text matching.
         needle = text.lower() if text else None
-        matches: list[ConceptIndexEntry] = []
+        scope = scope.rstrip("/") if scope is not None else None
+        hits: list[SearchHit] = []
+        truncated = False
         for entry in index.entries:
             if concept_type is not None and entry.type != concept_type:
                 continue
             if tag is not None and tag not in entry.tags:
                 continue
-            if (
-                needle is not None
-                and needle not in entry.path.lower()
-                and needle not in entry.title.lower()
+            if scope is not None and not (
+                entry.path == scope or entry.path.startswith(scope + "/")
             ):
                 continue
-            matches.append(entry)
-        return matches
+
+            snippet: str | None = None
+            matched: tuple[str, ...] = ()
+            if needle is not None:
+                fields: list[str] = []
+                if needle in entry.path.lower():
+                    fields.append("path")
+                if needle in entry.title.lower():
+                    fields.append("title")
+                if any(needle in t.lower() for t in entry.tags):
+                    fields.append("tag")
+                if not fields:
+                    if not include_body:
+                        continue
+                    snippet = self._body_match_snippet(entry.path, needle)
+                    if snippet is None:
+                        continue
+                    fields.append("body")
+                matched = tuple(fields)
+
+            if len(hits) >= limit:
+                truncated = True  # a real match beyond the cap — say so
+                break
+            hits.append(SearchHit(entry=entry, snippet=snippet, matched_fields=matched))
+        return SearchResult(hits=tuple(hits), truncated=truncated)
+
+    def _body_match_snippet(self, entry_path: str, needle: str) -> str | None:
+        """Return the first matching ``index.md`` line for *needle*, or ``None``.
+
+        Size-capped at ``_MAX_BODY_SEARCH_BYTES``; an absent, oversized or
+        undecodable body never raises — it just cannot body-match.
+        """
+        body_path = self._fs.join(str(self._root), entry_path, INDEX_FILENAME)
+        try:
+            # stat BEFORE read: the cap must prevent the transfer (one round
+            # trip on a remote filesystem), not merely discard it afterwards.
+            st = self._fs.stat(body_path)
+            if not st.is_file or st.size > _MAX_BODY_SEARCH_BYTES:
+                return None
+            body = self._fs.read_text(body_path)
+        except (OSError, UnicodeDecodeError, ValueError):
+            return None
+        for line in body.splitlines():
+            if needle in line.lower():
+                return line.strip()[:160]
+        return None

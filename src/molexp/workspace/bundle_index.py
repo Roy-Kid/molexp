@@ -59,6 +59,36 @@ class ConceptIndexEntry(BaseModel, frozen=True):
     links: tuple[str, ...] = ()
 
 
+class SearchHit(BaseModel, frozen=True):
+    """One ``Bundle.search`` match.
+
+    Attributes:
+        entry: The matching Concept's index row.
+        snippet: The first matching body line (trimmed to ≤160 chars) when the
+            hit matched on body text; ``None`` for index-only matches.
+        matched_fields: Which fields matched, a subset of
+            ``("path", "title", "tag", "body")`` — empty for pure filter
+            queries (``text=None``).
+    """
+
+    entry: ConceptIndexEntry
+    snippet: str | None = None
+    matched_fields: tuple[str, ...] = ()
+
+
+class SearchResult(BaseModel, frozen=True):
+    """The structured outcome of one ``Bundle.search`` call.
+
+    Attributes:
+        hits: The matches, in deterministic path-ascending index order.
+        truncated: ``True`` iff ``limit`` cut real matches — a capped result
+            always says so (no silent caps).
+    """
+
+    hits: tuple[SearchHit, ...] = ()
+    truncated: bool = False
+
+
 class BundleIndex(BaseModel, frozen=True):
     """The derived rollup of a bundle's Concept tree.
 
@@ -92,5 +122,7 @@ __all__ = [
     "INDEX_MD_FILENAME",
     "BundleIndex",
     "ConceptIndexEntry",
+    "SearchHit",
+    "SearchResult",
     "extract_title",
 ]

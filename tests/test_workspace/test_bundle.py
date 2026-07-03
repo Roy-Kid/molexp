@@ -258,7 +258,7 @@ def test_link_threads_role(bundle: Path) -> None:
 def test_concept_under_run_resolves_and_links_back(tmp_path: Path) -> None:
     """ac-005: a Concept nested under runs/run-<id>/ resolves to its real dir.
 
-    Regresses the Bundle path-doubling bug that ``server/plan_runtime/record.py``
+    Regresses the Bundle path-doubling bug that ``services/plan_runtime/record.py``
     currently root-mounts a Note to dodge. The bundle root is the *workspace dir*
     itself (the case that triggers the bug), and the deep concept must resolve
     with no ``projects/projects`` or ``runs/runs`` segment doubling.
@@ -286,3 +286,123 @@ def test_concept_under_run_resolves_and_links_back(tmp_path: Path) -> None:
     b.link(got, run, role="records")
     edges = {os.path.normpath(p) for p in b.get(rel).out_edges()}
     assert os.path.normpath(str(run.resolve())) in edges
+
+
+# ── nested-mount closure: KnowledgeItem under a nested Experiment ─────────────
+# (spec vision-loop-04-knowledge-retrieval-substrate — extends the ac-005
+# regression above from "Note under Run resolves via get" to the FULL Bundle
+# verb surface for the exact case services/plan_runtime/record.py root-mounts
+# to dodge; these tests are the precondition slice 06 needs to delete that
+# dodge and mount plan records at their natural Experiment home.)
+
+KI_BODY_NEEDLE = "zwitterion-retrieval-needle"
+KI_REL = "projects/p/experiments/e/ki"
+_DOUBLED_SEGMENTS = ("projects/projects", "experiments/experiments", "runs/runs")
+
+
+def _mounted_knowledge_item(tmp_path: Path) -> tuple[Bundle, Folder, Folder, Folder, Folder, str]:
+    """Mount a KnowledgeItem under a nested Experiment; return the test kit.
+
+    Returns ``(bundle, ws, experiment, run, item, rel)`` where *bundle* roots at
+    the workspace dir itself (the path-doubling trigger case) and *rel* is the
+    item's natural, un-doubled bundle-relative identity.
+    """
+    from typing import cast
+
+    from molexp.workspace import Workspace
+    from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
+
+    ws = Workspace(root=tmp_path / "lab")
+    ws.materialize()
+    exp = ws.add_project("p").add_experiment("e")
+    run = exp.add_run(id="r")
+    item = cast("KnowledgeItem", exp.add_folder(KnowledgeItem(parent=exp, name="ki")))
+    item.write_knowledge_meta(
+        KnowledgeMeta(
+            kind="Finding",
+            sources=[SourceRef(kind="run", ref="r")],
+            created_by="tests",
+        )
+    )
+    item.set_body(f"# Zwitterion finding\n\nthe {KI_BODY_NEEDLE} appears only in this body\n")
+    return Bundle(ws.resolve()), ws, exp, run, item, KI_REL
+
+
+def test_knowledge_item_under_experiment_walks_once_undoubled(tmp_path: Path) -> None:
+    """walk() yields the nested item exactly once, at its un-doubled path."""
+    import os
+
+    b, _ws, _exp, _run, item, rel = _mounted_knowledge_item(tmp_path)
+
+    rels = [b.rel_path(f) for f in b.walk()]
+    assert rels.count(rel) == 1
+
+    walked = next(f for f in b.walk() if b.rel_path(f) == rel)
+    resolved = os.path.normpath(str(walked.resolve()))
+    assert resolved == os.path.normpath(str(item.resolve()))
+    for doubled in _DOUBLED_SEGMENTS:
+        assert doubled not in resolved
+
+
+def test_knowledge_item_under_experiment_search_finds_by_body(tmp_path: Path) -> None:
+    """search() retrieves the nested item by a needle living only in its body."""
+    b, _ws, _exp, _run, _item, rel = _mounted_knowledge_item(tmp_path)
+
+    result = b.search(KI_BODY_NEEDLE)
+
+    assert [hit.entry.path for hit in result.hits] == [rel]
+
+
+def test_knowledge_item_under_experiment_backlinks_resolve(tmp_path: Path) -> None:
+    """backlinks() resolves an edge pointing at the nested item."""
+    from typing import cast
+
+    from molexp.workspace import Note
+
+    b, ws, _exp, _run, item, rel = _mounted_knowledge_item(tmp_path)
+    src = cast("Note", ws.add_folder(Note(parent=ws, name="pointer")))
+    b.link(src, item, role="references")
+
+    backs = b.backlinks(b.get(rel))
+
+    assert len(backs) == 1
+    source, role = backs[0]
+    assert b.rel_path(source) == "pointer"
+    assert role == "references"
+
+
+def test_knowledge_item_under_experiment_cite_run_round_trips(tmp_path: Path) -> None:
+    """item.cite(run, role="derived_from") round-trips through typed_out_edges."""
+    import os
+
+    b, _ws, _exp, run, item, rel = _mounted_knowledge_item(tmp_path)
+    item.cite(run, role="derived_from")
+
+    typed = b.get(rel).typed_out_edges()
+
+    assert len(typed) == 1
+    assert typed[0].role == "derived_from"
+    assert os.path.normpath(typed[0].target) == os.path.normpath(str(run.resolve()))
+
+
+def test_knowledge_item_under_experiment_export_and_rel_path_doubling_free(
+    tmp_path: Path,
+) -> None:
+    """export_markdown()/rel_path() carry no doubled path segments."""
+    from typing import cast
+
+    from molexp.workspace import Note
+
+    b, _ws, _exp, _run, item, rel = _mounted_knowledge_item(tmp_path)
+    sub = cast("Note", item.add_folder(Note(parent=item, name="sub")))
+    sub.set_body("nested child body\n")
+
+    got = b.get(rel)
+    assert b.rel_path(got) == rel
+
+    md = b.export_markdown(got)
+    assert KI_BODY_NEEDLE in md
+    assert f"## {rel}/sub" in md  # child header uses the un-doubled identity
+    for doubled in _DOUBLED_SEGMENTS:
+        assert doubled not in md
+        assert doubled not in b.rel_path(got)

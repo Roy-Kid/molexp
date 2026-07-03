@@ -112,7 +112,8 @@ def test_build_index_title_from_h1_else_name_and_links(tmp_path: Path) -> None:
 def test_search_by_type(tmp_path: Path) -> None:
     b = Bundle(_hierarchy(tmp_path))
     runs = b.search(concept_type="workspace.run")
-    assert [e.path for e in runs] == ["lab/projects/p/experiments/e/runs/run-r"]
+    assert [h.entry.path for h in runs.hits] == ["lab/projects/p/experiments/e/runs/run-r"]
+    assert runs.truncated is False
 
 
 def test_search_by_tag(tmp_path: Path) -> None:
@@ -125,16 +126,16 @@ def test_search_by_tag(tmp_path: Path) -> None:
     )
     _concept("plain", root)
     b = Bundle(root)
-    hits = b.search(tag="important")
-    assert [e.path for e in hits] == ["tagged"]
+    result = b.search(tag="important")
+    assert [h.entry.path for h in result.hits] == ["tagged"]
 
 
 def test_search_by_text_and_and_semantics(tmp_path: Path) -> None:
     b = Bundle(_hierarchy(tmp_path))
-    paths = {e.path for e in b.search("p")}
+    paths = {h.entry.path for h in b.search("p").hits}
     assert {"lab/projects/p", "lab/projects/p/experiments/e"} <= paths
     # AND: text + type
-    assert [e.path for e in b.search("lab", concept_type="workspace.run")] == [
+    assert [h.entry.path for h in b.search("lab", concept_type="workspace.run").hits] == [
         "lab/projects/p/experiments/e/runs/run-r"
     ]
 
@@ -144,7 +145,7 @@ def test_search_rebuild_reflects_new_concept(tmp_path: Path) -> None:
     b = Bundle(root)
     b.build_index(now=FIXED)
     Workspace(root=root / "lab").add_project("q")
-    assert any(e.path == "lab/projects/q" for e in b.search(rebuild=True))
+    assert any(h.entry.path == "lab/projects/q" for h in b.search(rebuild=True).hits)
 
 
 # ── derived / rebuildable (ac-008) ────────────────────────────────────────────

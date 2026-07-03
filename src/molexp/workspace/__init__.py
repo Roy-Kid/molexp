@@ -45,7 +45,7 @@ from .assets import (
 )
 from .base import atomic_write_json, atomic_write_text
 from .bundle import Backlink, Bundle
-from .bundle_index import BundleIndex, ConceptIndexEntry
+from .bundle_index import BundleIndex, ConceptIndexEntry, SearchHit, SearchResult
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
 from .concepts import Note, ReferenceConcept
 from .context import Context
@@ -238,6 +238,8 @@ __all__ = [
     "RunSetResult",
     "RunStatus",
     "SSHSession",
+    "SearchHit",
+    "SearchResult",
     "SessionManager",
     "SourceKind",
     "SourceRef",
