@@ -19,25 +19,14 @@ export const ArtifactBody = ({
   const inner = (payload.payload as Record<string, unknown> | undefined) ?? payload;
 
   if (kind === "plot") {
-    // Agent-emitted plot artifacts are now Vega-Lite specs — molplot moved off
-    // plotly to Vega-Lite. A VL spec is rendered as-is via MolplotRawChart;
-    // legacy plotly payloads ({data, layout}) are no longer renderable and show
-    // a migration hint instead of silently failing.
-    const isVegaLite =
-      "mark" in inner || "layer" in inner || "encoding" in inner || "$schema" in inner;
+    // Agent-emitted plot artifacts are Vega-Lite specs — render as-is.
     return (
       <div className="space-y-2 rounded-md border border-border/60 bg-card p-3">
         {title && <p className="text-xs font-medium text-foreground">{title}</p>}
-        {isVegaLite ? (
-          <MolplotRawChart
-            spec={{ spec: inner as VegaLiteSpec }}
-            style={{ width: "100%", height: 300 }}
-          />
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Unsupported legacy plot spec — emit a Vega-Lite spec (molplot no longer renders plotly).
-          </p>
-        )}
+        <MolplotRawChart
+          spec={{ spec: inner as VegaLiteSpec }}
+          style={{ width: "100%", height: 300 }}
+        />
       </div>
     );
   }
