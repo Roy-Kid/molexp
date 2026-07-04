@@ -24,6 +24,7 @@ from mollog import get_logger
 if TYPE_CHECKING:
     from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.schemas import ApprovalRequest, ModeResult
+    from molexp.services.plan_runtime.materialize import PlanRecordOutcome
     from molexp.workspace.experiment import Experiment
     from molexp.workspace.models import ComputeTarget
     from molexp.workspace.run import Run
@@ -65,6 +66,7 @@ class PlanTask:
         self.status: PlanTaskStatus = "running"
         self.error: BaseException | None = None
         self.workflow_persisted = False
+        self.record_outcome: PlanRecordOutcome | None = None
         self.result: ModeResult | None = None
         self.pending_requests: list[ApprovalRequest] = []
         self._gateway: AgentGateway | None = None
@@ -137,9 +139,9 @@ class PlanTask:
                 capability_registry=capability_registry,
             )
             # Persist the workflow IR + record the Agents-tab session and
-            # Knowledge note. Shared with `molexp plan` (CLI) so the Python and
-            # UI paths land identical workspace state. Blocking I/O — offloaded.
-            self.workflow_persisted = await asyncio.to_thread(
+            # Knowledge records. Shared with `molexp plan` (CLI) so the Python
+            # and UI paths land identical workspace state. Blocking I/O — offloaded.
+            outcome = await asyncio.to_thread(
                 lambda: materialize_plan_records(
                     run=self.run,
                     experiment=self.experiment,
@@ -149,6 +151,8 @@ class PlanTask:
                     model=self.model,
                 )
             )
+            self.record_outcome = outcome
+            self.workflow_persisted = outcome.workflow_persisted
             self.status = "completed"
             self.pending_requests = []
         except asyncio.CancelledError:
@@ -169,6 +173,27 @@ class PlanTask:
             self.status = "failed"
             self.error = exc
             _LOG.warning(f"[plan-task {self.task_id}] failed: {exc!r}")
+            # A terminally-failed plan still materializes: the Agents tab shows
+            # it (status failed) and a FailureAnalysis records what happened.
+            # (ApprovalPendingError never reaches here — its branch above keeps
+            # a suspension out of the failure records.)
+            from .materialize import PlanFailure
+
+            failure = PlanFailure(stage=None, error=repr(exc))
+            try:
+                self.record_outcome = await asyncio.to_thread(
+                    lambda: materialize_plan_records(
+                        run=self.run,
+                        experiment=self.experiment,
+                        workspace_root=self.workspace_root,
+                        task_id=self.task_id,
+                        draft=self.draft,
+                        model=self.model,
+                        failure=failure,
+                    )
+                )
+            except Exception as record_exc:  # pragma: no cover — records never mask the failure
+                _LOG.warning(f"[plan-task {self.task_id}] failure records failed: {record_exc!r}")
 
     def resume(self) -> None:
         """Re-drive the pipeline after a decision landed in the approval store.

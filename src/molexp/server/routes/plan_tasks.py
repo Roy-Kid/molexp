@@ -81,6 +81,7 @@ class PlanTaskResponse(BaseModel):
     workflowPersisted: bool = False
     execute: bool = False
     error: str | None = None
+    recordErrors: list[str] = Field(default_factory=list)
 
 
 class PlanTaskListResponse(BaseModel):
@@ -114,6 +115,10 @@ def _to_response(task: PlanTask, *, project_id: str, experiment_id: str) -> Plan
         workflowPersisted=task.workflow_persisted,
         execute=task.execute,
         error=repr(task.error) if task.error is not None else None,
+        recordErrors=[
+            f"{e.record}: {e.error}"
+            for e in (task.record_outcome.errors if task.record_outcome is not None else ())
+        ],
     )
 
 

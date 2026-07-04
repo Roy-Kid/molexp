@@ -77,6 +77,7 @@ from .folder import (
     WORKSPACE_RUN_KIND,
     Folder,
 )
+from .harvest import harvest_run
 from .knowledge_item import (
     KNOWLEDGE_ITEM_KIND,
     KnowledgeItem,
@@ -271,6 +272,7 @@ __all__ = [
     "effective_targets",
     "emit_workspace_event",
     "get_target",
+    "harvest_run",
     "has_target",
     "list_targets",
     "parse_target",

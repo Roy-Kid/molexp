@@ -17,15 +17,22 @@ from molexp.services.plan_runtime.gateway import (
     reset_plan_gateway_factory,
     set_plan_gateway_factory,
 )
-from molexp.services.plan_runtime.materialize import materialize_plan_records
+from molexp.services.plan_runtime.materialize import (
+    PlanFailure,
+    PlanRecordError,
+    PlanRecordOutcome,
+    materialize_plan_records,
+)
 from molexp.services.plan_runtime.persist import persist_plan_workflow_to_experiment
-from molexp.services.plan_runtime.record import record_plan_outputs
 from molexp.services.plan_runtime.registry import PlanTaskRegistry
 from molexp.services.plan_runtime.targets import resolve_plan_compute_target
 from molexp.services.plan_runtime.task import PlanTask, PlanTaskStatus
 
 __all__ = [
+    "PlanFailure",
     "PlanPreflightError",
+    "PlanRecordError",
+    "PlanRecordOutcome",
     "PlanTask",
     "PlanTaskRegistry",
     "PlanTaskStatus",
@@ -34,7 +41,6 @@ __all__ = [
     "materialize_plan_records",
     "persist_plan_workflow_to_experiment",
     "preflight_plan_router",
-    "record_plan_outputs",
     "reset_plan_gateway_factory",
     "resolve_plan_compute_target",
     "set_plan_gateway_factory",

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from molexp.harness.registry.capability_registry import CapabilityRegistry
     from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ModeResult
     from molexp.harness.store.file_artifact_store import FileArtifactStore
+    from molexp.services.plan_runtime import PlanRecordOutcome
     from molexp.workspace.run import Run
 
 __all__ = ["plan"]
@@ -149,6 +150,22 @@ class InteractiveApprover:
         has_dry = store.latest_by_kind("execution_result") is not None
         rprint(f"  workflow source generated : {has_source}")
         rprint(f"  compiled / dry-ran        : {has_dry}")
+
+
+def _print_record_errors(outcome: PlanRecordOutcome) -> None:
+    """Surface record-materialization failures loudly (never exit-code-changing).
+
+    The science and its artifacts are already safely on disk; the record layer
+    is a projection — so a broken record prints a red block naming each failed
+    record instead of silently vanishing into a log (no-silent-fallback law).
+    """
+    if not outcome.errors:
+        return
+    from molexp.cli._common import rprint
+
+    rprint("[red]record materialization failed for:[/red]")
+    for error in outcome.errors:
+        rprint(f"  - {error.record}: {error.error}")
 
 
 def _configured_model() -> str | None:
@@ -415,6 +432,21 @@ def plan(
             "re-running the same draft resumes the pipeline; artifacts a "
             "validator rejected are regenerated, not reused.[/dim]"
         )
+        # A terminally-failed plan still materializes (Agents-tab entry with
+        # status failed + a FailureAnalysis knowledge record). The suspension
+        # path above never reaches here — ApprovalPendingError is not a failure.
+        from molexp.services.plan_runtime import PlanFailure, materialize_plan_records
+
+        outcome = materialize_plan_records(
+            run=run,
+            experiment=exp,
+            workspace_root=str(workspace_root),
+            task_id=f"plan-{run.id}",
+            draft=draft_text,
+            model=resolved_model,
+            failure=PlanFailure(stage=None, error=str(exc)),
+        )
+        _print_record_errors(outcome)
         raise typer.Exit(1) from exc
 
     rprint(f"\n[green]OK[/green] all {len(plan_steps)} steps{tail_note} completed")
@@ -430,10 +462,10 @@ def plan(
     # writes — persist the workflow IR onto the experiment + record the Agents
     # session (with the deliverables locator) and Knowledge note — so a plan
     # produced here is identical, in the UI, to one generated from the web app.
-    from molexp.services.plan_runtime.materialize import materialize_plan_records
+    from molexp.services.plan_runtime import materialize_plan_records
 
     task_id = f"plan-{run.id}"
-    materialize_plan_records(
+    outcome = materialize_plan_records(
         run=run,
         experiment=exp,
         workspace_root=str(workspace_root),
@@ -441,6 +473,7 @@ def plan(
         draft=draft_text,
         model=resolved_model,
     )
+    _print_record_errors(outcome)
     rprint(f"  ui session: [bold]{task_id}[/bold] (open the Agents tab to see this plan)")
 
     if execute:

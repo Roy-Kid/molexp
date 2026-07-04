@@ -1,4 +1,4 @@
-"""Tests for ``record_plan_outputs`` — surfacing a plan on Agents + Knowledge.
+"""Tests for ``materialize_plan_records`` — surfacing a plan on Agents + Knowledge.
 
 After a PlanMode run, the plan appears as an agent-task session (Agents tab) and
 as a **sourced ``KnowledgeItem``** (integration.md §5): auto-derived knowledge is
@@ -16,7 +16,7 @@ from molexp.services.agent_task_store import (
     list_agent_task_metadata,
     read_agent_task_events,
 )
-from molexp.services.plan_runtime.record import record_plan_outputs
+from molexp.services.plan_runtime import materialize_plan_records
 from molexp.workspace import Bundle
 from molexp.workspace.knowledge_item import KnowledgeItem
 from molexp.workspace.workspace_context import assemble_workspace_context
@@ -41,11 +41,11 @@ def _seed_report(run) -> None:
     )
 
 
-def test_record_plan_outputs_writes_agent_session(workspace, experiment):
+def test_materialize_plan_records_writes_agent_session(workspace, experiment):
     run = experiment.add_run(params={"mode": "plan", "draft": "build a melt"}, id="planrec1")
     _seed_report(run)
 
-    record_plan_outputs(
+    materialize_plan_records(
         run=run,
         experiment=experiment,
         workspace_root=str(workspace.root),
@@ -66,7 +66,7 @@ def test_plan_record_is_sourced_knowledge_item(workspace, experiment):
     run = experiment.add_run(params={"mode": "plan", "draft": "build a melt"}, id="planrec2")
     _seed_report(run)
 
-    record_plan_outputs(
+    materialize_plan_records(
         run=run,
         experiment=experiment,
         workspace_root=str(workspace.root),
@@ -96,7 +96,7 @@ def test_plan_record_surfaced_in_workspace_context(workspace, experiment):
     run = experiment.add_run(params={"mode": "plan", "draft": "build a melt"}, id="planrec5")
     _seed_report(run)
 
-    record_plan_outputs(
+    materialize_plan_records(
         run=run,
         experiment=experiment,
         workspace_root=str(workspace.root),
@@ -111,14 +111,14 @@ def test_plan_record_surfaced_in_workspace_context(workspace, experiment):
     assert any(k.title == "Melt plan" for k in refs)
 
 
-def test_record_plan_outputs_writes_session_transcript(workspace, experiment):
+def test_materialize_plan_records_writes_session_transcript(workspace, experiment):
     # The plan session carries a synthesized transcript: a step per pipeline
     # stage + a final answer with the spec/workflow — so the session view is the
     # single home for the whole flow.
     run = experiment.add_run(params={"mode": "plan", "draft": "build a melt"}, id="planrec4")
     _seed_report(run)
 
-    record_plan_outputs(
+    materialize_plan_records(
         run=run,
         experiment=experiment,
         workspace_root=str(workspace.root),
@@ -135,11 +135,11 @@ def test_record_plan_outputs_writes_session_transcript(workspace, experiment):
     assert "Melt plan" in answer  # the spec title is in the transcript
 
 
-def test_record_plan_outputs_no_report_still_writes_session(workspace, experiment):
+def test_materialize_plan_records_no_report_still_writes_session(workspace, experiment):
     # A plan run with no experiment_report still lists as a session (no knowledge item).
     run = experiment.add_run(params={"mode": "plan", "draft": "x"}, id="planrec3")
 
-    record_plan_outputs(
+    materialize_plan_records(
         run=run,
         experiment=experiment,
         workspace_root=str(workspace.root),

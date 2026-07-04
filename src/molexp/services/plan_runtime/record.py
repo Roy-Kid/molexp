@@ -1,15 +1,19 @@
-"""Surface a completed PlanMode run on the Agents + Knowledge tabs.
+"""Surface a PlanMode run on the Agents + Knowledge tabs.
 
-After PlanMode finishes, two records make the AI activity visible in the UI:
+Five raising writers make the AI activity visible in the UI — the agent-task
+entry + session transcript (Agents tab), and three typed ``KnowledgeItem``
+records mounted under the experiment (Knowledge graph): the ``Decision``
+experiment record, the ``Finding`` harvested from an execute tail's
+``final_report``, and the ``FailureAnalysis`` for a terminally-failed plan.
 
-1. an **agent-task session** entry (``agent_tasks/<task_id>/metadata.json``) so the
-   plan shows in the Agents tab session list alongside chat tasks; and
-2. a **Knowledge experiment-record** ``Note`` (an OKF Concept under the
-   experiment) rendered from the ``experiment_report`` so the Knowledge tab shows
-   a readable record of what was planned.
-
-Both writes are best-effort: a failure here is logged and swallowed so it never
-fails the plan run itself.
+Each writer RAISES on failure — with ONE deliberate exception: a failed
+provenance ``cite`` edge is warn-logged, never fatal, because the meta + body
+already written must not be lost over a missing link. Everything else raises. The
+per-record catch lives in :func:`materialize_plan_records`, which collects
+failures into a structured ``PlanRecordOutcome`` (one broken record never
+aborts its siblings, and the caller decides how loudly to surface it). The
+record layer stays a projection: record errors never flip the plan's own
+exit code, but they are always visible.
 """
 
 from __future__ import annotations
@@ -23,59 +27,68 @@ from mollog import get_logger
 
 if TYPE_CHECKING:
     from molexp.workspace.experiment import Experiment
+    from molexp.workspace.knowledge_item import KnowledgeItem
     from molexp.workspace.run import Run
 
-__all__ = ["record_plan_outputs"]
+__all__ = [
+    "has_artifact",
+    "write_agent_task_record",
+    "write_experiment_record",
+    "write_failure_analysis_record",
+    "write_finding_record",
+    "write_session_events_record",
+]
 
 _LOG = get_logger(__name__)
 
 
-def record_plan_outputs(
+def write_agent_task_record(
+    *,
+    run: Run,
+    workspace_root: str,
+    task_id: str,
+    draft: str,
+    failed: bool = False,
+) -> None:
+    """Write the Agents-tab task entry (status ``failed`` for a failed plan)."""
+    report = _read_artifact_json(run, "experiment_report")
+    title = _title(report, draft, run.id)
+    _write_agent_task(
+        workspace_root, task_id=task_id, title=title, draft=draft, run=run, failed=failed
+    )
+
+
+def write_session_events_record(
     *,
     run: Run,
     experiment: Experiment,
     workspace_root: str,
     task_id: str,
     draft: str,
-    model: str,
 ) -> None:
-    """Write the agent-task session + Knowledge experiment-record for a plan run."""
-    report = _read_experiment_report(run)
-    title = _title(report, draft, run.id)
-
-    try:
-        _write_agent_task(workspace_root, task_id=task_id, title=title, draft=draft, run=run)
-        _write_session_events(
-            workspace_root,
-            task_id=task_id,
-            run=run,
-            experiment=experiment,
-            draft=draft,
-            report=report,
-        )
-    except Exception as exc:
-        _LOG.warning(f"[plan-record {run.id}] agent-task entry failed: {exc!r}")
-
-    if report is not None:
-        try:
-            _write_experiment_record(
-                workspace_root,
-                experiment,
-                run,
-                title=title,
-                draft=draft,
-                report=report,
-                model=model,
-            )
-        except Exception as exc:
-            _LOG.warning(f"[plan-record {run.id}] knowledge note failed: {exc!r}")
+    """Write the synthesized session transcript the Agents session view renders."""
+    report = _read_artifact_json(run, "experiment_report")
+    _write_session_events(
+        workspace_root,
+        task_id=task_id,
+        run=run,
+        experiment=experiment,
+        draft=draft,
+        report=report,
+    )
 
 
 # ── agent-task session ───────────────────────────────────────────────────────
 
 
 def _write_agent_task(
-    workspace_root: str, *, task_id: str, title: str, draft: str, run: Run
+    workspace_root: str,
+    *,
+    task_id: str,
+    title: str,
+    draft: str,
+    run: Run,
+    failed: bool = False,
 ) -> None:
     from molexp.services.agent_task_store import (
         PersistedAgentTask,
@@ -83,6 +96,10 @@ def _write_agent_task(
     )
 
     created = _created_at(run)
+    if failed:
+        status = "failed"
+    else:
+        status = run.status if run.status in {"succeeded", "failed"} else "completed"
     write_agent_task_metadata(
         workspace_root,
         PersistedAgentTask(
@@ -90,7 +107,7 @@ def _write_agent_task(
             session_id=task_id,
             title=title,
             goal=draft,
-            status=run.status if run.status in {"succeeded", "failed"} else "completed",
+            status=status,
             created_at=created,
             updated_at=datetime.now(UTC).isoformat(),
             plan_mode=True,
@@ -98,7 +115,7 @@ def _write_agent_task(
     )
 
 
-# The nine PlanMode steps (artifact kind → step label). The session transcript
+# The nine PlanMode steps + the execute tail (artifact kind → step label). The session transcript
 # emits one event per kind present, and the UI progress rail keys its per-step
 # "done" state on these artifact kinds — so this list mirrors the rail's
 # ``planStages.ts`` order exactly. Each step is keyed on the representative
@@ -204,19 +221,25 @@ def _artifact_kinds(run: Run) -> list[str]:
 # ── knowledge experiment-record note ─────────────────────────────────────────
 
 
-def _write_experiment_record(
-    workspace_root: str,
-    experiment: Experiment,
-    run: Run,
+def write_experiment_record(
     *,
-    title: str,
+    run: Run,
+    experiment: Experiment,
     draft: str,
-    report: dict[str, Any],
     model: str,
-) -> None:
-    from molexp.workspace import Workspace
+) -> KnowledgeItem:
+    """Write the Decision-kind experiment record; returns the KnowledgeItem.
+
+    Raises when no ``experiment_report`` artifact exists — the record renders
+    from it, and a missing report is the caller's signal to skip this writer
+    (checked via :func:`has_artifact`), never a silent no-op.
+    """
     from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
 
+    report = _read_artifact_json(run, "experiment_report")
+    if report is None:
+        raise ValueError(f"run {run.id} has no experiment_report artifact to record")
+    title = _title(report, draft, run.id)
     tasks = _read_workflow_tasks(experiment)
     source = _read_workflow_source(run)
     body = _render_markdown(
@@ -231,26 +254,24 @@ def _write_experiment_record(
         source=source,
     )
     # Auto-derived project knowledge is a TYPED, SOURCE-ATTRIBUTED KnowledgeItem —
-    # not an unsourced free-form Note (integration.md §5, invariant #4). Mount it
-    # at the WORKSPACE ROOT (idempotent on the slugified name): mounting under the
-    # nested Experiment trips a Bundle path-doubling bug for deeply-nested
-    # concepts, and the experiment id is encoded in the name + the body.
-    ws = Workspace(root=Path(workspace_root), name=Path(workspace_root).name)
-    item = ws.add_folder(
-        KnowledgeItem(parent=ws, name=f"experiment-record-{experiment.id}-{run.id}")
-    )
-    # ≥1 SourceRef is required (KnowledgeMeta rejects an empty list): the plan run
-    # and its experiment, plus the content-addressed experiment_report the record
-    # renders from, when present.
+    # not an unsourced free-form Note (integration.md §5, invariant #4). Mounted
+    # at its natural home — the owning EXPERIMENT (the vision-loop-04 nested-mount
+    # closure proves the whole Bundle verb surface for this shape).
+    item = experiment.add_folder(KnowledgeItem(name=f"experiment-record-{experiment.id}-{run.id}"))
     sources = [
         SourceRef(kind="run", ref=run.id),
         SourceRef(kind="experiment", ref=experiment.id),
     ]
-    report_ref = _experiment_report_ref(run)
+    report_ref = _artifact_ref_id(run, "experiment_report")
     if report_ref is not None:
         sources.append(SourceRef(kind="artifact", ref=report_ref))
     item.write_knowledge_meta(
-        KnowledgeMeta(kind="Decision", sources=sources, created_by=f"PlanMode/{model}")
+        KnowledgeMeta(
+            kind="Decision",
+            sources=sources,
+            created_by=f"PlanMode/{model}",
+            timestamp=datetime.now(UTC),
+        )
     )
     item.set_body(body)
     # A typed provenance out-edge to the in-tree run makes the item reachable from
@@ -260,6 +281,137 @@ def _write_experiment_record(
         item.cite(run, role="derived_from")
     except Exception as exc:
         _LOG.warning(f"[plan-record {run.id}] provenance edge to run failed: {exc!r}")
+    return item
+
+
+def write_finding_record(
+    *,
+    run: Run,
+    experiment: Experiment,
+    draft: str,
+    model: str,
+) -> KnowledgeItem:
+    """Write the Finding from the execute tail's ``final_report``.
+
+    Raises when no ``final_report`` exists (caller gates via
+    :func:`has_artifact`). Sources cite the run, the experiment, and the
+    exact final_report (+ audit_report when present) artifacts; a
+    ``references`` edge connects the Finding to the Decision record when
+    that record exists — plan → outcome stays traversable.
+    """
+    from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
+
+    final_report = _read_artifact_json(run, "final_report")
+    if final_report is None:
+        raise ValueError(f"run {run.id} has no final_report artifact to harvest")
+    title = _title(final_report, draft, run.id)
+    item = experiment.add_folder(KnowledgeItem(name=f"finding-{experiment.id}-{run.id}"))
+    sources = [
+        SourceRef(kind="run", ref=run.id),
+        SourceRef(kind="experiment", ref=experiment.id),
+    ]
+    for kind in ("final_report", "audit_report"):
+        ref_id = _artifact_ref_id(run, kind)
+        if ref_id is not None:
+            sources.append(SourceRef(kind="artifact", ref=ref_id))
+    item.write_knowledge_meta(
+        KnowledgeMeta(
+            kind="Finding",
+            sources=sources,
+            created_by=f"PlanMode/{model}",
+            timestamp=datetime.now(UTC),
+        )
+    )
+    lines = [f"# Finding: {title}", ""]
+    for key, label in _FINAL_REPORT_FIELDS:
+        block = _render_value(final_report.get(key))
+        if block:
+            lines += [f"## {label}", "", block, ""]
+    item.set_body("\n".join(lines).rstrip() + "\n")
+    try:
+        item.cite(run, role="derived_from")
+    except Exception as exc:
+        _LOG.warning(f"[plan-record {run.id}] finding edge to run failed: {exc!r}")
+    try:
+        decision = experiment.get_folder(
+            f"experiment-record-{experiment.id}-{run.id}", cls=KnowledgeItem
+        )
+    except Exception:
+        decision = None  # no Decision record (its write raced/failed) — Finding stands alone
+    if decision is not None:
+        try:
+            item.cite(decision, role="references")
+        except Exception as exc:
+            _LOG.warning(f"[plan-record {run.id}] references edge to Decision failed: {exc!r}")
+    return item
+
+
+def write_failure_analysis_record(
+    *,
+    run: Run,
+    experiment: Experiment,
+    model: str,
+    failure_stage: str | None,
+    failure_error: str,
+) -> KnowledgeItem:
+    """Write the FailureAnalysis for a plan that terminally failed.
+
+    Never called for an approval suspension — a suspension is not a failure
+    (the callers carve ``ApprovalPendingError`` out before reaching this).
+    """
+    from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
+
+    item = experiment.add_folder(KnowledgeItem(name=f"failure-{experiment.id}-{run.id}"))
+    item.write_knowledge_meta(
+        KnowledgeMeta(
+            kind="FailureAnalysis",
+            sources=[
+                SourceRef(kind="run", ref=run.id),
+                SourceRef(kind="experiment", ref=experiment.id),
+            ],
+            created_by=f"PlanMode/{model}",
+            timestamp=datetime.now(UTC),
+        )
+    )
+    completed = _artifact_kinds(run)
+    lines = [
+        f"# Failure analysis: plan run {run.id}",
+        "",
+        f"failed stage: {failure_stage or 'unknown'}",
+        "",
+        "## Error",
+        "",
+        failure_error.strip() or "(no error text)",
+        "",
+        "## Completed before the failure",
+        "",
+        ("\n".join(f"- {kind}" for kind in completed) if completed else "(no artifacts)"),
+        "",
+        "## Resume",
+        "",
+        "Re-running the same draft resumes the stage ledger from here; artifacts "
+        "a validator rejected are regenerated, not reused.",
+    ]
+    item.set_body("\n".join(lines).rstrip() + "\n")
+    try:
+        item.cite(run, role="derived_from")
+    except Exception as exc:
+        _LOG.warning(f"[plan-record {run.id}] failure edge to run failed: {exc!r}")
+    return item
+
+
+_FINAL_REPORT_FIELDS: list[tuple[str, str]] = [
+    ("conclusion", "Conclusion"),
+    ("hypothesis_verdict", "Hypothesis verdict"),
+    ("summary", "Summary"),
+    ("metrics", "Metrics"),
+    ("caveats", "Caveats"),
+]
+
+
+def has_artifact(run: Run, kind: str) -> bool:
+    """Whether the run's artifact store holds at least one *kind* artifact."""
+    return _artifact_ref_id(run, kind) is not None
 
 
 def _read_workflow_tasks(experiment: Experiment) -> list[str]:
@@ -279,32 +431,17 @@ def _read_workflow_tasks(experiment: Experiment) -> list[str]:
     ]
 
 
-def _experiment_report_ref(run: Run) -> str | None:
-    """The content-addressed id of the run's latest ``experiment_report`` artifact.
-
-    Used as an ``artifact`` :class:`SourceRef` on the plan-record KnowledgeItem so
-    the record cites the exact report it renders from. ``None`` if absent.
-    """
+def _artifact_ref_id(run: Run, kind: str) -> str | None:
+    """The content-addressed id of the run's latest *kind* artifact (or None)."""
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
     store = FileArtifactStore(root=Path(run.run_dir) / "artifacts")
-    ref = store.latest_by_kind("experiment_report")
+    ref = store.latest_by_kind(kind)
     return ref.id if ref is not None else None
 
 
 def _read_workflow_source(run: Run) -> str | None:
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-    root = Path(run.run_dir) / "artifacts"
-    store = FileArtifactStore(root=root)
-    ref = store.latest_by_kind("workflow_source")
-    if ref is None:
-        return None
-    direct = root / "workflow_source" / f"{ref.id}.json"
-    try:
-        data = json.loads(direct.read_text())
-    except (OSError, ValueError, TypeError):
-        return None
+    data = _read_artifact_json(run, "workflow_source")
     source = data.get("source") if isinstance(data, dict) else None
     return source if isinstance(source, str) else None
 
@@ -385,7 +522,7 @@ def _render_value(value: object) -> str:
     return str(value)
 
 
-def _render_dict(value: dict[str, Any]) -> str:
+def _render_dict(value: dict) -> str:  # gradual: values come from isinstance-narrowed object
     return "; ".join(f"**{k}**: {v}" for k, v in value.items())
 
 
@@ -408,15 +545,16 @@ def _created_at(run: Run) -> str:
         return datetime.now(UTC).isoformat()
 
 
-def _read_experiment_report(run: Run) -> dict[str, Any] | None:
+def _read_artifact_json(run: Run, kind: str) -> dict[str, Any] | None:
+    """The run's latest *kind* artifact parsed as a JSON object (or None)."""
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
     root = Path(run.run_dir) / "artifacts"
     store = FileArtifactStore(root=root)
-    ref = store.latest_by_kind("experiment_report")
+    ref = store.latest_by_kind(kind)
     if ref is None:
         return None
-    direct = root / "experiment_report" / f"{ref.id}.json"
+    direct = root / kind / f"{ref.id}.json"
     raw: str | bytes | None = None
     try:
         raw = direct.read_text()

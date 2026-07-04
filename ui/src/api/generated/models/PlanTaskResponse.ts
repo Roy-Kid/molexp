@@ -13,6 +13,7 @@ export type PlanTaskResponse = {
     experimentId: string;
     model: string;
     projectId: string;
+    recordErrors?: Array<string>;
     runId: string;
     status: string;
     taskId: string;

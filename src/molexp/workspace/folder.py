@@ -488,7 +488,7 @@ class Folder:
         # is sound at the call sites but not statically checkable here.
         return cls(parent=self, name=name, **kwargs)  # ty: ignore[invalid-argument-type]
 
-    def add_folder(self, child: Folder) -> Folder:
+    def add_folder(self, child: F) -> F:
         # Accept an unmounted child, or one already parented at ``self`` (the
         # typed ``add_*`` sugar builds self-parented children via
         # ``_construct_child``). Reject a child mounted elsewhere or a root.
@@ -503,12 +503,14 @@ class Folder:
         slug = child._name
         cached = self._children_cache.get(slug)
         if cached is not None and cached._kind == child._kind:
-            return cached
+            # Cache/disk hits reconstruct through type(child), so the narrow
+            # return type is truthful (add_folder is generic like get_folder).
+            return cast("F", cached)
         child_dir = target_cls.child_dir(self, slug)
         if self._fs.is_dir(child_dir):
             existing = target_cls.from_disk(child_dir, self)
             self._children_cache[slug] = existing
-            return existing
+            return cast("F", existing)
         child._parent = self
         child._root_path = None
         child._fs = self._fs
