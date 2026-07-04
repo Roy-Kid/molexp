@@ -121,6 +121,10 @@ def test_generate_experiment_spec(tmp_path: Path) -> None:
 
     ctx = _ctx(tmp_path, with_stub=True)
     report = _seed_report(ctx.artifact_store, user_questions=["which water model?"])
+    # AssembleKnowledgeContext always precedes this stage in the pipeline.
+    ctx.artifact_store.put_text(
+        kind="knowledge_context", text="no prior knowledge", created_by="seed", parent_ids=[]
+    )
     ctx.agent_gateway.register(
         agent_name="experiment_spec_generator",
         output=_spec_obj(resolved=[{"question": "which water model?", "answer": "SPC/E"}]),

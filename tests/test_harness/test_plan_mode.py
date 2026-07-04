@@ -258,6 +258,7 @@ class TestPlanModeShape:
         names = [s.name for s in PlanMode().stages("draft")]
         assert names == [
             "save_user_plan",
+            "assemble_knowledge_context",  # prior-knowledge digest (vision-loop-05)
             "generate_experiment_report",
             "generate_experiment_spec",
             "approve_experiment_spec",  # human approves the spec BEFORE the IR is built

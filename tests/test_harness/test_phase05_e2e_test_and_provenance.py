@@ -53,6 +53,9 @@ def _run_pipeline_and_return_refs(tmp_path: Path):
 
     runner = StageRunner(ctx)
     user_plan_ref = asyncio.run(runner.run_stage(SaveUserPlan(user_text="Simulate water at 300K")))
+    ctx.artifact_store.put_text(
+        kind="knowledge_context", text="no prior knowledge", created_by="seed", parent_ids=[]
+    )
     report_ref = asyncio.run(runner.run_stage(GenerateExperimentReport()))
     return ctx, user_plan_ref, report_ref
 

@@ -106,6 +106,9 @@ class TestPhase07E2EPipeline:
         user_plan_ref = asyncio.run(
             runner.run_stage(SaveUserPlan(user_text="Simulate water at 300K"))
         )
+        ctx.artifact_store.put_text(
+            kind="knowledge_context", text="no prior knowledge", created_by="seed", parent_ids=[]
+        )
         report_ref = asyncio.run(runner.run_stage(GenerateExperimentReport()))
         spec_ref = asyncio.run(runner.run_stage(GenerateExperimentSpec()))
         workflow_ir_ref = asyncio.run(runner.run_stage(ExtractWorkflowIR()))
@@ -118,17 +121,25 @@ class TestPhase07E2EPipeline:
         assert validation_ref.kind == "validation_report"
 
         # Chain: validation_report → workflow_ir → experiment_spec → experiment_report
-        #        → user_plan → raw_text
+        #        → {user_plan, knowledge_context} → raw_text
+        # (the report + spec each also cite the vision-loop-05 knowledge digest)
         ancestors = ctx.lineage_store.trace_backward(validation_ref.id)
-        assert len(ancestors) == 5
+        # 6 unique nodes: the shared knowledge_context dedups across report+spec.
+        assert len(ancestors) == 6
         ids_in_order = [r.id for r in ancestors]
         assert ids_in_order[0] == workflow_ir_ref.id
         assert ids_in_order[1] == spec_ref.id
-        assert ids_in_order[2] == report_ref.id
-        assert ids_in_order[3] == user_plan_ref.id
-        raw_ref = ctx.artifact_store.get_ref(ids_in_order[4])
-        assert raw_ref.kind == "user_plan"  # raw text + structured both share the user_plan kind
-        assert raw_ref.parent_ids == []
+        assert report_ref.id in ids_in_order
+        assert user_plan_ref.id in ids_in_order
+        kinds = {ctx.artifact_store.get_ref(i).kind for i in ids_in_order}
+        assert "knowledge_context" in kinds
+        raw_candidates = [
+            ctx.artifact_store.get_ref(i)
+            for i in ids_in_order
+            if ctx.artifact_store.get_ref(i).kind == "user_plan" and i != user_plan_ref.id
+        ]
+        assert len(raw_candidates) == 1  # the raw-text audit anchor
+        assert raw_candidates[0].parent_ids == []
 
     def test_event_log_contains_one_quartet_per_stage(self, tmp_path: Path) -> None:
         from molexp.harness import (
@@ -181,6 +192,9 @@ class TestPhase07E2EPipeline:
         )
         runner = StageRunner(ctx)
         asyncio.run(runner.run_stage(SaveUserPlan(user_text="hi")))
+        ctx.artifact_store.put_text(
+            kind="knowledge_context", text="no prior knowledge", created_by="seed", parent_ids=[]
+        )
         asyncio.run(runner.run_stage(GenerateExperimentReport()))
         asyncio.run(runner.run_stage(GenerateExperimentSpec()))
         asyncio.run(runner.run_stage(ExtractWorkflowIR()))

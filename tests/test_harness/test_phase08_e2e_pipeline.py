@@ -127,6 +127,9 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
     runner = StageRunner(ctx)
 
     user_plan = asyncio.run(runner.run_stage(SaveUserPlan(user_text="Simulate water")))
+    ctx.artifact_store.put_text(
+        kind="knowledge_context", text="no prior knowledge", created_by="seed", parent_ids=[]
+    )
     report = asyncio.run(runner.run_stage(GenerateExperimentReport()))
     asyncio.run(runner.run_stage(GenerateExperimentSpec()))
     workflow_ir = asyncio.run(runner.run_stage(ExtractWorkflowIR()))

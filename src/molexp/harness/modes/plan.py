@@ -4,7 +4,8 @@ The one concrete :class:`~molexp.harness.mode.Mode`. It turns a short
 natural-language experiment draft into a fully-verified, reviewed plan plus
 a descriptive execution report, in nine visible steps:
 
-    1. Draft proposal   SaveUserPlan -> GenerateExperimentReport
+    1. Draft proposal   SaveUserPlan -> AssembleKnowledgeContext
+                         -> GenerateExperimentReport
     2. Draft spec        GenerateExperimentSpec -> ValidateExperimentSpec
                          -> ApprovalGate(experiment_spec)   # human approves the
                             concrete spec BEFORE it is compiled into a workflow
@@ -57,6 +58,7 @@ from molexp.harness.schemas import ApprovalRequest
 from molexp.harness.stages import (
     ApprovalGate,
     Approver,
+    AssembleKnowledgeContext,
     BindMolcraftsTasks,
     CompileWorkflow,
     ExecuteTests,
@@ -137,7 +139,13 @@ class PlanMode(Mode):
             # 1. Draft proposal — capture the request, draft a human-readable report.
             PlanStep(
                 "Draft proposal",
-                [SaveUserPlan(user_text=str(user_input)), GenerateExperimentReport()],
+                [
+                    SaveUserPlan(user_text=str(user_input)),
+                    # Prior knowledge becomes a first-class artifact BEFORE the
+                    # writers run — the knowledge→plan lineage edge is real.
+                    AssembleKnowledgeContext(),
+                    GenerateExperimentReport(),
+                ],
             ),
             # 2. Draft spec — concretize every parameter, resolve open questions.
             # The spec approval gate lets the human approve the concrete spec

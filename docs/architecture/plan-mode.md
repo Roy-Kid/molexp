@@ -36,7 +36,7 @@ edge with its stage plus the workspace `run_id`.
 
 ```mermaid
 flowchart TD
-    A["Experiment draft"] --> S1["1 Draft proposal<br/>SaveUserPlan → GenerateExperimentReport"]
+    A["Experiment draft"] --> S1["1 Draft proposal<br/>SaveUserPlan → AssembleKnowledgeContext → GenerateExperimentReport"]
     S1 --> S2["2 Draft spec<br/>GenerateExperimentSpec → ValidateExperimentSpec"]
     S2 --> S3["3 Resolve capabilities<br/>ResolveCapabilities"]
     S3 --> S4["4 Workflow IR<br/>ExtractWorkflowIR → ValidateWorkflowIR"]

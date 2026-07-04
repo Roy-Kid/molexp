@@ -33,9 +33,14 @@ class GenerateExperimentSpec(Stage):
         if ctx.agent_gateway is None:
             raise StageExecutionError("GenerateExperimentSpec requires ctx.agent_gateway to be set")
         report = require_latest(ctx, "experiment_report", stage=self.name)
+        knowledge = require_latest(ctx, "knowledge_context", stage=self.name)
         spec = AgentCallSpec(
             agent_name="experiment_spec_generator",
-            input_artifact_ids=[report.id, *feedback_inputs(ctx, "experiment_spec_feedback")],
+            input_artifact_ids=[
+                report.id,
+                knowledge.id,
+                *feedback_inputs(ctx, "experiment_spec_feedback"),
+            ],
             output_schema=ExperimentSpec.model_json_schema(),
         )
         result = await ctx.agent_gateway.call(spec)

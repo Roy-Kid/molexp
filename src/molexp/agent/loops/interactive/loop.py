@@ -13,7 +13,9 @@ each :data:`AgenticChunk` to the injected sink as the corresponding
   to the session entry-tree; emitted as ``LoopCompletedEvent``)
 
 Read-only tools are pulled from
-:func:`~molexp.agent.loops.interactive.tools.readonly_tools` and passed
+:func:`~molexp.agent.loops.interactive.tools.readonly_tools` plus the
+knowledge tools (:func:`~molexp.agent.loops.interactive.knowledge_tools.knowledge_tools`,
+five callables total) and passed
 to ``stream_agentic`` as the ``tools=`` kwarg; the loop body itself is
 pydantic-ai's native ``Agent.iter()``, reached through the Router
 Protocol — this module imports nothing from pydantic-ai directly.
@@ -44,6 +46,7 @@ from molexp.agent.events import (
 )
 from molexp.agent.loop import AgentLoop, AgentRunResult
 from molexp.agent.loops._compact import maybe_compact
+from molexp.agent.loops.interactive.knowledge_tools import knowledge_tools
 from molexp.agent.loops.interactive.tools import readonly_tools
 from molexp.agent.router import (
     FinalChunk,
@@ -109,7 +112,11 @@ class InteractiveLoop(AgentLoop):
         )
 
         workspace = self.config.workspace_root or Path.cwd()
-        tools = tuple(readonly_tools(workspace_root=workspace))
+        # File tools + knowledge tools: the model can inspect raw files AND
+        # query the workspace's typed knowledge base (vision-loop-05 channel).
+        tools = tuple(readonly_tools(workspace_root=workspace)) + tuple(
+            knowledge_tools(workspace_root=workspace)
+        )
 
         final_text = ""
         async for chunk in runtime.router.stream_agentic(

@@ -43,6 +43,14 @@ def ctx(tmp_path: Path):
 @pytest.fixture()
 def user_plan_ref(ctx):
     """Seed a user_plan artifact the stage will reference as upstream."""
+    # The pipeline's AssembleKnowledgeContext always precedes this stage —
+    # standalone stage tests seed the knowledge_context artifact it provides.
+    ctx.artifact_store.put_text(
+        kind="knowledge_context",
+        text="no prior knowledge recorded in this workspace",
+        created_by="seed",
+        parent_ids=[],
+    )
     return ctx.artifact_store.put_json(
         kind="user_plan",
         obj={"raw_text": "simulate water", "submitted_at": "2026-05-26T00:00:00Z"},
@@ -98,7 +106,9 @@ def test_generate_experiment_report_builds_correct_spec(ctx, user_plan_ref, stub
     assert len(captured) == 1
     spec = captured[0]
     assert spec.agent_name == "experiment_report_writer"
-    assert spec.input_artifact_ids == [user_plan_ref.id]
+    # user_plan first, then the knowledge_context digest (vision-loop-05).
+    assert spec.input_artifact_ids[0] == user_plan_ref.id
+    assert len(spec.input_artifact_ids) == 2
     assert spec.output_schema == ExperimentReport.model_json_schema()
 
 

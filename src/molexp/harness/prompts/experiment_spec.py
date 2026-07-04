@@ -25,4 +25,5 @@ SYSTEM_PROMPT = (
     "If the input includes a VALIDATION REPORT from a previous attempt (a JSON "
     "object with `violations`), this is a REVISION: produce a corrected "
     "ExperimentSpec that fixes every listed violation."
+    "\n\nA prior-knowledge digest from this workspace may accompany the draft. Ground your writing in it: treat FailureAnalysis items as known pitfalls the design must avoid, Findings as established results not to re-derive, and Decisions/Constraints as standing choices to respect. When a prior item shapes a decision, cite its path in your text."
 )

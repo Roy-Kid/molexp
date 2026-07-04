@@ -37,9 +37,10 @@ class GenerateExperimentReport(Stage):
                 "GenerateExperimentReport requires ctx.agent_gateway to be set"
             )
         user_plan = require_latest(ctx, "user_plan", stage=self.name)
+        knowledge = require_latest(ctx, "knowledge_context", stage=self.name)
         spec = AgentCallSpec(
             agent_name="experiment_report_writer",
-            input_artifact_ids=[user_plan.id],
+            input_artifact_ids=[user_plan.id, knowledge.id],
             output_schema=ExperimentReport.model_json_schema(),
         )
         result = await ctx.agent_gateway.call(spec)

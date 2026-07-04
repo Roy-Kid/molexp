@@ -64,15 +64,23 @@ def test_e2e_pipeline_three_layer_provenance(ctx) -> None:
 
     runner = StageRunner(ctx)
     user_plan_ref = asyncio.run(runner.run_stage(SaveUserPlan(user_text="Simulate water at 300K")))
+    ctx.artifact_store.put_text(
+        kind="knowledge_context", text="no prior knowledge", created_by="seed", parent_ids=[]
+    )
     report_ref = asyncio.run(runner.run_stage(GenerateExperimentReport()))
 
     # Three-layer chain: raw_text → user_plan → experiment_report.
     ancestors = ctx.lineage_store.trace_backward(report_ref.id)
-    assert len(ancestors) == 2
+    # user_plan + knowledge_context (vision-loop-05 grounding input) + raw text.
+    assert len(ancestors) == 3
     ids_in_order = [r.id for r in ancestors]
     # BFS: first the immediate parent (user_plan_ref), then the raw text.
     assert ids_in_order[0] == user_plan_ref.id
-    raw_text_id = ids_in_order[1]
+    raw_text_id = next(
+        r.id
+        for r in ancestors
+        if ctx.artifact_store.get_ref(r.id).kind == "user_plan" and r.id != user_plan_ref.id
+    )
     raw_ref = ctx.artifact_store.get_ref(raw_text_id)
     assert raw_ref.kind == "user_plan"  # both raw and structured share kind
     # The raw artifact has no parents (it's the audit anchor).
@@ -99,6 +107,9 @@ def test_e2e_event_log_contains_two_stage_quartets(ctx) -> None:
     object.__setattr__(ctx, "_frozen", True)
     runner = StageRunner(ctx)
     asyncio.run(runner.run_stage(SaveUserPlan(user_text="hi")))
+    ctx.artifact_store.put_text(
+        kind="knowledge_context", text="no prior knowledge", created_by="seed", parent_ids=[]
+    )
     asyncio.run(runner.run_stage(GenerateExperimentReport()))
     events = ctx.event_log.list_events("run-e2e")
     types = [e.type for e in events]

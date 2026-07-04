@@ -10,6 +10,7 @@ event emission and artifact-lineage wiring around them.
 from __future__ import annotations
 
 from molexp.harness.stages.approval_gate import ApprovalGate, Approver, auto_grant_approver
+from molexp.harness.stages.assemble_knowledge_context import AssembleKnowledgeContext
 from molexp.harness.stages.bind_molcrafts_tasks import BindMolcraftsTasks
 from molexp.harness.stages.compile_workflow import CompileWorkflow
 from molexp.harness.stages.execute_tests import ExecuteTests
@@ -41,6 +42,7 @@ from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSourc
 __all__ = [
     "ApprovalGate",
     "Approver",
+    "AssembleKnowledgeContext",
     "BindMolcraftsTasks",
     "CompileWorkflow",
     "ExecuteTests",

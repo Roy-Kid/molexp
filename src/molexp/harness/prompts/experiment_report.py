@@ -16,4 +16,5 @@ SYSTEM_PROMPT = (
     "$r_{\\min} = 2^{1/6}\\,\\sigma$, $V_{LJ}(r) = "
     "4\\varepsilon[(\\sigma/r)^{12} - (\\sigma/r)^{6}]$) — never as plain "
     "Unicode math; the molexp UI renders dollar-delimited LaTeX with KaTeX."
+    "\n\nA prior-knowledge digest from this workspace may accompany the draft. Ground your writing in it: treat FailureAnalysis items as known pitfalls the design must avoid, Findings as established results not to re-derive, and Decisions/Constraints as standing choices to respect. When a prior item shapes a decision, cite its path in your text."
 )
