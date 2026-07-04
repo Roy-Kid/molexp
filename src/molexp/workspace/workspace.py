@@ -204,7 +204,9 @@ class Workspace(Folder):
     def data_assets(self) -> DataAssetLibrary:
         """Library for importing ``DataAsset`` inputs."""
         if self._data_assets is None:
-            self._data_assets = DataAssetLibrary(self.root, self.scope)
+            self._data_assets = DataAssetLibrary(
+                self.root, self.scope, event_root=_LocalPath(str(self.root))
+            )
         return self._data_assets
 
     # ── System folder accessors (singletons via lowercase property) ──────

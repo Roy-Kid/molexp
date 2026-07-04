@@ -100,6 +100,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(preview.router)
     api_router.include_router(catalog.router)
     api_router.include_router(workspace.router)
+    api_router.include_router(workspace.events_router)
     api_router.include_router(workspaces.router)
     api_router.include_router(registry.router)
     api_router.include_router(execution.router)

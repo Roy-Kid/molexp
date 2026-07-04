@@ -33,7 +33,7 @@ from molexp.services.plan_runtime import (
     materialize_plan_records,
 )
 from molexp.workspace import Bundle, Workspace
-from molexp.workspace.knowledge_item import KnowledgeItem
+from molexp.workspace.knowledge_item import KNOWLEDGE_ITEM_KIND, KnowledgeItem
 
 _DRAFT = "Simulate NEMD ionic mobility"
 _MODEL = "stub-model"
@@ -193,6 +193,37 @@ class TestRecordMountAndTimestamp:
         assert len(items) >= 2, [i.name for i in items]  # Decision + Finding
         for item in items:
             assert item.read_knowledge_meta().timestamp is not None, item.name
+
+
+# ── event spine (vision-loop-12): the record write is a knowledge.created emit ─
+
+
+class TestExperimentRecordEventEmit:
+    def test_writing_the_experiment_record_emits_knowledge_created(
+        self, workspace: Workspace, run: Any, experiment: Any
+    ) -> None:
+        """The Decision-record write lands exactly one ``knowledge.created`` on
+        the workspace event spine: actor ``plan-record``, ref = the item's
+        workspace-relative path, payload ``{type, title}``."""
+        from molexp.workspace.events import read_workspace_events
+
+        _seed(run, "experiment_report", _EXPERIMENT_REPORT)
+
+        _materialize(run, experiment)
+
+        events = read_workspace_events(workspace.root, type="knowledge.created")
+        assert len(events) == 1
+        event = events[0]
+        assert event.actor == "plan-record"
+        item = experiment.get_folder(
+            f"experiment-record-{experiment.id}-{run.id}", cls=KnowledgeItem
+        )
+        rel_path = (
+            Path(item.resolve()).resolve().relative_to(Path(workspace.root).resolve()).as_posix()
+        )
+        assert event.refs == [rel_path]
+        assert event.payload["type"] == KNOWLEDGE_ITEM_KIND
+        assert event.payload["title"] == "Water NEMD"
 
 
 # ── Finding (execute-tail success, §B) ───────────────────────────────────────

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import warnings
+from pathlib import Path as _LocalPath
 from typing import TYPE_CHECKING, Protocol, cast
 
 if TYPE_CHECKING:
@@ -314,7 +315,9 @@ class Experiment(Folder):
     @property
     def data_assets(self) -> DataAssetLibrary:
         if self._data_assets is None:
-            self._data_assets = DataAssetLibrary(self.experiment_dir, self.scope)
+            self._data_assets = DataAssetLibrary(
+                self.experiment_dir, self.scope, event_root=_LocalPath(str(self.workspace.root))
+            )
         return self._data_assets
 
     def get_seeds(self) -> list[int]:

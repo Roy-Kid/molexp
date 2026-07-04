@@ -43,20 +43,29 @@ import { type GanttMode, RunsTimelineView } from "./RunsTimelineView";
 import type { WorkspaceExecutionRow, WorkspaceRunRow, WorkspaceRunsFilters } from "./types";
 import { useDashboardLayout } from "./useDashboardLayout";
 import { useWorkspaceRuns } from "./useWorkspaceRuns";
+import { WorkspaceActivityFeed } from "./WorkspaceActivityFeed";
 
 interface RunsPageProps {
   snapshot: WorkspaceSnapshot;
 }
 
-type DashboardPanelId = "kpi" | "status" | "aggregate" | "activity" | "gantt";
+type DashboardPanelId = "kpi" | "status" | "aggregate" | "activity" | "feed" | "gantt";
 
-const DASHBOARD_PANEL_IDS: DashboardPanelId[] = ["kpi", "status", "aggregate", "activity", "gantt"];
+const DASHBOARD_PANEL_IDS: DashboardPanelId[] = [
+  "kpi",
+  "status",
+  "aggregate",
+  "activity",
+  "feed",
+  "gantt",
+];
 
 const DASHBOARD_PANEL_LABELS: Record<DashboardPanelId, string> = {
   kpi: "KPI strip",
   status: "Status mix",
   aggregate: "Backends & failing experiments",
   activity: "Activity chart",
+  feed: "Workspace activity",
   gantt: "Gantt chart",
 };
 
@@ -157,6 +166,24 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
     [setSearchParams],
   );
 
+  // Feed link targets (vision-loop-12): the activity feed hands back plain
+  // ids/paths, not row objects.
+  const knownRunIds = useMemo(() => new Set(rows.map((row) => row.id)), [rows]);
+  const selectRunById = useCallback(
+    (runId: string): void => {
+      setSearchParams((prev) => writeRunsParams(prev, { runId, executionId: null }), {
+        replace: true,
+      });
+    },
+    [setSearchParams],
+  );
+  const openKnowledge = useCallback(
+    (path: string): void => {
+      navigate(`/knowledge/${path.split("/").map(encodeURIComponent).join("/")}`);
+    },
+    [navigate],
+  );
+
   const selectExecution = useCallback(
     (run: WorkspaceRunRow, execution: WorkspaceExecutionRow): void => {
       setSearchParams(
@@ -225,6 +252,14 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
         );
       case "activity":
         return <RunsActivityChart buckets={activity} />;
+      case "feed":
+        return (
+          <WorkspaceActivityFeed
+            knownRunIds={knownRunIds}
+            onSelectRun={selectRunById}
+            onOpenKnowledge={openKnowledge}
+          />
+        );
       case "gantt":
         return (
           <>

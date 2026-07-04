@@ -10,9 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
 
-from molexp._typing import JSONValue
 from molexp.plugins.submit_molq.cancel import try_cancel
 from molexp.plugins.submit_molq.submit import SubmitHandler
 from molexp.workflow import (
@@ -62,6 +60,7 @@ from ..schemas import (
     RunStartRequest,
     RunStatusResponse,
 )
+from .workspace import WorkspaceEventResponse
 
 router = APIRouter(
     prefix="/projects/{project_id}/experiments/{experiment_id}/runs",
@@ -790,18 +789,9 @@ def cancel_run(
     )
 
 
-class RunEventResponse(BaseModel):
-    """One workspace-timeline event related to a run (read side of the spine)."""
-
-    model_config = ConfigDict(frozen=True)
-
-    id: str
-    seq: int
-    type: str
-    actor: str
-    created_at: datetime
-    payload: dict[str, JSONValue]
-    refs: list[str]
+# The per-run events route reuses the workspace-wide wire shape — one frozen
+# model for every spine read; the alias keeps this module's public name.
+RunEventResponse = WorkspaceEventResponse
 
 
 @router.get("/{run_id}/events", response_model=list[RunEventResponse])
@@ -827,18 +817,7 @@ def get_run_events(
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
     events = read_workspace_events(workspace.root, ref=run.id, limit=limit)
-    return [
-        RunEventResponse(
-            id=e.id,
-            seq=e.seq,
-            type=e.type,
-            actor=e.actor,
-            created_at=e.created_at,
-            payload=e.payload,
-            refs=e.refs,
-        )
-        for e in events
-    ]
+    return [RunEventResponse.from_event(e) for e in events]
 
 
 @router.get("/{run_id}/export")

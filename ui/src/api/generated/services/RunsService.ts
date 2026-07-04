@@ -6,7 +6,6 @@ import type { LammpsLogResponse } from '../models/LammpsLogResponse';
 import type { RunActionResponse } from '../models/RunActionResponse';
 import type { RunContinueResponse } from '../models/RunContinueResponse';
 import type { RunCreateRequest } from '../models/RunCreateRequest';
-import type { RunEventResponse } from '../models/RunEventResponse';
 import type { RunExecutionResponse } from '../models/RunExecutionResponse';
 import type { RunFilesResponse } from '../models/RunFilesResponse';
 import type { RunFileTextResponse } from '../models/RunFileTextResponse';
@@ -15,6 +14,7 @@ import type { RunMetricsResponse } from '../models/RunMetricsResponse';
 import type { RunResponse } from '../models/RunResponse';
 import type { RunStartRequest } from '../models/RunStartRequest';
 import type { RunStatusResponse } from '../models/RunStatusResponse';
+import type { WorkspaceEventResponse } from '../models/WorkspaceEventResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -145,7 +145,7 @@ export class RunsService {
      * @param experimentId
      * @param runId
      * @param limit
-     * @returns RunEventResponse Successful Response
+     * @returns WorkspaceEventResponse Successful Response
      * @throws ApiError
      */
     public static getRunEventsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdEventsGet(
@@ -153,7 +153,7 @@ export class RunsService {
         experimentId: string,
         runId: string,
         limit: number = 50,
-    ): CancelablePromise<Array<RunEventResponse>> {
+    ): CancelablePromise<Array<WorkspaceEventResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/events',
@@ -737,7 +737,7 @@ export class RunsService {
      * @param runId
      * @param ws
      * @param limit
-     * @returns RunEventResponse Successful Response
+     * @returns WorkspaceEventResponse Successful Response
      * @throws ApiError
      */
     public static getRunEventsApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdEventsGet(
@@ -746,7 +746,7 @@ export class RunsService {
         runId: string,
         ws: string,
         limit: number = 50,
-    ): CancelablePromise<Array<RunEventResponse>> {
+    ): CancelablePromise<Array<WorkspaceEventResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/events',

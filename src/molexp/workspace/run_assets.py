@@ -55,7 +55,19 @@ class RunAssets:
         self._get_execution_id = get_execution_id
         self._manifest = AssetManifest(work_dir)
 
-        self.artifact = ArtifactAccessor(work_dir, scope, self._manifest, producer)
+        # Only the artifact accessor emits on the event spine (frequency
+        # budget: log lines / checkpoints stay silent). The workspace root is
+        # resolved through the run's ownership chain — the same path the run
+        # lifecycle uses; a detached run (unit-test fixture) simply emits
+        # nothing, per the spine's derived/non-fatal contract.
+        try:
+            event_root = Path(str(run.experiment.project.workspace.root))
+        except (RuntimeError, AttributeError):
+            # A detached run (bare test fixture) has no ownership chain.
+            event_root = None
+        self.artifact = ArtifactAccessor(
+            work_dir, scope, self._manifest, producer, event_root=event_root
+        )
         self.log = LogAccessor(work_dir, scope, self._manifest, producer, get_execution_id)
         self.checkpoint = CheckpointAccessor(work_dir, scope, self._manifest, producer)
         self.metrics = MetricsWriter(work_dir)

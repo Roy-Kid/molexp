@@ -4,9 +4,13 @@
 /* eslint-disable */
 import type { JSONValue } from './JSONValue';
 /**
- * One workspace-timeline event related to a run (read side of the spine).
+ * One workspace-timeline event (read side of the event spine).
+ *
+ * The ONE wire shape for spine reads — the per-run route
+ * (``GET /runs/{run_id}/events``) aliases this model, so the two surfaces
+ * can never drift (vision-loop-12).
  */
-export type RunEventResponse = {
+export type WorkspaceEventResponse = {
     actor: string;
     created_at: string;
     id: string;

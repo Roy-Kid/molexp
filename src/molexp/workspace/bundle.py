@@ -28,7 +28,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path as _StdPath
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, NamedTuple, cast
+from typing import TYPE_CHECKING, NamedTuple
 
 from molexp.ids import slugify
 
@@ -128,6 +128,24 @@ class Bundle:
     def rel_path(self, concept: Folder) -> str:
         """Return *concept*'s identity: its POSIX path relative to the root."""
         return _StdPath(str(concept.resolve())).relative_to(self._root).as_posix()
+
+    def _emit_created(self, concept: Folder, *, title: str) -> None:
+        """Best-effort ``knowledge.created`` on the event spine (vision-loop-12).
+
+        Emitted only for NEWLY materialized Concepts (the create verbs are
+        idempotent — a repeat call is not a creation). Non-fatal by
+        ``emit_workspace_event``'s contract: the Concept write is already
+        durable when this runs.
+        """
+        from .events import emit_workspace_event
+
+        emit_workspace_event(
+            self._root,
+            "knowledge.created",
+            "bundle",
+            payload={"type": concept.kind, "title": title},
+            refs=[self.rel_path(concept)],
+        )
 
     def _folder_for(self, path: PathArg) -> Folder:
         """Build the typed Concept whose identity is the Concept dir *path*.
@@ -344,9 +362,12 @@ class Bundle:
 
         host = parent if parent is not None else self._pinned_parent(self._root)
         slug = slugify(name) or name
-        note = cast("Note", host.add_folder(Note(parent=host, name=slug)))
+        created = not host.has_folder(slug, cls=Note)
+        note = host.add_folder(Note(parent=host, name=slug))
         if body:
             note.set_body(body)
+        if created:
+            self._emit_created(note, title=name)
         return note
 
     def rename_note(self, concept: Folder, new_name: str) -> None:
@@ -552,10 +573,8 @@ class Bundle:
         refs: list[ReferenceConcept] = []
         for item in items:
             slug = slugify(item.key) or item.key
-            ref = cast(
-                "ReferenceConcept",
-                host.add_folder(ReferenceConcept(parent=host, name=slug)),
-            )
+            created = not host.has_folder(slug, cls=ReferenceConcept)
+            ref = host.add_folder(ReferenceConcept(parent=host, name=slug))
             ref.write_reference_meta(
                 ReferenceMeta(
                     title=item.title,
@@ -568,6 +587,10 @@ class Bundle:
                     source_key=item.key,
                 )
             )
+            if created:
+                # After write_reference_meta — the Concept is bib-complete
+                # when the event lands.
+                self._emit_created(ref, title=item.title or slug)
             refs.append(ref)
         self._record_source("zotero", str(path), len(items), now=now)
         return refs

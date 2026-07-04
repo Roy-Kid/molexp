@@ -193,7 +193,9 @@ class Project(Folder):
     @property
     def data_assets(self) -> DataAssetLibrary:
         if self._data_assets is None:
-            self._data_assets = DataAssetLibrary(self.project_dir, self.scope)
+            self._data_assets = DataAssetLibrary(
+                self.project_dir, self.scope, event_root=_LocalPath(str(self.workspace.root))
+            )
         return self._data_assets
 
     # ── Persistence ─────────────────────────────────────────────────────

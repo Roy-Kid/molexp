@@ -14,12 +14,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from molexp.workspace import Workspace
+from molexp.workspace import Bundle, Workspace
+from molexp.workspace.concepts import NOTE_KIND
 from molexp.workspace.events import (
     WORKSPACE_EVENTS_DB,
     WorkspaceEvent,
     WorkspaceEventLog,
     emit_workspace_event,
+    read_workspace_events,
 )
 
 
@@ -165,3 +167,174 @@ def test_read_workspace_events_newest_first(tmp_path: Path) -> None:
 
     events = read_workspace_events(tmp_path, ref="r1", limit=1)
     assert [e.type for e in events] == ["run.completed"]
+
+
+# ── vision-loop-12: asset.added emit sites (artifact save + data registration) ─
+
+
+def _lab_run(tmp_path: Path, run_id: str = "r1"):
+    """A workspace + one pending run — the standard emit-site fixture shape."""
+    ws = Workspace(root=tmp_path, name="Lab")
+    exp = ws.add_project("p").add_experiment("e", workflow_source="t.py")
+    return ws, exp.add_run(id=run_id)
+
+
+class _BoomEventLog:
+    """``WorkspaceEventLog`` stand-in whose every append raises (non-fatal net)."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None: ...
+
+    def append(self, *args: object, **kwargs: object) -> WorkspaceEvent:
+        raise RuntimeError("boom")
+
+
+def test_artifact_save_emits_exactly_one_asset_added(tmp_path: Path) -> None:
+    """One ``ctx.artifact.save`` inside ``run.start()`` → exactly ONE
+    ``asset.added`` on the workspace spine: refs carry the asset id AND the
+    run id (drill-down pointers), payload names kind/name/content_hash."""
+    ws, run = _lab_run(tmp_path)
+    with run.start() as ctx:
+        asset = ctx.artifact.save("result.json", {"x": 1})
+
+    events = read_workspace_events(ws.resolve(), type="asset.added")
+    assert len(events) == 1
+    event = events[0]
+    assert event.actor == "asset-accessor"
+    assert asset.asset_id in event.refs
+    assert "r1" in event.refs
+    assert event.payload["kind"] == "artifact"
+    assert event.payload["name"] == "result.json"
+    assert event.payload["content_hash"] == asset.content_hash
+
+
+def test_register_in_place_emits_asset_added(tmp_path: Path) -> None:
+    """The data-import verb (``data_assets.register_in_place``) is the second
+    ``asset.added`` emit site — same actor + payload vocabulary."""
+    ws = Workspace(root=tmp_path, name="Lab")
+    src = tmp_path / "data.csv"
+    src.write_text("a,b\n1,2\n")
+
+    asset = ws.data_assets.register_in_place("data", src)
+
+    events = read_workspace_events(ws.resolve(), type="asset.added")
+    assert len(events) == 1
+    event = events[0]
+    assert event.actor == "asset-accessor"
+    assert asset.asset_id in event.refs
+    assert event.payload["kind"] == "data"
+    assert event.payload["name"] == "data"
+    assert event.payload["content_hash"] == asset.content_hash
+
+
+def test_log_and_checkpoint_writes_emit_no_events(tmp_path: Path) -> None:
+    """Frequency budget: N log-line appends + checkpoint writes emit ZERO
+    events — the spine holds only the three run-lifecycle milestones."""
+    ws, run = _lab_run(tmp_path)
+    with run.start() as ctx:
+        for i in range(25):
+            ctx.log("train").append(f"line {i}")
+        ctx.checkpoint("mid", data={"step": 1})
+        ctx.checkpoint("end", data={"step": 2})
+
+    events = read_workspace_events(ws.resolve())
+    assert [e.type for e in events] == ["run.completed", "run.started", "run.created"]
+
+
+def test_broken_event_log_never_breaks_artifact_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Non-fatal contract: a raising event log leaves the artifact save (and
+    the run lifecycle around it) fully intact."""
+    import molexp.workspace.events as ev
+
+    _ws, run = _lab_run(tmp_path)
+    monkeypatch.setattr(ev, "WorkspaceEventLog", _BoomEventLog)
+
+    with run.start() as ctx:
+        asset = ctx.artifact.save("result.json", {"x": 1})
+
+    assert (Path(str(run.run_dir)) / "artifacts" / "result.json").exists()
+    assert asset.content_hash is not None
+    assert asset.asset_id in {a.asset_id for a in run.assets.list()}
+
+
+def test_accessor_without_event_root_emits_nothing(tmp_path: Path) -> None:
+    """Constructor compat: an ``ArtifactAccessor`` built WITHOUT ``event_root``
+    (the default) stays byte-identical — no emit, no spine DB anywhere."""
+    from molexp.workspace.assets import (
+        ArtifactAccessor,
+        AssetManifest,
+        AssetScope,
+        Producer,
+    )
+
+    scope_dir = tmp_path / "scope"
+    scope_dir.mkdir()
+    scope = AssetScope(kind="run", ids=("p", "e", "r1"))
+    accessor = ArtifactAccessor(
+        scope_dir, scope, AssetManifest(scope_dir), lambda: Producer(run_id="r1")
+    )
+
+    accessor.save("out.txt", "hello")
+
+    assert list(tmp_path.rglob(WORKSPACE_EVENTS_DB)) == []
+
+
+def test_data_library_without_event_root_emits_nothing(tmp_path: Path) -> None:
+    """Constructor compat for the data-import surface: a bare
+    ``DataAssetLibrary`` (no event_root) registers without emitting."""
+    from molexp.workspace.assets import AssetScope
+    from molexp.workspace.assets.data import DataAssetLibrary
+
+    scope_dir = tmp_path / "scope"
+    scope_dir.mkdir()
+    src = scope_dir / "x.txt"
+    src.write_text("hi")
+    library = DataAssetLibrary(scope_dir, AssetScope(kind="workspace"))
+
+    library.register_in_place("x", src)
+
+    assert list(tmp_path.rglob(WORKSPACE_EVENTS_DB)) == []
+
+
+# ── vision-loop-12: knowledge.created emit site (Bundle create verb) ──────────
+
+
+def test_bundle_create_note_emits_knowledge_created(tmp_path: Path) -> None:
+    """``Bundle.create_note`` (the create verb behind the knowledge routes +
+    CLI) lands one ``knowledge.created``: ref = bundle-relative path, payload
+    ``{type, title}``, actor ``bundle``."""
+    Bundle(tmp_path).create_note("findings")
+
+    events = read_workspace_events(tmp_path, type="knowledge.created")
+    assert len(events) == 1
+    event = events[0]
+    assert event.actor == "bundle"
+    assert event.refs == ["findings"]
+    assert event.payload["type"] == NOTE_KIND
+    assert event.payload["title"] == "findings"
+
+
+def test_bundle_create_note_ref_is_the_bundle_relative_path(tmp_path: Path) -> None:
+    """A nested note's ref is its full bundle-relative identity path (slugged),
+    not the bare name — path-as-identity carries into the spine."""
+    bundle = Bundle(tmp_path)
+    parent = bundle.create_note("protocols")
+    bundle.create_note("gel prep", parent=parent)
+
+    events = read_workspace_events(tmp_path, type="knowledge.created")
+    assert [e.refs for e in events] == [["protocols/gel-prep"], ["protocols"]]
+
+
+def test_broken_event_log_never_breaks_bundle_create(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Non-fatal contract: a raising event log leaves the Concept creation
+    fully intact (meta.yaml written, note resolvable)."""
+    import molexp.workspace.events as ev
+
+    monkeypatch.setattr(ev, "WorkspaceEventLog", _BoomEventLog)
+
+    note = Bundle(tmp_path).create_note("findings")
+
+    assert (Path(str(note.resolve())) / "meta.yaml").exists()

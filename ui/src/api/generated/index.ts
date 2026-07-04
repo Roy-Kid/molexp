@@ -113,7 +113,6 @@ export type { RepairProposedEvent } from './models/RepairProposedEvent';
 export type { RunActionResponse } from './models/RunActionResponse';
 export type { RunContinueResponse } from './models/RunContinueResponse';
 export type { RunCreateRequest } from './models/RunCreateRequest';
-export type { RunEventResponse } from './models/RunEventResponse';
 export type { RunExecutionResponse } from './models/RunExecutionResponse';
 export type { RunFileNode } from './models/RunFileNode';
 export type { RunFilesResponse } from './models/RunFilesResponse';
@@ -153,6 +152,7 @@ export type { WorkflowDocumentResponse } from './models/WorkflowDocumentResponse
 export type { WorkflowRefResponse } from './models/WorkflowRefResponse';
 export type { WorkflowSnapshotResponse } from './models/WorkflowSnapshotResponse';
 export type { WorkspaceContextResponse } from './models/WorkspaceContextResponse';
+export type { WorkspaceEventResponse } from './models/WorkspaceEventResponse';
 export type { WorkspaceExecutionRow } from './models/WorkspaceExecutionRow';
 export type { WorkspaceInfoResponse } from './models/WorkspaceInfoResponse';
 export type { WorkspaceOpenLocalRequest } from './models/WorkspaceOpenLocalRequest';

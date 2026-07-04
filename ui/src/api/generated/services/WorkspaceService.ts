@@ -11,6 +11,7 @@ import type { FileContentResponse } from '../models/FileContentResponse';
 import type { FileContentUpdateRequest } from '../models/FileContentUpdateRequest';
 import type { TargetTestResponse } from '../models/TargetTestResponse';
 import type { WorkspaceContextResponse } from '../models/WorkspaceContextResponse';
+import type { WorkspaceEventResponse } from '../models/WorkspaceEventResponse';
 import type { WorkspaceInfoResponse } from '../models/WorkspaceInfoResponse';
 import type { WorkspaceOpenLocalRequest } from '../models/WorkspaceOpenLocalRequest';
 import type { WorkspaceOpenRemoteRequest } from '../models/WorkspaceOpenRemoteRequest';
@@ -23,6 +24,38 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class WorkspaceService {
+    /**
+     * Get Workspace Events
+     * The workspace-wide activity stream, newest first.
+     *
+     * The global read over the event spine — the same shared
+     * :func:`molexp.workspace.events.read_workspace_events` code path the
+     * per-run route and ``molexp runs info`` use. A workspace with no timeline
+     * yet answers ``[]`` without creating the DB (reading is side-effect free).
+     * @param type Keep only this event type
+     * @param ref Keep only events referencing this id
+     * @param limit
+     * @returns WorkspaceEventResponse Successful Response
+     * @throws ApiError
+     */
+    public static getWorkspaceEventsApiEventsGet(
+        type?: (string | null),
+        ref?: (string | null),
+        limit: number = 50,
+    ): CancelablePromise<Array<WorkspaceEventResponse>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/events',
+            query: {
+                'type': type,
+                'ref': ref,
+                'limit': limit,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * Invalidate Workspace Cache
      * Drop cached entries from the active workspace's mirror.

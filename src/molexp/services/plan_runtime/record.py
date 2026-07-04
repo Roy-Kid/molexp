@@ -221,6 +221,31 @@ def _artifact_kinds(run: Run) -> list[str]:
 # ── knowledge experiment-record note ─────────────────────────────────────────
 
 
+def _emit_knowledge_created(item: KnowledgeItem, experiment: Experiment, title: str) -> None:
+    """Best-effort ``knowledge.created`` on the workspace event spine.
+
+    Emitted after the item's meta + body are durable; non-fatal by
+    ``emit_workspace_event``'s contract (vision-loop-12). Ref is the item's
+    workspace-relative identity path.
+    """
+    from molexp.workspace.events import emit_workspace_event
+    from molexp.workspace.knowledge_item import KNOWLEDGE_ITEM_KIND
+
+    try:
+        root = Path(str(experiment.workspace.root)).resolve()
+        rel = Path(str(item.resolve())).resolve().relative_to(root).as_posix()
+    except Exception as exc:
+        _LOG.debug(f"[plan-record] knowledge.created ref unresolvable: {exc!r}")
+        return
+    emit_workspace_event(
+        root,
+        "knowledge.created",
+        "plan-record",
+        payload={"type": KNOWLEDGE_ITEM_KIND, "title": title},
+        refs=[rel],
+    )
+
+
 def write_experiment_record(
     *,
     run: Run,
@@ -257,7 +282,9 @@ def write_experiment_record(
     # not an unsourced free-form Note (integration.md §5, invariant #4). Mounted
     # at its natural home — the owning EXPERIMENT (the vision-loop-04 nested-mount
     # closure proves the whole Bundle verb surface for this shape).
-    item = experiment.add_folder(KnowledgeItem(name=f"experiment-record-{experiment.id}-{run.id}"))
+    item_name = f"experiment-record-{experiment.id}-{run.id}"
+    newly_created = not experiment.has_folder(item_name, cls=KnowledgeItem)
+    item = experiment.add_folder(KnowledgeItem(name=item_name))
     sources = [
         SourceRef(kind="run", ref=run.id),
         SourceRef(kind="experiment", ref=experiment.id),
@@ -274,6 +301,8 @@ def write_experiment_record(
         )
     )
     item.set_body(body)
+    if newly_created:
+        _emit_knowledge_created(item, experiment, title)
     # A typed provenance out-edge to the in-tree run makes the item reachable from
     # what it derives from (reuses the P0.1 edge; guarded so a link failure never
     # loses the meta + body already written).
@@ -305,7 +334,9 @@ def write_finding_record(
     if final_report is None:
         raise ValueError(f"run {run.id} has no final_report artifact to harvest")
     title = _title(final_report, draft, run.id)
-    item = experiment.add_folder(KnowledgeItem(name=f"finding-{experiment.id}-{run.id}"))
+    item_name = f"finding-{experiment.id}-{run.id}"
+    newly_created = not experiment.has_folder(item_name, cls=KnowledgeItem)
+    item = experiment.add_folder(KnowledgeItem(name=item_name))
     sources = [
         SourceRef(kind="run", ref=run.id),
         SourceRef(kind="experiment", ref=experiment.id),
@@ -328,6 +359,8 @@ def write_finding_record(
         if block:
             lines += [f"## {label}", "", block, ""]
     item.set_body("\n".join(lines).rstrip() + "\n")
+    if newly_created:
+        _emit_knowledge_created(item, experiment, title)
     try:
         item.cite(run, role="derived_from")
     except Exception as exc:
@@ -361,7 +394,9 @@ def write_failure_analysis_record(
     """
     from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
 
-    item = experiment.add_folder(KnowledgeItem(name=f"failure-{experiment.id}-{run.id}"))
+    item_name = f"failure-{experiment.id}-{run.id}"
+    newly_created = not experiment.has_folder(item_name, cls=KnowledgeItem)
+    item = experiment.add_folder(KnowledgeItem(name=item_name))
     item.write_knowledge_meta(
         KnowledgeMeta(
             kind="FailureAnalysis",
@@ -393,6 +428,8 @@ def write_failure_analysis_record(
         "a validator rejected are regenerated, not reused.",
     ]
     item.set_body("\n".join(lines).rstrip() + "\n")
+    if newly_created:
+        _emit_knowledge_created(item, experiment, f"Failure analysis: plan run {run.id}")
     try:
         item.cite(run, role="derived_from")
     except Exception as exc:

@@ -190,17 +190,16 @@ def emit_workspace_event(
     participates in the correctness of the operation that triggered it:
 
     - **Default-on.** The first emit creates ``<root>/workspace.events.sqlite``;
-      no opt-in step exists. The wired emit sites are the low-frequency
-      run-lifecycle milestones (``run.created`` / ``run.started`` /
-      ``run.completed`` / ``run.failed`` — one row per run status change), which
-      is what makes the read surfaces (``molexp runs info`` "Recent events",
-      the server's ``/events`` endpoint) real UX on the default path.
+      no opt-in step exists. Wired emit sites: the run-lifecycle milestones
+      (``run.created`` / ``run.started`` / ``run.completed`` / ``run.failed``
+      — one row per status change), ``asset.added`` from ``ArtifactAccessor.save``
+      and the ``DataAssetLibrary`` import/register verbs (log-line appends and
+      checkpoints deliberately stay silent — that is the frequency budget), and
+      ``knowledge.created`` from the Bundle create verbs and the plan-record
+      KnowledgeItem writers (newly created Concepts only — idempotent repeat
+      calls are not creations).
     - **Non-fatal.** Any exception is swallowed and ``None`` is returned; an
       event-log failure must never break the run or asset op that emitted.
-
-    ``asset.added`` (from the artifact-save path) and ``knowledge.created`` (from
-    the KnowledgeItem write path) are a documented follow-up: those sites are
-    hotter, so they need their own frequency budget before being wired.
 
     Args:
         root: The workspace root directory (callers resolve it from context they hold).

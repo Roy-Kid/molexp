@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import io
 import mimetypes
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from molexp._typing import JSONValue
 from molexp.workspace import ContextFocus, Workspace, assemble_workspace_context
+from molexp.workspace.events import WorkspaceEvent, WorkspaceEventType, read_workspace_events
 from molexp.workspace.fs_cached import CachedRemoteFileSystem, prefetch_workspace_indices
 from molexp.workspace.fs_local import LocalFileSystem
 
@@ -57,6 +60,61 @@ class FileContentUpdateRequest(BaseModel):
 
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
+
+# The activity stream mounts at the literal ``/api/events`` (no ``/workspace``
+# prefix) — same flat-router precedent as ``plans.flat_router``.
+events_router = APIRouter(tags=["workspace"])
+
+
+class WorkspaceEventResponse(BaseModel):
+    """One workspace-timeline event (read side of the event spine).
+
+    The ONE wire shape for spine reads — the per-run route
+    (``GET /runs/{run_id}/events``) aliases this model, so the two surfaces
+    can never drift (vision-loop-12).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    seq: int
+    type: str
+    actor: str
+    created_at: datetime
+    payload: dict[str, JSONValue]
+    refs: list[str]
+
+    @classmethod
+    def from_event(cls, event: WorkspaceEvent) -> WorkspaceEventResponse:
+        """The one event→wire mapping (both routes call this — no drift)."""
+        return cls(
+            id=event.id,
+            seq=event.seq,
+            type=event.type,
+            actor=event.actor,
+            created_at=event.created_at,
+            payload=event.payload,
+            refs=event.refs,
+        )
+
+
+@events_router.get("/events", response_model=list[WorkspaceEventResponse])
+def get_workspace_events(
+    type: WorkspaceEventType | None = Query(default=None, description="Keep only this event type"),
+    ref: str | None = Query(default=None, description="Keep only events referencing this id"),
+    limit: int = Query(default=50, ge=1, le=500),
+    workspace: Workspace = Depends(get_workspace),
+) -> list[WorkspaceEventResponse]:
+    """The workspace-wide activity stream, newest first.
+
+    The global read over the event spine — the same shared
+    :func:`molexp.workspace.events.read_workspace_events` code path the
+    per-run route and ``molexp runs info`` use. A workspace with no timeline
+    yet answers ``[]`` without creating the DB (reading is side-effect free).
+    """
+    events = read_workspace_events(workspace.root, type=type, ref=ref, limit=limit)
+    return [WorkspaceEventResponse.from_event(e) for e in events]
+
 
 MAX_TEXT_BYTES = 2_000_000
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}

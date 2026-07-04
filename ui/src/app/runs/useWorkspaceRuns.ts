@@ -24,7 +24,7 @@ interface StoreSnapshot {
   lastSyncedAt: Date | null;
 }
 
-const POLL_INTERVAL_MS = 3_000;
+export const POLL_INTERVAL_MS = 3_000;
 const FETCH_LIMIT = 1000;
 
 const EMPTY_STATS: WorkspaceRunsStats = {

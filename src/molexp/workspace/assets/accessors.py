@@ -32,11 +32,16 @@ class _AccessorBase:
         scope: AssetScope,
         manifest: AssetManifest,
         producer_provider: Callable[[], Producer],
+        *,
+        event_root: Path | None = None,
     ) -> None:
         self._scope_dir = scope_dir
         self._scope = scope
         self._manifest = manifest
         self._producer_provider = producer_provider
+        # Workspace root for the event spine; None (the default) keeps the
+        # accessor emit-free (vision-loop-12 — only RunAssets passes it).
+        self._event_root = event_root
 
     def _register(self, asset) -> None:  # noqa: ANN001
         self._manifest.register(asset)
@@ -101,6 +106,15 @@ class ArtifactAccessor(_AccessorBase):
             content_hash=compute_content_hash(target),
         )
         self._register(asset)
+        if self._event_root is not None:
+            from ._events import emit_asset_added
+
+            emit_asset_added(
+                self._event_root,
+                asset,
+                name=name,
+                extra_refs=[producer.run_id] if producer.run_id else (),
+            )
         return asset
 
 
