@@ -554,11 +554,15 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                     },
                     {
                       label: "Created",
-                      value: <span title={asset.created_at}>{formatDateTime(asset.created_at)}</span>,
+                      value: (
+                        <span title={asset.created_at}>{formatDateTime(asset.created_at)}</span>
+                      ),
                     },
                     {
                       label: "Updated",
-                      value: <span title={asset.updated_at}>{formatDateTime(asset.updated_at)}</span>,
+                      value: (
+                        <span title={asset.updated_at}>{formatDateTime(asset.updated_at)}</span>
+                      ),
                     },
                   ]}
                 />

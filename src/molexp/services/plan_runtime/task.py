@@ -111,6 +111,7 @@ class PlanTask:
             compute_target=compute_target,
         )
         task._gateway = gateway
+        task._sync_status()  # visible in the Agents hub from launch, not completion
         task._task = asyncio.create_task(task._drive(gateway))
         return task
 
@@ -157,12 +158,14 @@ class PlanTask:
             self.pending_requests = []
         except asyncio.CancelledError:
             self.status = "cancelled"
+            self._sync_status()
             raise
         except ApprovalPendingError as exc:
             # Suspension, not failure: keep the pending requests for the inbox
             # and wait for a decision + resume(). No error is recorded — a plan
             # that later resumes and succeeds was never "failed".
             self.status = "waiting_approval"
+            self._sync_status()
             self.pending_requests = list(exc.requests)
             _LOG.info(
                 f"[plan-task {self.task_id}] waiting for approval: "
@@ -214,6 +217,7 @@ class PlanTask:
         if self._gateway is None:
             raise RuntimeError(f"plan task {self.task_id!r} has no gateway to resume with")
         self.status = "running"
+        self._sync_status()
         self.pending_requests = []
         self._task = asyncio.create_task(self._drive(self._gateway))
 
@@ -230,9 +234,24 @@ class PlanTask:
                 f"plan task {self.task_id!r} is {self.status!r}, not waiting_approval"
             )
         self.status = "failed"
+        self._sync_status()
         self.error = RuntimeError(f"approval rejected: {reason}")
         self.pending_requests = []
         self._notify_approvals()
+
+    def _sync_status(self) -> None:
+        """Mirror the coarse status into the agent-task store (hub visibility)."""
+        if not self.workspace_root:
+            return
+        from .record import write_plan_task_status
+
+        write_plan_task_status(
+            self.workspace_root,
+            task_id=self.task_id,
+            draft=self.draft,
+            created_at=self.created_at,
+            status=self.status,
+        )
 
     @staticmethod
     def _notify_approvals() -> None:

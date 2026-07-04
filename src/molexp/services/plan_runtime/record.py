@@ -36,6 +36,7 @@ __all__ = [
     "write_experiment_record",
     "write_failure_analysis_record",
     "write_finding_record",
+    "write_plan_task_status",
     "write_session_events_record",
 ]
 
@@ -56,6 +57,47 @@ def write_agent_task_record(
     _write_agent_task(
         workspace_root, task_id=task_id, title=title, draft=draft, run=run, failed=failed
     )
+
+
+def write_plan_task_status(
+    workspace_root: str,
+    *,
+    task_id: str,
+    draft: str,
+    created_at: str,
+    status: str,
+) -> None:
+    """Sync an IN-FLIGHT plan task's coarse status into the agent-task store.
+
+    Called at every ``PlanTask`` lifecycle transition (launch → ``running``,
+    gate suspension → ``waiting_approval``, …) so the Agents hub lists the
+    task while it runs — previously a plan was invisible there until it
+    finished. Terminal states are still written by
+    :func:`write_agent_task_record` (which upgrades the title from the
+    generated report). Best-effort: a store failure must not break the run.
+    """
+    from molexp.services.agent_task_store import (
+        PersistedAgentTask,
+        write_agent_task_metadata,
+    )
+
+    title = draft.strip().splitlines()[0][:80] if draft.strip() else task_id
+    try:
+        write_agent_task_metadata(
+            workspace_root,
+            PersistedAgentTask(
+                task_id=task_id,
+                session_id=task_id,
+                title=title,
+                goal=draft,
+                status=status,
+                created_at=created_at,
+                updated_at=datetime.now(UTC).isoformat(),
+                plan_mode=True,
+            ),
+        )
+    except Exception as exc:  # the record is a convenience view, never load-bearing
+        _LOG.warning(f"[plan-task {task_id}] status sync failed: {exc!r}")
 
 
 def write_session_events_record(

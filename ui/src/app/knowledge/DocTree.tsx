@@ -15,14 +15,15 @@ import {
   X,
 } from "lucide-react";
 import { type ComponentType, type JSX, useEffect, useState } from "react";
+import type { KnowledgeSearchRow } from "@/api/generated/models/KnowledgeSearchRow";
 import { StatusBadge } from "@/app/components/entity";
+import { selectionForSearchHit } from "@/app/knowledge/searchHitSelection";
 import type { TreeNode, TreeNodeAction } from "@/app/panels/TreeView";
 import { TreeView } from "@/app/panels/TreeView";
+import { workspaceApi } from "@/app/state/api";
 import type { Selection, WorkspaceSnapshot } from "@/app/types";
 import { useAlert, useConfirm } from "@/components/ConfirmDialog";
 import { usePrompt } from "@/components/PromptDialog";
-import type { KnowledgeSearchRow } from "@/api/generated/models/KnowledgeSearchRow";
-import { workspaceApi } from "@/app/state/api";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -397,16 +398,14 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
               <button
                 type="button"
                 key={hit.path}
-                onClick={() => onSelect({ objectType: "knowledge", objectId: hit.path })}
+                onClick={() => onSelect(selectionForSearchHit(hit))}
                 className={cn(
                   "block w-full rounded-sm px-2 py-1.5 text-left hover:bg-muted",
                   activeId === hit.path && "bg-muted",
                 )}
               >
                 <span className="block truncate text-sm text-foreground">{hit.title}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {hit.path}
-                </span>
+                <span className="block truncate text-[11px] text-muted-foreground">{hit.path}</span>
                 {hit.snippet && (
                   <span className="block truncate text-[11px] italic text-muted-foreground">
                     {hit.snippet}
@@ -421,15 +420,15 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
         </div>
       ) : (
         <TreeView
-        nodes={nodes}
-        activeId={activeId}
-        expandPath={expandPath}
-        emptyTitle={filtering ? "No matching documents" : "No documents yet"}
-        emptyDescription={
-          filtering
-            ? "No documents match the current tag/status filter."
-            : "Create a document to start your knowledge base."
-        }
+          nodes={nodes}
+          activeId={activeId}
+          expandPath={expandPath}
+          emptyTitle={filtering ? "No matching documents" : "No documents yet"}
+          emptyDescription={
+            filtering
+              ? "No documents match the current tag/status filter."
+              : "Create a document to start your knowledge base."
+          }
           emptyIcon={<BookOpen className="h-8 w-8" />}
         />
       )}

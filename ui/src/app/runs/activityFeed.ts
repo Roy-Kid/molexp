@@ -75,12 +75,18 @@ export const resolveEventRef = (
   ref: string,
   eventType: string,
   knownRunIds: ReadonlySet<string>,
+  payload?: Record<string, unknown>,
 ): ResolvedRef => {
   if (knownRunIds.has(ref)) {
     return { kind: "run", runId: ref, text: ref };
   }
   if (eventType === "knowledge.created") {
     return { kind: "knowledge", path: ref, text: ref };
+  }
+  // An asset id is a bare UUID — the payload carries the human name the
+  // emit recorded, so show that (the UUID stays in the hover title).
+  if (eventType === "asset.added" && typeof payload?.name === "string" && payload.name) {
+    return { kind: "plain", text: payload.name };
   }
   return { kind: "plain", text: ref };
 };

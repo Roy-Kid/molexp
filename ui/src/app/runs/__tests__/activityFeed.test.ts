@@ -62,6 +62,14 @@ describe("resolveEventRef", () => {
     });
   });
 
+  it("shows the asset's human name for asset.added ids when the payload has one", () => {
+    const resolved = resolveEventRef("3a189b4b-7754-463e-bf63", "asset.added", known, {
+      kind: "artifact",
+      name: "result.json",
+    });
+    expect(resolved).toEqual({ kind: "plain", text: "result.json" });
+  });
+
   it("prefers the run link when a knowledge event also references a run", () => {
     expect(resolveEventRef("run-abc123", "knowledge.created", known).kind).toBe("run");
   });

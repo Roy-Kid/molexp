@@ -175,6 +175,16 @@ def test_approval_suspension_materializes_no_failure_records(
     assert final["recordErrors"] == []
     time.sleep(0.1)  # give any (wrong) stray materialization a beat to land
     assert _failure_items(workspace) == [], "a suspension must not materialize a FailureAnalysis"
-    assert all(
-        t.task_id != started["taskId"] for t in list_agent_task_metadata(str(workspace.root))
-    ), "a suspension must not write a failed agent-task entry"
+    # The task IS visible in the Agents hub while suspended — with its honest
+    # waiting_approval status, never a phantom "failed".
+    entry = next(
+        (
+            t
+            for t in list_agent_task_metadata(str(workspace.root))
+            if t.task_id == started["taskId"]
+        ),
+        None,
+    )
+    assert entry is not None, "a suspended plan task must be listed in the agent-task store"
+    assert entry.status == "waiting_approval", entry
+    assert entry.plan_mode is True

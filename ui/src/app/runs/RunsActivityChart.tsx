@@ -21,11 +21,14 @@ const formatHour = (date: Date): string =>
 
 export const RunsActivityChart = ({ buckets }: RunsActivityChartProps): JSX.Element => {
   const config = useMemo(() => {
-    const xs = buckets.map((bucket) => bucket.hour.toISOString());
+    // Pre-formatted category labels as x values: molplot renders ISO-string
+    // dates on a discrete scale and then feeds `tickformat` to the NUMBER
+    // format parser ("invalid format: %H:00" crash). A categorical axis with
+    // ready-made labels sidesteps that vendor path entirely.
     const labels = buckets.map((bucket) => formatHour(bucket.hour));
 
     const mkPoints = (sel: (b: ActivityBucket) => number) =>
-      buckets.map((bucket, i) => ({ x: xs[i], y: sel(bucket), text: labels[i] }));
+      buckets.map((bucket, i) => ({ x: labels[i], y: sel(bucket), text: labels[i] }));
 
     return {
       mode: "stack" as const,
@@ -34,8 +37,6 @@ export const RunsActivityChart = ({ buckets }: RunsActivityChartProps): JSX.Elem
       bargap: 0.1,
       modebar: false,
       xAxis: {
-        dtype: "date" as const,
-        tickformat: "%H:00",
         nticks: 12,
       },
       yAxis: {

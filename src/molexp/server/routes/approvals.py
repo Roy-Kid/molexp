@@ -55,6 +55,9 @@ class PendingApprovalItem(BaseModel):
     reason: str
     metadata: dict[str, Any] = Field(default_factory=dict)
     requestedAt: str
+    #: Text of the gated content (spec fields / generated source) so the
+    #: operator reviews the actual artifact, not just the reason line.
+    preview: str = ""
 
 
 class PendingApprovalsResponse(BaseModel):
@@ -85,6 +88,18 @@ def _experiment_ids(task: Any) -> tuple[str, str]:  # noqa: ANN401 — plan/cura
     return experiment.project.id, experiment.id
 
 
+def _preview_for(kind: TaskKind, task: Any, intent: str) -> str:  # noqa: ANN401
+    """Best-effort gated-content preview — never blocks the inbox listing."""
+    if kind != "plan":
+        return ""
+    from molexp.services.plan_runtime.preview import render_approval_preview
+
+    try:
+        return render_approval_preview(task.run, intent)
+    except Exception:  # a broken preview must not hide the pending decision
+        return ""
+
+
 def _items_for(kind: TaskKind, tasks: list[Any]) -> list[PendingApprovalItem]:
     items: list[PendingApprovalItem] = []
     for task in tasks:
@@ -102,6 +117,7 @@ def _items_for(kind: TaskKind, tasks: list[Any]) -> list[PendingApprovalItem]:
                     reason=request.reason,
                     metadata=dict(request.metadata),
                     requestedAt=request.created_at.isoformat(),
+                    preview=_preview_for(kind, task, request.intent),
                 )
             )
     return items

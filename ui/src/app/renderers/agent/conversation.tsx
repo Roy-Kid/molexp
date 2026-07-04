@@ -331,8 +331,8 @@ export const ConversationTurnView = ({
           {turn.inProgress && !turn.result && streamed.answer ? (
             // Token-by-token streaming answer before a terminal result lands.
             <MarkdownContent
-            text={linkIndex ? linkifyEntityTokens(streamed.answer, linkIndex) : streamed.answer}
-          />
+              text={linkIndex ? linkifyEntityTokens(streamed.answer, linkIndex) : streamed.answer}
+            />
           ) : (
             <TurnAnswer result={turn.result} inProgress={turn.inProgress} linkIndex={linkIndex} />
           )}

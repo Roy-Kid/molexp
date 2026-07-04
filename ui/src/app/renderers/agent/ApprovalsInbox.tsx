@@ -99,6 +99,16 @@ const ApprovalCard = ({
       <p className="text-xs text-muted-foreground">
         run {item.runId} · {item.projectId}/{item.experimentId}
       </p>
+      {item.preview && (
+        <details className="rounded-md border border-border/60 bg-muted/20">
+          <summary className="cursor-pointer select-none px-3 py-1.5 text-xs font-medium text-foreground">
+            Review the gated content
+          </summary>
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words px-3 pb-3 font-mono text-[11px] leading-5 text-muted-foreground">
+            {item.preview}
+          </pre>
+        </details>
+      )}
       {rejecting && (
         <Textarea
           placeholder="Why is this rejected? (optional)"

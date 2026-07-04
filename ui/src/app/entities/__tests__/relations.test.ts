@@ -158,7 +158,10 @@ describe("plan provenance group (vision-loop-10)", () => {
   });
 
   it("omits the plan group when planRunId is null", () => {
-    for (const ref of [{ kind: "experiment", id: "e1" }, { kind: "run", id: "r1" }] as const) {
+    for (const ref of [
+      { kind: "experiment", id: "e1" },
+      { kind: "run", id: "r1" },
+    ] as const) {
       const rel = resolveRelations(ref, withPlanRun(null));
       expect(rel.find((g) => g.relation === "plan")).toBeUndefined();
     }

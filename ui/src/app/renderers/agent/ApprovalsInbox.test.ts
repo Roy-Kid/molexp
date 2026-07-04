@@ -18,8 +18,7 @@ import { describe, expect, it } from "@rstest/core";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const read = (relative: string): string =>
-  readFileSync(resolve(__dirname, relative), "utf-8");
+const read = (relative: string): string => readFileSync(resolve(__dirname, relative), "utf-8");
 
 const inbox = read("./ApprovalsInbox.tsx");
 const statusBadge = read("../../components/entity/StatusBadge.tsx");
@@ -29,7 +28,9 @@ const planComposer = read("../../components/PlanComposer.tsx");
 describe("ApprovalsInbox", () => {
   it("consumes the generated ApprovalsService for list + decide", () => {
     expect(inbox).toContain("ApprovalsService.listPendingApprovalsApiApprovalsGet()");
-    expect(inbox).toContain("ApprovalsService.decideApprovalApiApprovalsTaskKindTaskIdDecisionsPost");
+    expect(inbox).toContain(
+      "ApprovalsService.decideApprovalApiApprovalsTaskKindTaskIdDecisionsPost",
+    );
   });
 
   it("refetches off the SSE ping stream and closes it on unmount", () => {

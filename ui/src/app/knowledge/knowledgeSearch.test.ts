@@ -18,9 +18,9 @@ describe("knowledge search surfaces", () => {
   it("DocTree has a search mode consuming the search API", () => {
     expect(docTree).toContain("searchKnowledge");
     expect(docTree).toContain("Search notes");
-    // Non-empty query switches to the flat hit list; hits open via the
-    // existing knowledge selection path.
-    expect(docTree).toContain('objectType: "knowledge", objectId: hit.path');
+    // Non-empty query switches to the flat hit list; entity hits route to
+    // their entity pages, note hits to the knowledge surface.
+    expect(docTree).toContain("selectionForSearchHit(hit)");
     // The truncated flag is surfaced, never silently dropped.
     expect(docTree).toContain("searchTruncated");
   });
@@ -29,6 +29,36 @@ describe("knowledge search surfaces", () => {
     expect(api).toContain("searchKnowledge");
     expect(api).toContain("searchKnowledgeApiKnowledgeSearchGet");
     expect(generated).toContain("/api/knowledge/search");
+  });
+});
+
+describe("selectionForSearchHit", () => {
+  // Pure routing helper — imported directly (node env, no jsdom needed).
+  it("routes entity hits to entity pages and notes to knowledge", async () => {
+    const { selectionForSearchHit } = await import("./searchHitSelection");
+    expect(
+      selectionForSearchHit({
+        path: "projects/p1/experiments/e1/runs/run-abc123",
+        type: "workspace.run",
+      }),
+    ).toEqual({ objectType: "run", objectId: "abc123" });
+    expect(
+      selectionForSearchHit({ path: "projects/p1/experiments/e1", type: "workspace.experiment" }),
+    ).toEqual({ objectType: "experiment", objectId: "e1" });
+    expect(selectionForSearchHit({ path: "projects/p1", type: "workspace.project" })).toEqual({
+      objectType: "project",
+      objectId: "p1",
+    });
+    expect(selectionForSearchHit({ path: "protocols/gel-prep", type: "okf.note" })).toEqual({
+      objectType: "knowledge",
+      objectId: "protocols/gel-prep",
+    });
+    // An entity hit with an unparseable identity path degrades to knowledge,
+    // never a broken entity link.
+    expect(selectionForSearchHit({ path: "weird/place", type: "workspace.run" })).toEqual({
+      objectType: "knowledge",
+      objectId: "weird/place",
+    });
   });
 });
 

@@ -31,7 +31,7 @@ describe("KnowledgeBacklinksCard", () => {
 
   it("renders the empty state instead of hiding the card", () => {
     expect(card).toContain("No knowledge documents cite this");
-    expect(card).toContain('rows.length === 0');
+    expect(card).toContain("rows.length === 0");
   });
 
   it("navigates rows into the Knowledge section", () => {

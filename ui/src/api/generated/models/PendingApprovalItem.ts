@@ -9,6 +9,7 @@ export type PendingApprovalItem = {
     experimentId: string;
     intent: string;
     metadata?: Record<string, any>;
+    preview?: string;
     projectId: string;
     reason: string;
     requestId: string;

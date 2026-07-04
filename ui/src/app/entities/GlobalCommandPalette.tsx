@@ -12,9 +12,9 @@ import { useNavigate } from "react-router-dom";
 import type { NoteSummary } from "@/api/generated/models/NoteSummary";
 import { StatusBadge } from "@/app/components/entity";
 import { buildCatalog, searchCatalog } from "@/app/entities/catalog";
-import { workspaceApi } from "@/app/state/api";
 import { entityMeta } from "@/app/entities/kinds";
 import { entityPath } from "@/app/entities/paths";
+import { workspaceApi } from "@/app/state/api";
 import type { SemanticStatus, WorkspaceSnapshot } from "@/app/types";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 

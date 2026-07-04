@@ -89,7 +89,7 @@ export const WorkspaceActivityFeed = ({
               <div className="flex items-baseline justify-between gap-2">
                 <span className="truncate font-medium text-foreground">
                   {visual.label}
-                  <span className="ml-1.5 font-normal text-muted-foreground">{event.actor}</span>
+                  <span className="ml-1.5 font-normal text-muted-foreground">· {event.actor}</span>
                 </span>
                 <span
                   className="shrink-0 text-[10px] tabular-nums text-muted-foreground"
@@ -100,7 +100,7 @@ export const WorkspaceActivityFeed = ({
               </div>
               <span className="flex flex-wrap gap-x-2 font-mono text-[10px] text-muted-foreground">
                 {event.refs.map((ref) => {
-                  const resolved = resolveEventRef(ref, event.type, knownRunIds);
+                  const resolved = resolveEventRef(ref, event.type, knownRunIds, event.payload);
                   if (resolved.kind === "run") {
                     return (
                       <button
@@ -126,7 +126,7 @@ export const WorkspaceActivityFeed = ({
                     );
                   }
                   return (
-                    <span key={ref} className="truncate">
+                    <span key={ref} className="truncate" title={ref}>
                       {resolved.text}
                     </span>
                   );

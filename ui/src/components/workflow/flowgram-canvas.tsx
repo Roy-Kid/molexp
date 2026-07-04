@@ -24,7 +24,16 @@ import {
 } from "@flowgram.ai/free-layout-editor";
 import "@flowgram.ai/free-layout-editor/index.css";
 import { Layers, Maximize2, Minus, Plus, Redo2, Undo2 } from "lucide-react";
-import { createContext, type JSX, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  type JSX,
+  type MutableRefObject,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { StatusIcon, type StatusKey, statusKey } from "@/app/components/entity";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -189,7 +198,7 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
  * registers. Runs a frame after mount, then once more shortly after in case the
  * first pass beat the node-size ResizeObserver.
  */
-const AutoLayoutOnMount = (): null => {
+const AutoLayoutOnMount = ({ settledRef }: { settledRef: MutableRefObject<boolean> }): null => {
   const autoLayout = useAutoLayout();
   // `useAutoLayout()` hands back a fresh bound fn every render, so the effect
   // must NOT depend on it — otherwise every re-render (notably a node drag)
@@ -213,14 +222,22 @@ const AutoLayoutOnMount = (): null => {
       if (active) void run();
     });
     const retry = setTimeout(() => {
-      if (active) void run();
+      if (active) {
+        void run().finally(() => {
+          // The mount-time layout passes are done — content changes from here
+          // on are USER edits (the gate `onContentChange` checks, so the
+          // auto-layout itself never marks the document dirty).
+          settledRef.current = true;
+        });
+      }
     }, 250);
     return () => {
       active = false;
+      // An unmounted canvas never settles — but it also never edits.
       cancelAnimationFrame(raf);
       clearTimeout(retry);
     };
-  }, []);
+  }, [settledRef]);
   return null;
 };
 
@@ -313,6 +330,8 @@ export const FlowgramCanvas = ({
   onNodeClickRef.current = onNodeClick;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  // False until the mount-time auto-layout passes finish (AutoLayoutOnMount).
+  const layoutSettledRef = useRef(false);
 
   const editorProps = useMemo<FreeLayoutProps>(() => {
     // Resolve each edge's status so its colour/animation tracks the run. An edge
@@ -373,6 +392,10 @@ export const FlowgramCanvas = ({
             nodeEngine: { enable: true },
             history: { enable: true },
             onContentChange(ctx) {
+              // The mount-time auto-layout also mutates the document; only
+              // post-settle changes are user edits worth a dirty flag (an
+              // unguarded page used to warn on unload without any edit).
+              if (!layoutSettledRef.current) return;
               onChangeRef.current?.(ctx.document.toJSON() as unknown as FlowgramDocument);
             },
           }
@@ -405,7 +428,7 @@ export const FlowgramCanvas = ({
         <div className={`relative h-full w-full ${className ?? ""}`}>
           <FreeLayoutEditorProvider {...editorProps}>
             <EditorRenderer />
-            <AutoLayoutOnMount />
+            <AutoLayoutOnMount settledRef={layoutSettledRef} />
             <FlowgramCanvasControls editable={editable} />
           </FreeLayoutEditorProvider>
         </div>

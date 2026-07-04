@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     from molexp.harness.modes.plan import PlanStep
     from molexp.harness.registry.capability_registry import CapabilityRegistry
     from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ModeResult
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.services.plan_runtime import PlanRecordOutcome
     from molexp.workspace.run import Run
 
@@ -114,42 +113,23 @@ class InteractiveApprover:
             reason=f"operator answered {answer!r}",
         )
 
-    def _store(self) -> FileArtifactStore:
-        from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-        return FileArtifactStore(root=Path(self._run.run_dir / "artifacts"))
-
     def _print_spec(self) -> None:
         """Print the concrete experiment_spec the operator approves pre-compile."""
-        import json
-
         from molexp.cli._common import rprint
+        from molexp.services.plan_runtime.preview import render_approval_preview
 
-        store = self._store()
-        ref = store.latest_by_kind("experiment_spec")
         rprint("\n[bold]Review the concrete spec before compiling the workflow:[/bold]")
-        if ref is None:
-            rprint("  (no experiment_spec artifact found)")
-            return
-        spec = json.loads(store.get(ref.id))
-        rprint(f"  title     : {spec.get('title')}")
-        rprint(f"  objective : {spec.get('objective')}")
-        for v in spec.get("variables", []):
-            val = (v.get("value") or {}).get("value")
-            rprint(f"  variable  : {v.get('name')} = {val} {v.get('unit') or ''}".rstrip())
-        for q in spec.get("resolved_questions", []):
-            rprint(f"  resolved  : {q.get('question')} -> {q.get('answer')}")
+        for line in render_approval_preview(self._run, "experiment_spec").splitlines():
+            rprint(f"  {line}")
 
     def _print_final_summary(self) -> None:
-        """Print a brief whole-plan summary for the terminal review gate."""
+        """Print the whole-plan review (same preview the UI inbox shows)."""
         from molexp.cli._common import rprint
+        from molexp.services.plan_runtime.preview import render_approval_preview
 
-        store = self._store()
         rprint("\n[bold]Review the full verified plan:[/bold]")
-        has_source = store.latest_by_kind("workflow_source") is not None
-        has_dry = store.latest_by_kind("execution_result") is not None
-        rprint(f"  workflow source generated : {has_source}")
-        rprint(f"  compiled / dry-ran        : {has_dry}")
+        for line in render_approval_preview(self._run, "final_report").splitlines():
+            rprint(f"  {line}")
 
 
 def _print_record_errors(outcome: PlanRecordOutcome) -> None:

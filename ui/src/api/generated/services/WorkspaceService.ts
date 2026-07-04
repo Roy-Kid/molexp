@@ -39,7 +39,7 @@ export class WorkspaceService {
      * @throws ApiError
      */
     public static getWorkspaceEventsApiEventsGet(
-        type?: (string | null),
+        type?: ('run.created' | 'run.started' | 'run.failed' | 'run.completed' | 'asset.added' | 'knowledge.created' | 'workflow.created' | 'experiment.created' | null),
         ref?: (string | null),
         limit: number = 50,
     ): CancelablePromise<Array<WorkspaceEventResponse>> {

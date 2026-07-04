@@ -20,8 +20,7 @@ import { describe, expect, it } from "@rstest/core";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const read = (rel: string): string =>
-  readFileSync(resolve(__dirname, rel), "utf-8");
+const read = (rel: string): string => readFileSync(resolve(__dirname, rel), "utf-8");
 
 describe("MarkdownContent math wiring", () => {
   const source = read("./markdown.tsx");

@@ -580,9 +580,7 @@ const AgentSessionViewer = ({
 }: RendererProps): JSX.Element | null => {
   const sessionId = selection.objectId === "new" ? null : selection.objectId;
   const mountScope =
-    selection.objectType === "agent" && selection.objectId === "new"
-      ? selection.scope
-      : undefined;
+    selection.objectType === "agent" && selection.objectId === "new" ? selection.scope : undefined;
   const nav = useNavigationState(snapshot);
   const [session, setSession] = useState<ApiAgentSession | null>(null);
   const [events, setEvents] = useState<ApiSessionEvent[]>([]);

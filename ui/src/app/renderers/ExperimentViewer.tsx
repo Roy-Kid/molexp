@@ -17,8 +17,6 @@ import {
 import { useMemo, useState } from "react";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
-// Module-path import (not the barrel) — see RunViewer.tsx for the loader rationale.
-import { KnowledgeBacklinksCard } from "@/app/components/entity/KnowledgeBacklinksCard";
 import {
   DashboardCard,
   DashboardGrid,
@@ -28,6 +26,8 @@ import {
   EntityPage,
   StatusIcon,
 } from "@/app/components/entity";
+// Module-path import (not the barrel) — see RunViewer.tsx for the loader rationale.
+import { KnowledgeBacklinksCard } from "@/app/components/entity/KnowledgeBacklinksCard";
 import { countRunStatuses, formatDuration, formatScalar } from "@/app/renderers/dashboardData";
 import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
 import { buildExperimentWorkbenchData } from "@/app/renderers/entityWorkbenchData";

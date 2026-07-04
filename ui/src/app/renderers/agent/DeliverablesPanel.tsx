@@ -3,9 +3,9 @@ import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { PlanDetailResponse } from "@/api/generated/models/PlanDetailResponse";
 import { StatusBadge } from "@/app/components/entity";
+import { runPath } from "@/app/entities/paths";
 import type { PlanRef } from "@/app/renderers/agentEvents";
 import { collectArtifacts, derivePlanRef } from "@/app/renderers/agentEvents";
-import { runPath } from "@/app/entities/paths";
 import { workspaceApi } from "@/app/state/api";
 import type { ApiSessionEvent, SemanticStatus } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
@@ -204,13 +204,7 @@ const TOKEN_CLASS: Record<Exclude<TokenKind, "plain">, string> = {
   key: "text-info",
 };
 
-const HighlightedCode = ({
-  text,
-  language,
-}: {
-  text: string;
-  language?: string;
-}): JSX.Element => {
+const HighlightedCode = ({ text, language }: { text: string; language?: string }): JSX.Element => {
   const tokens = useMemo(() => highlightCode(text, language), [text, language]);
   let offset = 0;
   return (
@@ -570,8 +564,8 @@ const FinalReportView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element =>
   if (!report)
     return (
       <p className="text-sm italic text-muted-foreground">
-        The workflow has not been executed — run <code className="font-mono">molexp plan
-        --execute</code> to produce the final report.
+        The workflow has not been executed — run{" "}
+        <code className="font-mono">molexp plan --execute</code> to produce the final report.
       </p>
     );
   const ok = execution?.status === "succeeded";
@@ -841,7 +835,9 @@ const PlanDeliverables = ({
               type="button"
               className="underline decoration-dotted underline-offset-2 hover:text-foreground"
               title="Open this run in the Projects tree"
-              onClick={() => navigate(runPath(planRef.projectId, planRef.experimentId, planRef.runId))}
+              onClick={() =>
+                navigate(runPath(planRef.projectId, planRef.experimentId, planRef.runId))
+              }
             >
               run {planRef.runId}
             </button>

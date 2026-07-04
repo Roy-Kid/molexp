@@ -10,8 +10,7 @@ import { describe, expect, it } from "@rstest/core";
  * (no jsdom in the rstest env — see ApprovalsInbox.test.ts).
  */
 
-const read = (rel: string): string =>
-  readFileSync(join(__dirname, "..", "..", "..", rel), "utf8");
+const read = (rel: string): string => readFileSync(join(__dirname, "..", "..", "..", rel), "utf8");
 
 describe("agent admin settings routes", () => {
   const apiTs = read("app/state/api.ts");
