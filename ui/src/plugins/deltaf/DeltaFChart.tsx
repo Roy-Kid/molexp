@@ -161,7 +161,7 @@ export const DeltaFChart = ({
         Gold standard: {report?.gold_standard} · {report?.eval_configs} configs · F_rms ={" "}
         {report?.dataset_force_rms_mev_A} meV/Å
       </div>
-      {/* Fixed height (not flex-1/100%) so Plotly's autosize can't feed back
+      {/* Fixed height (not flex-1/100%) so the chart's autosize can't feed back
           into a resizing flex parent — the same stable pattern the metrics tab
           uses. */}
       <MolplotBarChart config={config} style={{ width: "100%", height: "460px" }} />

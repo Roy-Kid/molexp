@@ -6,11 +6,11 @@ export { MolplotLineChart, type MolplotLineChartHandle } from "./MolplotLineChar
 export { MolplotRawChart } from "./MolplotRawChart";
 
 /**
- * molexp-side integration of `@molcrafts/molplot` — the plotly-backed
- * charting primitives split out of `@molcrafts/molvis-core`. Mirrors the
- * `molvis` plugin (which integrates the babylon.js 3D viewer): each chart
- * is a thin React wrapper that lazy-imports molplot so plotly lands in an
- * async chunk.
+ * molexp-side integration of `@molcrafts/molplot` — the standalone
+ * Vega-Lite charting package (its own MolCrafts repo, formerly a plotly
+ * sub-package of molvis). Like the `molvis` plugin (which integrates the
+ * babylon.js 3D viewer), each chart is a thin React wrapper that
+ * lazy-imports molplot so its vega runtime lands in an async chunk.
  *
  * The wrappers are consumed directly as components (no file-type or preview
  * contribution to register), so `register()` is intentionally empty. The

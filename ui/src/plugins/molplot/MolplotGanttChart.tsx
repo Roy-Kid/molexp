@@ -9,7 +9,7 @@ interface MolplotGanttChartProps {
   style?: React.CSSProperties;
 }
 
-/** React wrapper around molvis-core's imperative ``GanttChart``. */
+/** React wrapper around molplot's imperative ``GanttChart``. */
 export const MolplotGanttChart = ({
   config,
   onTaskClick,

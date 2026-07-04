@@ -28,7 +28,7 @@ interface MolplotLineChartProps {
 }
 
 /**
- * Thin React wrapper around molvis-core's imperative ``LineChart`` —
+ * Thin React wrapper around molplot's imperative ``LineChart`` —
  * mounts / disposes the underlying chart instance against a div ref
  * and re-renders when the ``config`` reference changes.
  *

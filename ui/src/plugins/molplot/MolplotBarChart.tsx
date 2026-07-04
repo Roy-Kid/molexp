@@ -9,7 +9,7 @@ interface MolplotBarChartProps {
   style?: React.CSSProperties;
 }
 
-/** React wrapper around molvis-core's imperative ``BarChart``. */
+/** React wrapper around molplot's imperative ``BarChart``. */
 export const MolplotBarChart = ({
   config,
   onBarClick,
