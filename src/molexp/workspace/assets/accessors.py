@@ -11,7 +11,7 @@ that task-scoped producer info can be set when running inside a task.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -52,7 +52,7 @@ class ArtifactAccessor(_AccessorBase):
         *,
         tags: dict[str, str] | None = None,
         mime: str | None = None,
-        consumed: list[Asset] | tuple[Asset, ...] | None = None,
+        consumed: Sequence[Asset | str] | None = None,
     ) -> ArtifactAsset:
         """Persist ``data`` as ``<run_dir>/artifacts/<name>``.
 
@@ -62,9 +62,10 @@ class ArtifactAccessor(_AccessorBase):
                 ``dict``/``list``, or any other value (str-cast).
             tags: Free-form metadata attached to the asset.
             mime: Optional MIME type hint.
-            consumed: Optional upstream assets whose ``asset_id``s
-                will be recorded in :attr:`Producer.inputs` to form a
-                lineage edge.
+            consumed: Optional upstream assets (or raw asset-id strings)
+                whose ids are recorded in :attr:`Producer.inputs` to form
+                lineage edges — one kwarg, two item shapes, no second
+                spelling.
         """
         target = self._scope_dir / "artifacts" / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -84,7 +85,8 @@ class ArtifactAccessor(_AccessorBase):
         now = datetime.now()
         producer = self._producer_provider()
         if consumed:
-            producer = producer.model_copy(update={"inputs": tuple(a.asset_id for a in consumed)})
+            ids = tuple(item if isinstance(item, str) else item.asset_id for item in consumed)
+            producer = producer.model_copy(update={"inputs": ids})
         asset = ArtifactAsset(
             asset_id=generate_asset_id(),
             name=name,

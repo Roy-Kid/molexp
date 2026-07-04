@@ -324,6 +324,7 @@ class Run(Folder):
         name: str | None,
         content_hash: str,
         producer_task: str | None = None,
+        inputs: tuple[str, ...] = (),
     ):
         """Re-register a content-addressed artifact into this run's manifest.
 
@@ -342,6 +343,7 @@ class Run(Folder):
             content_hash=content_hash,
             target_scope=self.scope,
             producer_task=producer_task,
+            inputs=inputs,
         )
 
     def get_result(self, key: str) -> TaskOutput:

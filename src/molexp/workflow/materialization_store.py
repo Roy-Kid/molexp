@@ -64,12 +64,17 @@ class MaterializationStore(Protocol):
         result: TaskOutput,
         *,
         run_context: RunContextLike | None,
+        consumed_asset_ids: tuple[str, ...] = (),
     ) -> str | None:
         """Persist task *name*'s *result* as an artifact; return its content hash.
 
-        Returns the ``"sha256:…"`` content hash on success, or ``None`` when the
-        result is not JSON-serializable or no run context is reachable
-        (fail-soft — the body's result is unaffected, persistence is skipped).
+        ``consumed_asset_ids`` are the graph-upstream artifacts this result
+        derives from — the engine projects the workflow DAG into
+        ``Producer.inputs`` here (vision-loop-09), with zero task-author
+        annotation. Returns the ``"sha256:…"`` content hash on success, or
+        ``None`` when the result is not JSON-serializable or no run context is
+        reachable (fail-soft — the body's result is unaffected, persistence is
+        skipped; lineage rides the same documented degradation channel).
         """
 
 
@@ -114,6 +119,7 @@ class FileMaterializationStore:
         result: TaskOutput,
         *,
         run_context: RunContextLike | None,
+        consumed_asset_ids: tuple[str, ...] = (),
     ) -> str | None:
         if run_context is None:
             return None
@@ -125,7 +131,7 @@ class FileMaterializationStore:
         if not callable(save):
             return None
         try:
-            asset = save(name, result)
+            asset = save(name, result, consumed=list(consumed_asset_ids) or None)
         except Exception:
             logger.debug(f"materialize: persist of task {name!r} skipped")
             return None

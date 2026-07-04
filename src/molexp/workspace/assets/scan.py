@@ -206,6 +206,7 @@ def reregister_artifact(
     content_hash: str,
     target_scope: AssetScope,
     producer_task: str | None = None,
+    inputs: tuple[str, ...] = (),
 ) -> Asset | None:
     """Idempotently re-register a content-addressed artifact into ``target_scope``.
 
@@ -238,6 +239,7 @@ def reregister_artifact(
             "producer": Producer(
                 run_id=target_scope.ids[-1] if target_scope.ids else None,
                 task_id=producer_task,
+                inputs=inputs,
             ),
         }
     )

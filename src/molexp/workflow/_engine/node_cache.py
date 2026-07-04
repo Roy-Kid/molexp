@@ -125,7 +125,40 @@ def _artifact_manifest(deps: WorkflowDeps, name: str) -> list[dict[str, JSONValu
     return manifest
 
 
-def _reregister_artifacts(deps: WorkflowDeps, name: str, manifest: list[dict]) -> None:
+def _upstream_asset_ids(deps: WorkflowDeps, registration: object) -> tuple[str, ...]:
+    """Project the workflow DAG into asset lineage: upstream artifact ids.
+
+    For each declared upstream task of *registration* (the same
+    ``depends_on`` set :func:`_collect_upstream_outputs` reads), collect the
+    ``asset_id``s of the artifacts that upstream registered **in this run's
+    manifests** (the existing ``producer_task=`` query — no new attribution
+    mechanism). Deduped, stable order.
+
+    Semantics (vision-loop-09): edges reference per-run manifest entries —
+    resume-seeded tasks whose artifacts were registered by the prior attempt
+    of the same run still resolve (same manifest); an upstream that persisted
+    nothing (non-JSON-safe output, no run context) contributes no edge,
+    honestly reflecting that nothing was persisted for it. Root tasks (no
+    upstreams) return ``()`` — a root artifact's param identity stays
+    ``config_hash``'s job (no fourth id layer).
+    """
+    ids: list[str] = []
+    for upstream in getattr(registration, "depends_on", ()) or ():
+        try:
+            entries = _artifact_manifest(deps, upstream)
+        except Exception:  # fail-soft: lineage rides the persistence bonus channel
+            logger.debug(f"lineage: upstream query for {upstream!r} skipped")
+            continue
+        for entry in entries:
+            asset_id = entry.get("asset_id")
+            if isinstance(asset_id, str) and asset_id and asset_id not in ids:
+                ids.append(asset_id)
+    return tuple(ids)
+
+
+def _reregister_artifacts(
+    deps: WorkflowDeps, name: str, manifest: list[dict], *, inputs: tuple[str, ...] = ()
+) -> None:
     """Re-register cached artifacts into the current run by content-hash.
 
     Idempotent manifest re-registration keyed on ``(name, content_hash)``
@@ -153,6 +186,7 @@ def _reregister_artifacts(deps: WorkflowDeps, name: str, manifest: list[dict]) -
                 name=entry.get("name"),
                 content_hash=content_hash,
                 producer_task=name,
+                inputs=inputs,
             )
         except Exception:
             logger.debug(f"cache: re-register of artifact {entry.get('name')!r} skipped")
@@ -207,7 +241,14 @@ async def run_task_body_cached(
         if payload is not None:
             artifacts = payload.get("artifacts", [])
             if isinstance(artifacts, list):
-                _reregister_artifacts(deps, name, [a for a in artifacts if isinstance(a, dict)])
+                # A hit re-registers with the SAME computed edge set a miss
+                # would record — one cached task never snaps the chain.
+                _reregister_artifacts(
+                    deps,
+                    name,
+                    [a for a in artifacts if isinstance(a, dict)],
+                    inputs=_upstream_asset_ids(deps, registration),
+                )
             return payload.get("result")
 
     raw = await run_task_body(name, deps, state, delivered=delivered)
@@ -218,7 +259,12 @@ async def run_task_body_cached(
     materialization = getattr(deps, "materialization", None)
     if materialization is not None:
         try:
-            materialization.persist_result(name, raw, run_context=deps.run_context)
+            materialization.persist_result(
+                name,
+                raw,
+                run_context=deps.run_context,
+                consumed_asset_ids=_upstream_asset_ids(deps, registration),
+            )
         except Exception:
             logger.debug(f"materialize: persist for task {name!r} skipped")
 
