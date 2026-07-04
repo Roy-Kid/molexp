@@ -547,13 +547,13 @@ def execute(
                 f"{project_id}/{experiment_id}/{run_id} under {run_dir}."
             )
             raise typer.Exit(1)
-        spec = _compile_plan_workflow_spec(run_obj)
-        if spec is None:
-            rprint(
-                "[red]Error:[/red] run has no defining 'script' and no generated "
-                "'workflow_source' artifact; nothing to execute."
-            )
-            raise typer.Exit(1)
+        from molexp.harness.workflow_recovery import WorkflowRecoveryError
+
+        try:
+            spec = _compile_plan_workflow_spec(run_obj)
+        except WorkflowRecoveryError as exc:
+            rprint(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1) from exc
         default_binding_registry.bind(experiment, spec)
 
     seed_outputs = read_node_outputs(run_obj.run_dir, execution_id) if execution_id else None
@@ -607,28 +607,17 @@ def _open_plan_run(run_dir: Path, project_id: str, experiment_id: str, run_id: s
         return None, None
 
 
-def _compile_plan_workflow_spec(run_obj):  # noqa: ANN001
-    """Compile the generated ``build_workflow()`` program from the run's artifacts.
+def _compile_plan_workflow_spec(run_obj: Run):
+    """Compile the run's plan-generated workflow via the ONE shared recovery path.
 
-    Returns the compiled spec, or ``None`` when the run carries no
-    ``workflow_source`` artifact. Run with full builtins (the source was already
-    validated by the harness pipeline); molcrafts imports inside the task bodies
-    resolve at task execution, not at ``compile()``.
+    Delegates to :func:`molexp.harness.workflow_recovery.compiled_workflow_for_run`
+    (the same helper the lifecycle capabilities use) and lets its loud
+    :class:`WorkflowRecoveryError` propagate — the caller prints ``str(exc)``,
+    which names both persisted shapes and what the run actually carries.
     """
-    from molexp.harness.schemas import WorkflowSource
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
+    from molexp.harness.workflow_recovery import compiled_workflow_for_run
 
-    store = FileArtifactStore(root=Path(run_obj.run_dir) / "artifacts")
-    ref = store.latest_by_kind("workflow_source")
-    if ref is None:
-        return None
-    source = WorkflowSource.model_validate_json(store.get(ref.id)).source
-    namespace: dict[str, object] = {}
-    exec(compile(source, "<plan_workflow_source>", "exec"), namespace)
-    builder = namespace.get("build_workflow")
-    if builder is None:
-        return None
-    return builder().compile()
+    return compiled_workflow_for_run(run_obj)
 
 
 def _spawn_background_local_run(

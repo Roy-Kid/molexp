@@ -24,10 +24,12 @@ from molexp.harness.actions import (
     ProposalExecutor,
     register_curation_handlers,
 )
-from molexp.harness.capabilities import curation_capabilities
+from molexp.harness.actions.handlers import register_lifecycle_handlers
+from molexp.harness.capabilities import curation_capabilities, lifecycle_capabilities
 from molexp.harness.change_proposal_gate import approval_level_for, gate_change_proposal
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.schemas import ChangeProposal, ChangeSpec, ObjectRef, StateSnapshot
+from molexp.harness.schemas.change_proposal import Reversibility
 from molexp.harness.store.approval_store import SQLiteApprovalStore
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
@@ -45,6 +47,7 @@ __all__ = [
 
 _MOVE_RUN = "molexp.curation.move_run"
 _DELETE_FOLDER = "molexp.curation.delete_folder"
+_REHOME_ASSET = "molexp.curation.rehome_asset"
 
 
 def _proposal_id(capability_id: str, references: dict[str, str]) -> str:
@@ -57,7 +60,8 @@ def _proposal_id(capability_id: str, references: dict[str, str]) -> str:
 
 
 def _is_known_curation_cap(capability_id: str) -> bool:
-    return any(cap.id == capability_id for cap in curation_capabilities())
+    known = (*curation_capabilities(), *lifecycle_capabilities())
+    return any(cap.id == capability_id for cap in known)
 
 
 def _move_run_proposal(run: str, target: str) -> ChangeProposal:
@@ -138,6 +142,73 @@ def _scope_key(source: dict[str, str], target: dict[str, str]) -> dict[str, str]
     }
 
 
+_LIFECYCLE_VERBS = {
+    "molexp.lifecycle.run_execute": "execute",
+    "molexp.lifecycle.run_resume": "resume",
+    "molexp.lifecycle.run_rerun": "rerun",
+    "molexp.lifecycle.run_cancel": "cancel",
+    "molexp.lifecycle.runs_prune": "prune",
+}
+
+#: Reversibility per lifecycle verb (spec table): prune is irreversible,
+#: cancel is reversible (the run stays resumable), the execute family is
+#: partially reversible (attempts persist; outputs may be overwritten).
+_LIFECYCLE_REVERSIBILITY: dict[str, Reversibility] = {
+    "execute": "partially",
+    "resume": "partially",
+    "rerun": "partially",
+    "cancel": "reversible",
+    "prune": "irreversible",
+}
+
+
+def _parse_scope_ref(ref: str) -> dict[str, str]:
+    """Parse a colon-encoded scope ref (``"experiment:exp-a"``) into a dict.
+
+    The NL planner's flat ``references`` map cannot carry nested objects, so
+    ``rehome_asset``'s scope refs ride as ``"<kind>:<id>"`` strings.
+    """
+    kind, sep, ident = ref.partition(":")
+    if not sep or not kind or not ident:
+        raise ValueError(
+            f"scope ref {ref!r} must be colon-encoded '<kind>:<id>' "
+            "(e.g. 'experiment:exp-a', 'project:demo')"
+        )
+    return {"kind": kind, "id": ident}
+
+
+def _lifecycle_proposal(capability_id: str, references: dict[str, str]) -> ChangeProposal:
+    """Build the ``run_lifecycle`` proposal for one of the five verbs."""
+    verb = _LIFECYCLE_VERBS[capability_id]
+    run_id = references["run"]
+    reversibility = _LIFECYCLE_REVERSIBILITY[verb]
+    affected = [ObjectRef(kind="run", id=run_id)]
+    payload: dict[str, object] = {"lifecycle_verb": verb}
+    if verb == "rerun" and "fresh" in references:
+        payload["fresh"] = references["fresh"].lower() == "true"
+    if verb == "prune":
+        if "execution_ids" in references:
+            payload["execution_ids"] = [
+                item for item in references["execution_ids"].split(",") if item
+            ]
+        if "statuses" in references:
+            payload["statuses"] = [item for item in references["statuses"].split(",") if item]
+    return ChangeProposal(
+        id=_proposal_id(capability_id, references),
+        intent=f"{verb} run {run_id}",
+        current_state=StateSnapshot(objects=affected),
+        proposed_change=ChangeSpec(
+            op="run_lifecycle",
+            summary=f"{verb} run {run_id}",
+            payload=payload,
+        ),
+        affected_objects=affected,
+        expected_benefit=f"run lifecycle intervention: {verb}",
+        reversibility=reversibility,
+        approval_level=approval_level_for("run_lifecycle", reversibility),
+    )
+
+
 def curation_invocation_to_proposal(
     capability_id: str, references: dict[str, str]
 ) -> ChangeProposal | None:
@@ -149,10 +220,9 @@ def curation_invocation_to_proposal(
 
     Returns:
         A :class:`ChangeProposal` for a *mapped* destructive capability
-        (``move_run`` / ``delete_folder``); ``None`` for a read-only capability
-        or a destructive one this mapping does not cover (e.g. ``rehome_asset``,
-        whose complex source/target refs a flat map cannot express — the
-        deterministic front-end builds that proposal directly).
+        (``move_run`` / ``delete_folder`` / ``rehome_asset`` via colon-encoded
+        scope refs / the five ``molexp.lifecycle.*`` verbs); ``None`` only for
+        a read-only capability (the in-process invocation path handles those).
 
     Raises:
         ValueError: *capability_id* is not a known curation capability (loud, no
@@ -164,7 +234,18 @@ def curation_invocation_to_proposal(
         return _move_run_proposal(references["run"], references["target_experiment"])
     if capability_id == _DELETE_FOLDER:
         return _delete_folder_proposal(references["folder"])
-    # Known but read-only, or a destructive cap this mapping does not cover.
+    if capability_id == _REHOME_ASSET:
+        # Colon-encoded scope refs close the flat-map gap (vision-loop-07):
+        # source: "experiment:exp-a", target: "project:demo".
+        return _rehome_asset_proposal(
+            references["asset"],
+            _parse_scope_ref(references["source"]),
+            _parse_scope_ref(references["target"]),
+            references.get("action", "copy"),
+        )
+    if capability_id in _LIFECYCLE_VERBS:
+        return _lifecycle_proposal(capability_id, references)
+    # Known but read-only — the in-process invocation path handles it.
     return None
 
 
@@ -258,5 +339,6 @@ async def run_curation_proposal(
     ctx = _build_ctx(workspace, run)
     registry = ChangeActionRegistry()
     register_curation_handlers(registry)
+    register_lifecycle_handlers(registry)
     executor = ProposalExecutor(registry)
     return await gate_change_proposal(ctx, proposal, approve=approve, executor=executor)

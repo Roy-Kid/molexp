@@ -38,7 +38,11 @@ _CURATION_PLANNER_PROMPT = (
     "request and the capability catalog, choose exactly one capability by id and "
     "return a CurationInvocation: its `capability_id`, a `references` map of "
     "JSON-able handles for the capability's parameters (run/experiment ids, "
-    "scalars — never live objects), and a one-line `reason`."
+    "scalars — never live objects), and a one-line `reason`. Encoding rules: "
+    "rehome_asset scope refs are colon-encoded strings — source: "
+    "'experiment:exp-a', target: 'project:demo'; list-valued parameters "
+    "(execution_ids, statuses) are comma-joined strings; booleans (fresh, "
+    "recursive) are 'true'/'false'."
 )
 
 

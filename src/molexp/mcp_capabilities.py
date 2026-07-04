@@ -411,7 +411,7 @@ def _merge_curation_built_ins(science: CapabilityRegistry | None) -> CapabilityR
     Protocol-typed science return. Curation ids are ``molexp.curation.*`` and never
     collide with molmcp science ids.
     """
-    from molexp.harness.capabilities import curation_capabilities
+    from molexp.harness.capabilities import curation_capabilities, lifecycle_capabilities
     from molexp.harness.registry import InMemoryCapabilityRegistry
 
     merged = InMemoryCapabilityRegistry()
@@ -419,6 +419,8 @@ def _merge_curation_built_ins(science: CapabilityRegistry | None) -> CapabilityR
         for cap in science.list_capabilities():
             merged.register(cap)
     for cap in curation_capabilities():
+        merged.register(cap)
+    for cap in lifecycle_capabilities():
         merged.register(cap)
     return merged
 
@@ -434,7 +436,7 @@ def resolve_curation_capability_registry(
 
     Synchronous entry (for the CLI). Grounds science via
     :func:`resolve_capability_registry` (loud, may be ``None`` when molmcp is off),
-    then registers every ``curation_capabilities()`` built-in. **Unlike the science
+    then registers every ``curation_capabilities()`` + ``lifecycle_capabilities()`` built-in. **Unlike the science
     resolver this never returns ``None``** — the ``molexp.curation.*`` built-ins are
     always present even with science grounding off.
     """

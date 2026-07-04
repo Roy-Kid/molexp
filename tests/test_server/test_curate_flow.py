@@ -39,7 +39,6 @@ from molexp.harness.schemas.approval import ApprovalDecision, ApprovalRequest
 from molexp.harness.stages import Approver, auto_grant_approver
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.services.curate_runtime.flow import (
-    CurationArgumentError,
     CurationInvocation,
     CurationResult,
     resolve_curation_arguments,
@@ -314,14 +313,15 @@ async def test_destructive_uncoverable_cap_fails_loud(
     env: CurationEnv,
     patched_registry: None,
 ) -> None:
-    """ac-004 — a destructive cap the mapping cannot cover (rehome_asset) fails loud,
-    never silently reaching the old gate."""
+    """ac-004 — malformed destructive references fail loud, never silently
+    reaching the old gate. (rehome_asset itself is now mapped via colon-encoded
+    scope refs — vision-loop-07 — so the loud failure is the ENCODING error.)"""
     gateway = _gateway_with_planner(
         env.run,
         capability_id="molexp.curation.rehome_asset",
         references={"asset": "a1", "source": "source-exp", "target": "target-exp"},
     )
-    with pytest.raises(CurationArgumentError):
+    with pytest.raises(ValueError, match="colon-encoded"):
         await run_curation_flow(
             "rehome the asset",
             workspace=env.ws,

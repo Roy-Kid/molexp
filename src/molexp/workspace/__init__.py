@@ -86,6 +86,7 @@ from .knowledge_item import (
     SourceKind,
     SourceRef,
 )
+from .lifecycle_ops import cancel_run
 from .models import (
     ComputeTarget,
     ErrorInfo,
@@ -99,6 +100,13 @@ from .models import (
 from .note_meta import NoteMeta
 from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
+from .prune import (
+    ExecutionPruneEntry,
+    ExecutionPrunePlan,
+    LivePruneRefusedError,
+    apply_execution_prune,
+    plan_execution_prune,
+)
 from .reference_meta import ReferenceMeta
 from .run import RETRYABLE_STATUSES, Run, RunContext, RunStatus
 from .run_reaper import pid_alive, reap_zombie_run
@@ -190,6 +198,8 @@ __all__ = [
     "EntitySummary",
     "ErrorInfo",
     "ErrorTraceAsset",
+    "ExecutionPruneEntry",
+    "ExecutionPrunePlan",
     "ExecutionRecord",
     "Experiment",
     # Workspace error hierarchy
@@ -208,6 +218,7 @@ __all__ = [
     "KnowledgeMeta",
     "KnowledgeRef",
     # Target types + session management (unified workspace CLI)
+    "LivePruneRefusedError",
     "LocalTarget",
     "LogAsset",
     # OKF Note Concept (wsokf-05) — a directory whose path is its identity
@@ -261,6 +272,7 @@ __all__ = [
     "ZoteroItem",
     # Compute target helpers
     "add_target",
+    "apply_execution_prune",
     "assemble_workspace_context",
     # Atomic JSON I/O — used by workflow layer's persistence + agent
     # layer's session storage.
@@ -269,6 +281,7 @@ __all__ = [
     # markdown reports / generated source previews / log snapshots.
     "atomic_write_text",
     "builtin_local_target",
+    "cancel_run",
     "effective_targets",
     "emit_workspace_event",
     "get_target",
@@ -277,6 +290,7 @@ __all__ = [
     "list_targets",
     "parse_target",
     "pid_alive",
+    "plan_execution_prune",
     "read_workspace_events",
     "read_zotero_items",
     "reap_zombie_run",

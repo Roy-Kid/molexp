@@ -5,7 +5,7 @@ and the ``curate-tasks`` route delegate to, mirroring the ``materialize_plan_rec
 precedent (a ``server/`` function the CLI imports). It turns a natural-language
 request into a discover -> plan -> invoke sequence:
 
-1. resolve the merged registry (science built-ins + curation built-ins) and
+1. resolve the merged registry (science built-ins + curation/lifecycle built-ins) and
    persist the rendered catalog as a ``capability_catalog`` artifact;
 2. **plan** with one ``curation_planner`` agent call whose structured output is a
    :class:`CurationInvocation` (a JSON-reference handle, never live objects);
@@ -132,8 +132,8 @@ def _reconstruct_reference(
         return ref
     raise CurationArgumentError(
         f"reference {name!r} is not reconstructible by run_curation_flow "
-        "(complex object references such as rehome_asset's asset/source/target "
-        "are a follow-up)"
+        "(destructive capabilities carry complex refs through the ChangeProposal "
+        "path — e.g. rehome_asset's colon-encoded scope refs — not this map)"
     )
 
 
@@ -269,8 +269,8 @@ async def run_curation_flow(
         proposal = curation_invocation_to_proposal(invocation.capability_id, invocation.references)
         if proposal is None:
             raise CurationArgumentError(
-                f"destructive capability {invocation.capability_id!r} cannot be mapped "
-                "to a ChangeProposal (complex references are a follow-up)"
+                f"destructive capability {invocation.capability_id!r} has no "
+                "ChangeProposal mapping — add one in proposal_flow before cataloging it"
             )
         result_proposal = await run_curation_proposal(
             proposal, workspace=workspace, run=run, approve=approve

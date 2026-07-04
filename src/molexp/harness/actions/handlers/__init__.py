@@ -12,5 +12,15 @@ from molexp.harness.actions.handlers.curation import (
     AssetMoveHandler,
     register_curation_handlers,
 )
+from molexp.harness.actions.handlers.lifecycle import (
+    RunLifecycleHandler,
+    register_lifecycle_handlers,
+)
 
-__all__ = ["ArtifactDeleteHandler", "AssetMoveHandler", "register_curation_handlers"]
+__all__ = [
+    "ArtifactDeleteHandler",
+    "AssetMoveHandler",
+    "RunLifecycleHandler",
+    "register_curation_handlers",
+    "register_lifecycle_handlers",
+]
