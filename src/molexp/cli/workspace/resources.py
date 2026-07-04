@@ -681,6 +681,82 @@ def asset_list(
         rprint(f"[dim]Showing {len(shown)} of {len(assets)} — raise --limit to see more.[/dim]")
 
 
+@asset_app.command("info")
+def asset_info(
+    asset_id: Annotated[str, typer.Argument(help="The asset id to inspect.")],
+    target_spec: TargetOption = ".",
+) -> None:
+    """Show one asset's full record — wraps ``assets.scan.get_asset``."""
+    from molexp.workspace.assets import scan as asset_scan
+
+    target, _transport, _fs = resolve_workspace_target(target_spec)
+    if not isinstance(target, LocalTarget):
+        _remote_only("asset info")
+    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+
+    asset = asset_scan.get_asset(ws.root, asset_id)
+    if asset is None:
+        rprint(f"[red]Error:[/red] no asset with id {asset_id!r} in this workspace.")
+        raise typer.Exit(1)
+    rprint(f"[bold]{asset.name}[/bold]  ({asset.asset_id})")
+    # ``kind`` is the subclass-declared discriminator (base Asset omits it).
+    rprint(f"  kind         : {getattr(asset, 'kind', type(asset).__name__)}")
+    rprint(f"  scope        : {_format_asset_scope(asset.scope)}")
+    rprint(f"  content_hash : {asset.content_hash or '(none)'}")
+    producer = asset.producer
+    if producer is not None:
+        rprint(f"  producer     : run={producer.run_id or '-'} task={producer.task_id or '-'}")
+        if producer.inputs:
+            rprint(f"  inputs       : {', '.join(producer.inputs)}")
+    rprint(f"  path         : {asset.path}")
+    rprint(f"  created      : {asset.created_at.isoformat()}")
+
+
+@asset_app.command("lineage")
+def asset_lineage(
+    asset_id: Annotated[str, typer.Argument(help="The asset id to trace.")],
+    direction: Annotated[
+        str,
+        typer.Option("--direction", help="ancestors | descendants | both."),
+    ] = "both",
+    target_spec: TargetOption = ".",
+) -> None:
+    """Trace an asset's provenance — wraps ``assets.lineage.ancestors/descendants``."""
+    from molexp.workspace.assets import lineage as asset_lineage_mod
+    from molexp.workspace.assets import scan as asset_scan
+
+    if direction not in ("ancestors", "descendants", "both"):
+        rprint(
+            f"[red]Error:[/red] --direction must be ancestors|descendants|both, got {direction!r}."
+        )
+        raise typer.Exit(1)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
+    if not isinstance(target, LocalTarget):
+        _remote_only("asset lineage")
+    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+
+    if asset_scan.get_asset(ws.root, asset_id) is None:
+        rprint(f"[red]Error:[/red] no asset with id {asset_id!r} in this workspace.")
+        raise typer.Exit(1)
+
+    def _render(label: str, arrow: str, ids: set[str]) -> None:
+        rprint(f"[bold]{label}[/bold] ({len(ids)}):")
+        if not ids:
+            rprint("  (none)")
+            return
+        for related_id in sorted(ids):
+            related = asset_scan.get_asset(ws.root, related_id)
+            suffix = (
+                f"  {related.name} ({getattr(related, 'kind', '?')})" if related is not None else ""
+            )
+            rprint(f"  {arrow} {related_id}{suffix}")
+
+    if direction in ("ancestors", "both"):
+        _render("ancestors", "<-", asset_lineage_mod.ancestors(ws, asset_id))
+    if direction in ("descendants", "both"):
+        _render("descendants", "->", asset_lineage_mod.descendants(ws, asset_id))
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------

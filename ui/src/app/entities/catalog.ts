@@ -5,6 +5,14 @@
 import type { EntityRef } from "@/app/entities/kinds";
 import type { WorkspaceSnapshot } from "@/app/types";
 
+/** The minimal knowledge-doc shape the catalog indexes (from listKnowledge). */
+export interface KnowledgeDocEntry {
+  relPath: string;
+  name: string;
+  title?: string | null;
+  tags?: string[] | null;
+}
+
 export interface CatalogEntry {
   ref: EntityRef;
   /** Lower-cased haystack: name + id + summary, for substring matching. */
@@ -16,7 +24,10 @@ const entry = (ref: EntityRef, ...extra: (string | null | undefined)[]): Catalog
   haystack: [ref.label, ref.id, ...extra].filter(Boolean).join(" ").toLowerCase(),
 });
 
-export const buildCatalog = (snapshot: WorkspaceSnapshot): CatalogEntry[] => {
+export const buildCatalog = (
+  snapshot: WorkspaceSnapshot,
+  knowledgeDocs: KnowledgeDocEntry[] = [],
+): CatalogEntry[] => {
   const entries: CatalogEntry[] = [];
 
   for (const p of snapshot.projects) {
@@ -40,6 +51,17 @@ export const buildCatalog = (snapshot: WorkspaceSnapshot): CatalogEntry[] => {
   }
   for (const s of snapshot.agentSessions) {
     entries.push(entry({ kind: "agent", id: s.id, label: s.goal, status: s.status }));
+  }
+  // Knowledge docs ride the same list (vision-loop-08): id = the doc's
+  // bundle-relative path, which entityPath() maps to /knowledge/<path>.
+  for (const doc of knowledgeDocs) {
+    entries.push(
+      entry(
+        { kind: "knowledge", id: doc.relPath, label: doc.title || doc.name },
+        doc.relPath,
+        ...(doc.tags ?? []),
+      ),
+    );
   }
 
   return entries;

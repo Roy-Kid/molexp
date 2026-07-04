@@ -322,6 +322,52 @@ def _resolve_note(bundle: Bundle, path: str) -> Note:
     return concept
 
 
+class KnowledgeSearchRow(BaseModel):
+    """One search hit projected from the bundle index entry."""
+
+    path: str
+    title: str
+    type: str
+    tags: list[str] = []
+    snippet: str | None = None
+
+
+class KnowledgeSearchResponse(BaseModel):
+    """``GET /knowledge/search`` — body-aware retrieval over the bundle."""
+
+    hits: list[KnowledgeSearchRow]
+    truncated: bool
+
+
+@router.get("/search", response_model=KnowledgeSearchResponse)
+def search_knowledge(
+    q: Annotated[str, Query(description="Case-insensitive needle (path/title/tags/body).")],
+    type: Annotated[str | None, Query(description="Exact Concept type filter.")] = None,
+    tag: Annotated[str | None, Query(description="Only concepts carrying this tag.")] = None,
+    workspace: Workspace = Depends(get_workspace),
+) -> KnowledgeSearchResponse:
+    """Search the workspace bundle — wraps the ONE ``Bundle.search`` verb.
+
+    Pure exposure (vision-loop-08): all matching semantics (body reads, caps,
+    snippets, truncation) live in :meth:`molexp.workspace.Bundle.search`; this
+    route only projects its ``SearchResult`` onto the wire.
+    """
+    result = _bundle(workspace).search(q, concept_type=type, tag=tag)
+    return KnowledgeSearchResponse(
+        hits=[
+            KnowledgeSearchRow(
+                path=hit.entry.path,
+                title=hit.entry.title or hit.entry.path,
+                type=hit.entry.type,
+                tags=list(hit.entry.tags),
+                snippet=hit.snippet,
+            )
+            for hit in result.hits
+        ],
+        truncated=result.truncated,
+    )
+
+
 @router.get("", response_model=KnowledgeListResponse)
 def list_knowledge(
     tag: Annotated[str | None, Query(description="Only notes carrying this tag.")] = None,

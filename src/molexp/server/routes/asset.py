@@ -54,10 +54,27 @@ def list_assets(
     scope_kind: str | None = None,
     run_id: str | None = None,
     task_id: str | None = None,
+    content_hash: str | None = None,
     limit: int = 100,
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> list[AssetResponse]:
-    """Query assets from the workspace catalog with optional filters."""
+    """Query assets from the workspace catalog with optional filters.
+
+    ``content_hash`` answers via the ONE existing lookup
+    (:func:`molexp.workspace.assets.scan.find_by_content_hash`) — a 0/1-element
+    list in the uniform response shape, no second query path.
+    """
+    if content_hash is not None:
+        found = scan.find_by_content_hash(workspace.root, content_hash)
+        return (
+            [
+                AssetResponse.from_model(
+                    found, has_preview_sidecar=asset_has_sidecar(workspace, found)
+                )
+            ]
+            if found is not None
+            else []
+        )
     scope = None
     if scope_kind == "workspace":
         scope = AssetScope(kind="workspace", ids=())

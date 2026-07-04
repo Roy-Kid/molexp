@@ -225,3 +225,110 @@ def test_import_zotero_dest_not_a_workspace_errors(runner, zotero_db, tmp_path):
     out = _plain(result.output)
     assert "not a molexp workspace" in out
     assert "molexp init" in out  # actionable hint
+
+
+# ── vision-loop-08 — ``molexp knowledge search`` ──────────────────────────────
+#
+# The command is PURE EXPOSURE of ``Bundle.search`` (the same verb the server
+# route wraps — one function, three faces): these tests pin the CLI face only
+# (workspace resolution via --path, table rendering, q/--type/--tag plumbing).
+# Category map (tester):
+#     basics       — command registered; matching paths rendered
+#     edge cases   — no match exits 0 with no result rows
+#     integration  — seeded Note concepts on disk -> CLI round-trip
+
+# Wide virtual terminal so rich never wraps a path/snippet cell mid-token.
+_WIDE_TERM = {"COLUMNS": "200"}
+
+# Needle that only ever appears in a seeded note body — never in a path/title.
+_CLI_BODY_NEEDLE = "vl08-cli-needle"
+
+
+def _seed_search_notes(ws_root: Path) -> None:
+    """Two root-level notes: ``alpha-note`` (tagged, body needle) + ``beta-note``."""
+    from molexp.workspace import Workspace
+    from molexp.workspace.concepts import Note
+
+    ws = Workspace.load(ws_root)
+    alpha = ws.add_folder(Note(parent=ws, name="alpha-note"))
+    alpha.set_body(f"# Alpha Note\n\nthe {_CLI_BODY_NEEDLE} sits here\n")
+    alpha.set_tags(["vl08tag"])
+    beta = ws.add_folder(Note(parent=ws, name="beta-note"))
+    beta.set_body("# Beta Note\n\nnothing to see\n")
+
+
+@pytest.mark.integration
+def test_knowledge_search_registered(runner):
+    result = runner.invoke(app, ["knowledge", "--help"])
+    assert result.exit_code == 0
+    assert "search" in _plain(result.stdout)
+
+
+@pytest.mark.integration
+def test_knowledge_search_prints_matching_paths(runner, initialized_ws):
+    """A body-needle query renders the matching note's path — and only it."""
+    _seed_search_notes(initialized_ws)
+
+    result = runner.invoke(
+        app,
+        ["knowledge", "search", _CLI_BODY_NEEDLE, "--path", str(initialized_ws)],
+        env=_WIDE_TERM,
+    )
+    assert result.exit_code == 0, result.output
+    out = _flat(result.output)
+    assert "alpha-note" in out
+    assert "beta-note" not in out
+
+
+@pytest.mark.integration
+def test_knowledge_search_tag_filter_narrows(runner, initialized_ws):
+    """--tag forwards to Bundle.search: both notes match the query, one the tag."""
+    _seed_search_notes(initialized_ws)
+
+    result = runner.invoke(
+        app,
+        ["knowledge", "search", "note", "--tag", "vl08tag", "--path", str(initialized_ws)],
+        env=_WIDE_TERM,
+    )
+    assert result.exit_code == 0, result.output
+    out = _flat(result.output)
+    assert "alpha-note" in out
+    assert "beta-note" not in out
+
+
+@pytest.mark.integration
+def test_knowledge_search_type_filter_narrows(runner, initialized_ws):
+    """--type forwards to Bundle.search: a note never matches a reference type."""
+    _seed_search_notes(initialized_ws)
+
+    result = runner.invoke(
+        app,
+        [
+            "knowledge",
+            "search",
+            "alpha",
+            "--type",
+            "reference.reference",
+            "--path",
+            str(initialized_ws),
+        ],
+        env=_WIDE_TERM,
+    )
+    assert result.exit_code == 0, result.output
+    assert "alpha-note" not in _flat(result.output)
+
+
+@pytest.mark.integration
+def test_knowledge_search_no_match_exits_zero(runner, initialized_ws):
+    """A miss is an empty result, not an error (search is a query, not a lookup)."""
+    _seed_search_notes(initialized_ws)
+
+    result = runner.invoke(
+        app,
+        ["knowledge", "search", "zz-absent-needle", "--path", str(initialized_ws)],
+        env=_WIDE_TERM,
+    )
+    assert result.exit_code == 0, result.output
+    out = _flat(result.output)
+    assert "alpha-note" not in out
+    assert "beta-note" not in out

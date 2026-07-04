@@ -118,3 +118,47 @@ def import_zotero(
         title = meta.title or "(untitled)"
         year = f" ({meta.year})" if meta.year else ""
         rprint(f"  {bundle.rel_path(ref)}  [dim]{title}{year}[/dim]")
+
+
+@knowledge_app.command("search")
+def knowledge_search(
+    query: Annotated[str, typer.Argument(help="Case-insensitive needle (path/title/tags/body).")],
+    concept_type: Annotated[
+        str | None, typer.Option("--type", help="Exact Concept type filter.")
+    ] = None,
+    tag: Annotated[str | None, typer.Option("--tag", help="Only concepts with this tag.")] = None,
+    path: Annotated[
+        Path | None, typer.Option("--path", help="Workspace root; defaults to cwd.")
+    ] = None,
+) -> None:
+    """Search the workspace knowledge base — wraps the ONE ``Bundle.search`` verb.
+
+    Pure exposure: matching semantics (body reads, snippets, caps) live in
+    :meth:`molexp.workspace.Bundle.search`; this command renders its hits.
+    """
+    from rich.table import Table
+
+    from molexp.workspace import Bundle, Workspace
+
+    ws = Workspace((path or Path.cwd()).resolve())
+    result = Bundle(ws.resolve()).search(query, concept_type=concept_type, tag=tag)
+    if not result.hits:
+        rprint(f"[dim]No knowledge matches for {query!r}.[/dim]")
+        return
+    table = Table(title=f"knowledge search: {query!r}")
+    table.add_column("Path", style="bold")
+    table.add_column("Title")
+    table.add_column("Type", style="dim")
+    table.add_column("Match")
+    for hit in result.hits:
+        table.add_row(
+            hit.entry.path,
+            hit.entry.title or hit.entry.path,
+            hit.entry.type,
+            hit.snippet or ", ".join(hit.matched_fields),
+        )
+    from rich import print as _rich_print
+
+    _rich_print(table)
+    if result.truncated:
+        rprint("[yellow]…truncated — refine the query.[/yellow]")

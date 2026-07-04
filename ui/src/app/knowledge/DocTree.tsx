@@ -14,13 +14,15 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { type ComponentType, type JSX, useState } from "react";
+import { type ComponentType, type JSX, useEffect, useState } from "react";
 import { StatusBadge } from "@/app/components/entity";
 import type { TreeNode, TreeNodeAction } from "@/app/panels/TreeView";
 import { TreeView } from "@/app/panels/TreeView";
 import type { Selection, WorkspaceSnapshot } from "@/app/types";
 import { useAlert, useConfirm } from "@/components/ConfirmDialog";
 import { usePrompt } from "@/components/PromptDialog";
+import type { KnowledgeSearchRow } from "@/api/generated/models/KnowledgeSearchRow";
+import { workspaceApi } from "@/app/state/api";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -31,6 +33,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
+import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { buildDocTree, type DocEntityKind, type DocTreeNode } from "./knowledgeDocTree";
@@ -156,6 +159,37 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
   });
   const { tags, statuses } = useKnowledgeFacets();
   const filtering = tag !== null || status !== null;
+  // Body-aware search (vision-loop-08): a non-empty query switches the tree to
+  // a flat hit list served by GET /knowledge/search (the ONE Bundle.search verb).
+  const [search, setSearch] = useState("");
+  const [searchHits, setSearchHits] = useState<KnowledgeSearchRow[]>([]);
+  const [searchTruncated, setSearchTruncated] = useState(false);
+  useEffect(() => {
+    const query = search.trim();
+    if (!query) {
+      setSearchHits([]);
+      setSearchTruncated(false);
+      return;
+    }
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      void workspaceApi
+        .searchKnowledge(query)
+        .then((response) => {
+          if (cancelled) return;
+          setSearchHits(response.hits);
+          setSearchTruncated(response.truncated);
+        })
+        .catch(() => {
+          if (!cancelled) setSearchHits([]);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [search]);
+  const searching = search.trim().length > 0;
   const { prompt, dialog: promptDialog } = usePrompt();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { alert, dialog: alertDialog } = useAlert();
@@ -342,8 +376,51 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
           <Plus className="h-3.5 w-3.5" /> New doc
         </Button>
       </div>
+      <div className="px-1">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search notes (title, tags, body)…"
+          className="h-7 text-xs"
+          aria-label="Search knowledge"
+        />
+      </div>
       {error && <p className="px-2 text-xs text-destructive">{error}</p>}
-      <TreeView
+      {searching ? (
+        <div className="space-y-0.5 px-1">
+          {searchHits.length === 0 ? (
+            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+              No matches — the search covers titles, tags, paths, and note bodies.
+            </p>
+          ) : (
+            searchHits.map((hit) => (
+              <button
+                type="button"
+                key={hit.path}
+                onClick={() => onSelect({ objectType: "knowledge", objectId: hit.path })}
+                className={cn(
+                  "block w-full rounded-sm px-2 py-1.5 text-left hover:bg-muted",
+                  activeId === hit.path && "bg-muted",
+                )}
+              >
+                <span className="block truncate text-sm text-foreground">{hit.title}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {hit.path}
+                </span>
+                {hit.snippet && (
+                  <span className="block truncate text-[11px] italic text-muted-foreground">
+                    {hit.snippet}
+                  </span>
+                )}
+              </button>
+            ))
+          )}
+          {searchTruncated && (
+            <p className="px-2 text-[11px] text-muted-foreground">…truncated — refine the query.</p>
+          )}
+        </div>
+      ) : (
+        <TreeView
         nodes={nodes}
         activeId={activeId}
         expandPath={expandPath}
@@ -353,8 +430,9 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
             ? "No documents match the current tag/status filter."
             : "Create a document to start your knowledge base."
         }
-        emptyIcon={<BookOpen className="h-8 w-8" />}
-      />
+          emptyIcon={<BookOpen className="h-8 w-8" />}
+        />
+      )}
       {promptDialog}
       {confirmDialog}
       {alertDialog}

@@ -14,10 +14,15 @@ export class AssetsService {
     /**
      * List Assets
      * Query assets from the workspace catalog with optional filters.
+     *
+     * ``content_hash`` answers via the ONE existing lookup
+     * (:func:`molexp.workspace.assets.scan.find_by_content_hash`) — a 0/1-element
+     * list in the uniform response shape, no second query path.
      * @param kind
      * @param scopeKind
      * @param runId
      * @param taskId
+     * @param contentHash
      * @param limit
      * @returns AssetResponse Successful Response
      * @throws ApiError
@@ -27,6 +32,7 @@ export class AssetsService {
         scopeKind?: (string | null),
         runId?: (string | null),
         taskId?: (string | null),
+        contentHash?: (string | null),
         limit: number = 100,
     ): CancelablePromise<Array<AssetResponse>> {
         return __request(OpenAPI, {
@@ -37,6 +43,7 @@ export class AssetsService {
                 'scope_kind': scopeKind,
                 'run_id': runId,
                 'task_id': taskId,
+                'content_hash': contentHash,
                 'limit': limit,
             },
             errors: {
@@ -227,11 +234,16 @@ export class AssetsService {
     /**
      * List Assets
      * Query assets from the workspace catalog with optional filters.
+     *
+     * ``content_hash`` answers via the ONE existing lookup
+     * (:func:`molexp.workspace.assets.scan.find_by_content_hash`) — a 0/1-element
+     * list in the uniform response shape, no second query path.
      * @param ws
      * @param kind
      * @param scopeKind
      * @param runId
      * @param taskId
+     * @param contentHash
      * @param limit
      * @returns AssetResponse Successful Response
      * @throws ApiError
@@ -242,6 +254,7 @@ export class AssetsService {
         scopeKind?: (string | null),
         runId?: (string | null),
         taskId?: (string | null),
+        contentHash?: (string | null),
         limit: number = 100,
     ): CancelablePromise<Array<AssetResponse>> {
         return __request(OpenAPI, {
@@ -255,6 +268,7 @@ export class AssetsService {
                 'scope_kind': scopeKind,
                 'run_id': runId,
                 'task_id': taskId,
+                'content_hash': contentHash,
                 'limit': limit,
             },
             errors: {

@@ -10,6 +10,7 @@ import type { DocMoveRequest } from '../models/DocMoveRequest';
 import type { EmbedRequest } from '../models/EmbedRequest';
 import type { EmbedResponse } from '../models/EmbedResponse';
 import type { KnowledgeListResponse } from '../models/KnowledgeListResponse';
+import type { KnowledgeSearchResponse } from '../models/KnowledgeSearchResponse';
 import type { MessageResponse } from '../models/MessageResponse';
 import type { NoteDetailResponse } from '../models/NoteDetailResponse';
 import type { NoteSummary } from '../models/NoteSummary';
@@ -251,6 +252,37 @@ export class KnowledgeService {
             url: '/api/knowledge/note',
             query: {
                 'path': path,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Search Knowledge
+     * Search the workspace bundle — wraps the ONE ``Bundle.search`` verb.
+     *
+     * Pure exposure (vision-loop-08): all matching semantics (body reads, caps,
+     * snippets, truncation) live in :meth:`molexp.workspace.Bundle.search`; this
+     * route only projects its ``SearchResult`` onto the wire.
+     * @param q Case-insensitive needle (path/title/tags/body).
+     * @param type Exact Concept type filter.
+     * @param tag Only concepts carrying this tag.
+     * @returns KnowledgeSearchResponse Successful Response
+     * @throws ApiError
+     */
+    public static searchKnowledgeApiKnowledgeSearchGet(
+        q: string,
+        type?: (string | null),
+        tag?: (string | null),
+    ): CancelablePromise<KnowledgeSearchResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/knowledge/search',
+            query: {
+                'q': q,
+                'type': type,
+                'tag': tag,
             },
             errors: {
                 422: `Validation Error`,

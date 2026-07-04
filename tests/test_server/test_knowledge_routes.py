@@ -757,3 +757,120 @@ def test_openapi_contains_doc_meta_patch():
     paths = schema["paths"]
     assert "/api/knowledge/doc/meta" in paths
     assert "patch" in paths["/api/knowledge/doc/meta"]
+
+
+# ── vision-loop-08 — GET /api/knowledge/search (one function, three faces) ────
+#
+# The route is PURE EXPOSURE of ``Bundle.search`` (vision-loop-04): every test
+# here pins the projection (ConceptIndexEntry -> row) and the q/type/tag
+# forwarding, never new matching semantics. Category map (tester):
+#     basics       — row projection (path/title/type/tags/snippet)
+#     edge cases   — no-match empty result, missing required q -> 422
+#     integration  — seeded Concepts on disk -> route round-trip; parity with
+#                    calling Bundle.search directly (Python == UI law)
+
+# Needle that only ever appears in a seeded body — never in a path or title.
+_SEARCH_BODY_NEEDLE = "vl08-body-needle"
+
+
+def _seed_search_corpus(workspace) -> None:
+    """Two notes + one reference for the search tests.
+
+    - ``shared-topic-note`` — tagged, body carries ``_SEARCH_BODY_NEEDLE``.
+    - ``thermo-note``       — untagged, body matches nothing.
+    - ``shared-topic-ref``  — a ReferenceConcept sharing the note's path stem,
+      so ``q=shared-topic`` matches concepts of BOTH types (type-filter food).
+    """
+    topical = workspace.add_folder(Note(parent=workspace, name="shared-topic-note"))
+    topical.set_body(f"# Shared Topic Note\n\nlead-in line\nthe {_SEARCH_BODY_NEEDLE} sits here\n")
+    topical.set_tags(["vl08-tag"])
+    thermo = workspace.add_folder(Note(parent=workspace, name="thermo-note"))
+    thermo.set_body("# Thermo Note\n\nnothing matching here\n")
+    ref = workspace.add_folder(ReferenceConcept(parent=workspace, name="shared-topic-ref"))
+    ref.write_reference_meta(ReferenceMeta(title="Shared Topic Reference", year=2021))
+
+
+def test_search_projects_entry_rows(client, workspace):
+    """basics: a title/path match returns one fully projected row."""
+    _seed_search_corpus(workspace)
+
+    resp = client.get("/api/knowledge/search", params={"q": "thermo"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["truncated"] is False
+    assert len(body["hits"]) == 1
+    row = body["hits"][0]
+    # The full projected shape — path/title/type/tags/snippet, nothing hidden.
+    assert set(row) >= {"path", "title", "type", "tags", "snippet"}
+    assert row["path"] == "thermo-note"
+    assert row["title"] == "Thermo Note"
+    assert row["type"] == "note.note"
+    assert row["tags"] == []
+    assert row["snippet"] is None  # index-level match — no body snippet
+
+
+def test_search_body_match_carries_snippet(client, workspace):
+    """basics: a body-only match forwards vision-loop-04's snippet verbatim."""
+    _seed_search_corpus(workspace)
+
+    resp = client.get("/api/knowledge/search", params={"q": _SEARCH_BODY_NEEDLE})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [row["path"] for row in body["hits"]] == ["shared-topic-note"]
+    snippet = body["hits"][0]["snippet"]
+    assert snippet is not None
+    assert _SEARCH_BODY_NEEDLE in snippet
+
+
+def test_search_type_filter_narrows(client, workspace):
+    """integration: ``type`` forwards to Bundle.search's concept_type filter."""
+    _seed_search_corpus(workspace)
+
+    unfiltered = client.get("/api/knowledge/search", params={"q": "shared-topic"})
+    paths = {row["path"] for row in unfiltered.json()["hits"]}
+    assert paths == {"shared-topic-note", "shared-topic-ref"}
+
+    filtered = client.get(
+        "/api/knowledge/search", params={"q": "shared-topic", "type": "note.note"}
+    )
+    assert [row["path"] for row in filtered.json()["hits"]] == ["shared-topic-note"]
+
+
+def test_search_tag_filter_narrows(client, workspace):
+    """integration: ``tag`` forwards to Bundle.search's tag filter."""
+    _seed_search_corpus(workspace)
+
+    # q="note" matches both notes on path; the tag narrows to the tagged one.
+    resp = client.get("/api/knowledge/search", params={"q": "note", "tag": "vl08-tag"})
+    assert resp.status_code == 200
+    assert [row["path"] for row in resp.json()["hits"]] == ["shared-topic-note"]
+
+
+def test_search_no_match_returns_empty_hits(client, workspace):
+    """edge: a miss is an empty (never erroring, never truncated) result."""
+    _seed_search_corpus(workspace)
+
+    resp = client.get("/api/knowledge/search", params={"q": "zz-absent-needle"})
+    assert resp.status_code == 200
+    assert resp.json() == {"hits": [], "truncated": False}
+
+
+def test_search_requires_q(client, workspace):
+    """edge: ``q`` is required — a bare /search is a validation error, not a listing."""
+    resp = client.get("/api/knowledge/search")
+    assert resp.status_code == 422
+
+
+def test_search_parity_with_bundle_search(client, workspace):
+    """integration/parity: the route returns the SAME paths as Bundle.search.
+
+    Python == UI law — the route is a projection of the one workspace verb,
+    so calling ``Bundle.search`` directly must yield the identical path list.
+    """
+    _seed_search_corpus(workspace)
+
+    expected = [hit.entry.path for hit in Bundle(workspace.root).search("shared-topic").hits]
+    assert expected  # guard: parity must compare non-trivial results
+
+    resp = client.get("/api/knowledge/search", params={"q": "shared-topic"})
+    assert [row["path"] for row in resp.json()["hits"]] == expected

@@ -3,6 +3,7 @@ import { EmbedRequest } from "@/api/generated/models/EmbedRequest";
 import type { EmbedResponse } from "@/api/generated/models/EmbedResponse";
 import type { EntityCard } from "@/api/generated/models/EntityCard";
 import type { KnowledgeListResponse } from "@/api/generated/models/KnowledgeListResponse";
+import type { KnowledgeSearchResponse } from "@/api/generated/models/KnowledgeSearchResponse";
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
 import type { NoteSummary } from "@/api/generated/models/NoteSummary";
 import type { PlanDetailResponse } from "@/api/generated/models/PlanDetailResponse";
@@ -422,6 +423,18 @@ export const workspaceApi = {
   },
   getNote: async (path: string): Promise<NoteDetailResponse> => {
     return KnowledgeService.getNoteApiKnowledgeNoteGet(path);
+  },
+  // Body-aware knowledge search — pure exposure of the ONE Bundle.search verb
+  // (vision-loop-08); all matching semantics live server-side in the workspace.
+  searchKnowledge: async (
+    q: string,
+    options: { type?: string | null; tag?: string | null } = {},
+  ): Promise<KnowledgeSearchResponse> => {
+    return KnowledgeService.searchKnowledgeApiKnowledgeSearchGet(
+      q,
+      options.type ?? undefined,
+      options.tag ?? undefined,
+    );
   },
   /**
    * The resolved summary cards for a note's embedded entities (06's card

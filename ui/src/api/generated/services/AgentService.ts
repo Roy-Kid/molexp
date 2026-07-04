@@ -12,7 +12,7 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathPatch(
+    public static agentDisabledApiAgentPathPost(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -32,7 +32,7 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathPatch1(
+    public static agentDisabledApiAgentPathPost1(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -52,7 +52,7 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathPatch2(
+    public static agentDisabledApiAgentPathPost2(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -72,7 +72,7 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathPatch3(
+    public static agentDisabledApiAgentPathPost3(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -92,7 +92,7 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathPatch4(
+    public static agentDisabledApiAgentPathPost4(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {

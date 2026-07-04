@@ -67,6 +67,8 @@ export type { HTTPValidationError } from './models/HTTPValidationError';
 export type { JSONValue } from './models/JSONValue';
 export type { KnowledgeListResponse } from './models/KnowledgeListResponse';
 export type { KnowledgeRefResponse } from './models/KnowledgeRefResponse';
+export type { KnowledgeSearchResponse } from './models/KnowledgeSearchResponse';
+export type { KnowledgeSearchRow } from './models/KnowledgeSearchRow';
 export type { LammpsLogResponse } from './models/LammpsLogResponse';
 export type { LammpsThermoStage } from './models/LammpsThermoStage';
 export type { LoopCompletedEvent } from './models/LoopCompletedEvent';

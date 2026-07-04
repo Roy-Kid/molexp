@@ -9,8 +9,10 @@
 import { Search } from "lucide-react";
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import type { NoteSummary } from "@/api/generated/models/NoteSummary";
 import { StatusBadge } from "@/app/components/entity";
 import { buildCatalog, searchCatalog } from "@/app/entities/catalog";
+import { workspaceApi } from "@/app/state/api";
 import { entityMeta } from "@/app/entities/kinds";
 import { entityPath } from "@/app/entities/paths";
 import type { SemanticStatus, WorkspaceSnapshot } from "@/app/types";
@@ -39,7 +41,25 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const catalog = useMemo(() => buildCatalog(snapshot), [snapshot]);
+  // Knowledge docs join the jump list (vision-loop-08). Best-effort fetch-once
+  // (the useKnowledgeFacets pattern): the palette still works without them.
+  const [knowledgeDocs, setKnowledgeDocs] = useState<NoteSummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void workspaceApi
+      .listKnowledge()
+      .then((response) => {
+        if (!cancelled) setKnowledgeDocs(response.notes);
+      })
+      .catch(() => {
+        // Knowledge entries are additive; the snapshot catalog stands alone.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const catalog = useMemo(() => buildCatalog(snapshot, knowledgeDocs), [snapshot, knowledgeDocs]);
   const results = useMemo(() => searchCatalog(catalog, query), [catalog, query]);
 
   // Reset transient state whenever the dialog opens.
@@ -93,7 +113,7 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             onKeyDown={onInputKeyDown}
-            placeholder="Jump to a project, experiment, run, workflow, asset, agent…"
+            placeholder="Jump to a project, experiment, run, workflow, asset, agent, note…"
             className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
