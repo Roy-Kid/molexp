@@ -1,7 +1,6 @@
 // reflect-metadata MUST be imported before any flowgram canvas module so the
 // editor's inversify DI containers see the emitted decorator metadata.
 import "reflect-metadata";
-import React from "react";
 import ReactDOM from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { RouteErrorBoundary } from "@/app/layout/RouteErrorBoundary";
@@ -45,9 +44,11 @@ enableMocking().then(() => {
   bootPlugins();
 
   const root = ReactDOM.createRoot(rootElement);
-  root.render(
-    <React.StrictMode>
-      <RouterProvider router={router} />
-    </React.StrictMode>,
-  );
+  // No <React.StrictMode>: its dev-only double-mount re-initializes
+  // @flowgram.ai/free-layout-editor's inversify container, which then throws
+  // "Ambiguous match found for serviceIdentifier: FlowRendererRegistry" on
+  // every workflow-graph surface. Production builds never double-mount, so
+  // this changes dev behavior only. Re-enable if flowgram becomes
+  // StrictMode-safe upstream.
+  root.render(<RouterProvider router={router} />);
 });

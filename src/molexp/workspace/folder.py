@@ -15,7 +15,7 @@ import os
 import re
 import shutil
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path as _StdPath
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, TypeVar, cast
@@ -464,12 +464,35 @@ class Folder:
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Folder:
-        """Generic loader: read ``folder.json`` from *child_dir* and reconstruct."""
-        meta_file = parent._fs.join(child_dir, _METADATA_FILENAME)
-        if not parent._fs.exists(meta_file):
-            raise FileNotFoundError(meta_file)
-        child_meta = _load_metadata(FolderMetadata, meta_file, fs=parent._fs)
-        return _reconstruct(cls, cls.base_from_disk_attrs(parent, child_meta))
+        """Generic loader: reconstruct *child_dir* from its persisted record.
+
+        ``metadata.json`` (the authoritative entity record) wins when present.
+        A Concept dir carrying only the OKF ``meta.yaml`` marker — e.g. a
+        registered type whose owning module is not imported in this process,
+        reached through :func:`concept_from_dir`'s base-``Folder`` resolution —
+        reconstructs read-only from the marker (id = dir name, kind = ``type``),
+        so a Bundle walk stays total over heterogeneous concepts. A dir with
+        neither record is not a Folder: ``FileNotFoundError``.
+        """
+        fs = parent._fs
+        meta_file = fs.join(child_dir, _METADATA_FILENAME)
+        if fs.exists(meta_file):
+            child_meta = _load_metadata(FolderMetadata, meta_file, fs=fs)
+            return _reconstruct(cls, cls.base_from_disk_attrs(parent, child_meta))
+        marker_file = fs.join(child_dir, META_YAML_FILENAME)
+        if fs.exists(marker_file):
+            marker = yaml.safe_load(fs.read_text(marker_file))
+            kind = str(marker.get("type", "")) if isinstance(marker, dict) else ""
+            slug = PurePosixPath(str(child_dir)).name
+            child_meta = FolderMetadata(
+                id=slug,
+                name=slug,
+                kind=kind or "concept",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+            return _reconstruct(cls, cls.base_from_disk_attrs(parent, child_meta))
+        raise FileNotFoundError(meta_file)
 
     # ── Generic five-verb CRUD ───────────────────────────────────────────
 

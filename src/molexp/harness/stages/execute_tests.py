@@ -62,8 +62,15 @@ class ExecuteTests(Stage):
         # single-file: the one module. ``python -m pytest`` puts cwd (generated/)
         # on sys.path so the tests' ``from workflow import …`` resolves either way.
         targets = [f.path for f in ts.files] or [f"{ts.module_name}.py"]
+        cmd = [sys.executable, "-m", "pytest", *targets, "-q"]
+        # molexp task bodies are async-first, so the generated tests are async
+        # `def`s. pytest-asyncio (a declared runtime dep of the plan path) is
+        # strict-mode by default and REJECTS bare async tests; the materialized
+        # tree carries no pytest config, so the mode is set at the invocation.
+        if importlib.util.find_spec("pytest_asyncio") is not None:
+            cmd += ["-o", "asyncio_mode=auto"]
         spec = CommandSpec(
-            cmd=[sys.executable, "-m", "pytest", *targets, "-q"],
+            cmd=cmd,
             cwd=str(ctx.workspace_root / "generated"),
             timeout_s=self._timeout_s,
         )

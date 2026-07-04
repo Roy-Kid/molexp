@@ -104,7 +104,17 @@ def test_command_spec_built_per_contract(ctx) -> None:
 
     assert len(recorder.specs) == 1
     spec = recorder.specs[0]
-    assert spec.cmd == [sys.executable, "-m", "pytest", "test_generated_workflow.py", "-q"]
+    # pytest-asyncio is a declared dev/runtime dep here, so the invocation must
+    # switch it to auto mode — the generated async tests carry no pytest config.
+    assert spec.cmd == [
+        sys.executable,
+        "-m",
+        "pytest",
+        "test_generated_workflow.py",
+        "-q",
+        "-o",
+        "asyncio_mode=auto",
+    ]
     assert spec.cwd == str(ctx.workspace_root / "generated")
     assert spec.timeout_s == 600
 

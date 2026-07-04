@@ -406,3 +406,21 @@ def test_knowledge_item_under_experiment_export_and_rel_path_doubling_free(
     for doubled in _DOUBLED_SEGMENTS:
         assert doubled not in md
         assert doubled not in b.rel_path(got)
+
+
+def test_walk_survives_marker_only_concept_dirs(tmp_path: Path) -> None:
+    """A Concept dir carrying only the OKF meta.yaml marker (its registered
+    class not imported in this process — e.g. an agent session mounted at a
+    run) must not break the Bundle walk or backlinks (vision-loop-11 anchors
+    sessions inside run dirs; the knowledge surface walks the whole tree)."""
+    bundle = Bundle(tmp_path)
+    bundle.create_note("findings")
+
+    stray = tmp_path / "some-agent" / "some-session"
+    stray.mkdir(parents=True)
+    (stray / "meta.yaml").write_text("type: agent.session\nid: some-session\n")
+    (stray.parent / "meta.yaml").write_text("type: agent.agent\nid: some-agent\n")
+
+    names = [c.name for c in bundle.walk()]
+    assert "findings" in names
+    assert "some-session" in names  # marker-only dirs reconstruct, not crash
