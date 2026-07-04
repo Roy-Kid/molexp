@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from molexp.cli import app
@@ -132,10 +133,14 @@ class TestFreshFlagGating:
     def test_rerun_help_mentions_cache_and_fresh(self) -> None:
         result = runner.invoke(app, ["run", "--help"])
         assert result.exit_code == 0
-        assert "--fresh" in result.output
+        # rich styles option names with embedded ANSI spans wherever it deems
+        # the stream a terminal (GitHub Actions included), so help assertions
+        # go through click's strip_ansi — the output text, not its styling.
+        output = strip_ansi(result.output)
+        assert "--fresh" in output
         # The rerun help must not claim "from scratch" — cache may serve
         # deterministic tasks unless --fresh is passed.
-        assert "from scratch" not in result.output
+        assert "from scratch" not in output
 
 
 # ── Asset list: recursive across scopes ──────────────────────────────────────
