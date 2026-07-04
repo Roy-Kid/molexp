@@ -103,6 +103,7 @@ class AgentRunner:
         router: Router | None = None,
         tools: tuple[Tool[None] | Callable[..., Any], ...] = (),
         workspace: Path | None = None,
+        session_anchor: Path | None = None,
     ) -> None:
         supplied = sum(x is not None for x in (model, models, router))
         if supplied == 0:
@@ -119,6 +120,9 @@ class AgentRunner:
         self.loop = loop
         self.tools = tools
         self.workspace = workspace
+        # Where the on-disk Agent/session folders mount (vision-loop-11 scoped
+        # sessions anchor at the mounted entity dir); defaults to `workspace`.
+        self.session_anchor = session_anchor
         self._router: Router | None = router
         self._tier_models: TierModels | None
         if router is not None:
@@ -253,19 +257,21 @@ class AgentRunner:
         """Lazily mount the persistent :class:`Agent` folder for this runner."""
         if self._agent_folder is not None:
             return self._agent_folder
-        if self.workspace is None:
+        anchor = self.session_anchor if self.session_anchor is not None else self.workspace
+        if anchor is None:
             return None
         try:
             from molexp.agent.folders import Agent as AgentFolder
 
-            # The agent is a workspace Concept rooted at the workspace path;
+            # The agent is a workspace Concept rooted at the anchor path (the
+            # workspace root, or the mounted entity dir for scoped sessions);
             # construction is I/O-free and idempotent (same path → same dir),
             # and add_session lazily materializes it.
             agent_name = getattr(self.loop, "name", "") or "default"
-            self._agent_folder = AgentFolder(name=agent_name, root_path=Path(self.workspace))
+            self._agent_folder = AgentFolder(name=agent_name, root_path=Path(anchor))
         except OSError as exc:
             _LOG.warning(
-                f"[runner] could not open Agent folder for {self.workspace!r}: "
+                f"[runner] could not open Agent folder for {anchor!r}: "
                 f"{exc!r}; sessions will be in-memory only."
             )
             return None

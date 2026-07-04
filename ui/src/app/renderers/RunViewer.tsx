@@ -1,4 +1,4 @@
-import { Ban, Copy, FileQuestion, PlayCircle } from "lucide-react";
+import { Ban, Bot, Copy, FileQuestion, PlayCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { DashboardCard, DashboardGrid, EmptyState, EntityPage } from "@/app/components/entity";
 // Imported by module path, NOT the entity barrel: its react-router + generated-client
@@ -357,6 +357,26 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
             />
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopyRunId}>
               <Copy className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              aria-label="New agent chat mounted on this run"
+              title="New agent chat mounted on this run"
+              onClick={() =>
+                setSelection({
+                  objectType: "agent",
+                  objectId: "new",
+                  scope: {
+                    projectId: run.projectId,
+                    experimentId: run.experimentId,
+                    runId: run.id,
+                  },
+                })
+              }
+            >
+              <Bot className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"

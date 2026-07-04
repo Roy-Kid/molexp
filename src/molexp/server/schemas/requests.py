@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Discriminator, Field, Tag
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag
 
 # ── Workspace ───────────────────────────────────────────────────────────────
 
@@ -176,9 +176,17 @@ class DataAssetRegisterRequest(BaseModel):
 
 
 class GoalCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     description: str = Field(..., description="Natural language goal description")
     constraints: dict[str, Any] = Field(default_factory=dict)
     success_criteria: list[str] = Field(default_factory=list)
+    # Mount scope (vision-loop-11): the entity this session is attached to.
+    # A session mounted on a run/experiment receives that entity's state as
+    # a system-prompt context block; unresolvable ids 404 (never downgraded).
+    project_id: str | None = Field(None, alias="projectId")
+    experiment_id: str | None = Field(None, alias="experimentId")
+    run_id: str | None = Field(None, alias="runId")
     plan_mode: bool = Field(
         False,
         description=(

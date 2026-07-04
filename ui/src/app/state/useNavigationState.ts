@@ -135,9 +135,17 @@ const buildSelectionFromLocation = (
   }
 
   if (pathname === "/agent-tasks/new") {
+    const projectId = searchParams.get("project");
     return {
       objectType: "agent",
       objectId: "new",
+      scope: projectId
+        ? {
+            projectId,
+            experimentId: searchParams.get("experiment") ?? undefined,
+            runId: searchParams.get("run") ?? undefined,
+          }
+        : undefined,
     };
   }
 
@@ -201,10 +209,19 @@ const getSelectionPath = (selection: Selection | null, snapshot: WorkspaceSnapsh
       return `/workflows/${encodeURIComponent(selection.workflowId)}`;
     case "asset":
       return `/assets/${encodeURIComponent(selection.objectId)}`;
-    case "agent":
-      return selection.objectId === "new"
-        ? "/agent-tasks/new"
-        : `/agent-tasks/${encodeURIComponent(selection.objectId)}`;
+    case "agent": {
+      if (selection.objectId !== "new") {
+        return `/agent-tasks/${encodeURIComponent(selection.objectId)}`;
+      }
+      const scope = selection.scope;
+      if (!scope) {
+        return "/agent-tasks/new";
+      }
+      const params = new URLSearchParams({ project: scope.projectId });
+      if (scope.experimentId) params.set("experiment", scope.experimentId);
+      if (scope.runId) params.set("run", scope.runId);
+      return `/agent-tasks/new?${params.toString()}`;
+    }
     case "knowledge":
       // objectId is a bundle-relative path (may contain "/"); keep the slashes
       // readable in the URL by encoding each segment, not the whole string.

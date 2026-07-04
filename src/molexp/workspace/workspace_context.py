@@ -154,7 +154,10 @@ class WorkspaceContext(BaseModel, frozen=True):
 
 
 def _run_sort_key(ref: RunRef) -> datetime:
-    return ref.finished_at or ref.started_at or _TS_FLOOR
+    ts = ref.finished_at or ref.started_at or _TS_FLOOR
+    # Persisted run timestamps may be offset-naive (older writers); a mixed
+    # naive/aware set must still sort. Naive values are treated as UTC.
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
 
 
 def assemble_workspace_context(

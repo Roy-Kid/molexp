@@ -68,7 +68,9 @@ def runner() -> CliRunner:
 def _patch_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the REPL build an AgentRunner backed by the scripted router."""
 
-    def _fake_make_runner(*, loop: InteractiveLoop, model: str, workspace: Path) -> AgentRunner:
+    def _fake_make_runner(
+        *, loop: InteractiveLoop, model: str, workspace: Path, session_anchor: Path | None = None
+    ) -> AgentRunner:
         return AgentRunner(loop=loop, router=_ScriptedRouter(), workspace=workspace)
 
     monkeypatch.setattr("molexp.cli.agent_cmd._make_runner", _fake_make_runner)

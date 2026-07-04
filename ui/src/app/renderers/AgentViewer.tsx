@@ -579,6 +579,10 @@ const AgentSessionViewer = ({
   onRefresh,
 }: RendererProps): JSX.Element | null => {
   const sessionId = selection.objectId === "new" ? null : selection.objectId;
+  const mountScope =
+    selection.objectType === "agent" && selection.objectId === "new"
+      ? selection.scope
+      : undefined;
   const nav = useNavigationState(snapshot);
   const [session, setSession] = useState<ApiAgentSession | null>(null);
   const [events, setEvents] = useState<ApiSessionEvent[]>([]);
@@ -743,6 +747,9 @@ const AgentSessionViewer = ({
             ? await agentApi.createSession(intent.description, intent.criteria, {
                 planMode: intent.planMode || undefined,
                 instructionsOverride: intent.instructionsOverride,
+                projectId: mountScope?.projectId,
+                experimentId: mountScope?.experimentId,
+                runId: mountScope?.runId,
               })
             : await agentAdminApi.launchSkill(intent.skillId, intent.parameters, {
                 planMode: intent.planMode,
@@ -766,7 +773,7 @@ const AgentSessionViewer = ({
         setSubmitting(false);
       }
     },
-    [nav, onRefresh],
+    [nav, onRefresh, mountScope],
   );
 
   const handleChatSubmit = useCallback(
@@ -841,6 +848,18 @@ const AgentSessionViewer = ({
                     Describe a goal. The agent plans the steps, calls molexp tools, and reports
                     results with artifacts.
                   </p>
+                  {mountScope && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                      Mounted on{" "}
+                      <span className="font-medium text-foreground">
+                        {mountScope.runId
+                          ? `run ${mountScope.runId}`
+                          : mountScope.experimentId
+                            ? `experiment ${mountScope.experimentId}`
+                            : `project ${mountScope.projectId}`}
+                      </span>
+                    </span>
+                  )}
                 </div>
 
                 {recent.length > 0 && (

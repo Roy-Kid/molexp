@@ -270,9 +270,19 @@ export interface WorkspaceFileSelection {
   hasPreviewSidecar?: boolean;
 }
 
+/** Mount scope for a new agent chat (vision-loop-11): the entity whose state
+ * is injected as the session's context block. Project is the shallowest legal
+ * scope; deeper ids require their parents. */
+export interface AgentMountScope {
+  projectId: string;
+  experimentId?: string;
+  runId?: string;
+}
+
 export interface AgentSelection {
   objectType: "agent";
   objectId: string; // task_id, or "new" for the goal-input state
+  scope?: AgentMountScope; // only meaningful when objectId === "new"
 }
 
 export interface TaskSelection {

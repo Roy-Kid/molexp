@@ -8,6 +8,7 @@ export type GoalCreateRequest = {
      * Natural language goal description
      */
     description: string;
+    experimentId?: (string | null);
     /**
      * Replace the layered system prompt for this single session. Workspace and skill addenda are bypassed; the molexp built-in preamble is also dropped.
      */
@@ -16,6 +17,8 @@ export type GoalCreateRequest = {
      * When true, the runtime registers only read-only tools and asks the agent to emit a structured plan instead of executing.
      */
     plan_mode?: boolean;
+    projectId?: (string | null);
+    runId?: (string | null);
     /**
      * When the goal originates from a slash command, the underlying skill id (informational; the route still resolves the skill's instructions server-side).
      */

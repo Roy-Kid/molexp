@@ -1051,6 +1051,10 @@ export interface SessionLaunchOptions {
   planMode?: boolean;
   instructionsOverride?: string;
   skillId?: string;
+  /** Mount scope (vision-loop-11): the entity whose state seeds the session. */
+  projectId?: string;
+  experimentId?: string;
+  runId?: string;
 }
 
 interface ApiAgentTask {
@@ -1112,6 +1116,9 @@ export const agentApi = {
     if (options.instructionsOverride !== undefined)
       body.instructions_override = options.instructionsOverride;
     if (options.skillId !== undefined) body.skill_id = options.skillId;
+    if (options.projectId !== undefined) body.projectId = options.projectId;
+    if (options.experimentId !== undefined) body.experimentId = options.experimentId;
+    if (options.runId !== undefined) body.runId = options.runId;
     const response = await fetch("/api/agent-tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

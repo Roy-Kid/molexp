@@ -71,6 +71,7 @@ def _make_runner(
     loop: InteractiveLoop,
     model: str,
     workspace: Path,
+    session_anchor: Path | None = None,
 ) -> AgentRunner:
     """Build the :class:`AgentRunner` driving the REPL.
 
@@ -79,7 +80,7 @@ def _make_runner(
     """
     from molexp.agent import AgentRunner
 
-    return AgentRunner(loop=loop, model=model, workspace=workspace)
+    return AgentRunner(loop=loop, model=model, workspace=workspace, session_anchor=session_anchor)
 
 
 def _short_path(path: Path) -> str:
@@ -179,6 +180,18 @@ def agent(
         Path | None,
         typer.Option("--workspace", help="Workspace root; defaults to the current directory."),
     ] = None,
+    project: Annotated[
+        str | None,
+        typer.Option("--project", help="Mount scope: project id (vision-loop-11 context)."),
+    ] = None,
+    experiment: Annotated[
+        str | None,
+        typer.Option("--experiment", help="Mount scope: experiment id (requires --project)."),
+    ] = None,
+    run: Annotated[
+        str | None,
+        typer.Option("--run", help="Mount scope: run id (requires --project + --experiment)."),
+    ] = None,
 ) -> None:
     """Start an interactive molexp agent REPL (emergent InteractiveLoop)."""
     from molexp.agent.loops import InteractiveLoop, InteractiveLoopConfig
@@ -198,8 +211,29 @@ def agent(
     with contextlib.suppress(ImportError):
         import readline  # noqa: F401
 
-    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=workspace_root))
-    runner = _make_runner(loop=loop, model=resolved_model, workspace=workspace_root)
+    context_block = ""
+    session_anchor: Path | None = None
+    if project or experiment or run:
+        # Same composition as the server route (Python = UI): strict
+        # resolution — a bad or parentless id fails the command instead of
+        # silently downgrading to an unscoped session.
+        from molexp.services.agent_context import mount_session_scope
+        from molexp.workspace import Workspace
+
+        try:
+            context_block, session_anchor = mount_session_scope(
+                Workspace(workspace_root), project_id=project, experiment_id=experiment, run_id=run
+            )
+        except (ValueError, LookupError) as exc:
+            rprint(f"[red]Mount scope failed to resolve:[/red] {exc}")
+            raise typer.Exit(1) from exc
+
+    loop = InteractiveLoop(
+        config=InteractiveLoopConfig(workspace_root=workspace_root, context_block=context_block)
+    )
+    runner = _make_runner(
+        loop=loop, model=resolved_model, workspace=workspace_root, session_anchor=session_anchor
+    )
     repl_session = runner.session(session)
     ctx = _ReplContext(model=resolved_model, session_name=session, workspace=workspace_root)
     try:

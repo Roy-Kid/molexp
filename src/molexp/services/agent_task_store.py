@@ -25,6 +25,10 @@ class PersistedAgentTask:
     updated_at: str | None = None
     plan_mode: bool = False
     skill_id: str | None = None
+    # Mount scope (vision-loop-11) — rebuilt verbatim on re-attach.
+    project_id: str | None = None
+    experiment_id: str | None = None
+    run_id: str | None = None
 
 
 def agent_tasks_dir(workspace_root: str | Path) -> Path:
@@ -72,6 +76,11 @@ def read_agent_task_metadata(
         updated_at=raw.get("updated_at") if isinstance(raw.get("updated_at"), str) else None,
         plan_mode=bool(raw.get("plan_mode", False)),
         skill_id=raw.get("skill_id") if isinstance(raw.get("skill_id"), str) else None,
+        project_id=raw.get("project_id") if isinstance(raw.get("project_id"), str) else None,
+        experiment_id=(
+            raw.get("experiment_id") if isinstance(raw.get("experiment_id"), str) else None
+        ),
+        run_id=raw.get("run_id") if isinstance(raw.get("run_id"), str) else None,
     )
 
 
@@ -91,6 +100,9 @@ def write_agent_task_metadata(
         "updated_at": task.updated_at or _now_iso(),
         "plan_mode": task.plan_mode,
         "skill_id": task.skill_id,
+        "project_id": task.project_id,
+        "experiment_id": task.experiment_id,
+        "run_id": task.run_id,
     }
     path = target_dir / METADATA_FILE
     tmp = path.with_suffix(".tmp")

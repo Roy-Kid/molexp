@@ -8,6 +8,7 @@ session store, event persistence, and review model are migrated separately.
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -32,6 +33,9 @@ from ..schemas import (
     UserMessageCreateRequest,
 )
 from . import agent as agent_routes
+
+if TYPE_CHECKING:
+    from molexp.workspace import Workspace
 
 router = APIRouter(prefix="/agent-tasks", tags=["agent-tasks"])
 
@@ -96,7 +100,25 @@ def _workspace_root(workspace) -> str | None:  # noqa: ANN001
     return str(root) if root is not None else None
 
 
-def _persist_task_response(workspace, task: AgentTaskResponse) -> None:  # noqa: ANN001
+def _persist_task_response(
+    workspace: Workspace,
+    task: AgentTaskResponse,
+    *,
+    project_id: str | None = None,
+    experiment_id: str | None = None,
+    run_id: str | None = None,
+    persisted: PersistedAgentTask | None = None,
+) -> None:
+    """Write the task's on-disk metadata.
+
+    The mount scope either arrives explicitly (task creation) or rides
+    *persisted* (read paths refreshing live-session state) — a refresh must
+    never wipe the stored scope.
+    """
+    if persisted is not None:
+        project_id = project_id or persisted.project_id
+        experiment_id = experiment_id or persisted.experiment_id
+        run_id = run_id or persisted.run_id
     root = _workspace_root(workspace)
     if root is None:
         return
@@ -112,6 +134,9 @@ def _persist_task_response(workspace, task: AgentTaskResponse) -> None:  # noqa:
             updated_at=task.updatedAt,
             plan_mode=task.planMode,
             skill_id=task.skillId,
+            project_id=project_id,
+            experiment_id=experiment_id,
+            run_id=run_id,
         ),
     )
 
@@ -151,7 +176,15 @@ async def create_agent_task(
     """
     session = await agent_routes.create_session(request, workspace=workspace)
     task = _task_from_session(session, task_id=f"task-{uuid.uuid4().hex[:12]}")
-    _persist_task_response(workspace, task)
+    # The mount scope (vision-loop-11) persists with the task so a re-attach
+    # rebuilds the same context block verbatim.
+    _persist_task_response(
+        workspace,
+        task,
+        project_id=request.project_id,
+        experiment_id=request.experiment_id,
+        run_id=request.run_id,
+    )
     return task
 
 
@@ -162,11 +195,9 @@ def list_agent_tasks(workspace=Depends(get_workspace)) -> AgentTaskListResponse:
     tasks: list[AgentTaskResponse] = []
     seen_task_ids: set[str] = set()
     for session in sessions.sessions:
-        task = _task_from_session(
-            session,
-            persisted=_persisted_for_session(workspace, session.sessionId),
-        )
-        _persist_task_response(workspace, task)
+        persisted = _persisted_for_session(workspace, session.sessionId)
+        task = _task_from_session(session, persisted=persisted)
+        _persist_task_response(workspace, task, persisted=persisted)
         tasks.append(task)
         seen_task_ids.add(task.taskId)
     root = _workspace_root(workspace)
@@ -213,11 +244,9 @@ def get_agent_task(
                     )
                 return task
         raise
-    task = _task_from_session(
-        session,
-        persisted=_persisted_for_session(workspace, session.sessionId),
-    )
-    _persist_task_response(workspace, task)
+    persisted = _persisted_for_session(workspace, session.sessionId)
+    task = _task_from_session(session, persisted=persisted)
+    _persist_task_response(workspace, task, persisted=persisted)
     return task
 
 

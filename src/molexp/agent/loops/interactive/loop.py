@@ -74,6 +74,10 @@ class InteractiveLoopConfig(BaseModel):
         workspace_root: Directory the read-only tools are confined to.
             ``None`` falls back to the current working directory at run
             time.
+        context_block: Mount-point context (vision-loop-11) — a rendered
+            snapshot of the entity this session is attached to, composed
+            after ``system_prompt``. The loop renders whatever it is
+            handed; the block is built by ``services.agent_context``.
         compaction: Context-compaction policy; pass
             ``CompactionSettings(enabled=False)`` to opt out.
     """
@@ -82,6 +86,7 @@ class InteractiveLoopConfig(BaseModel):
 
     system_prompt: str = ""
     workspace_root: Path | None = None
+    context_block: str = ""
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
 
 
@@ -118,10 +123,16 @@ class InteractiveLoop(AgentLoop):
             knowledge_tools(workspace_root=workspace)
         )
 
+        system = self.config.system_prompt
+        if self.config.context_block:
+            system = (
+                f"{system}\n\n{self.config.context_block}" if system else self.config.context_block
+            )
+
         final_text = ""
         async for chunk in runtime.router.stream_agentic(
             prompt=user_input,
-            system=self.config.system_prompt,
+            system=system,
             tools=tools,
         ):
             if isinstance(chunk, ThinkingDeltaChunk):

@@ -2,6 +2,7 @@ import * as Popover from "@radix-ui/react-popover";
 import {
   Ban,
   BarChart3,
+  Bot,
   Check,
   Copy,
   ExternalLink,
@@ -561,6 +562,22 @@ export const ExperimentViewer = ({
             workflowFile={experiment.workflowFile || ""}
             onRunCreated={onRefresh}
           />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            aria-label="New agent chat mounted on this experiment"
+            title="New agent chat mounted on this experiment"
+            onClick={() =>
+              setSelection({
+                objectType: "agent",
+                objectId: "new",
+                scope: { projectId, experimentId },
+              })
+            }
+          >
+            <Bot className="h-4 w-4" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"

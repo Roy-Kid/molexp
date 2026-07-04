@@ -122,12 +122,46 @@ def _workspace_root(workspace: Workspace) -> str:
     return str(root) if root is not None else ""
 
 
-def _build_runner(workspace: Workspace) -> AgentRunner:
+def _mount_context(
+    workspace: Workspace,
+    *,
+    project_id: str | None,
+    experiment_id: str | None,
+    run_id: str | None,
+) -> tuple[str, Path | None]:
+    """Build the mount-context block + session anchor dir; bad scope → 404.
+
+    Returns ``("", None)`` for an unscoped session. The anchor is the mounted
+    entity's directory — the session's on-disk folder mounts there so storage
+    location and context agree (vision-loop-11 Design §3).
+    """
+    from molexp.services.agent_context import mount_session_scope
+
+    try:
+        # ValueError: deeper id without its parents; LookupError: the whole
+        # workspace *NotFoundError hierarchy (they subclass LookupError).
+        # No silent downgrade: an experiment/run id without its parents is
+        # rejected, never treated as "unscoped".
+        return mount_session_scope(
+            workspace,
+            project_id=project_id,
+            experiment_id=experiment_id,
+            run_id=run_id,
+        )
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+def _build_runner(
+    workspace: Workspace, context_block: str = "", session_anchor: Path | None = None
+) -> AgentRunner:
     """Construct the :class:`AgentRunner` for a new session.
 
     Uses the installed test factory when present; otherwise resolves the model
     from ``molexp.config`` and raises a 503 pre-flight when none is configured
     (rather than constructing an empty, never-answering session).
+    ``context_block`` is the vision-loop-11 mount snapshot the loop composes
+    after its base system prompt.
     """
     if _runner_factory is not None:
         return _runner_factory(workspace)
@@ -148,8 +182,12 @@ def _build_runner(workspace: Workspace) -> AgentRunner:
 
     root = getattr(workspace, "root", None)
     workspace_root = Path(str(root)) if root is not None else None
-    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=workspace_root))
-    return AgentRunner(loop=loop, model=model, workspace=workspace_root)
+    loop = InteractiveLoop(
+        config=InteractiveLoopConfig(workspace_root=workspace_root, context_block=context_block)
+    )
+    return AgentRunner(
+        loop=loop, model=model, workspace=workspace_root, session_anchor=session_anchor
+    )
 
 
 # ── Wire translation (runtime objects never cross response_model) ────────────
@@ -190,7 +228,13 @@ async def create_session(
     workspace: Workspace,
 ) -> AgentSessionResponse:
     """Create a session, kick its first background turn, return the wire shape."""
-    runner = _build_runner(workspace)
+    context_block, session_anchor = _mount_context(
+        workspace,
+        project_id=request.project_id,
+        experiment_id=request.experiment_id,
+        run_id=request.run_id,
+    )
+    runner = _build_runner(workspace, context_block, session_anchor)
     session_id = secrets.token_hex(6)
     session = runner.session(session_id)
     runtime = get_agent_runtime().create(
