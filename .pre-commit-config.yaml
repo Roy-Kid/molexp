@@ -56,6 +56,6 @@ repos:
         name: pytest (CI test suite — mirrors ci.yml `test` job)
         entry: uv run pytest tests/ -q --cov=src/molexp --cov-report=xml
         language: system
-        types: [python]
+        always_run: true  # CI tests every push — so does the mirror (a YAML-only push must not skip it)
         pass_filenames: false
         stages: [pre-push]
