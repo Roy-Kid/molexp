@@ -5,14 +5,9 @@
 #   job `lint`  → runs `pre-commit run --all-files` (= every default-stage hook
 #                 below: pre-commit-hooks + ruff-format + ruff-check + ty)
 #   job `test`  → `pytest tests/ -q --cov=src/molexp --cov-report=xml`
-#                 (mirrored by the local `pytest` hook at stage pre-push)
-#
-# CAVEAT (dependency-source mismatch — category D): CI's test job installs the
-# unreleased sibling `molcrafts-molq @ git+https://github.com/MolCrafts/molq.git`
-# BEFORE running tests. The local `pytest` hook runs against whatever molq is
-# already in the dev's environment, which may differ from CI. Keep your local
-# molq in sync (e.g. `pip install "molcrafts-molq @ git+https://github.com/MolCrafts/molq.git"`)
-# if a pre-push pass must predict green CI.
+#                 (mirrored by the local `pytest` hook at stage pre-push, so a
+#                 push that passes hooks cannot fail CI. `uv run` pins the
+#                 PROJECT venv — immune to whatever venv the shell has active.)
 
 # Install both stages: pre-commit run --hook-stage pre-push runs everything.
 default_install_hook_types: [pre-commit, pre-push]
@@ -54,11 +49,12 @@ repos:
         types: [python]
         pass_filenames: false
 
-      # Mirrors CI test job: `pytest tests/ -q --cov=src/molexp --cov-report=xml`.
-      # Runs at pre-push only (slow). See dependency-source CAVEAT above.
+      # Mirrors CI's `test` job 1:1 so GitHub can never fail on a pushed
+      # commit that passed hooks. pre-push only (slow); `uv run` resolves the
+      # project .venv deterministically.
       - id: pytest
         name: pytest (CI test suite — mirrors ci.yml `test` job)
-        entry: pytest tests/ -q --cov=src/molexp --cov-report=xml
+        entry: uv run pytest tests/ -q --cov=src/molexp --cov-report=xml
         language: system
         types: [python]
         pass_filenames: false
