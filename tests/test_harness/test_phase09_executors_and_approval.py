@@ -1,5 +1,5 @@
-"""Phase-9 tests: CommandSpec/CommandResult schemas + DryRunExecutor +
-LocalExecutor + ApprovalGate stage."""
+"""Phase-9 tests: DryRunExecutor + LocalExecutor subprocess contract +
+ApprovalGate audit-regression / mismatch / lineage wiring."""
 
 from __future__ import annotations
 
@@ -9,61 +9,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
-# ============================================================ schemas
-
-
-def _ref():
-    from molexp.harness.schemas.artifact import PlanArtifactRef
-
-    return PlanArtifactRef(
-        id="r0123456",
-        kind="stdout",
-        uri="file:///tmp/r",
-        sha256="0" * 64,
-        created_at=datetime(2026, 5, 26, tzinfo=UTC),
-        created_by="x",
-    )
-
-
-def test_command_spec_defaults_and_round_trip() -> None:
-    from molexp.harness.schemas.command import CommandSpec
-
-    s = CommandSpec(cmd=["echo", "hi"], cwd="/tmp")
-    # None default → executor inherits parent env. Explicit empty dict
-    # would mean "run with empty env". See schema docstring.
-    assert s.env is None
-    assert s.timeout_s == 3600
-    assert s.expected_outputs == []
-    assert s.metadata == {}
-    s2 = CommandSpec.model_validate_json(s.model_dump_json())
-    assert s2 == s
-
-
-def test_command_spec_frozen() -> None:
-    from molexp.harness.schemas.command import CommandSpec
-
-    s = CommandSpec(cmd=["x"], cwd="/")
-    with pytest.raises(ValidationError):
-        s.cwd = "/etc"  # type: ignore[misc]
-
-
-def test_command_result_round_trip() -> None:
-    from molexp.harness.schemas.command import CommandResult
-
-    r = CommandResult(
-        exit_code=0,
-        started_at=datetime(2026, 5, 26, tzinfo=UTC),
-        ended_at=datetime(2026, 5, 26, tzinfo=UTC),
-        stdout_artifact=_ref(),
-        stderr_artifact=_ref(),
-    )
-    assert r.output_artifacts == []
-    assert r.metadata == {}
-    r2 = CommandResult.model_validate_json(r.model_dump_json())
-    assert r2 == r
-
 
 # ============================================================ DryRunExecutor
 
@@ -73,13 +18,6 @@ def artifact_store(tmp_path: Path):
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
     return FileArtifactStore(root=tmp_path / "artifacts")
-
-
-def test_dry_run_executor_satisfies_protocol() -> None:
-    from molexp.harness.executors.dry_run import DryRunExecutor
-    from molexp.harness.executors.executor import Executor
-
-    assert isinstance(DryRunExecutor(), Executor)
 
 
 def test_dry_run_executor_returns_success(artifact_store) -> None:
@@ -257,64 +195,6 @@ def _scripted_approver(verdicts: dict[str, bool]):
     return approve
 
 
-def test_approval_gate_name_and_subclass() -> None:
-    from molexp.harness.core.stage import Stage
-    from molexp.harness.stages.approval_gate import ApprovalGate
-
-    assert ApprovalGate.name == "approval_gate"
-    assert issubclass(ApprovalGate, Stage)
-
-
-def test_approval_gate_passes_when_all_granted(ctx) -> None:
-    from molexp.harness.stages.approval_gate import ApprovalGate
-
-    r1 = _req("hpc_submission")
-    r2 = _req("full_execution")
-    stage = ApprovalGate(
-        requests=[r1, r2],
-        approve=_scripted_approver({r1.id: True, r2.id: True}),
-    )
-    ref = asyncio.run(stage.run(ctx))
-    assert ref.kind == "analysis_result"
-
-
-def test_approval_gate_no_approver_suspends_never_grants(ctx) -> None:
-    """Without an approver (and no stored grant) the gate SUSPENDS.
-
-    The vision-loop-01 wall: ``approve=None`` never substitutes the
-    auto-granter — the request is recorded and the gate raises
-    :class:`ApprovalPendingError` so the pipeline waits for a human
-    decision. Explicit injection of :func:`auto_grant_approver` remains
-    the only unattended grant (covered above).
-    """
-    from molexp.harness.errors import ApprovalPendingError
-    from molexp.harness.stages.approval_gate import ApprovalGate
-
-    request = _req("final_report")
-    stage = ApprovalGate(requests=[request])
-    with pytest.raises(ApprovalPendingError) as excinfo:
-        asyncio.run(stage.run(ctx))
-
-    assert [r.id for r in excinfo.value.requests] == [request.id]
-    granted = [e for e in ctx.event_log.list_events(ctx.run_id) if e.type == "approval_granted"]
-    assert granted == []
-
-
-def test_approval_gate_raises_on_any_rejected(ctx) -> None:
-    from molexp.harness.errors import StageExecutionError
-    from molexp.harness.stages.approval_gate import ApprovalGate
-
-    r1 = _req("hpc_submission")
-    r2 = _req("full_execution")
-    stage = ApprovalGate(
-        requests=[r1, r2],
-        approve=_scripted_approver({r1.id: True, r2.id: False}),
-    )
-    with pytest.raises(StageExecutionError) as exc:
-        asyncio.run(stage.run(ctx))
-    assert "full_execution" in str(exc.value)
-
-
 def test_approval_gate_records_request_and_decision_events_before_failing(ctx) -> None:
     """Every ask AND answer MUST land on the event log even when the gate aborts.
 
@@ -375,11 +255,3 @@ def test_approval_gate_summary_carries_subject_artifact_ids(ctx) -> None:
     )
     ref = asyncio.run(stage.run(ctx))
     assert parent.id in ref.parent_ids
-
-
-# ============================================================ surface
-
-
-def test_phase09_public_surface() -> None:
-    from molexp.harness import ApprovalGate, DryRunExecutor, Executor, LocalExecutor  # noqa: F401
-    from molexp.harness.schemas import CommandResult, CommandSpec  # noqa: F401

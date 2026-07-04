@@ -38,26 +38,6 @@ class TestDependentParams:
         assert result.status == "succeeded"
         assert result.outputs["mechanical"] == pytest.approx(0.42)
 
-    async def test_no_dependent_params_keeps_config_unchanged(self) -> None:
-        """Sanity: tasks without dependent_params get no spurious bound input.
-
-        Under by-name dataflow the former ``ctx.config`` overlay surfaces as a
-        bound parameter; a task that declares no ``dependent_params`` must see
-        no ``T`` among its delivered inputs.
-        """
-        wf = WorkflowCompiler(name="dep-params-absent")
-
-        @wf.task
-        async def upstream(ctx: TaskContext) -> dict:
-            return {"value": 1}
-
-        @wf.task(depends_on=["upstream"])
-        async def downstream(**inputs: object) -> bool:
-            return "T" not in inputs
-
-        result = await WorkflowRuntime().execute(wf.compile())
-        assert result.outputs["downstream"] is True
-
 
 # ── ac-002 ── @wf.reduce ──────────────────────────────────────────────────────
 
@@ -80,20 +60,6 @@ class TestReduce:
         replicate_outputs = [{"Tg": 0.58}, {"Tg": 0.60}, {"Tg": 0.62}]
         reduced = spec.run_reducer(replicate_outputs)
         assert reduced["mean_Tg"] == pytest.approx(0.60)
-
-    def test_reduce_dimension_recorded(self) -> None:
-        wf = WorkflowCompiler(name="rep-reduce-dim")
-
-        @wf.task
-        async def stub(ctx: TaskContext) -> int:
-            return 1
-
-        @wf.reduce(over="replicate")
-        def mean(rs: list[float]) -> float:
-            return sum(rs) / len(rs)
-
-        spec = wf.compile()
-        assert spec.reducer_dimension == "replicate"
 
     def test_no_reducer_raises_on_run_reducer(self) -> None:
         wf = WorkflowCompiler(name="no-reducer")

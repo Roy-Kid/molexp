@@ -40,18 +40,6 @@ def test_codec_round_trips_pydantic_ai_messages() -> None:
     assert list(restored) == original
 
 
-def test_codec_round_trips_empty_list() -> None:
-    """Empty history dumps to ``b'[]'`` and reloads as ``()``."""
-    pytest.importorskip("pydantic_ai")
-    from molexp.agent._pydanticai.messages_codec import (
-        dump_model_messages,
-        load_model_messages,
-    )
-
-    data = dump_model_messages([])
-    assert load_model_messages(data) == ()
-
-
 def test_codec_rejects_malformed_bytes() -> None:
     """Garbage in → ``ValidationError`` out (caller's job to handle)."""
     pytest.importorskip("pydantic_ai")

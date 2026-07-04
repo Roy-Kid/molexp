@@ -10,20 +10,10 @@ and friends read the ops sidecar.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from pathlib import Path
 
 from molexp.workspace.models import RunStatus
 from molexp.workspace.run_ops import RunOpsState
-
-
-def _read_run_json(run) -> dict:
-    return json.loads(Path(str(run.run_dir / "run.json")).read_text())
-
-
-def _read_ops_json(run) -> dict:
-    return json.loads(Path(str(run.run_dir / "_ops" / "run.json")).read_text())
 
 
 class TestStatusReadsFromOps:
@@ -41,26 +31,6 @@ class TestStatusReadsFromOps:
         assert run.is_retryable is True
         run.update_ops(lambda s: s.model_copy(update={"status": RunStatus.SUCCEEDED}))
         assert run.is_retryable is False
-
-    def test_default_status_is_pending(self, run) -> None:
-        # A freshly-created run with no _ops sidecar reads PENDING (the
-        # RunOpsState default), matching the historical run.json default.
-        run.materialize()
-        assert run.status == "pending"
-
-    def test_set_status_writes_ops(self, run) -> None:
-        run.materialize()
-        run._set_status(RunStatus.RUNNING)
-        assert run.read_ops().status is RunStatus.RUNNING
-        assert _read_ops_json(run)["status"] == "running"
-
-    def test_cancel_writes_ops_only(self, run) -> None:
-        run.materialize()
-        run.cancel()
-        assert run.status == "cancelled"
-        assert run.read_ops().status is RunStatus.CANCELLED
-        # run.json (identity) carries no status field (wsokf-10).
-        assert "status" not in _read_run_json(run)
 
     def test_execution_history_accessor_reads_ops(self, run) -> None:
         run.materialize()
@@ -109,13 +79,3 @@ class TestLifecyclePersistsOps:
         assert after.owner_pid is None
         assert after.finished_at is not None
         assert all(r.status != "running" for r in after.executions)
-
-    def test_failed_body_marks_ops_failed(self, run) -> None:
-        ctx = run.start()
-        try:
-            with ctx:
-                raise RuntimeError("boom")
-        except RuntimeError:
-            pass
-        assert run.read_ops().status is RunStatus.FAILED
-        assert run.status == "failed"

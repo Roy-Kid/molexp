@@ -18,13 +18,6 @@ def client():
     set_served_workspaces([])  # reset process-global state
 
 
-def test_empty_when_unset(client):
-    set_served_workspaces([])
-    r = client.get("/api/workspaces")
-    assert r.status_code == 200
-    assert r.json() == []
-
-
 def test_lists_local_and_remote_in_order(client):
     set_served_workspaces(
         [

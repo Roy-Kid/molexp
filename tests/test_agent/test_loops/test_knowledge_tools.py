@@ -48,11 +48,6 @@ class TestSearchKnowledge:
         assert "failure-sigma" in out
         assert NEEDLE in out  # the snippet line rides along
 
-    def test_no_match_says_so(self, tmp_path: Path) -> None:
-        ws = _seed_workspace(tmp_path)
-        search, _ = knowledge_tools(Path(ws.resolve()))
-        assert "no knowledge matches" in search("nonexistent-needle-xyz")
-
     def test_truncated_hint_appended(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import molexp.agent.loops.interactive.knowledge_tools as kt
 

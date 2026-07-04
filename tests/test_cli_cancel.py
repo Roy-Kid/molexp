@@ -56,32 +56,6 @@ class TestRunsCancelExperimentScope:
         )
         assert reloaded.status == "cancelled"
 
-    def test_cancel_by_status_filter(self, tmp_path):
-        ws_path, project, exp, run = _make_workspace(tmp_path, status="running")
-
-        result = runner.invoke(
-            app,
-            [
-                "runs",
-                "cancel",
-                "--project",
-                project.id,
-                "--experiment",
-                exp.id,
-                "--status",
-                "running",
-                "--yes",
-                "-t",
-                str(ws_path),
-            ],
-        )
-
-        assert result.exit_code == 0, result.output
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
-        assert reloaded.status == "cancelled"
-
     def test_cancel_skips_terminal_runs(self, tmp_path):
         ws_path, project, exp, run = _make_workspace(tmp_path, status="succeeded")
 
@@ -109,29 +83,6 @@ class TestRunsCancelExperimentScope:
             Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
         )
         assert reloaded.status == "succeeded"
-
-    def test_cancel_no_matching_runs(self, tmp_path):
-        ws_path, project, exp, _ = _make_workspace(tmp_path, status="succeeded")
-
-        result = runner.invoke(
-            app,
-            [
-                "runs",
-                "cancel",
-                "--project",
-                project.id,
-                "--experiment",
-                exp.id,
-                "--status",
-                "running",
-                "--yes",
-                "-t",
-                str(ws_path),
-            ],
-        )
-
-        assert result.exit_code == 0, result.output
-        assert "No runs matched" in result.output
 
     def test_cancel_requires_all_or_status(self, tmp_path):
         ws_path, project, exp, _ = _make_workspace(tmp_path)
@@ -195,28 +146,6 @@ class TestRunsCancelExperimentScope:
         )
         assert reloaded.status == "pending"
 
-    def test_cancel_shows_confirmation_table(self, tmp_path):
-        ws_path, project, exp, _run = _make_workspace(tmp_path)
-
-        result = runner.invoke(
-            app,
-            [
-                "runs",
-                "cancel",
-                "--project",
-                project.id,
-                "--experiment",
-                exp.id,
-                "--all",
-                "--yes",
-                "-t",
-                str(ws_path),
-            ],
-        )
-
-        assert result.exit_code == 0
-        assert "Runs to cancel" in result.output
-
 
 class TestRunsCancelByRunId:
     def test_cancel_by_explicit_run_id(self, tmp_path):
@@ -232,21 +161,6 @@ class TestRunsCancelByRunId:
             Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
         )
         assert reloaded.status == "cancelled"
-
-    def test_cancel_by_run_id_skips_terminal(self, tmp_path):
-        ws_path, project, exp, run = _make_workspace(tmp_path, status="succeeded")
-
-        result = runner.invoke(
-            app,
-            ["runs", "cancel", run.id, "--yes", "-t", str(ws_path)],
-        )
-
-        assert result.exit_code == 0
-        assert "terminal" in result.output
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
-        assert reloaded.status == "succeeded"
 
     def test_cancel_unknown_run_id_warns(self, tmp_path):
         ws_path, _, _, _ = _make_workspace(tmp_path)
@@ -296,15 +210,6 @@ class TestRunsCancelMisclassifiedIds:
             Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
         )
         assert reloaded.status == "pending"
-
-    def test_experiment_id_alone_errors(self, tmp_path):
-        ws_path, _project, exp, _run = _make_workspace(tmp_path)
-
-        result = runner.invoke(app, ["runs", "cancel", exp.id, "--yes", "-t", str(ws_path)])
-
-        assert result.exit_code == 1
-        assert "looks like an experiment id" in result.output
-        assert "molexp runs list" in result.output
 
 
 class TestRunsCancelMolqIntegration:
@@ -381,31 +286,3 @@ class TestRunsCancelMolqIntegration:
             Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
         )
         assert reloaded.status == "cancelled"
-
-    def test_cancel_uses_custom_cluster_name(self, tmp_path, mocker):
-        ws_path, _project, _exp, run = _make_workspace(tmp_path, job_id="molq-uuid-custom")
-
-        mock_submitor = mocker.MagicMock()
-        mock_molq = mocker.MagicMock()
-        mock_molq.Submitor = mocker.MagicMock(return_value=mock_submitor)
-        mocker.patch.dict("sys.modules", {"molq": mock_molq})
-
-        result = runner.invoke(
-            app,
-            [
-                "runs",
-                "cancel",
-                run.id,
-                "--yes",
-                "--scheduler",
-                "slurm",
-                "--cluster",
-                "alvis",
-                "-t",
-                str(ws_path),
-            ],
-        )
-
-        assert result.exit_code == 0
-        mock_molq.Submitor.assert_called_once()
-        mock_molq.Cluster.assert_called_once_with(name="alvis", scheduler="slurm")

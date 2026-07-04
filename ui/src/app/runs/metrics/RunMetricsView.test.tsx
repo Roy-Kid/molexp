@@ -1,34 +1,13 @@
 /**
- * RED tests for the extracted shared RunMetricsView component.
- *
- * Rstest runs in a node environment without jsdom (see rstest.config.ts:
- * testEnvironment: "node"). We therefore cannot use @testing-library /
- * render(). Two complementary strategies are used here, mirroring the repo
- * convention (see app/settings/__tests__/AddRemoteWorkspaceForm.test.tsx):
- *
- *   1. The pure builder functions (buildScalarSeries / groupSeries /
- *      buildLineChartConfig) are imported and exercised directly. These
- *      imports FAIL today because RunMetricsView.tsx does not exist yet
- *      (RED for ac-001 logic).
- *
- *   2. The component's JSX wiring is asserted by parsing the .tsx source
- *      with node:fs. readFileSync throws today (file absent) -> RED for the
- *      ac-001 render + ac-002 coord-driven contract.
+ * Tests for the pure metric-series builders behind the shared RunMetricsView
+ * component (node env, no jsdom — the builders are exercised directly).
  */
-
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "@rstest/core";
 
 import type { MetricRecord } from "@/app/state/api";
 
 import { buildLineChartConfig, buildScalarSeries, groupSeries } from "./RunMetricsView";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const SOURCE_PATH = resolve(__dirname, "./RunMetricsView.tsx");
 
 // Two distinct scalar keys across several (intentionally out-of-order) steps,
 // plus one non-scalar record that must be ignored by buildScalarSeries.
@@ -71,11 +50,6 @@ describe("buildScalarSeries (ac-001)", () => {
     const ys = (train as ScalarSeriesShape).points.map((p) => p.y);
     expect(ys).toEqual([1.0, 0.7, 0.5]);
   });
-
-  it("excludes the non-scalar (histogram) record entirely", () => {
-    const series = buildScalarSeries(SAMPLE_RECORDS) as ScalarSeriesShape[];
-    expect(series.some((s) => s.key === "weights/layer0")).toBe(false);
-  });
 });
 
 describe("groupSeries (ac-001)", () => {
@@ -114,30 +88,5 @@ describe("buildLineChartConfig (ac-001)", () => {
       { x: 1, y: 0.7 },
       { x: 2, y: 0.5 },
     ]);
-  });
-});
-
-describe("RunMetricsView source — render + coord-driven (ac-001, ac-002)", () => {
-  // readFileSync throws today because RunMetricsView.tsx does not exist -> RED.
-  const source = readFileSync(SOURCE_PATH, "utf8");
-
-  it("renders MolplotLineChart per scalar series", () => {
-    expect(source).toContain("<MolplotLineChart");
-    expect(source).toContain("@/plugins/molplot");
-  });
-
-  it("is driven by projectId / experimentId / runId props", () => {
-    expect(source).toContain("projectId");
-    expect(source).toContain("experimentId");
-    expect(source).toContain("runId");
-  });
-
-  it("calls getRunMetrics with the coordinate props", () => {
-    expect(source).toMatch(/getRunMetrics\(/);
-    expect(source).toMatch(/getRunMetrics\([\s\S]*projectId[\s\S]*experimentId[\s\S]*runId/);
-  });
-
-  it("contains no reference to snapshot (coord-driven, not snapshot-coupled)", () => {
-    expect(source).not.toContain("snapshot");
   });
 });

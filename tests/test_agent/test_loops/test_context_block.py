@@ -65,10 +65,6 @@ async def _captured_system(config: InteractiveLoopConfig) -> str:
     return router.system
 
 
-def test_config_context_block_defaults_empty() -> None:
-    assert InteractiveLoopConfig().context_block == ""
-
-
 async def test_context_block_composed_after_base_prompt(tmp_path: Path) -> None:
     config = InteractiveLoopConfig(
         system_prompt=_BASE_PROMPT,

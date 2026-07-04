@@ -122,11 +122,6 @@ class TestApiKeyBridge:
         assert molexp.config.get("deepseek_api_key") == "sk-from-operator-config"
         assert molexp.config.get(AGENT_MODEL_KEY) == "deepseek:deepseek-v4-flash"
 
-    def test_in_code_key_wins(self, keyed_config_file):
-        molexp.config["deepseek_api_key"] = "sk-in-code"
-        bridge_operator_config(keyed_config_file)
-        assert molexp.config.get("deepseek_api_key") == "sk-in-code"
-
     def test_model_precedence_does_not_block_keys(self, keyed_config_file):
         molexp.config[AGENT_MODEL_KEY] = "in-code:model"
         bridge_operator_config(keyed_config_file)

@@ -69,11 +69,6 @@ def test_renders_every_event_kind_without_crashing() -> None:
         assert needle in out
 
 
-def test_token_deltas_stream_inline() -> None:
-    out = _render([TokenDeltaEvent(text="abc"), TokenDeltaEvent(text="def")])
-    assert "abcdef" in out
-
-
 def test_streamed_answer_renders_as_markdown() -> None:
     """At stream close the buffered answer is re-rendered as markdown."""
     out = _render(
@@ -133,21 +128,6 @@ def test_failed_tool_call_marked_distinctly() -> None:
     assert "read_file" in bad_out
 
 
-def test_tool_call_duration_rendered() -> None:
-    out = _render(
-        [
-            ToolCallStartedEvent(tool_name="search", timestamp=_T0),
-            ToolCallCompletedEvent(tool_name="search", timestamp=_T0 + timedelta(seconds=1.2)),
-        ]
-    )
-    assert "1.2s" in out
-
-
-def test_thinking_deltas_stream_inline() -> None:
-    out = _render([ThinkingDeltaEvent(text="weigh"), ThinkingDeltaEvent(text="ing")])
-    assert "weighing" in out
-
-
 def test_thinking_then_token_inserts_newline_between_streams() -> None:
     """Reasoning and answer are distinct streams — a newline separates them."""
     out = _render(
@@ -172,12 +152,6 @@ def test_thinking_does_not_suppress_final_text() -> None:
         ]
     )
     assert "the answer" in out
-
-
-def test_clarification_required_renders_questions() -> None:
-    out = _render([ClarificationRequiredEvent(questions="what temperature range?")])
-    assert "clarification" in out
-    assert "what temperature range?" in out
 
 
 def test_finish_is_idempotent() -> None:

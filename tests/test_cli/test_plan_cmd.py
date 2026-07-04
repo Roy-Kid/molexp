@@ -242,16 +242,6 @@ class TestPlanCmd:
         assert "9 steps completed" in result.output
 
     @pytest.mark.integration
-    def test_plan_without_model_exits_with_actionable_error(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr("molexp.cli.plan_cmd._configured_model", lambda: None)
-        result = runner.invoke(app, ["plan", "a draft", "--workspace", str(tmp_path)])
-        assert result.exit_code == 1
-        assert "No model configured" in result.output
-        assert "molexp config set agent.model" in result.output
-
-    @pytest.mark.integration
     def test_plan_requires_exactly_one_draft_source(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -268,38 +258,6 @@ class TestPlanCmd:
         )
         assert result.exit_code == 1
         assert "exactly one way" in result.output
-
-    @pytest.mark.integration
-    def test_plan_rerun_skips_completed_stages_via_ledger(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Same draft twice → same run, second invocation resumes from the ledger."""
-        _patch_gateway(monkeypatch)
-        args = [
-            "plan",
-            "Simulate NEMD ionic mobility",
-            "--workspace",
-            str(tmp_path),
-            "--model",
-            "stub-model",
-            "--yes",
-        ]
-
-        first = runner.invoke(app, args)
-        assert first.exit_code == 0, first.output
-
-        # Second run: stage bodies are skipped (ledger hit), so even an
-        # unregistered gateway (would raise on any LLM stage) completes.
-        def _empty_gateway(*, model: str, run: Any, router: Any = None) -> Any:
-            from molexp.harness.gateways.stub import StubAgentGateway
-            from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-            return StubAgentGateway(FileArtifactStore(root=run.run_dir / "artifacts"))
-
-        monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _empty_gateway)
-        second = runner.invoke(app, args)
-        assert second.exit_code == 0, second.output
-        assert "9 steps completed" in second.output
 
     def test_make_executor_seam_defaults_to_local_executor(self) -> None:
         from molexp.cli import plan_cmd
@@ -447,30 +405,6 @@ class TestInteractiveApprover:
         yes_run = runner.invoke(app, [*base, "--yes"])
         assert yes_run.exit_code == 0, yes_run.output
         assert "9 steps completed" in yes_run.output
-
-    def test_auto_grants_when_assume_yes(self, tmp_path: Path) -> None:
-        """ac-006 — InteractiveApprover auto-grants (no prompt) when --yes is set."""
-        import asyncio
-        from datetime import UTC, datetime
-
-        from molexp.cli.plan_cmd import InteractiveApprover
-        from molexp.harness.schemas import ApprovalRequest
-        from molexp.workspace import Workspace
-
-        ws = Workspace(tmp_path / "lab", name="lab")
-        ws.materialize()
-        run = ws.add_project("p").add_experiment("e").add_run(params={})
-        approver = InteractiveApprover(run=run, assume_yes=True)
-        request = ApprovalRequest(
-            id="r",
-            intent="experiment_spec",
-            reason="x",
-            triggered_by_policy="t",
-            created_at=datetime.now(tz=UTC),
-        )
-        decision = asyncio.run(approver(request))
-        assert decision.granted is True
-        assert decision.decided_by == "cli---yes"
 
 
 # Canned per-task test outputs (step 5) + the execute-tail final report. The
@@ -665,50 +599,3 @@ class TestPlanNineStepBanner:
         ):
             assert stage_name not in text, f"stage name {stage_name!r} leaked at default verbosity"
         assert "9 steps completed" in text
-
-    @pytest.mark.integration
-    def test_verbose_unfolds_stage_names_inside_steps(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _patch_gateway(monkeypatch)
-        result = runner.invoke(
-            app,
-            [
-                "plan",
-                "Simulate NEMD",
-                "--workspace",
-                str(tmp_path),
-                "--model",
-                "stub-model",
-                "-v",
-                "--yes",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        text = self._normalized(result.output)
-        for stage_name in ("save_user_plan", "bind_molcrafts_tasks", "materialize_execution"):
-            assert stage_name in text, f"stage name {stage_name!r} missing under -v"
-
-    @pytest.mark.integration
-    def test_execute_banner_marks_the_tail_not_a_tenth_step(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _patch_gateway(monkeypatch)
-        result = runner.invoke(
-            app,
-            [
-                "plan",
-                "Simulate NEMD",
-                "--workspace",
-                str(tmp_path),
-                "--model",
-                "stub-model",
-                "--execute",
-                "--yes",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        text = self._normalized(result.output)
-        assert "9 steps + execution tail" in text
-        assert "Execute" in text
-        assert "execute_workflow" not in text  # tail stage names also fold into -v

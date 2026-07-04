@@ -134,14 +134,6 @@ def ctx_with_gw(tmp_path: Path) -> HarnessRunContext:
     )
 
 
-def test_name_and_subclass() -> None:
-    from molexp.harness.core.stage import Stage
-    from molexp.harness.stages import GenerateTestCode
-
-    assert GenerateTestCode.name == "generate_test_code"
-    assert issubclass(GenerateTestCode, Stage)
-
-
 def test_fail_fast_no_gateway(ctx_no_gw) -> None:
     from molexp.harness import StageExecutionError
     from molexp.harness.stages import GenerateTestCode

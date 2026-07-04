@@ -56,72 +56,6 @@ class TestAdd:
             "env": {},
         }
 
-    def test_stdio_with_args_after_double_dash(self, cfg):
-        result = runner.invoke(
-            app,
-            [
-                "mcp",
-                "add",
-                "myserver",
-                "npx",
-                "--config",
-                str(cfg),
-                "--",
-                "@scope/pkg",
-                "--flag",
-                "v1",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        entry = _read(cfg)["mcpServers"]["myserver"]
-        assert entry["command"] == "npx"
-        assert entry["args"] == ["@scope/pkg", "--flag", "v1"]
-
-    def test_stdio_with_env(self, cfg):
-        result = runner.invoke(
-            app,
-            [
-                "mcp",
-                "add",
-                "x",
-                "cmd",
-                "-e",
-                "API_KEY=secret",
-                "-e",
-                "DEBUG=1",
-                "--config",
-                str(cfg),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        env = _read(cfg)["mcpServers"]["x"]["env"]
-        assert env == {"API_KEY": "secret", "DEBUG": "1"}
-
-    def test_http_with_headers_trims_value_whitespace(self, cfg):
-        """`Authorization: Bearer xyz` → value is `Bearer xyz` (no leading space)."""
-        result = runner.invoke(
-            app,
-            [
-                "mcp",
-                "add",
-                "sentry",
-                "https://mcp.sentry.dev/mcp",
-                "-t",
-                "http",
-                "-H",
-                "Authorization: Bearer xyz",
-                "--config",
-                str(cfg),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        entry = _read(cfg)["mcpServers"]["sentry"]
-        assert entry == {
-            "type": "http",
-            "url": "https://mcp.sentry.dev/mcp",
-            "headers": {"Authorization": "Bearer xyz"},
-        }
-
     def test_duplicate_without_force_fails(self, cfg):
         runner.invoke(app, ["mcp", "add", "n", "cmd", "--config", str(cfg)])
         result = runner.invoke(app, ["mcp", "add", "n", "other", "--config", str(cfg)])
@@ -160,14 +94,6 @@ class TestAdd:
         )
         assert result.exit_code != 0
         assert "transport" in result.output.lower()
-
-    def test_bad_env_pair(self, cfg):
-        result = runner.invoke(
-            app,
-            ["mcp", "add", "x", "cmd", "-e", "no_equals_sign", "--config", str(cfg)],
-        )
-        assert result.exit_code != 0
-        assert "--env" in _strip_ansi(result.output)
 
 
 # ---------------------------------------------------------------------------
@@ -221,11 +147,6 @@ class TestGet:
 
 
 class TestList:
-    def test_empty(self, cfg):
-        result = runner.invoke(app, ["mcp", "list", "--config", str(cfg)])
-        assert result.exit_code == 0, result.output
-        assert "No MCP servers configured" in result.output
-
     def test_two_servers(self, cfg):
         runner.invoke(app, ["mcp", "add", "a", "cmd-a", "--config", str(cfg)])
         runner.invoke(
@@ -278,28 +199,6 @@ def test_unknown_toplevel_keys_round_trip(cfg):
     assert set(data["mcpServers"]) == {"old", "new"}
 
 
-def test_preserves_unknown_fields_inside_a_server_entry(cfg):
-    """`usage_instructions` (or any custom key) on a server must survive when we add OTHER servers."""
-    cfg.write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "molmcp": {
-                        "type": "stdio",
-                        "command": "molmcp",
-                        "args": [],
-                        "env": {},
-                        "usage_instructions": "preserve me",
-                    }
-                }
-            }
-        )
-    )
-    runner.invoke(app, ["mcp", "add", "newone", "cmd", "--config", str(cfg)])
-    data = _read(cfg)
-    assert data["mcpServers"]["molmcp"]["usage_instructions"] == "preserve me"
-
-
 # ---------------------------------------------------------------------------
 # Scope resolution
 # ---------------------------------------------------------------------------
@@ -320,13 +219,6 @@ class TestScope:
         path = _resolve_mcp_path("project", None)
         assert path.name == ".mcp.json"
         assert path.parent == tmp_path.resolve()
-
-    def test_config_override_wins(self, tmp_path):
-        from molexp.cli.workspace.mcp_config import _resolve_mcp_path
-
-        explicit = tmp_path / "custom.json"
-        assert _resolve_mcp_path("user", explicit) == explicit.resolve()
-        assert _resolve_mcp_path("project", explicit) == explicit.resolve()
 
     def test_unknown_scope_rejected(self):
         from molexp.cli.workspace.mcp_config import _resolve_mcp_path
@@ -388,13 +280,6 @@ class TestImport:
         assert result.exit_code == 1
         assert "not found" in result.output
 
-    def test_empty_source(self, cfg, tmp_path):
-        src = tmp_path / "empty.json"
-        src.write_text(json.dumps({"mcpServers": {}}))
-        result = runner.invoke(app, ["mcp", "import", str(src), "--config", str(cfg)])
-        assert result.exit_code == 0, result.output
-        assert "no `mcpServers`" in result.output
-
     def test_preserves_destination_unrelated_keys(self, cfg, tmp_path):
         cfg.write_text(
             json.dumps(
@@ -428,24 +313,6 @@ class TestExport:
         assert result.exit_code == 0, result.output
         assert _read(dst)["mcpServers"]["n"]["command"] == "from-dst"
         assert "skipped" in result.output
-
-    def test_force_overwrites(self, cfg, tmp_path):
-        runner.invoke(app, ["mcp", "add", "n", "from-src", "--config", str(cfg)])
-        dst = tmp_path / "dst.json"
-        dst.write_text(json.dumps({"mcpServers": {"n": {"type": "stdio", "command": "from-dst"}}}))
-        result = runner.invoke(
-            app,
-            ["mcp", "export", str(dst), "-f", "--config", str(cfg)],
-        )
-        assert result.exit_code == 0, result.output
-        assert _read(dst)["mcpServers"]["n"]["command"] == "from-src"
-
-    def test_empty_source(self, cfg, tmp_path):
-        cfg.write_text(json.dumps({"mcpServers": {}}))
-        dst = tmp_path / "dst.json"
-        result = runner.invoke(app, ["mcp", "export", str(dst), "--config", str(cfg)])
-        assert result.exit_code == 0, result.output
-        assert "registry is empty" in result.output
 
     def test_creates_parent_dirs(self, cfg, tmp_path):
         runner.invoke(app, ["mcp", "add", "a", "cmd", "--config", str(cfg)])

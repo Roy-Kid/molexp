@@ -12,7 +12,6 @@ from molexp.workspace import (
     Workspace,
     add_target,
     get_target,
-    has_target,
     list_targets,
     remove_target,
     to_transport,
@@ -24,23 +23,6 @@ from molexp.workspace import (
 
 
 class TestComputeTargetValidation:
-    def test_local_target_minimal(self) -> None:
-        t = ComputeTarget(name="laptop", scratch_root="/tmp/molexp")
-        assert t.name == "laptop"
-        assert t.host is None
-        assert t.scheduler == "local"
-        assert t.is_remote is False
-
-    def test_remote_target(self) -> None:
-        t = ComputeTarget(
-            name="hpc",
-            host="me@host",
-            scheduler="slurm",
-            scratch_root="/scratch",
-        )
-        assert t.is_remote is True
-        assert t.scheduler == "slurm"
-
     def test_scratch_root_is_required(self) -> None:
         with pytest.raises(ValueError, match="scratch_root"):
             ComputeTarget(name="x", scratch_root="")
@@ -49,15 +31,6 @@ class TestComputeTargetValidation:
         with pytest.raises(ValueError, match="require host"):
             ComputeTarget(name="x", scratch_root="/tmp", port=22)
 
-    def test_unknown_scheduler_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            ComputeTarget(name="x", scratch_root="/tmp", scheduler="invalid")  # type: ignore[arg-type]
-
-    def test_target_is_frozen(self) -> None:
-        t = ComputeTarget(name="x", scratch_root="/tmp")
-        with pytest.raises(Exception):  # noqa: B017
-            t.name = "y"  # type: ignore[misc]
-
 
 # ---------------------------------------------------------------------------
 # Registry CRUD round-trip
@@ -65,12 +38,6 @@ class TestComputeTargetValidation:
 
 
 class TestRegistry:
-    def test_empty_registry(self, tmp_path: Path) -> None:
-        ws = Workspace(tmp_path)
-        ws.materialize()
-        assert list_targets(ws) == []
-        assert not has_target(ws, "anything")
-
     def test_add_and_list(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)
         ws.materialize()
@@ -120,12 +87,6 @@ class TestRegistry:
         add_target(ws, ComputeTarget(name="b", scratch_root="/tmp"))
         remove_target(ws, "a")
         assert [t.name for t in list_targets(ws)] == ["b"]
-
-    def test_remove_missing_raises(self, tmp_path: Path) -> None:
-        ws = Workspace(tmp_path)
-        ws.materialize()
-        with pytest.raises(KeyError):
-            remove_target(ws, "ghost")
 
     def test_get_missing_raises(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)

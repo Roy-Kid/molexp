@@ -127,26 +127,3 @@ def test_open_existing_empty_dir_never_materializes(client: TestClient, tmp_path
     assert not (existing / "workspace.json").exists(), (
         "opening an existing directory must never materialize workspace.json"
     )
-
-
-# ── create then reopen lifecycle ───────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_reopen_after_create_succeeds_without_create_flag(client: TestClient, tmp_path: Path):
-    """After a create-open, the same path reopens with create_if_missing false."""
-    target = tmp_path / "fresh-ws"
-
-    first = client.post(
-        "/api/workspace/open",
-        json={"path": str(target), "create_if_missing": True},
-    )
-    assert first.status_code == 200, first.text
-
-    second = client.post(
-        "/api/workspace/open",
-        json={"path": str(target), "create_if_missing": False},
-    )
-
-    assert second.status_code == 200, second.text
-    assert second.json()["root"] == first.json()["root"]

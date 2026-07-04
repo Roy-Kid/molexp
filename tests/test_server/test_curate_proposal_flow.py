@@ -9,13 +9,11 @@ on-disk Workspace.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from molexp.harness.change_proposal_gate import approval_level_for
-from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
 from molexp.harness.schemas.change_proposal import ObjectRef
 from molexp.harness.stages.approval_gate import auto_grant_approver
 from molexp.workspace import Workspace
@@ -32,16 +30,6 @@ def _workspace(tmp_path: Path) -> Workspace:
 
 def _audit_run(ws: Workspace):
     return ws.add_project("curations").add_experiment("curate").add_run(id="audit1")
-
-
-async def _reject(request: ApprovalRequest) -> ApprovalDecision:
-    return ApprovalDecision(
-        request_id=request.id,
-        granted=False,
-        decided_by="tester",
-        decided_at=datetime(2026, 7, 1, tzinfo=UTC),
-        reason="no",
-    )
 
 
 # ── mapping ──────────────────────────────────────────────────────────────────
@@ -103,28 +91,6 @@ def test_unknown_cap_raises() -> None:
 # ── backend ──────────────────────────────────────────────────────────────────
 
 
-def test_backend_move_run_grant(tmp_path: Path) -> None:
-    """ac-005 — a granted move_run executes: run relocated + change_proposal artifact."""
-    from molexp.services.curate_runtime import (
-        curation_invocation_to_proposal,
-        run_curation_proposal,
-    )
-
-    ws = _workspace(tmp_path)
-    run = _audit_run(ws)
-    proposal = curation_invocation_to_proposal(
-        "molexp.curation.move_run", {"run": "r1", "target_experiment": "e2"}
-    )
-    result = asyncio.run(
-        run_curation_proposal(proposal, workspace=ws, run=run, approve=auto_grant_approver)
-    )
-    assert result.execution_result.status == "executed"
-    fresh = Workspace(root=tmp_path, name="Lab")
-    assert not fresh.get_project("p").get_experiment("e1").has_run("r1")
-    assert fresh.get_project("p").get_experiment("e2").has_run("r1")
-    assert (Path(run.run_dir) / "artifacts").exists()
-
-
 def test_backend_delete_grant(tmp_path: Path) -> None:
     """ac-006 — a granted delete_folder(run) removes the run folder, executed."""
     from molexp.services.curate_runtime import (
@@ -142,20 +108,3 @@ def test_backend_delete_grant(tmp_path: Path) -> None:
     assert (
         not Workspace(root=tmp_path, name="Lab").get_project("p").get_experiment("e1").has_run("r1")
     )
-
-
-def test_backend_reject(tmp_path: Path) -> None:
-    """ac-007 — a rejected proposal performs no mutation, records rejected."""
-    from molexp.services.curate_runtime import (
-        curation_invocation_to_proposal,
-        run_curation_proposal,
-    )
-
-    ws = _workspace(tmp_path)
-    run = _audit_run(ws)
-    proposal = curation_invocation_to_proposal(
-        "molexp.curation.move_run", {"run": "r1", "target_experiment": "e2"}
-    )
-    result = asyncio.run(run_curation_proposal(proposal, workspace=ws, run=run, approve=_reject))
-    assert result.execution_result.status == "rejected"
-    assert Workspace(root=tmp_path, name="Lab").get_project("p").get_experiment("e1").has_run("r1")

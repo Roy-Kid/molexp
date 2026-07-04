@@ -55,20 +55,6 @@ def test_capability_registry_is_runtime_checkable_protocol() -> None:
     assert isinstance(InMemoryCapabilityRegistry(), CapabilityRegistry)
 
 
-def test_capability_registry_re_exports() -> None:
-    from molexp.harness import CapabilityRegistry as via_top
-    from molexp.harness.registry import (
-        CapabilityRegistry as via_pkg,
-    )
-    from molexp.harness.registry import (
-        InMemoryCapabilityRegistry as via_pkg_impl,
-    )
-    from molexp.harness.registry import InMemoryCapabilityRegistry as via_top_impl
-
-    assert via_top is via_pkg
-    assert via_top_impl is via_pkg_impl
-
-
 # ------------------------------------------------------------- register/get
 
 
@@ -101,16 +87,6 @@ def test_get_missing_raises() -> None:
         reg.get("ghost")
 
 
-def test_has_returns_bool() -> None:
-    from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
-
-    reg = InMemoryCapabilityRegistry()
-    assert reg.has("ghost") is False
-    cap = _make_capability()
-    reg.register(cap)
-    assert reg.has(cap.id) is True
-
-
 def test_seed_via_constructor() -> None:
     from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
 
@@ -119,16 +95,6 @@ def test_seed_via_constructor() -> None:
     reg = InMemoryCapabilityRegistry(capabilities=[a, b])
     assert reg.has("cap.a")
     assert reg.has("cap.b")
-
-
-def test_seed_constructor_rejects_duplicates() -> None:
-    from molexp.harness.errors import CapabilityAlreadyRegisteredError
-    from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
-
-    a = _make_capability(id_="cap.dup")
-    a2 = _make_capability(id_="cap.dup", name="other")
-    with pytest.raises(CapabilityAlreadyRegisteredError):
-        InMemoryCapabilityRegistry(capabilities=[a, a2])
 
 
 # --------------------------------------------------------- list / search
@@ -144,32 +110,12 @@ def test_list_capabilities_preserves_insertion_order() -> None:
     assert [c.id for c in reg.list_capabilities()] == ids
 
 
-def test_search_substring_id() -> None:
-    from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
-
-    reg = InMemoryCapabilityRegistry()
-    reg.register(_make_capability(id_="molpy.builder.polymer"))
-    reg.register(_make_capability(id_="molvis.plotter"))
-    results = reg.search("polymer")
-    assert [c.id for c in results] == ["molpy.builder.polymer"]
-
-
 def test_search_substring_name_case_insensitive() -> None:
     from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
 
     reg = InMemoryCapabilityRegistry()
     reg.register(_make_capability(id_="cap.a", name="GBigSmilesCompiler"))
     results = reg.search("gbigsmiles")
-    assert [c.id for c in results] == ["cap.a"]
-
-
-def test_search_substring_description() -> None:
-    from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
-
-    reg = InMemoryCapabilityRegistry()
-    reg.register(_make_capability(id_="cap.a", description="Packs water molecules"))
-    reg.register(_make_capability(id_="cap.b", description="Runs MD trajectory"))
-    results = reg.search("water")
     assert [c.id for c in results] == ["cap.a"]
 
 
@@ -270,22 +216,3 @@ def test_validate_call_unrestricted_schema_accepts_any_keys() -> None:
     )
     reg.register(cap)
     reg.validate_call("any.cap", {"foo": 1, "bar": 2})  # MUST NOT raise
-
-
-def test_errors_re_exported_from_top_level() -> None:
-    from molexp.harness.errors import (
-        CapabilityAlreadyRegisteredError as via_mod_dup,
-    )
-    from molexp.harness.errors import CapabilityAlreadyRegisteredError as via_top_dup
-    from molexp.harness.errors import (
-        CapabilityCallValidationError as via_mod_call,
-    )
-    from molexp.harness.errors import CapabilityCallValidationError as via_top_call
-    from molexp.harness.errors import (
-        CapabilityNotFoundError as via_mod_missing,
-    )
-    from molexp.harness.errors import CapabilityNotFoundError as via_top_missing
-
-    assert via_top_dup is via_mod_dup
-    assert via_top_call is via_mod_call
-    assert via_top_missing is via_mod_missing

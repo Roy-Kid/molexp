@@ -21,18 +21,10 @@ from molexp.agent.folders import (
     Agent,
     AgentSession,
 )
-from molexp.agent.folders_metadata import AgentMeta, AgentSessionMeta
+from molexp.agent.folders_metadata import AgentMeta
 from molexp.knowledge.types import resolve_concept_type
 from molexp.workspace import Folder as WSFolder
 from molexp.workspace import folder as ws_folder
-
-# ── ac-001: subclass identity ────────────────────────────────────────────────
-
-
-def test_agent_classes_subclass_workspace_folder() -> None:
-    assert issubclass(Agent, WSFolder)
-    assert issubclass(AgentSession, WSFolder)
-
 
 # ── ac-003: registry resolution ──────────────────────────────────────────────
 
@@ -69,16 +61,6 @@ def test_agent_meta_yaml_is_rich_authority(tmp_path) -> None:
     assert meta.model == "deepseek:chat"
     assert meta.tier == "cheap"
     assert reloaded.system_prompt == "be terse"
-
-
-def test_session_meta_yaml_round_trips(tmp_path) -> None:
-    agent = Agent(name="reviewer", root_path=tmp_path / "lab")
-    session = agent.add_session("chat-1", goal_summary="solve X", status="running")
-    meta = session.read_session_meta()
-    assert isinstance(meta, AgentSessionMeta)
-    assert meta.type == AGENT_SESSION_KIND
-    assert meta.goal_summary == "solve X"
-    assert meta.status == "running"
 
 
 # ── ac-005: CRUD sugar over workspace cls= CRUD; disk is truth ────────────────

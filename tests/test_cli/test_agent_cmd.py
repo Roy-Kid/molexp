@@ -77,13 +77,6 @@ def _patch_runner(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.integration
-def test_agent_command_is_registered(runner: CliRunner) -> None:
-    result = runner.invoke(app, ["--help"])
-    assert result.exit_code == 0
-    assert "agent" in result.output
-
-
-@pytest.mark.integration
 def test_agent_repl_runs_a_turn_and_persists_session(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

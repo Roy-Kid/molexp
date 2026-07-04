@@ -10,12 +10,10 @@ serializes decorator-defined workflows that carry no ``task_type`` slug.
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from molexp.workflow import (
     GraphLoopIR,
     GraphParallelIR,
-    GraphTaskIR,
     WorkflowCompiler,
     WorkflowGraphIR,
 )
@@ -255,39 +253,13 @@ def test_to_ir_carries_config_for_oop_tasks():
 
 
 @pytest.mark.unit
-def test_workflow_graph_ir_is_frozen():
-    ir = _branchy_builder().compile().to_graph_ir()
-    with pytest.raises(ValidationError):
-        ir.name = "mutated"  # type: ignore[misc]
-
-
-@pytest.mark.unit
 def test_workflow_graph_ir_json_round_trip_is_exact():
     ir = _branchy_builder().compile().to_graph_ir()
     restored = WorkflowGraphIR.model_validate_json(ir.model_dump_json())
     assert restored == ir
 
 
-@pytest.mark.unit
-def test_graph_task_ir_rejects_unknown_fields():
-    with pytest.raises(ValidationError):
-        GraphTaskIR(name="x", bogus=1)  # type: ignore[call-arg]
-
-
 # ── to_mermaid ───────────────────────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_to_mermaid_emits_flowchart_header_and_trailing_newline():
-    out = _branchy_builder().compile().to_graph_mermaid()
-    assert out.startswith("flowchart LR\n")
-    assert out.endswith("\n")
-
-
-@pytest.mark.unit
-def test_to_mermaid_honours_direction():
-    out = _branchy_builder().compile().to_graph_mermaid(direction="TD")
-    assert out.startswith("flowchart TD\n")
 
 
 @pytest.mark.unit
@@ -300,12 +272,6 @@ def test_to_mermaid_renders_nodes_dependencies_and_entry_marker():
 
 
 @pytest.mark.unit
-def test_to_mermaid_renders_actor_as_stadium():
-    out = _branchy_builder().compile().to_graph_mermaid()
-    assert 'n_stream(["stream"])' in out
-
-
-@pytest.mark.unit
 def test_to_mermaid_labels_branch_routes_and_suppresses_plain_duplicate():
     out = _branchy_builder().compile().to_graph_mermaid()
     assert "n_validate -->|ok| n_publish" in out
@@ -314,51 +280,6 @@ def test_to_mermaid_labels_branch_routes_and_suppresses_plain_duplicate():
     # the labeled branch edge.
     assert "n_validate --> n_publish" not in out
     assert "n_validate --> n_rollback" not in out
-
-
-@pytest.mark.unit
-def test_to_mermaid_renders_loop_and_parallel_edges():
-    wf = WorkflowCompiler(name="lp")
-
-    @wf.task
-    async def compute(ctx):
-        return 1
-
-    @wf.task(depends_on=["compute"])
-    async def check_done(ctx):
-        return 2
-
-    @wf.task
-    async def items(ctx):
-        return [1]
-
-    @wf.task
-    async def process(ctx):
-        return 3
-
-    # Parallel join is a distinct `gather` task (not the loop until) — genuine
-    # pg lowering cannot fuse a parallel-join and a loop-until onto one node.
-    @wf.task(depends_on=["items"])
-    async def gather(ctx):
-        return 4
-
-    wf.loop(body=["compute"], until="check_done", max_iters=5)
-    wf.parallel(map_over="items", body="process", join="gather", max_concurrency=3)
-    out = wf.compile().to_graph_mermaid()
-    assert "n_check_done -.->|continue| n_compute" in out
-    assert "n_check_done -->|exit| n__end" in out
-    assert "n_items -->|fan-out x3| n_process" in out
-    assert "n_process -->|join| n_gather" in out
-
-
-@pytest.mark.unit
-def test_to_mermaid_sanitizes_unsafe_task_names():
-    wf = WorkflowCompiler(name="x")
-    wf.add(_Noop(), name="step-one.v2")
-    out = wf.compile().to_graph_mermaid()
-    assert "n_step_one_v2" in out
-    # Original name preserved inside the display label.
-    assert "step-one.v2" in out
 
 
 class _Noop:

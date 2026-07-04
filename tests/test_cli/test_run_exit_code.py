@@ -79,19 +79,6 @@ def test_run_local_exits_nonzero_when_task_fails(tmp_path: Path) -> None:
     assert "did not succeed" in plain, plain
 
 
-def test_run_local_names_the_failed_run(tmp_path: Path) -> None:
-    workspace_root = tmp_path / "workspace"
-    script = tmp_path / "train.py"
-    _write_script(script, workspace_root, body="raise RuntimeError('boom')")
-
-    result = runner.invoke(app, ["run", str(script), "--local", "-t", str(workspace_root)])
-
-    run = _only_run(workspace_root)
-    plain = _plain(result.output)
-    assert run.id in plain, plain
-    assert "failed" in plain, plain
-
-
 def test_run_local_exits_zero_when_task_succeeds(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     script = tmp_path / "train.py"

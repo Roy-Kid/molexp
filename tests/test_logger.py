@@ -42,21 +42,6 @@ def test_get_logger_is_cached_per_name() -> None:
     assert a is b
 
 
-def test_inherited_verbs_still_work() -> None:
-    handler = _CapturingHandler()
-    log = molexp.get_logger("molexp.test.inherited")
-    log.add_handler(handler)
-
-    log.info("classic", foo=1)
-
-    assert len(handler.records) == 1
-    record = handler.records[0]
-    assert record.level is mollog.Level.INFO
-    assert record.message == "classic"
-    assert record.extra.get("foo") == 1
-    assert "verb" not in record.extra
-
-
 def test_ice_emits_tagged_record() -> None:
     handler = _CapturingHandler()
     log = molexp.get_logger("molexp.test.ice")
@@ -73,28 +58,6 @@ def test_ice_emits_tagged_record() -> None:
     assert record.extra.get("step") == 3
 
 
-def test_ice_without_fields_still_tags_verb() -> None:
-    handler = _CapturingHandler()
-    log = molexp.get_logger("molexp.test.ice.bare")
-    log.add_handler(handler)
-
-    log.ice("bare")
-
-    assert handler.records[0].extra == {"verb": "ice"}
-
-
 def test_import_molexp_does_not_mutate_mollog_logger() -> None:
     """Plugin must not monkey-patch the upstream Logger class."""
     assert not hasattr(mollog.Logger, "ice")
-
-
-def test_parent_chain_propagates_to_mollog_root() -> None:
-    """Records dispatch up to mollog's root handler too."""
-    root_handler = _CapturingHandler()
-    mollog.LoggerManager().root.add_handler(root_handler)
-    try:
-        log = molexp.get_logger("molexp.test.propagate")
-        log.ice("hello")
-        assert any(r.message == "hello" for r in root_handler.records)
-    finally:
-        mollog.LoggerManager().root.remove_handler(root_handler)

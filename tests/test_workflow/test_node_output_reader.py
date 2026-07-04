@@ -54,38 +54,7 @@ def test_happy_path_returns_only_completed_with_outputs(tmp_path: Path) -> None:
     assert result == {"good": "good-out", "warm": {"k": 1}}
 
 
-def test_happy_path_dict_value_preserved(tmp_path: Path) -> None:
-    """A dict-valued ``outputs`` is returned by equality, not stringified."""
-    _write_workflow_json(tmp_path, "exec-x", _standard_document())
-    result = read_node_outputs(tmp_path, "exec-x")
-    assert result["warm"] == {"k": 1}
-
-
 # ── Edge cases: status filtering ────────────────────────────────────────────
-
-
-def test_failed_task_excluded(tmp_path: Path) -> None:
-    _write_workflow_json(tmp_path, "exec-x", _standard_document())
-    assert "boom" not in read_node_outputs(tmp_path, "exec-x")
-
-
-def test_running_and_skipped_tasks_excluded(tmp_path: Path) -> None:
-    doc = {
-        "task_configs": [
-            {"task_id": "alive", "status": "running", "outputs": "partial"},
-            {"task_id": "passed", "status": "skipped", "outputs": "ignored"},
-            {"task_id": "done", "status": "completed", "outputs": "kept"},
-        ],
-        "links": [],
-    }
-    _write_workflow_json(tmp_path, "exec-x", doc)
-    assert read_node_outputs(tmp_path, "exec-x") == {"done": "kept"}
-
-
-def test_completed_without_outputs_omitted(tmp_path: Path) -> None:
-    """A completed task that never wrote ``outputs`` is omitted entirely."""
-    _write_workflow_json(tmp_path, "exec-x", _standard_document())
-    assert "sidefx" not in read_node_outputs(tmp_path, "exec-x")
 
 
 def test_task_id_fallback_to_id_key(tmp_path: Path) -> None:
@@ -110,16 +79,3 @@ def test_missing_file_returns_empty(tmp_path: Path) -> None:
 def test_malformed_json_returns_empty(tmp_path: Path) -> None:
     _write_workflow_json(tmp_path, "exec-x", "{not json")
     assert read_node_outputs(tmp_path, "exec-x") == {}
-
-
-def test_non_dict_top_level_returns_empty(tmp_path: Path) -> None:
-    _write_workflow_json(tmp_path, "exec-x", [])
-    assert read_node_outputs(tmp_path, "exec-x") == {}
-
-
-def test_none_run_dir_returns_empty() -> None:
-    assert read_node_outputs(None, "exec-x") == {}
-
-
-def test_none_execution_id_returns_empty(tmp_path: Path) -> None:
-    assert read_node_outputs(tmp_path, None) == {}

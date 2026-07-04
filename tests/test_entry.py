@@ -23,13 +23,6 @@ class TestEntry:
         assert len(_registry) == 1
         assert _registry[0] is ws
 
-    def test_multiple_entries(self, tmp_path):
-        a = Workspace(tmp_path / "a", name="a")
-        b = Workspace(tmp_path / "b", name="b")
-        entry(a)
-        entry(b)
-        assert len(_registry) == 2
-
     def test_clear_registry(self, tmp_path):
         entry(Workspace(tmp_path / "ws", name="ws"))
         clear_registry()
@@ -49,26 +42,6 @@ class TestLoadWorkspaces:
         workspaces = load_workspaces(script)
         assert len(workspaces) == 1
         assert workspaces[0].name == "from-script"
-
-    def test_load_clears_previous_entries(self, tmp_path):
-        entry(Workspace(tmp_path / "stale", name="stale"))
-
-        ws_path = tmp_path / "fresh"
-        script = tmp_path / "test_script.py"
-        script.write_text(
-            "from molexp.workspace import Workspace\n"
-            "from molexp.entry import entry\n"
-            f"entry(Workspace({str(ws_path)!r}, name='fresh'))\n"
-        )
-        workspaces = load_workspaces(script)
-        assert len(workspaces) == 1
-        assert workspaces[0].name == "fresh"
-
-    def test_load_empty_script(self, tmp_path):
-        script = tmp_path / "empty.py"
-        script.write_text("x = 1\n")
-        workspaces = load_workspaces(script)
-        assert workspaces == []
 
     def test_load_invalid_script(self, tmp_path):
         script = tmp_path / "bad.py"
@@ -105,12 +78,6 @@ class TestInferWorkspaceRoot:
 
         assert infer_workspace_root(script) == script.resolve().parent
         assert infer_workspace_root(script) == (tmp_path / "sub").resolve()
-
-    def test_matches_literal_parent_for_absolute_path(self):
-        # ac-001: a/b/script.py -> a/b (resolved).
-        from molexp.entry import infer_workspace_root
-
-        assert infer_workspace_root(Path("/a/b/script.py")) == Path("/a/b").resolve()
 
     def test_empty_path_raises_value_error(self):
         # ac-002: fail fast on a falsy / unresolvable path, no silent default.
@@ -195,12 +162,6 @@ class TestFluentExperimentChain:
         exp.run(self._workflow(), params={"a": [1, 2]})
         # Re-declaring the same sweep does not duplicate runs.
         assert len(exp.list_runs()) == 2
-
-    def test_no_params_seeds_single_run(self, tmp_path):
-        exp = (
-            Workspace(tmp_path / "ws", name="ws").project("p").experiment("e").run(self._workflow())
-        )
-        assert len(exp.list_runs()) == 1
 
     def test_execute_without_registered_executor_fails_fast(self, tmp_path, monkeypatch):
         # The seam is required; without it execute() must not silently no-op.

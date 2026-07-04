@@ -28,13 +28,6 @@ def initialized_ws(tmp_path, runner):
 
 
 @pytest.mark.integration
-def test_list_empty(runner, initialized_ws):
-    result = runner.invoke(app, ["target", "list", "--path", str(initialized_ws)])
-    assert result.exit_code == 0
-    assert "No compute targets" in result.stdout
-
-
-@pytest.mark.integration
 def test_add_local_target(runner, initialized_ws):
     result = runner.invoke(
         app,

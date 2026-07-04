@@ -17,22 +17,11 @@ import pytest
 
 import molexp.atomicio as atomicio
 from molexp.atomicio import (
-    DEFAULT_LOCK_TIMEOUT_SECONDS,
     FileLockTimeoutError,
     atomic_write_json,
     atomic_write_text,
     file_lock,
 )
-
-
-def test_module_all_lists_the_canonical_symbols() -> None:
-    assert set(atomicio.__all__) >= {
-        "atomic_write_json",
-        "atomic_write_text",
-        "file_lock",
-        "FileLockTimeoutError",
-        "DEFAULT_LOCK_TIMEOUT_SECONDS",
-    }
 
 
 def test_atomic_write_json_round_trip(tmp_path: Path) -> None:
@@ -103,10 +92,6 @@ def test_file_lock_degrades_to_noop_without_fcntl(
     # No lock taken, but the context manager still yields cleanly.
     with file_lock(lock):
         pass
-
-
-def test_default_timeout_is_positive() -> None:
-    assert DEFAULT_LOCK_TIMEOUT_SECONDS > 0
 
 
 def test_source_imports_no_workspace_or_upstream_layer() -> None:

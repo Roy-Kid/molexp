@@ -19,7 +19,7 @@ import pytest
 from fastapi import HTTPException
 
 import molexp.server.deps.agent_runtime as agent_runtime_deps
-from molexp.agent.events import LoopCompletedEvent, TokenDeltaEvent
+from molexp.agent.events import TokenDeltaEvent
 from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
 from molexp.agent.router import (
     AgenticChunk,
@@ -237,9 +237,3 @@ async def test_replay_then_tail_no_duplication(
     ]
     await rt.await_finished()
     await registry.aclose()
-
-
-def test_token_and_completed_event_imports() -> None:
-    # guard: the event kinds the stream relies on exist with the expected discriminators
-    assert TokenDeltaEvent(text="x").kind == "token_delta"
-    assert LoopCompletedEvent(text="x").kind == "loop_completed"

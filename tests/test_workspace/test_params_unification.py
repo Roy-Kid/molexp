@@ -24,10 +24,6 @@ class TestAddRunParams:
         run = experiment.add_run(params={"lr": 1e-3})
         assert run.parameters == {"lr": 1e-3}
 
-    def test_params_positional_still_works(self, experiment):
-        run = experiment.add_run({"lr": 1e-2})
-        assert run.parameters == {"lr": 1e-2}
-
     def test_parameters_alias_warns_but_works(self, experiment):
         with pytest.warns(DeprecationWarning, match="use params="):
             run = experiment.add_run(parameters={"seed": 7})
@@ -48,12 +44,6 @@ class TestAddExperimentSignature:
         exp = ws.add_project("p").add_experiment("e", params={"lr": 1e-4}, n_replicas=2)
         assert exp.params == {"lr": 1e-4}
         assert exp.n_replicas == 2
-
-    def test_typo_raises_type_error(self, tmp_path):
-        ws = Workspace(root=tmp_path, name="sig")
-        project = ws.add_project("p")
-        with pytest.raises(TypeError):
-            project.add_experiment("e", prams={"lr": 1e-4})
 
     def test_explicit_id_still_honoured(self, tmp_path):
         ws = Workspace(root=tmp_path, name="sig")

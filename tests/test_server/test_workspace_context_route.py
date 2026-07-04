@@ -40,12 +40,3 @@ def test_info_projectcount_parity(client, project) -> None:
     info = client.get("/api/workspace/info").json()
     assert info["projectCount"] == len(context["projects"])
     assert len(context["projects"]) == 1
-
-
-def test_runs_consistency(client, run) -> None:
-    context = client.get("/api/workspace/context").json()
-    runs = client.get("/api/workspace/runs").json()["runs"]
-    context_run_ids = {r["runId"] for r in context["recentRuns"]}
-    runs_ids = {row["id"] for row in runs}
-    assert context_run_ids == runs_ids
-    assert len(context_run_ids) >= 1

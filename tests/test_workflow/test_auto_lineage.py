@@ -110,16 +110,6 @@ def test_cache_hit_keeps_the_chain(tmp_path: Path) -> None:
     assert up2.asset_id in lineage.ancestors(ws, down2.asset_id)
 
 
-def test_accessor_save_accepts_raw_id_strings(tmp_path: Path) -> None:
-    ws = _workspace(tmp_path)
-    run = ws.add_project("p").add_experiment("e").add_run(params=None)
-    with run.start() as ctx:
-        first = ctx.artifact.save("a.json", {"x": 1})
-        second = ctx.artifact.save("b.json", {"y": 2}, consumed=[first.asset_id])
-    assert second.producer is not None
-    assert second.producer.inputs == (first.asset_id,)
-
-
 def test_raising_lineage_computation_never_fails_the_run(tmp_path: Path, monkeypatch) -> None:
     """Fail-soft: lineage rides the persistence bonus channel — a raising
     upstream-id computation degrades (persist skipped, debug log) and the

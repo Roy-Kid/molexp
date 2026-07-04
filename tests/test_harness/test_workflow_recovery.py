@@ -110,16 +110,11 @@ def _script_entrypoint(tmp_path: Path) -> str:
 
 
 class TestPlanRunShape:
-    def test_workflow_source_artifact_compiles(self, tmp_path: Path) -> None:
-        run = _bare_run(tmp_path)
-        _persist_workflow_source(run, _VALID_SOURCE)
-        compiled = compiled_workflow_for_run(run)
-        assert isinstance(compiled, CompiledWorkflow)
-
     def test_compiled_workflow_carries_the_generated_graph(self, tmp_path: Path) -> None:
         run = _bare_run(tmp_path)
         _persist_workflow_source(run, _VALID_SOURCE)
         compiled = compiled_workflow_for_run(run)
+        assert isinstance(compiled, CompiledWorkflow)
         assert compiled.name == "plan-demo"
         assert set(compiled.registration_by_name) == {"build_system", "simulate"}
 
@@ -166,20 +161,11 @@ class TestShapeDispatch:
 
 
 class TestNeitherShape:
-    def test_bare_run_raises_workflow_recovery_error(self, tmp_path: Path) -> None:
-        run = _bare_run(tmp_path)
-        with pytest.raises(WorkflowRecoveryError):
-            compiled_workflow_for_run(run)
-
-    def test_error_names_both_persisted_shapes(self, tmp_path: Path) -> None:
+    def test_error_names_both_persisted_shapes_and_the_run(self, tmp_path: Path) -> None:
         run = _bare_run(tmp_path)
         with pytest.raises(WorkflowRecoveryError) as excinfo:
             compiled_workflow_for_run(run)
         message = str(excinfo.value)
         assert "workflow_source" in message
         assert "workflow_snapshot" in message
-
-    def test_error_names_the_run(self, tmp_path: Path) -> None:
-        run = _bare_run(tmp_path)
-        with pytest.raises(WorkflowRecoveryError, match=run.id):
-            compiled_workflow_for_run(run)
+        assert run.id in message

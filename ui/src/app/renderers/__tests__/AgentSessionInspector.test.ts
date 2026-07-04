@@ -25,28 +25,18 @@ describe("isLegacySession", () => {
     expect(isLegacySession(undefined)).toBe(false);
   });
 
-  it("returns false for an active running session", () => {
-    expect(isLegacySession(baseSession({ status: "running" }))).toBe(false);
-  });
-
-  it("returns false for a completed session", () => {
-    expect(isLegacySession(baseSession({ status: "completed" }))).toBe(false);
-  });
-
   it("returns true only when status is exactly 'legacy'", () => {
+    expect(isLegacySession(baseSession({ status: "running" }))).toBe(false);
+    expect(isLegacySession(baseSession({ status: "completed" }))).toBe(false);
     expect(isLegacySession(baseSession({ status: LEGACY_SESSION_STATUS }))).toBe(true);
   });
 });
 
 describe("legacyBadgeMeta", () => {
-  it("provides a visible read-only label", () => {
+  it("labels the badge read-only and explains the migration in the tooltip", () => {
     const meta = legacyBadgeMeta();
     expect(meta.label).toContain("read-only");
     expect(meta.label).toContain("legacy");
-  });
-
-  it("explains the migration in the tooltip", () => {
-    const meta = legacyBadgeMeta();
     expect(meta.tooltip).toContain(".molexp-agent");
   });
 });

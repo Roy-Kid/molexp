@@ -164,17 +164,3 @@ class TestProvenanceValidator:
             root_kind="experiment_report",
         )
         assert result.passed is True
-
-    # ---------------------------------------------------------- signature
-
-    def test_validate_provenance_signature_and_import(self, stores) -> None:
-        from molexp.harness.schemas.validation import PlanValidationReport
-        from molexp.harness.validators import ProvenanceValidator as top
-        from molexp.harness.validators import ProvenanceValidator as via_pkg
-        from molexp.harness.validators.provenance import ProvenanceValidator as via_mod
-
-        assert top is via_pkg is via_mod
-        artifact_store, lineage_store = stores
-        ref = artifact_store.put_text(kind="user_plan", text="x", created_by="user", parent_ids=[])
-        report = top.validate(ref.id, artifact_store=artifact_store, lineage_store=lineage_store)
-        assert isinstance(report, PlanValidationReport)

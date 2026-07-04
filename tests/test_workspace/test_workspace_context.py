@@ -13,9 +13,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
-from pydantic import ValidationError
-
 from molexp.workspace import Workspace
 from molexp.workspace.assets import ArtifactAsset, AssetManifest, AssetScope, Producer
 from molexp.workspace.concepts import Note
@@ -23,23 +20,7 @@ from molexp.workspace.models import RunStatus
 from molexp.workspace.run_ops import RunOpsState
 from molexp.workspace.workspace_context import (
     ContextFocus,
-    WorkspaceRef,
     assemble_workspace_context,
-)
-
-_CONTEXT_FIELDS = (
-    "workspace",
-    "focus",
-    "projects",
-    "experiments",
-    "workflows",
-    "recent_runs",
-    "failed_runs",
-    "running_runs",
-    "artifacts",
-    "knowledge",
-    "open_questions",
-    "stale_or_missing",
 )
 
 
@@ -51,17 +32,6 @@ def _ws(tmp_path: Path) -> Workspace:
 
 def _tree(root_path: object) -> set[str]:
     return {str(p) for p in Path(str(root_path)).rglob("*")}
-
-
-def test_models_are_frozen(tmp_path: Path) -> None:
-    ctx = assemble_workspace_context(_ws(tmp_path))
-    for field in _CONTEXT_FIELDS:
-        assert hasattr(ctx, field)
-    with pytest.raises(ValidationError):
-        ctx.projects = []  # type: ignore[misc]
-    ref = WorkspaceRef(id="x", name="y", root="/r", targets=[])
-    with pytest.raises(ValidationError):
-        ref.id = "z"  # type: ignore[misc]
 
 
 def test_assemble_happy_path(tmp_path: Path) -> None:

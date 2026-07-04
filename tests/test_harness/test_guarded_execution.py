@@ -141,20 +141,6 @@ def test_granted_executed_move_run(tmp_path: Path) -> None:
     assert not _run_in(tmp_path, "e1")
 
 
-def test_granted_executed_artifact_delete(tmp_path: Path) -> None:
-    """ac-002 — granted artifact_delete + executor deletes the folder."""
-    _workspace(tmp_path)
-    ctx = _ctx(tmp_path)
-    proposal = _proposal("artifact_delete", [ObjectRef(kind="folder", id="scratch")], {})
-    result = asyncio.run(
-        gate_change_proposal(
-            ctx, proposal, approve=auto_grant_approver, executor=_curation_executor()
-        )
-    )
-    assert result.execution_result.status == "executed"
-    assert not Workspace(root=tmp_path, name="Lab").has_folder("scratch", cls=Folder)
-
-
 def test_timeline_requested_granted_completed(tmp_path: Path) -> None:
     """ac-003 — the event timeline is approval_requested → approval_granted → tool_completed."""
     _workspace(tmp_path)

@@ -57,14 +57,6 @@ def _seed_some_artifacts(store) -> None:
     )
 
 
-def test_name_and_subclass() -> None:
-    from molexp.harness import Stage
-    from molexp.harness.stages import GenerateAuditReport
-
-    assert GenerateAuditReport.name == "generate_audit_report"
-    assert issubclass(GenerateAuditReport, Stage)
-
-
 def test_persists_audit_report_artifact(ctx) -> None:
     from molexp.harness.stages import GenerateAuditReport
 

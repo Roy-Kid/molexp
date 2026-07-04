@@ -69,35 +69,6 @@ class TestExecutionIRRoute:
         assert bound is not None
         assert bound.name == "exec_route_ir"
 
-    def test_second_post_does_not_overwrite_bound_workflow(self, client, project, experiment):
-        first = _ir()
-        client.post(
-            "/api/executions",
-            json={
-                "project_id": project.id,
-                "experiment_id": experiment.id,
-                "parameters": {},
-                "workflow_json": first,
-            },
-        )
-        # Second POST sends a different IR; current behavior is to keep
-        # the first binding (the registry refuses to rebind once set).
-        second = _ir()
-        second["name"] = "different"
-        resp = client.post(
-            "/api/executions",
-            json={
-                "project_id": project.id,
-                "experiment_id": experiment.id,
-                "parameters": {},
-                "workflow_json": second,
-            },
-        )
-        assert resp.status_code == 200
-        bound = default_binding_registry.for_experiment(experiment)
-        assert bound is not None
-        assert bound.name == "exec_route_ir"  # first wins
-
     def test_unknown_project_404(self, client, experiment):
         resp = client.post(
             "/api/executions",

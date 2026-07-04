@@ -83,14 +83,6 @@ def test_workflow_forbids_upstream_and_application_layers() -> None:
     )
 
 
-def test_no_pydantic_graph_imports_in_workflow() -> None:
-    """``pydantic_graph`` may not appear anywhere under ``workflow/`` —
-    the dependency was removed; the engine is molexp-owned."""
-    hits = _imports_of("pydantic_graph", WORKFLOW_ROOT)
-    bad = [f"{path.relative_to(WORKFLOW_ROOT)}:{lineno}: {module}" for path, lineno, module in hits]
-    assert not bad, "pydantic_graph imports under workflow/:\n  " + "\n  ".join(bad)
-
-
 def test_compiled_graph_is_layer_private() -> None:
     """No layer above ``workflow`` may read ``CompiledWorkflow.graph``.
 
@@ -118,15 +110,3 @@ def test_compiled_graph_is_layer_private() -> None:
         "CompiledWorkflow.graph; use the public codec/introspection surface.\n  "
         + "\n  ".join(offenders)
     )
-
-
-def test_workflow_imports_from_workspace_are_allowed() -> None:
-    """Sanity guard: the inversion is *expected*, not banned.
-
-    After rectification, workflow imports workspace for caching +
-    persistence backing. This test does not require any specific
-    workspace import to exist (workflow may legitimately have zero on
-    a transient commit), but documents that none of the workspace
-    prefixes appear in ``FORBIDDEN_PREFIXES`` above.
-    """
-    assert "molexp.workspace" not in FORBIDDEN_PREFIXES

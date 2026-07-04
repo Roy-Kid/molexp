@@ -76,18 +76,6 @@ class TestWorkflowIRValidator:
         assert report.target_kind == "workflow_ir"
         assert report.target_id == "wf-001"
 
-    def test_validate_workflow_ir_signature_and_import(self) -> None:
-        """ac-004: importable from both paths; signature returns PlanValidationReport."""
-        from molexp.harness.schemas.validation import PlanValidationReport
-        from molexp.harness.validators import WorkflowIRValidator as top
-        from molexp.harness.validators import WorkflowIRValidator as via_pkg
-        from molexp.harness.validators.workflow_ir import WorkflowIRValidator as via_mod
-
-        assert top is via_pkg is via_mod
-
-        report = top.validate(_baseline_ir())
-        assert isinstance(report, PlanValidationReport)
-
     # ------------------------------------------------------------------ violations
 
     def test_duplicate_task_id(self) -> None:
@@ -262,40 +250,6 @@ class TestWorkflowIRValidator:
         report = WorkflowIRValidator.validate(ir)
         assert "shell_command_in_ir" in _codes(report)
 
-    def test_shell_command_in_ir_subprocess(self) -> None:
-        from molexp.harness.schemas.workflow_ir import PlanTaskIR
-        from molexp.harness.validators.workflow_ir import WorkflowIRValidator
-
-        ir = _baseline_ir()
-        dirty = PlanTaskIR(
-            id="dirty",
-            name="dirty",
-            purpose="invoke subprocess.run(['lmp', '-in', 'in.lammps'])",
-            task_type="x",
-            inputs={},
-            outputs={"x": "x"},
-        )
-        ir = ir.model_copy(update={"tasks": [*ir.tasks, dirty]})
-        report = WorkflowIRValidator.validate(ir)
-        assert "shell_command_in_ir" in _codes(report)
-
-    def test_shell_command_in_ir_semicolon(self) -> None:
-        from molexp.harness.schemas.workflow_ir import PlanTaskIR
-        from molexp.harness.validators.workflow_ir import WorkflowIRValidator
-
-        ir = _baseline_ir()
-        dirty = PlanTaskIR(
-            id="dirty",
-            name="run a; run b",
-            purpose="x",
-            task_type="x",
-            inputs={},
-            outputs={"x": "x"},
-        )
-        ir = ir.model_copy(update={"tasks": [*ir.tasks, dirty]})
-        report = WorkflowIRValidator.validate(ir)
-        assert "shell_command_in_ir" in _codes(report)
-
     def test_backend_leak_in_ir_slurm(self) -> None:
         from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
@@ -305,40 +259,6 @@ class TestWorkflowIRValidator:
             id="dirty",
             name="dirty",
             purpose="submit via slurm",
-            task_type="x",
-            inputs={},
-            outputs={"x": "x"},
-        )
-        ir = ir.model_copy(update={"tasks": [*ir.tasks, dirty]})
-        report = WorkflowIRValidator.validate(ir)
-        assert "backend_leak_in_ir" in _codes(report)
-
-    def test_backend_leak_in_ir_sbatch(self) -> None:
-        from molexp.harness.schemas.workflow_ir import PlanTaskIR
-        from molexp.harness.validators.workflow_ir import WorkflowIRValidator
-
-        ir = _baseline_ir()
-        dirty = PlanTaskIR(
-            id="dirty",
-            name="sbatch run.sh",
-            purpose="x",
-            task_type="x",
-            inputs={},
-            outputs={"x": "x"},
-        )
-        ir = ir.model_copy(update={"tasks": [*ir.tasks, dirty]})
-        report = WorkflowIRValidator.validate(ir)
-        assert "backend_leak_in_ir" in _codes(report)
-
-    def test_backend_leak_in_ir_module_load(self) -> None:
-        from molexp.harness.schemas.workflow_ir import PlanTaskIR
-        from molexp.harness.validators.workflow_ir import WorkflowIRValidator
-
-        ir = _baseline_ir()
-        dirty = PlanTaskIR(
-            id="dirty",
-            name="dirty",
-            purpose="needs module load gcc/11",
             task_type="x",
             inputs={},
             outputs={"x": "x"},

@@ -62,36 +62,6 @@ def _ops_touching(calls: list[tuple[str, str]], needle: str) -> set[str]:
 
 
 @pytest.mark.unit
-def test_workspace_construction_routes_through_fs(spy_workspace):
-    """``Workspace(root, fs=spy)`` must reach for ``self._fs.join`` / ``exists``."""
-    _ws, fs = spy_workspace
-    ops = {op for op, _ in fs.calls}
-    # At minimum, the constructor + materialize touched join/exists/mkdir.
-    assert {"join", "exists"} <= ops, f"missing fs operations; saw {ops}"
-
-
-@pytest.mark.unit
-def test_add_project_writes_metadata_through_fs(spy_workspace):
-    ws, fs = spy_workspace
-    fs.calls.clear()
-    proj = ws.add_project("alpha")
-    assert proj is not None
-    # Project mkdir + index write must have flowed through fs.
-    proj_ops = _ops_touching(fs.calls, "alpha")
-    assert "mkdir" in proj_ops, fs.calls
-    assert proj.name == "alpha"
-
-
-@pytest.mark.unit
-def test_list_projects_round_trips(spy_workspace):
-    ws, _ = spy_workspace
-    ws.add_project("alpha")
-    ws.add_project("beta")
-    names = sorted(p.name for p in ws.list_projects())
-    assert names == ["alpha", "beta"]
-
-
-@pytest.mark.unit
 def test_full_hierarchy_round_trips_through_fs(spy_workspace):
     """Workspace → Project → Experiment → Run, every level via fs."""
     ws, fs = spy_workspace

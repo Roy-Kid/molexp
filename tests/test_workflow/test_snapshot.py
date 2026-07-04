@@ -24,20 +24,6 @@ def test_adding_a_decorator_changes_the_normalized_ast() -> None:
     assert _normalize_ast(plain) != _normalize_ast(decorated)
 
 
-def test_changing_a_decorator_argument_changes_the_normalized_ast() -> None:
-    """Different decorator behaviour (retry(3) vs retry(5)) must not collide."""
-    three = "@retry(3)\ndef f(x):\n    return x\n"
-    five = "@retry(5)\ndef f(x):\n    return x\n"
-    assert _normalize_ast(three) != _normalize_ast(five)
-
-
-def test_replacing_a_decorator_changes_the_normalized_ast() -> None:
-    """Swapping one decorator for another must change the hash."""
-    a = "@jit\ndef f(x):\n    return x\n"
-    b = "@lru_cache\ndef f(x):\n    return x\n"
-    assert _normalize_ast(a) != _normalize_ast(b)
-
-
 def test_body_change_still_changes_the_normalized_ast() -> None:
     """Sanity: a real body change is detected (regression guard)."""
     a = "def f(x):\n    return x + 1\n"

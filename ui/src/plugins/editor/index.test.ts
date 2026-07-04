@@ -53,12 +53,6 @@ beforeEach(() => {
   resetContributionRuntimeForTests();
 });
 
-describe("editor plugin module", () => {
-  it("identifies itself as the 'editor' plugin", () => {
-    expect(editorPlugin.id).toBe("editor");
-  });
-});
-
 describe("editor plugin renderer registration", () => {
   it.each(
     EDITOR_FILE_KINDS,

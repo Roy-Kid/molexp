@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.agent.router import TextDeltaChunk, ThinkingDeltaChunk
+from molexp.agent.router import ThinkingDeltaChunk
 
 
 def test_thinking_part_start_translates_to_thinking_chunk() -> None:
@@ -39,17 +39,6 @@ def test_thinking_part_delta_translates_to_thinking_chunk() -> None:
     )
     assert isinstance(chunk, ThinkingDeltaChunk)
     assert chunk.text == " further"
-
-
-def test_answer_text_still_routes_to_text_chunk() -> None:
-    """Reasoning is checked first, but answer text still maps to a text chunk."""
-    pytest.importorskip("pydantic_ai")
-    from pydantic_ai.messages import PartStartEvent, TextPart
-
-    from molexp.agent._pydanticai.router import _request_stream_chunk
-
-    chunk = _request_stream_chunk(PartStartEvent(index=1, part=TextPart(content="the answer")))
-    assert isinstance(chunk, TextDeltaChunk)
 
 
 def test_empty_thinking_content_yields_no_chunk() -> None:

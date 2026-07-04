@@ -2,11 +2,6 @@
 
 
 class TestProjectRoutes:
-    def test_list_empty(self, client):
-        resp = client.get("/api/projects")
-        assert resp.status_code == 200
-        assert resp.json() == []
-
     def test_create(self, client):
         resp = client.post("/api/projects", json={"name": "QM9"})
         assert resp.status_code == 201

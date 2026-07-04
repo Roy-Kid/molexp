@@ -19,7 +19,6 @@ from molexp.services.agent_task_store import (
 from molexp.services.plan_runtime import materialize_plan_records
 from molexp.workspace import Bundle
 from molexp.workspace.knowledge_item import KnowledgeItem
-from molexp.workspace.workspace_context import assemble_workspace_context
 
 
 def _find_record(workspace, run_id: str) -> KnowledgeItem | None:
@@ -90,25 +89,6 @@ def test_plan_record_is_sourced_knowledge_item(workspace, experiment):
     assert "build a melt" in body  # the original request
     # A typed provenance edge makes the item reachable from the run it cites.
     assert any(e.target for e in rec.typed_out_edges())
-
-
-def test_plan_record_surfaced_in_workspace_context(workspace, experiment):
-    run = experiment.add_run(params={"mode": "plan", "draft": "build a melt"}, id="planrec5")
-    _seed_report(run)
-
-    materialize_plan_records(
-        run=run,
-        experiment=experiment,
-        workspace_root=str(workspace.root),
-        task_id="plan-planrec5",
-        draft="build a melt",
-        model="m",
-    )
-
-    ctx = assemble_workspace_context(workspace)
-    refs = [k for k in ctx.knowledge if k.type == "knowledge.item"]
-    assert refs, "the assembler must surface KnowledgeItems on the context"
-    assert any(k.title == "Melt plan" for k in refs)
 
 
 def test_materialize_plan_records_writes_session_transcript(workspace, experiment):

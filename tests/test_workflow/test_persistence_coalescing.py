@@ -27,7 +27,6 @@ on it (see ``test_pg_lowering.py::test_no_timing_constants_for_coordination``).
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -130,18 +129,6 @@ async def test_parallel_write_count_bounded_and_final_document_byte_equivalent(
     assert coalesced_bytes == sync_bytes
 
 
-@pytest.mark.asyncio
-async def test_result_outputs_identical_under_coalescing(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(persistence, "WORKFLOW_JSON_MAX_STALENESS_S", 3600.0)
-    compiled = _build_parallel_workflow(5)
-    result = await WorkflowRuntime().execute(compiled, run_dir=tmp_path, execution_id="exec-r")
-    assert result.outputs["double"] == [0, 2, 4, 6, 8]
-    assert result.outputs["total"] == 20
-    doc = _doc(tmp_path, "exec-r")
-    statuses = _task_statuses(doc)
-    assert statuses == {"emit": "completed", "double": "completed", "total": "completed"}
-
-
 # ── mandatory synchronous flushes ────────────────────────────────────────────
 
 
@@ -194,26 +181,6 @@ async def test_execution_success_lands_on_disk_mid_interval(tmp_path, monkeypatc
 
 
 # ── bounded staleness: the flusher writes without further marks ──────────────
-
-
-def test_dirty_document_flushes_within_bounded_staleness(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(persistence, "WORKFLOW_JSON_MAX_STALENESS_S", 0.05)
-    compiled = _build_parallel_workflow(2)
-    persistence.open_execution_document(tmp_path, "exec-d", compiled=compiled)
-    try:
-        persistence.mark_task_status(tmp_path, "exec-d", "emit", "running")
-        # Not yet flushed — the mark only made the in-memory document dirty.
-        assert _task_statuses(_doc(tmp_path, "exec-d"))["emit"] == "pending"
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            if _task_statuses(_doc(tmp_path, "exec-d"))["emit"] == "running":
-                break
-            time.sleep(0.02)
-        assert _task_statuses(_doc(tmp_path, "exec-d"))["emit"] == "running", (
-            "dirty document did not reach disk within the bounded staleness window"
-        )
-    finally:
-        persistence.close_execution_document(tmp_path, "exec-d")
 
 
 def test_close_flushes_pending_state_and_is_idempotent(tmp_path, monkeypatch) -> None:

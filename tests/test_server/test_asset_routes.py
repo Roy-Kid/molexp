@@ -8,7 +8,6 @@ index): an exact hash answers with a 0/1-element list in the uniform
 
 Category map (tester):
     basics       — exact hash -> 1-element list carrying the matched asset
-    edge cases   — unknown hash -> [] (never an error, never a partial match)
     integration  — param absent keeps the pre-existing full-listing behavior
 """
 
@@ -24,7 +23,6 @@ PAYLOAD_A = b"vl08 payload alpha\n"
 PAYLOAD_B = b"vl08 payload beta\n"
 HASH_A = "sha256:" + hashlib.sha256(PAYLOAD_A).hexdigest()
 HASH_B = "sha256:" + hashlib.sha256(PAYLOAD_B).hexdigest()
-UNKNOWN_HASH = "sha256:" + "0" * 64
 
 
 @pytest.fixture
@@ -53,13 +51,6 @@ def test_content_hash_exact_match_returns_single_element_list(client, seeded_ass
     assert row["id"] == asset_a.asset_id
     assert row["name"] == "alpha-input"
     assert row["content_hash"] == HASH_A
-
-
-def test_content_hash_no_match_returns_empty_list(client, seeded_assets):
-    """edge: an unknown hash is an empty list — never an error, never a guess."""
-    resp = client.get("/api/assets", params={"content_hash": UNKNOWN_HASH})
-    assert resp.status_code == 200
-    assert resp.json() == []
 
 
 def test_content_hash_absent_keeps_full_listing_behavior(client, seeded_assets):

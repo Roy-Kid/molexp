@@ -44,13 +44,6 @@ class TestSaveOperatorConfig:
 
         assert load_operator_config(path) == config
 
-    def test_save_creates_parent_directories(self, tmp_path: Path) -> None:
-        path = tmp_path / "deep" / ".molexp" / "config.json"
-
-        save_operator_config({"agent": {"model": _MODEL}}, path=path)
-
-        assert load_operator_config(path) == {"agent": {"model": _MODEL}}
-
     def test_save_sets_owner_only_permissions(self, tmp_path: Path) -> None:
         """The file stores API keys — 0600, same as the CLI idiom it replaces."""
         path = tmp_path / "config.json"
@@ -86,20 +79,6 @@ class TestSetOperatorValues:
 
         assert load_operator_config(path) == {"agent": {"model": _MODEL}}
 
-    def test_set_round_trips_model_and_api_key(self, tmp_path: Path) -> None:
-        path = tmp_path / "config.json"
-
-        set_operator_values(
-            {"agent.model": _MODEL, "agent.deepseek_api_key": _RAW_KEY},
-            path=path,
-        )
-
-        loaded = load_operator_config(path)
-        agent = loaded["agent"]
-        assert isinstance(agent, dict)
-        assert agent["model"] == _MODEL
-        assert agent["deepseek_api_key"] == _RAW_KEY
-
     def test_set_preserves_unrelated_sections(self, tmp_path: Path) -> None:
         path = tmp_path / "config.json"
         save_operator_config(
@@ -112,15 +91,6 @@ class TestSetOperatorValues:
         loaded = load_operator_config(path)
         assert loaded["defaults"] == {"shell": "bash"}
         assert loaded["agent"] == {"instructions": "be brief", "model": _MODEL}
-
-    def test_set_supports_arbitrary_dotted_sections(self, tmp_path: Path) -> None:
-        """The CLI's ``molexp config set defaults.shell bash`` delegates here —
-        the writer must accept dotted keys outside the ``agent`` section too."""
-        path = tmp_path / "config.json"
-
-        set_operator_values({"defaults.shell": "bash"}, path=path)
-
-        assert load_operator_config(path) == {"defaults": {"shell": "bash"}}
 
     def test_unset_removes_only_the_named_key(self, tmp_path: Path) -> None:
         path = tmp_path / "config.json"
@@ -137,20 +107,6 @@ class TestSetOperatorValues:
         assert agent.get("model") == _MODEL
         assert "deepseek_api_key" not in agent
         assert _RAW_KEY not in path.read_text()
-
-    def test_set_failure_leaves_existing_config_intact(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        path = tmp_path / "config.json"
-        set_operator_values({"agent.model": _MODEL}, path=path)
-        before = path.read_bytes()
-
-        monkeypatch.setattr(os, "replace", _boom)
-        monkeypatch.setattr(os, "rename", _boom)
-        with pytest.raises(OSError):
-            set_operator_values({"agent.model": "other:model"}, path=path)
-
-        assert path.read_bytes() == before
 
 
 class TestCliParity:

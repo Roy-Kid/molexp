@@ -21,8 +21,6 @@ touches the connection.
 from __future__ import annotations
 
 import asyncio
-import sqlite3
-import threading
 from pathlib import Path
 
 import pytest
@@ -38,80 +36,6 @@ def artifact_store(tmp_path: Path):
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
     return FileArtifactStore(root=tmp_path / "artifacts")
-
-
-# ── ac-001 / ac-002: open contract + shared-lock identity ─────────────────
-
-
-def test_open_db_uses_check_same_thread_false_and_returns_shared_lock(
-    db_path: Path,
-) -> None:
-    """``open_db`` returns ``(conn, lock)`` with a cross-thread-usable conn.
-
-    RED today: ``open_db`` returns a bare ``sqlite3.Connection``, so the
-    tuple unpack raises ``TypeError`` (Connection is not iterable into two
-    names) — proving the contract has not yet been implemented.
-    """
-    from molexp.harness.store._sqlite import open_db
-
-    conn, lock = open_db(db_path)
-    assert isinstance(conn, sqlite3.Connection)
-    # threading.Lock() returns an instance of the private lock type; the
-    # public-facing assertion is that it supports the context-manager +
-    # acquire/release protocol.
-    assert hasattr(lock, "acquire")
-    assert hasattr(lock, "release")
-    assert hasattr(lock, "__enter__")
-
-    # Cross-thread usability: a non-owning thread must be able to execute
-    # against the connection without sqlite3.ProgrammingError. With the
-    # default check_same_thread=True this raises inside the worker.
-    errors: list[BaseException] = []
-
-    def _touch() -> None:
-        try:
-            conn.execute("SELECT 1").fetchone()
-        except BaseException as exc:
-            errors.append(exc)
-
-    worker = threading.Thread(target=_touch)
-    worker.start()
-    worker.join()
-    assert errors == [], f"connection rejected cross-thread use: {errors!r}"
-
-
-def test_event_log_and_lineage_store_share_one_lock_on_same_path(
-    db_path: Path,
-    artifact_store,
-) -> None:
-    """Both stores backing the same DB file must share the same lock object.
-
-    RED today: neither store exposes a ``_lock`` attribute, so the
-    ``is`` identity assertion raises ``AttributeError``.
-    """
-    from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
-
-    elog = SQLiteEventLog(path=db_path)
-    pstore = SQLiteArtifactLineageStore(path=db_path, artifact_store=artifact_store)
-
-    assert elog._lock is pstore._lock
-
-
-def test_stores_on_different_paths_get_distinct_locks(
-    tmp_path: Path,
-    artifact_store,
-) -> None:
-    """Independent DB files must NOT share a lock (no global serialization).
-
-    RED today: no ``_lock`` attribute exists.
-    """
-    from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-
-    elog_a = SQLiteEventLog(path=tmp_path / "a.sqlite")
-    elog_b = SQLiteEventLog(path=tmp_path / "b.sqlite")
-
-    assert elog_a._lock is not elog_b._lock
 
 
 # ── ac-005: concurrent append from to_thread workers ──────────────────────

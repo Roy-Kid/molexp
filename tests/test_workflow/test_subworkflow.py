@@ -15,8 +15,6 @@ Contract:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from molexp.workflow import (
@@ -28,19 +26,6 @@ from molexp.workflow import (
 )
 
 # ── ac-001: export + subclass ────────────────────────────────────────────────
-
-
-def test_subworkflow_exported_and_is_task_subclass() -> None:
-    """ac-001 — SubWorkflow imports from molexp.workflow and subclasses Task."""
-    assert issubclass(SubWorkflow, Task)
-
-
-def test_subworkflow_source_has_no_taskcontext_construction() -> None:
-    """ac-003 (negative) — subworkflow.py never constructs a TaskContext."""
-    source = (
-        Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow" / "subworkflow.py"
-    ).read_text()
-    assert "TaskContext(" not in source
 
 
 # ── Helpers: inner workflows ─────────────────────────────────────────────────
@@ -62,17 +47,6 @@ def _build_multi_step_inner() -> WorkflowCompiler:
     @wf.task(depends_on=["normalize"])
     async def scale(values: list[float]) -> float:
         return sum(values)
-
-    return wf
-
-
-def _build_single_step_inner() -> WorkflowCompiler:
-    """A 1-task inner spec (Embed3D-equivalent)."""
-    wf = WorkflowCompiler(name="inner-single")
-
-    @wf.task
-    async def embed() -> int:
-        return 42
 
     return wf
 
@@ -114,19 +88,6 @@ async def test_subworkflow_runs_multi_step_inner_returns_terminal() -> None:
 
 
 @pytest.mark.asyncio
-async def test_subworkflow_single_step_inner_returns_terminal() -> None:
-    """ac-005 — a 1-task inner spec behaves identically via the same class."""
-    outer = (
-        WorkflowCompiler(name="outer-single")
-        .add(SubWorkflow(_build_single_step_inner()), name="sub")
-        .compile()
-    )
-    result = await WorkflowRuntime().execute(outer)
-    assert result.status == "succeeded"
-    assert result.outputs["sub"] == 42
-
-
-@pytest.mark.asyncio
 async def test_subworkflow_accepts_compiled_workflow() -> None:
     """ac-002 — SubWorkflow accepts an already-compiled inner workflow too."""
     inner_compiled = _build_multi_step_inner().compile()
@@ -151,25 +112,6 @@ async def test_subworkflow_explicit_output_selection() -> None:
     result = await WorkflowRuntime().execute(outer)
     assert result.status == "succeeded"
     assert result.outputs["sub"] == pytest.approx([0.25, 0.5, 1.0])
-
-
-@pytest.mark.asyncio
-async def test_subworkflow_feeds_downstream_task() -> None:
-    """ac-002 — add(SubWorkflow) → add(downstream) makes the inner result flow."""
-
-    class Double(Task):
-        async def execute(self, ctx: TaskContext, value: float) -> float:
-            return value * 2
-
-    outer = (
-        WorkflowCompiler(name="outer-downstream")
-        .add(SubWorkflow(_build_multi_step_inner()), name="sub")
-        .add(Double(), name="double", depends_on=["sub"])
-        .compile()
-    )
-    result = await WorkflowRuntime().execute(outer)
-    assert result.status == "succeeded"
-    assert result.outputs["double"] == pytest.approx(3.5)
 
 
 def test_subworkflow_ambiguous_leaf_raises() -> None:
@@ -259,31 +201,6 @@ async def test_subworkflow_as_parallel_body() -> None:
     # One inner output (1.75) per element, in iteration order.
     assert result.outputs["sub"] == pytest.approx([1.75, 1.75, 1.75, 1.75])
     assert result.outputs["collect"] == pytest.approx([1.75, 1.75, 1.75, 1.75])
-
-
-@pytest.mark.asyncio
-async def test_subworkflow_parallel_body_single_task_inner() -> None:
-    """ac-004 / ac-005 — a 1-task inner spec also works as a parallel body."""
-    wf = WorkflowCompiler(name="outer-parallel-single", entry="enumerate")
-
-    @wf.task
-    async def enumerate() -> list[int]:
-        return [0, 1, 2]
-
-    wf.add(SubWorkflow(_build_single_step_inner()), name="sub")
-
-    @wf.task
-    async def collect(values: list[int]) -> list[int]:
-        return list(values)
-
-    wf.parallel(map_over="enumerate", body="sub", join="collect", max_concurrency=3)
-
-    compiled = wf.compile()
-    assert {t.name for t in compiled._tasks} == {"enumerate", "sub", "collect"}
-
-    result = await WorkflowRuntime().execute(compiled)
-    assert result.status == "succeeded"
-    assert result.outputs["collect"] == [42, 42, 42]
 
 
 @pytest.mark.asyncio

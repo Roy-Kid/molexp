@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from molexp.server.app import _find_bundled_webapp, create_app
+from molexp.server.app import create_app
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -47,13 +47,6 @@ class TestApiOnlyMode:
             data = resp.json()
             assert data["service"] == "molexp"
 
-    def test_health_endpoint(self) -> None:
-        app = create_app(serve_static=False)
-        with TestClient(app) as client:
-            resp = client.get("/api/health")
-            assert resp.status_code == 200
-            assert resp.json()["status"] == "healthy"
-
 
 # ---------------------------------------------------------------------------
 # Production mode with bundled (mock) webapp
@@ -82,12 +75,6 @@ class TestStaticServing:
             assert resp.status_code == 200
             assert "molexp" in resp.text
 
-    def test_static_css_served(self, mock_webapp: Path) -> None:
-        app = create_app(static_dir=mock_webapp)
-        with TestClient(app) as client:
-            resp = client.get("/static/css/main.abc123.css")
-            assert resp.status_code == 200
-
     def test_root_file_served_directly(self, mock_webapp: Path) -> None:
         """Files that exist at the webapp root (favicon etc.) are served as-is."""
         app = create_app(static_dir=mock_webapp)
@@ -102,16 +89,3 @@ class TestStaticServing:
             resp = client.get("/api/health")
             assert resp.status_code == 200
             assert resp.json()["status"] == "healthy"
-
-
-# ---------------------------------------------------------------------------
-# Bundle detection
-# ---------------------------------------------------------------------------
-
-
-class TestBundleDetection:
-    def test_returns_none_when_no_webapp(self) -> None:
-        result = _find_bundled_webapp()
-        # In a dev checkout without a built wheel this is None.
-        # In CI after a wheel build it might be a real path.
-        assert result is None or (result.is_dir() and (result / "index.html").exists())

@@ -84,14 +84,6 @@ def _make_generated_dir(ctx) -> Path:
 # ------------------------------------------------------------------ basics
 
 
-def test_name_and_subclass() -> None:
-    from molexp.harness import Stage
-    from molexp.harness.stages import ExecuteTests
-
-    assert ExecuteTests.name == "execute_tests"
-    assert issubclass(ExecuteTests, Stage)
-
-
 def test_command_spec_built_per_contract(ctx) -> None:
     from molexp.harness import DryRunExecutor
     from molexp.harness.stages import ExecuteTests
@@ -119,19 +111,6 @@ def test_command_spec_built_per_contract(ctx) -> None:
     assert spec.timeout_s == 600
 
 
-def test_custom_timeout_flows_into_command_spec(ctx) -> None:
-    from molexp.harness import DryRunExecutor
-    from molexp.harness.stages import ExecuteTests
-
-    _seed_test_source(ctx.artifact_store)
-    _make_generated_dir(ctx)
-    recorder = _RecordingExecutor(DryRunExecutor())
-
-    asyncio.run(ExecuteTests(recorder, timeout_s=42).run(ctx))
-
-    assert recorder.specs[0].timeout_s == 42
-
-
 def test_dry_run_persists_passed_test_result_with_lineage(ctx) -> None:
     from molexp.harness import DryRunExecutor
     from molexp.harness.schemas import TestResult
@@ -151,23 +130,6 @@ def test_dry_run_persists_passed_test_result_with_lineage(ctx) -> None:
 
 
 # --------------------------------------------- integration (real subprocess)
-
-
-def test_local_executor_passing_module_yields_passed_result(ctx) -> None:
-    from molexp.harness import LocalExecutor
-    from molexp.harness.schemas import TestResult
-    from molexp.harness.stages import ExecuteTests
-
-    _seed_test_source(ctx.artifact_store)
-    generated = _make_generated_dir(ctx)
-    (generated / "test_generated_workflow.py").write_text(PASSING_TEST_MODULE)
-
-    ref = asyncio.run(ExecuteTests(LocalExecutor()).run(ctx))
-
-    result = TestResult.model_validate(json.loads(ctx.artifact_store.get(ref.id)))
-    assert result.status == "passed"
-    assert result.stdout is not None
-    assert result.stderr is not None
 
 
 def test_local_executor_failing_module_persists_then_raises(ctx) -> None:

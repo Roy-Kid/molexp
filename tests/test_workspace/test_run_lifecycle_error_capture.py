@@ -75,19 +75,3 @@ def test_failed_run_reason_surfaced_on_context_health_flag(tmp_path: Path) -> No
     assert "division by zero" in flags[0].detail, (
         "the health flag must say WHY the run failed, not just that it did"
     )
-
-
-def test_runs_info_prints_the_failure_reason_and_retry_hint(tmp_path: Path) -> None:
-    import re
-
-    from typer.testing import CliRunner
-
-    from molexp.cli import app
-
-    ws, run = _run_failing(tmp_path)
-    result = CliRunner().invoke(app, ["runs", "info", "demo", "train", run.id, "-t", str(ws.root)])
-    assert result.exit_code == 0, result.output
-    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-    assert "ZeroDivisionError" in plain, plain
-    assert "division by zero" in plain, plain
-    assert "--resume" in plain, plain

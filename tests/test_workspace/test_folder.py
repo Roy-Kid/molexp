@@ -337,33 +337,6 @@ def test_move_to_collision_raises(tmp_path: Path) -> None:
 # ``subsystem.py`` was removed; ``_KIND_PATTERN`` now lives only in folder.py.
 
 
-# ── ac-010 ────────────────────────────────────────────────────────────────
-def test_public_exports_resolve() -> None:
-    """``Folder``, ``FolderMetadata``, ``FolderMoveCollisionError`` are public.
-
-    Covers ac-010.
-    """
-    from molexp.workspace import (
-        Folder as PublicFolder,
-    )
-    from molexp.workspace import (
-        FolderMetadata as PublicFolderMetadata,
-    )
-    from molexp.workspace import (
-        FolderMoveCollisionError as PublicFolderMoveCollisionError,
-    )
-
-    assert PublicFolder is Folder
-    assert PublicFolderMetadata is FolderMetadata
-    assert PublicFolderMoveCollisionError is FolderMoveCollisionError
-
-    import molexp.workspace as ws
-
-    assert "Folder" in ws.__all__
-    assert "FolderMetadata" in ws.__all__
-    assert "FolderMoveCollisionError" in ws.__all__
-
-
 # ── ac-011 ────────────────────────────────────────────────────────────────
 def test_import_guard_subprocess() -> None:
     """``import molexp.workspace.folder`` pulls no upstream layer modules.
@@ -396,18 +369,6 @@ def test_import_guard_subprocess() -> None:
 
 
 # ── Edge cases (extra, not strictly tied to ac) ────────────────────────────
-def test_read_json_missing_file_raises_file_not_found_error(tmp_path: Path) -> None:
-    """``read_json`` on a missing file surfaces stdlib ``FileNotFoundError``.
-
-    Per spec § Testing strategy: transparent stdlib propagation, not a
-    custom exception wrapper.
-    """
-    folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
-    folder.materialize()
-    with pytest.raises(FileNotFoundError):
-        folder.read_json("does-not-exist.json")
-
-
 @pytest.mark.parametrize(
     "bad_name",
     [

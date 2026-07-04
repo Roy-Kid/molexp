@@ -18,7 +18,6 @@ import pytest
 from typer.testing import CliRunner
 
 from molexp.cli import app
-from molexp.cli.curate_cmd import InteractiveApprover
 
 
 @pytest.fixture
@@ -185,26 +184,3 @@ class TestCurateCmd:
         )
         assert result.exit_code == 1
         assert "exactly one way" in result.output
-
-
-class TestInteractiveApprover:
-    """The destructive-capability gate on ``molexp curate``."""
-
-    def test_auto_grants_when_assume_yes(self) -> None:
-        """Under an explicit --yes the approver auto-grants, named in the audit."""
-        import asyncio
-        from datetime import UTC, datetime
-
-        from molexp.harness.schemas import ApprovalRequest
-
-        approver = InteractiveApprover(assume_yes=True)
-        request = ApprovalRequest(
-            id="r",
-            intent="overwrite",
-            reason="x",
-            triggered_by_policy="side_effects_present",
-            created_at=datetime.now(tz=UTC),
-        )
-        decision = asyncio.run(approver(request))
-        assert decision.granted is True
-        assert decision.decided_by == "cli---yes"

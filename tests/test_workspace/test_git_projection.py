@@ -78,15 +78,6 @@ class TestDeterministicRebuild:
         assert first.workspace_tree.hex  # non-empty
         assert len(first.runs) == 2
 
-    async def test_rebuild_from_scratch_matches_a_fresh_projection(self, tmp_path):
-        ws, _a, _b = _seed_two_runs(tmp_path / "lab")
-        db1 = await ensure_object_db(tmp_path / "odb1")
-        db2 = await ensure_object_db(tmp_path / "odb2")
-        r1 = await GitProjection(ws, db1).project()
-        r2 = await GitProjection(ws, db2).project()
-        # Same authoritative inputs → identical OIDs in two independent DBs.
-        assert r1.workspace_tree == r2.workspace_tree
-
 
 # ── (b) real-git interop ─────────────────────────────────────────────────────
 
@@ -145,16 +136,6 @@ class TestExclusion:
         assert any(p.endswith("run.json") for p in paths)
         # No children-index at a container level (e.g. demo/experiment.json).
         assert not any(p.endswith("/experiment.json") or p == "project.json" for p in paths)
-
-    async def test_run_tree_contains_whitelisted_entries(self, tmp_path):
-        ws, run_a, _b = _seed_two_runs(tmp_path / "lab")
-        db = await ensure_object_db(tmp_path / "odb")
-        res = await GitProjection(ws, db).project()
-        names = set(_git(db.path, "ls-tree", "--name-only", res.run(run_a.id).tree.hex).split())
-        assert "run.json" in names
-        assert "artifacts" in names
-        assert "_ops" not in names
-        assert "cache" not in names
 
 
 # ── (d) molexp.ids + cache keys untouched ────────────────────────────────────

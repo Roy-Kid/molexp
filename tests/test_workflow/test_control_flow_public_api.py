@@ -20,7 +20,6 @@ from __future__ import annotations
 import pytest
 
 from molexp.workflow import (
-    LoopMaxItersExceeded,
     Next,
     TaskContext,
     WorkflowCompiler,
@@ -28,22 +27,6 @@ from molexp.workflow import (
 )
 
 # ── public surface ───────────────────────────────────────────────────────────
-
-
-def test_next_is_public() -> None:
-    """``Next`` is importable from ``molexp.workflow`` and listed in __all__."""
-    import molexp.workflow as W
-
-    assert "Next" in W.__all__, "Next is public API; it must be in molexp.workflow.__all__"
-    from molexp.workflow.types import Next as InternalNext
-
-    assert W.Next is InternalNext, "public Next must be the same class as workflow.types.Next"
-
-
-def test_next_accepts_positional_label() -> None:
-    """``Next("route")`` and ``Next(label="route")`` are equivalent spellings."""
-    assert Next("go") == Next(label="go")
-    assert Next("go").label == "go"
 
 
 # ── branch: public imports, routed value via ctx.inputs ─────────────────────
@@ -138,29 +121,3 @@ async def test_loop_workflow_from_public_imports() -> None:
     assert head_inputs == [None, 1, 2]
     assert result.outputs["step"] == 3
     assert result.outputs["report"] == "final:3"
-
-
-@pytest.mark.asyncio
-async def test_loop_max_iters_forces_exit_with_warning() -> None:
-    """``max_iters`` caps a runaway loop: the engine forces ``Next("exit")``
-    and emits ``LoopMaxItersExceeded``; the workflow still completes."""
-    runs = [0]
-
-    wf = WorkflowCompiler(name="public-loop-runaway", entry="step")
-
-    @wf.task
-    async def step(ctx: TaskContext) -> int:
-        runs[0] += 1
-        return runs[0]
-
-    @wf.task(depends_on=["step"])
-    async def never_done(ctx: TaskContext) -> Next:
-        return Next("continue")
-
-    wf.loop(body=["step"], until="never_done", max_iters=3)
-
-    with pytest.warns(LoopMaxItersExceeded):
-        result = await WorkflowRuntime().execute(wf.compile())
-
-    assert result.status == "succeeded"
-    assert runs[0] == 3

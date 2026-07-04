@@ -26,18 +26,6 @@ def log(db_path: Path):
     return SQLiteEventLog(path=db_path)
 
 
-def test_append_assigns_seq_starting_at_one(log) -> None:
-    e = log.append(
-        run_id="run-A",
-        type="run_created",
-        actor="harness",
-        payload={"foo": "bar"},
-    )
-    assert e.seq == 1
-    assert e.run_id == "run-A"
-    assert e.type == "run_created"
-
-
 def test_append_seq_is_monotonic_per_run_id(log) -> None:
     seqs = [log.append(run_id="run-A", type="stage_started", actor="harness").seq for _ in range(5)]
     assert seqs == [1, 2, 3, 4, 5]

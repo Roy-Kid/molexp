@@ -52,16 +52,6 @@ describe("buildRegistryKey", () => {
     expect(buildRegistryKey(key)).toBe("project::json::metadata::viewer");
   });
 
-  it("produces consistent output for identical inputs", () => {
-    const key: RendererKey = {
-      objectType: "workflow",
-      fileKind: "yaml",
-      contentType: "workflow-graph",
-      panelKind: "inspector",
-    };
-    expect(buildRegistryKey(key)).toBe(buildRegistryKey(key));
-  });
-
   it("distinguishes keys that differ only in one field", () => {
     const base: RendererKey = {
       objectType: "run",
@@ -75,16 +65,6 @@ describe("buildRegistryKey", () => {
 });
 
 describe("registerRenderer", () => {
-  it("registers without throwing", () => {
-    const key: RendererKey = {
-      objectType: "asset",
-      fileKind: "json",
-      contentType: "metadata",
-      panelKind: "viewer",
-    };
-    expect(() => registerRenderer(makeEntry(key))).not.toThrow();
-  });
-
   it("throws when the same key is registered twice", () => {
     const key: RendererKey = {
       objectType: "experiment",

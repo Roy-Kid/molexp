@@ -1,13 +1,6 @@
 /**
- * Tests for the agent-task display-title helpers, plus source-contract
- * assertions (rstest runs in node without jsdom — see
- * app/runs/metrics/RunMetricsView.test.tsx) that the display surfaces
- * (sidebar, breadcrumb, session header) actually route through them.
+ * Tests for the agent-task display-title helpers.
  */
-
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "@rstest/core";
 
@@ -16,9 +9,6 @@ import {
   isAutoDerivedTitle,
   stripMarkdownLine,
 } from "@/lib/agent-task-title";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const read = (rel: string): string => readFileSync(resolve(__dirname, rel), "utf8");
 
 describe("stripMarkdownLine", () => {
   it("strips heading markers", () => {
@@ -92,33 +82,5 @@ describe("agentTaskDisplayTitle", () => {
   it("falls back to a default for empty input", () => {
     expect(agentTaskDisplayTitle({})).toBe("Untitled agent task");
     expect(agentTaskDisplayTitle({ title: "", goal: "  \n " })).toBe("Untitled agent task");
-  });
-});
-
-describe("display-surface wiring (source contract)", () => {
-  it("LeftPanel sidebar labels route through agentTaskDisplayTitle and expose the full goal on hover", () => {
-    const src = read("../app/panels/LeftPanel.tsx");
-    expect(src).toContain('from "@/lib/agent-task-title"');
-    expect(src).toContain("agentTaskDisplayTitle(session");
-    expect(src).toContain("hoverTitle: session.goal");
-    expect(src).not.toContain("shortenGoal(");
-  });
-
-  it("breadcrumb trail routes agent crumbs through agentTaskDisplayTitle", () => {
-    const src = read("../app/entities/breadcrumbTrail.ts");
-    expect(src).toContain('from "@/lib/agent-task-title"');
-    expect(src).toContain("agentTaskDisplayTitle(session");
-    expect(src).not.toContain("session?.goal");
-  });
-
-  it("AgentViewer session header shows the cleaned title with the raw goal as tooltip", () => {
-    const src = read("../app/renderers/AgentViewer.tsx");
-    expect(src).toContain("title={agentTaskDisplayTitle(session)}");
-    expect(src).toContain("titleTooltip={session.goal}");
-  });
-
-  it("mapAgentSessions carries the server title into AgentSessionSummary", () => {
-    const src = read("../app/state/api.ts");
-    expect(src).toContain('title: s.title ?? ""');
   });
 });

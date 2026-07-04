@@ -7,11 +7,11 @@ Two continuation verbs replace the single run-level ``--resume``:
 * ``--rerun`` (NEW flag) → fresh new execution on the same run, no seed.
 * The two flags are mutually exclusive.
 
-These tests target the not-yet-written production surface:
+These tests target the CLI shell surface:
   - the ``--rerun`` CLI flag on ``molexp run``
-  - ``molexp.workflow._engine.persistence.last_resumable_execution_id``
-    (formerly ``molexp.cli.workspace.run._last_resumable_execution_id``)
   - the resume-seeding / rerun-fresh wiring of the local run handler
+(``last_resumable_execution_id`` itself is owned by
+``tests/test_workflow/test_resume_from_ops.py``.)
 
 All tests are deterministic and isolated (``tmp_path`` per test).
 """
@@ -87,16 +87,6 @@ def _write_molcfg(path: Path) -> None:
     )
 
 
-_FAIL_ONCE_BODY = (
-    "import pathlib\n"
-    "    marker = pathlib.Path(inputs['workdir']) / 'fail_once'\n"
-    "    if not marker.exists():\n"
-    "        marker.touch()\n"
-    "        raise RuntimeError('boom')\n"
-    "    return config['epochs']"
-)
-
-
 def _replica_run_id(run_params: dict[str, Any], profile_name: str | None = None) -> str:
     """Compute the deterministic run id the replica-dispatch path derives.
 
@@ -121,10 +111,6 @@ def _only_run(workspace_root: Path) -> Run:
     runs = ws.get_project("demo").get_experiment("train").list_runs()
     assert len(runs) == 1, f"expected exactly one run, got {len(runs)}"
     return runs[0]
-
-
-def _history(workspace_root: Path) -> list[ExecutionRecord]:
-    return list(_only_run(workspace_root).execution_history)
 
 
 class _ExecuteRecorder:
@@ -216,69 +202,6 @@ def _seed_failed_execution(
     return exec_id
 
 
-# ── ac-001: last_resumable_execution_id helper ────────────────────────────────
-
-
-class TestLastResumableExecutionId:
-    def test_returns_last_non_succeeded_record(self, tmp_path: Path) -> None:
-        from molexp.workflow._engine.persistence import last_resumable_execution_id
-
-        ws = me.Workspace(tmp_path / "ws")
-        run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
-        run.update_ops(
-            lambda s: s.model_copy(
-                update={
-                    "executions": (
-                        ExecutionRecord(
-                            execution_id="exec-1", started_at=datetime(2026, 1, 1), status="failed"
-                        ),
-                        ExecutionRecord(
-                            execution_id="exec-2",
-                            started_at=datetime(2026, 1, 2),
-                            status="succeeded",
-                        ),
-                        ExecutionRecord(
-                            execution_id="exec-3", started_at=datetime(2026, 1, 3), status="failed"
-                        ),
-                    )
-                }
-            )
-        )
-        assert last_resumable_execution_id(run) == "exec-3"
-
-    def test_skips_trailing_succeeded_to_find_earlier_failure(self, tmp_path: Path) -> None:
-        from molexp.workflow._engine.persistence import last_resumable_execution_id
-
-        ws = me.Workspace(tmp_path / "ws")
-        run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
-        run.update_ops(
-            lambda s: s.model_copy(
-                update={
-                    "executions": (
-                        ExecutionRecord(
-                            execution_id="exec-1", started_at=datetime(2026, 1, 1), status="failed"
-                        ),
-                        ExecutionRecord(
-                            execution_id="exec-2",
-                            started_at=datetime(2026, 1, 2),
-                            status="cancelled",
-                        ),
-                    )
-                }
-            )
-        )
-        # Most recent non-succeeded is exec-2.
-        assert last_resumable_execution_id(run) == "exec-2"
-
-    def test_returns_none_for_empty_history(self, tmp_path: Path) -> None:
-        from molexp.workflow._engine.persistence import last_resumable_execution_id
-
-        ws = me.Workspace(tmp_path / "ws")
-        run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
-        assert run.execution_history == []
-        assert last_resumable_execution_id(run) is None
-
-
 # ── ac-002: --resume reopens prior execution and seeds completed outputs ────────
 
 
@@ -319,36 +242,6 @@ class TestResumeSeedsCompletedOutputs:
         expected_seed = read_node_outputs(Path(_only_run(workspace_root).run_dir), exec_id)
         assert call.get("seed_outputs") == expected_seed
         assert expected_seed, "fixture should have produced non-empty completed outputs"
-
-    def test_resume_appends_no_new_execution_record(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        workspace_root = tmp_path / "workspace"
-        script = tmp_path / "train.py"
-        molcfg = tmp_path / "molcfg.yaml"
-        _write_molcfg(molcfg)
-        _write_script(script, workspace_root)
-
-        _seed_failed_execution(workspace_root, node_outputs={"prep": {"value": 7}})
-        len_before = len(_history(workspace_root))
-        _patch_execute(monkeypatch)
-
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--local",
-                "--resume",
-                "--config",
-                str(molcfg),
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        # Reopen reuses the existing slot — history length is unchanged.
-        assert len(_history(workspace_root)) == len_before
 
 
 # ── ac-003: --rerun starts a fresh execution with no seed ──────────────────────
@@ -418,35 +311,6 @@ class TestRerunFreshExecution:
         )
         assert result.exit_code == 0, result.output
         assert recorder.call.get("bypass_cache") is True, recorder.call
-
-    def test_rerun_appends_new_execution_record(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        workspace_root = tmp_path / "workspace"
-        script = tmp_path / "train.py"
-        molcfg = tmp_path / "molcfg.yaml"
-        _write_molcfg(molcfg)
-        _write_script(script, workspace_root)
-
-        _seed_failed_execution(workspace_root, node_outputs={"prep": {"value": 7}})
-        len_before = len(_history(workspace_root))
-        _patch_execute(monkeypatch)
-
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--local",
-                "--rerun",
-                "--config",
-                str(molcfg),
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert len(_history(workspace_root)) == len_before + 1
 
 
 # ── ac-004: --resume and --rerun are mutually exclusive ────────────────────────
@@ -531,157 +395,10 @@ class TestResumeSkipsPendingRun:
         assert "skipped" in _plain(result.output)
 
 
-# ── ac-006: --resume reopens even when no node completed (empty seed) ───────────
-
-
-class TestResumeEmptySeedReopen:
-    def test_resume_with_empty_outputs_reopens_without_new_record(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from molexp.workflow import read_node_outputs
-
-        workspace_root = tmp_path / "workspace"
-        script = tmp_path / "train.py"
-        molcfg = tmp_path / "molcfg.yaml"
-        _write_molcfg(molcfg)
-        _write_script(script, workspace_root)
-
-        # Failed before any node completed → read_node_outputs returns {}.
-        exec_id = _seed_failed_execution(workspace_root, node_outputs={})
-        assert read_node_outputs(Path(_only_run(workspace_root).run_dir), exec_id) == {}
-        len_before = len(_history(workspace_root))
-        recorder = _patch_execute(monkeypatch)
-
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--local",
-                "--resume",
-                "--config",
-                str(molcfg),
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-
-        call = recorder.call
-        assert call.get("execution_id") == exec_id, call
-        assert not call.get("seed_outputs"), call
-        # Reopened slot — no new record appended.
-        assert len(_history(workspace_root)) == len_before
-
-
 # ── ac-007: shared selection rules under both verbs ────────────────────────────
 
 
 class TestSharedSelectionRules:
-    @pytest.mark.parametrize("verb", ["--resume", "--rerun"])
-    def test_succeeded_run_is_skipped(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str
-    ) -> None:
-        workspace_root = tmp_path / "workspace"
-        script = tmp_path / "train.py"
-        molcfg = tmp_path / "molcfg.yaml"
-        _write_molcfg(molcfg)
-        _write_script(script, workspace_root)
-
-        # First real run with the smoke profile succeeds.
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--local",
-                "--config",
-                str(molcfg),
-                "--profile",
-                "smoke",
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert _only_run(workspace_root).status == "succeeded"
-
-        recorder = _patch_execute(monkeypatch)
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--local",
-                verb,
-                "--config",
-                str(molcfg),
-                "--profile",
-                "smoke",
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        # Already succeeded → skipped → execute never called.
-        assert recorder.calls == []
-        assert "skipped" in _plain(result.output)
-
-    @pytest.mark.parametrize("verb", ["--resume", "--rerun"])
-    def test_live_running_run_is_skipped(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str
-    ) -> None:
-        import os
-        import platform
-        from datetime import datetime
-
-        workspace_root = tmp_path / "workspace"
-        script = tmp_path / "train.py"
-        molcfg = tmp_path / "molcfg.yaml"
-        _write_molcfg(molcfg)
-        _write_script(script, workspace_root)
-
-        # A run that is genuinely in flight: status=running owned by THIS live
-        # process, so the zombie-reaper leaves it running. Neither verb may
-        # launch a second execution alongside it.
-        ws = me.Workspace(workspace_root)
-        exp = ws.add_project("demo").add_experiment("train")
-        run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
-        run = exp.add_run(params=run_params, id=_replica_run_id(run_params))
-        run._update_metadata(profile=None)
-        # Hot state (status + ownership/heartbeat) → the OKF _ops sidecar.
-        from datetime import UTC
-
-        run.update_ops(
-            lambda s: s.model_copy(
-                update={
-                    "status": RunStatus.RUNNING,
-                    "owner_pid": os.getpid(),
-                    "owner_host": platform.node(),
-                    "heartbeat_at": datetime.now(UTC),
-                }
-            )
-        )
-
-        recorder = _patch_execute(monkeypatch)
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--local",
-                verb,
-                "--config",
-                str(molcfg),
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert recorder.calls == []
-        out = _plain(result.output)
-        assert "running" in out and "skipped" in out
-
     @pytest.mark.parametrize("verb", ["--resume", "--rerun"])
     def test_profile_mismatch_run_is_skipped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str
@@ -783,36 +500,3 @@ class TestBackgroundForwardsVerb:
         assert recorder.argv is not None
         assert "--rerun" in recorder.argv
         assert "--resume" not in recorder.argv
-
-    def test_bg_resume_forwards_resume_not_rerun(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        workspace_root = tmp_path / "workspace"
-        workspace_root.mkdir()
-        script = tmp_path / "train.py"
-        molcfg = tmp_path / "molcfg.yaml"
-        _write_molcfg(molcfg)
-        _write_script(script, workspace_root)
-
-        import molexp.cli.workspace.run as run_mod
-
-        recorder = _PopenRecorder()
-        monkeypatch.setattr(run_mod.subprocess, "Popen", recorder, raising=True)
-
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--bg",
-                "--resume",
-                "--config",
-                str(molcfg),
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert recorder.argv is not None
-        assert "--resume" in recorder.argv
-        assert "--rerun" not in recorder.argv

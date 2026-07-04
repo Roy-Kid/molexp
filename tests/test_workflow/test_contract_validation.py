@@ -294,45 +294,6 @@ def test_no_orphan_tasks_fails_when_spec_has_extra_task() -> None:
 # ── ValidationReport.ok aggregation ────────────────────────────────────────
 
 
-def test_report_ok_true_when_only_warning_issues_present() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                outputs=(TaskOutputSpec(name="x", type="int"),),
-            ),
-            TaskIO(
-                task_id="B",
-                inputs=(TaskInputSpec(name="y", type="int", source="A"),),
-            ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    # The mismatch is warning-level only → no error issues → ok stays True.
-    assert all(i.severity == "warning" for i in rep.issues)
-    assert rep.ok is True
-
-
-def test_report_ok_false_when_any_error_issue_present() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                artifacts=(ArtifactDecl(path="dup", produced_by="A"),),
-            ),
-            TaskIO(
-                task_id="B",
-                artifacts=(ArtifactDecl(path="dup", produced_by="B"),),
-            ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert any(i.severity == "error" for i in rep.issues)
-    assert rep.ok is False
-
-
 def test_severity_override_promotes_warning_to_error() -> None:
     """A consumer who wants strict ``outputs_match_downstream_inputs``
     can promote it to error-severity; ``ok`` flips accordingly."""

@@ -1,9 +1,8 @@
 """Unit tests for the molexp.cli.tui data/layout primitives.
 
-Covers tree build, flatten + expansion, short-id formatting, target
-collection, the dialog classification path, and the deprecated
-``molexp.tree_monitor`` shim.  TUI loop and key handling are out of
-scope — validated manually.
+Covers tree build, flatten + expansion, target collection, the dialog
+classification path, and the deprecated ``molexp.tree_monitor`` shim.
+TUI loop and key handling are out of scope — validated manually.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from molexp.cli.tui import build_tree, flatten, node_path_str
-from molexp.cli.tui.tree_model import _short_exec_label, _short_id
 from molexp.cli.tui.tree_monitor import _collect_targets, _prepare_dialog, _UIState
 from molexp.workspace import Workspace
 from molexp.workspace.models import ExecutionRecord, RunStatus
@@ -53,18 +51,6 @@ def seeded_workspace(tmp_path):
     return ws
 
 
-class TestShortId:
-    def test_long_id_truncates(self):
-        assert _short_id("abcdef0123456789") == "abcdef"
-
-    def test_short_id_unchanged(self):
-        assert _short_id("abc") == "abc"
-
-    def test_exec_label_strips_prefix_and_adds_attempt(self):
-        assert _short_exec_label("exec-abcdef0123456789") == "exec-abcdef"
-        assert _short_exec_label("exec-abcdef0123456789-2") == "exec-abcdef#2"
-
-
 class TestBuildTree:
     def test_structure(self, seeded_workspace):
         root = build_tree(seeded_workspace)
@@ -90,12 +76,6 @@ class TestBuildTree:
 
 
 class TestFlatten:
-    def test_all_collapsed(self, seeded_workspace):
-        root = build_tree(seeded_workspace)
-        rows = flatten(root, expanded=set())
-        assert [r.node.display_label for r in rows] == ["proj-a", "proj-b"]
-        assert all(r.depth == 0 for r in rows)
-
     def test_expand_project(self, seeded_workspace):
         root = build_tree(seeded_workspace)
         rows = flatten(root, expanded={("project", "proj-a")})
@@ -105,16 +85,6 @@ class TestFlatten:
             (1, "experiment", "exp-x"),
             (0, "project", "proj-b"),
         ]
-
-    def test_expand_full_chain(self, seeded_workspace):
-        root = build_tree(seeded_workspace)
-        expanded = {
-            ("project", "proj-a"),
-            ("project", "proj-a", "experiment", "exp-x"),
-        }
-        rows = flatten(root, expanded=expanded)
-        kinds = [r.node.kind for r in rows]
-        assert kinds == ["project", "experiment", "run", "run", "project"]
 
 
 class TestNodePath:

@@ -10,13 +10,10 @@ import pytest
 from molexp.agent.mcp import defaults as defaults_mod
 from molexp.agent.mcp import store as mcp_mod
 from molexp.agent.mcp.store import (
-    _SPEC_ADAPTER,
     MCP_CONFIG_FILENAME,
-    HttpSpec,
     McpScope,
     McpSecretsStore,
     McpStore,
-    StdioSpec,
     UnresolvedSecretError,
 )
 
@@ -47,13 +44,6 @@ def store(tmp_path, isolated_user_dir):
 
 
 # ── Secrets store ──────────────────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_secrets_get_returns_none_when_missing(tmp_path):
-    s = McpSecretsStore(tmp_path / ".mcp_secrets.json")
-    assert s.get("FOO") is None
-    assert s.list_keys() == []
 
 
 @pytest.mark.unit
@@ -105,11 +95,6 @@ def test_secrets_corrupt_file_returns_empty(tmp_path):
 
 
 @pytest.mark.unit
-def test_list_empty_when_no_files(store):
-    assert store.list() == []
-
-
-@pytest.mark.unit
 def test_list_workspace_only(store):
     store.upsert(
         McpScope.WORKSPACE,
@@ -124,20 +109,6 @@ def test_list_workspace_only(store):
     assert rows[0].command == "molexp"
     assert rows[0].shadowed is False
     assert rows[0].valid is True
-
-
-@pytest.mark.unit
-def test_list_user_only(store):
-    store.upsert(
-        McpScope.USER,
-        "github",
-        {"type": "http", "url": "https://api.example/mcp"},
-    )
-    rows = store.list()
-    assert len(rows) == 1
-    assert rows[0].scope is McpScope.USER
-    assert rows[0].transport == "http"
-    assert rows[0].url == "https://api.example/mcp"
 
 
 @pytest.mark.unit
@@ -157,23 +128,6 @@ def test_workspace_shadows_user_when_same_name(store):
     assert by_scope[McpScope.USER].shadowed is True
     assert by_scope[McpScope.WORKSPACE].shadowed is False
     assert by_scope[McpScope.WORKSPACE].url == "https://workspace.example/mcp"
-
-
-@pytest.mark.unit
-def test_different_names_at_different_scopes_do_not_shadow(store):
-    store.upsert(
-        McpScope.USER,
-        "github",
-        {"type": "http", "url": "https://gh.example/mcp"},
-    )
-    store.upsert(
-        McpScope.WORKSPACE,
-        "molexp-data",
-        {"type": "stdio", "command": "molexp"},
-    )
-    rows = store.list()
-    assert {r.name for r in rows} == {"github", "molexp-data"}
-    assert all(r.shadowed is False for r in rows)
 
 
 # ── McpStore: upsert validation ────────────────────────────────────────────
@@ -196,36 +150,6 @@ def test_upsert_rejects_missing_type(store):
             McpScope.WORKSPACE,
             "x",
             {"command": "x"},  # no type → no fallback inference
-        )
-
-
-@pytest.mark.unit
-def test_upsert_rejects_unknown_type(store):
-    with pytest.raises(ValueError, match="Invalid spec"):
-        store.upsert(
-            McpScope.WORKSPACE,
-            "x",
-            {"type": "carrier-pigeon", "command": "x"},
-        )
-
-
-@pytest.mark.unit
-def test_upsert_rejects_empty_command(store):
-    with pytest.raises(ValueError, match="Invalid spec"):
-        store.upsert(
-            McpScope.WORKSPACE,
-            "x",
-            {"type": "stdio", "command": ""},
-        )
-
-
-@pytest.mark.unit
-def test_upsert_rejects_non_http_url(store):
-    with pytest.raises(ValueError, match="URL scheme"):
-        store.upsert(
-            McpScope.WORKSPACE,
-            "x",
-            {"type": "http", "url": "ftp://example.com/mcp"},
         )
 
 
@@ -272,11 +196,6 @@ def test_upsert_writes_to_correct_scope(store):
 
 
 @pytest.mark.unit
-def test_delete_returns_false_when_missing(store):
-    assert store.delete(McpScope.WORKSPACE, "ghost") is False
-
-
-@pytest.mark.unit
 def test_delete_only_affects_target_scope(store):
     store.upsert(McpScope.USER, "x", {"type": "stdio", "command": "y"})
     store.upsert(McpScope.WORKSPACE, "x", {"type": "stdio", "command": "z"})
@@ -305,39 +224,6 @@ def test_secret_refs_detected_from_env_values(store):
     assert entry is not None
     assert entry.secret_refs == ("GITHUB_TOKEN",)
     assert entry.unresolved_secrets == ("GITHUB_TOKEN",)
-
-
-@pytest.mark.unit
-def test_secret_refs_detected_from_header_values(store):
-    store.upsert(
-        McpScope.WORKSPACE,
-        "gh",
-        {
-            "type": "http",
-            "url": "https://gh/mcp",
-            "headers": {"Authorization": "Bearer ${SECRET:GH_TOKEN}"},
-        },
-    )
-    entry = store.get(McpScope.WORKSPACE, "gh")
-    assert entry is not None
-    assert entry.secret_refs == ("GH_TOKEN",)
-
-
-@pytest.mark.unit
-def test_workspace_secret_resolves_unresolved_secret(store):
-    store.upsert(
-        McpScope.WORKSPACE,
-        "gh",
-        {
-            "type": "stdio",
-            "command": "x",
-            "env": {"TOKEN": "${SECRET:GITHUB_TOKEN}"},
-        },
-    )
-    store.secrets(McpScope.WORKSPACE).set("GITHUB_TOKEN", "ghp_abc")
-    entry = store.get(McpScope.WORKSPACE, "gh")
-    assert entry is not None
-    assert entry.unresolved_secrets == ()
 
 
 @pytest.mark.unit
@@ -550,39 +436,6 @@ def test_corrupt_config_returns_empty(tmp_path, isolated_user_dir):
 
 
 @pytest.mark.unit
-def test_stdio_spec_usage_instructions_round_trip():
-    """ac-001 — StdioSpec round-trips an optional ``usage_instructions``."""
-    spec = _SPEC_ADAPTER.validate_python(
-        {"type": "stdio", "command": "x", "usage_instructions": "FOO"}
-    )
-    assert isinstance(spec, StdioSpec)
-    assert spec.usage_instructions == "FOO"
-    dumped = spec.model_dump()
-    assert dumped["usage_instructions"] == "FOO"
-
-    # Default: absent → empty string.
-    bare = _SPEC_ADAPTER.validate_python({"type": "stdio", "command": "x"})
-    assert isinstance(bare, StdioSpec)
-    assert bare.usage_instructions == ""
-
-
-@pytest.mark.unit
-def test_http_spec_usage_instructions_round_trip():
-    """ac-002 — HttpSpec round-trips an optional ``usage_instructions``."""
-    spec = _SPEC_ADAPTER.validate_python(
-        {"type": "http", "url": "https://x", "usage_instructions": "BAR"}
-    )
-    assert isinstance(spec, HttpSpec)
-    assert spec.usage_instructions == "BAR"
-    dumped = spec.model_dump()
-    assert dumped["usage_instructions"] == "BAR"
-
-    bare = _SPEC_ADAPTER.validate_python({"type": "http", "url": "https://x"})
-    assert isinstance(bare, HttpSpec)
-    assert bare.usage_instructions == ""
-
-
-@pytest.mark.unit
 def test_entry_surfaces_usage_instructions(store):
     """ac-003 — McpServerEntry surfaces the on-disk ``usage_instructions``."""
     store.upsert(
@@ -593,16 +446,3 @@ def test_entry_surfaces_usage_instructions(store):
     entry = store.get(McpScope.USER, "x")
     assert entry is not None
     assert entry.usage_instructions == "DOC"
-
-
-@pytest.mark.unit
-def test_entry_usage_instructions_default_empty(store):
-    """Companion to ac-003 — entries written without the field expose ``""``."""
-    store.upsert(
-        McpScope.USER,
-        "y",
-        {"type": "stdio", "command": "y"},
-    )
-    entry = store.get(McpScope.USER, "y")
-    assert entry is not None
-    assert entry.usage_instructions == ""

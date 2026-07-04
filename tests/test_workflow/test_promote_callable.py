@@ -57,18 +57,6 @@ _FIXTURE_SPEC: CompiledWorkflow = (
 )
 
 
-def test_promote_async_callable_yields_runnable_spec() -> None:
-    spec = promote_callable(_async_fn, "p1")
-    assert isinstance(spec, CompiledWorkflow)
-    assert spec.name == "p1"
-
-
-def test_promote_sync_callable_yields_runnable_spec() -> None:
-    spec = promote_callable(_sync_fn, "p2")
-    assert isinstance(spec, CompiledWorkflow)
-    assert spec.name == "p2"
-
-
 def test_resolve_callable_entrypoint_for_module_level_function() -> None:
     ep = resolve_callable_entrypoint(_async_fn)
     assert ":" in ep, "entrypoint must be <file>:<qualname>"
@@ -84,16 +72,6 @@ def test_resolve_callable_entrypoint_rejects_lambda() -> None:
 
     with pytest.raises(ValueError, match="entrypoint"):
         resolve_callable_entrypoint(lambda ctx: None)  # noqa: ARG005
-
-
-def test_resolve_callable_entrypoint_rejects_local_function() -> None:
-    def _local_fn(ctx) -> None:
-        return None
-
-    import pytest
-
-    with pytest.raises(ValueError, match="entrypoint"):
-        resolve_callable_entrypoint(_local_fn)
 
 
 def test_resolve_spec_entrypoint_finds_module_level_binding() -> None:

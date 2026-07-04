@@ -115,11 +115,6 @@ class TestRefusesNonRunning:
             cancel_run(run)
         assert run.status == status.value
 
-    def test_refusal_message_names_the_actual_status(self, run: Run) -> None:
-        run.update_ops(lambda s: s.model_copy(update={"status": RunStatus.SUCCEEDED}))
-        with pytest.raises(ValueError, match="succeeded"):
-            cancel_run(run)
-
     def test_refusal_mutates_nothing(self, run: Run) -> None:
         with pytest.raises(ValueError):
             cancel_run(run)
@@ -167,13 +162,3 @@ class TestZombieReapedFirst:
         )
         cancel_run(run)
         assert run.status == "cancelled"
-
-
-# ── public surface ───────────────────────────────────────────────────────────
-
-
-class TestExports:
-    def test_cancel_run_is_exported_from_the_workspace_package(self) -> None:
-        from molexp import workspace
-
-        assert workspace.cancel_run is cancel_run

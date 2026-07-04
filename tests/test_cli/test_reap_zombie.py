@@ -108,11 +108,6 @@ class TestCrossHost:
         assert reap_zombie_run(running_run) is True
         assert running_run.status == "failed"
 
-    def test_just_under_threshold_is_left_alone(self, running_run) -> None:
-        recent = datetime.now(UTC) - timedelta(seconds=CROSS_HOST_HEARTBEAT_STALE_SECONDS - 60)
-        _mark_running(running_run, pid=12345, host="hpc-login-01", heartbeat_at=recent)
-        assert reap_zombie_run(running_run) is False
-
 
 class TestThresholds:
     def test_staleness_threshold_dominates_refresh_cadence(self) -> None:

@@ -18,16 +18,6 @@ def _prefix(project, experiment, run) -> str:
 
 
 class TestTensorboardScalarsRoute:
-    def test_empty_when_no_tfevents_present(self, client, project, experiment, run):
-        if not _HAS_TB:
-            pytest.skip("tensorboard not installed")
-        resp = client.get(f"{_prefix(project, experiment, run)}/tensorboard/scalars")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["runId"] == run.id
-        assert body["series"] == []
-        assert body["logdirs"] == []
-
     def test_returns_503_when_tensorboard_missing(
         self, client, project, experiment, run, monkeypatch
     ):

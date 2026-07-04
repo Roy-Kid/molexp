@@ -37,13 +37,6 @@ def test_agent_gateway_is_runtime_checkable_protocol(stub) -> None:
     assert isinstance(stub, AgentGateway)
 
 
-def test_agent_gateway_re_exported_at_top_level() -> None:
-    from molexp.harness import AgentGateway as TopLevelAgentGateway
-    from molexp.harness.gateways.gateway import AgentGateway
-
-    assert TopLevelAgentGateway is AgentGateway
-
-
 def test_stub_call_returns_registered_output_and_raw_artifacts(stub, artifact_store) -> None:
     from molexp.harness.schemas.agent_call import AgentCallSpec
     from molexp.harness.schemas.experiment_report import ExperimentReport

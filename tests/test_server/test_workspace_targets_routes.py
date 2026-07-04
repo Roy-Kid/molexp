@@ -54,13 +54,6 @@ def _add_descriptor(client: TestClient, **overrides: object) -> dict:
 
 
 @pytest.mark.unit
-def test_list_empty(client: TestClient):
-    resp = client.get("/api/workspace/targets")
-    assert resp.status_code == 200
-    assert resp.json() == {"targets": [], "total": 0}
-
-
-@pytest.mark.unit
 def test_list_after_add(client: TestClient):
     _add_descriptor(client, name="a")
     _add_descriptor(client, name="b")
@@ -104,15 +97,6 @@ def test_create_invalid_name_422(client: TestClient):
             "host": "h",
             "root_path": "/r",
         },
-    )
-    assert resp.status_code == 422
-
-
-@pytest.mark.unit
-def test_create_missing_required_422(client: TestClient):
-    resp = client.post(
-        "/api/workspace/targets",
-        json={"name": "incomplete"},
     )
     assert resp.status_code == 422
 

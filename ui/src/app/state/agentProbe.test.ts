@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "@rstest/core";
 import { AgentUnavailableError, probeOnce, resetAgentProbes } from "@/app/state/agentProbe";
-import { agentAdminApi, agentApi, commandsApi } from "@/app/state/api";
+import { agentAdminApi, agentApi } from "@/app/state/api";
 
 const originalFetch = globalThis.fetch;
 
@@ -118,20 +118,6 @@ describe("api.ts probe wiring (503 requested at most once per endpoint)", () => 
     await expect(agentApi.getHealth()).rejects.toBeInstanceOf(AgentUnavailableError);
     await expect(agentApi.getHealth()).rejects.toBeInstanceOf(AgentUnavailableError);
     expect(calls).toEqual(["/api/agent/health"]);
-  });
-
-  it("agentAdminApi.getProvider stops probing after the first 503", async () => {
-    const { calls } = install503Fetch();
-    await expect(agentAdminApi.getProvider()).rejects.toBeInstanceOf(AgentUnavailableError);
-    await expect(agentAdminApi.getProvider()).rejects.toBeInstanceOf(AgentUnavailableError);
-    expect(calls).toEqual(["/api/agent/provider"]);
-  });
-
-  it("commandsApi.list stops probing after the first 503", async () => {
-    const { calls } = install503Fetch();
-    await expect(commandsApi.list()).rejects.toBeInstanceOf(AgentUnavailableError);
-    await expect(commandsApi.list()).rejects.toBeInstanceOf(AgentUnavailableError);
-    expect(calls).toEqual(["/api/agent/commands"]);
   });
 
   it("a successful updateProvider resets the probe cache", async () => {

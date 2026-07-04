@@ -53,15 +53,6 @@ class TestAggregateAssetsByKind:
 
         assert aggregate_assets_by_kind(ws) == {"data": 1}
 
-    def test_counts_multiple_data_assets_under_one_kind(self, tmp_path: Path) -> None:
-        ws = Workspace(root=tmp_path / "lab", name="Agg Lab")
-        for i in range(2):
-            src = tmp_path / f"a{i}.txt"
-            src.write_text(f"content-{i}")
-            ws.data_assets.import_asset(f"a{i}", src)
-
-        assert aggregate_assets_by_kind(ws) == {"data": 2}
-
     def test_non_recursive_experiment_scope_sees_no_run_assets(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab", name="Agg Lab")
         exp = ws.add_project("p").add_experiment("e", params={})

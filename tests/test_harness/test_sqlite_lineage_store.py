@@ -54,26 +54,9 @@ def chain_abc(artifact_store, provenance):
     return a, b, c
 
 
-def test_trace_backward_on_three_layer_chain(chain_abc, provenance) -> None:
-    a, b, c = chain_abc
-    result = provenance.trace_backward(c.id)
-    assert [r.id for r in result] == [b.id, a.id]
-
-
-def test_trace_forward_on_three_layer_chain(chain_abc, provenance) -> None:
-    a, b, c = chain_abc
-    result = provenance.trace_forward(a.id)
-    assert [r.id for r in result] == [b.id, c.id]
-
-
 def test_trace_backward_terminates_at_root(chain_abc, provenance) -> None:
     a, _b, _c = chain_abc
     assert provenance.trace_backward(a.id) == []
-
-
-def test_trace_forward_terminates_at_leaf(chain_abc, provenance) -> None:
-    _a, _b, c = chain_abc
-    assert provenance.trace_forward(c.id) == []
 
 
 def test_lineage_graph_contains_full_subgraph(chain_abc, provenance) -> None:
@@ -83,16 +66,6 @@ def test_lineage_graph_contains_full_subgraph(chain_abc, provenance) -> None:
     edges = {(e["parent_id"], e["child_id"], e["relation"]) for e in graph["edges"]}
     assert nodes == {a.id, b.id, c.id}
     assert edges == {(a.id, b.id, "derived_from"), (b.id, c.id, "derived_from")}
-
-
-def test_default_relation_is_derived_from(artifact_store, provenance) -> None:
-    a = artifact_store.put_json(kind="user_plan", obj={}, created_by="user", parent_ids=[])
-    b = artifact_store.put_json(
-        kind="experiment_report", obj={}, created_by="harness", parent_ids=[a.id]
-    )
-    provenance.add_edge(parent_id=a.id, child_id=b.id)
-    graph = provenance.lineage_graph(a.id)
-    assert graph["edges"][0]["relation"] == "derived_from"
 
 
 def test_custom_relation_preserved(artifact_store, provenance) -> None:
@@ -130,18 +103,6 @@ def test_add_edge_records_stage_and_run_id(artifact_store, provenance) -> None:
     edge = provenance.lineage_graph(a.id)["edges"][0]
     assert edge["stage"] == "generate_experiment_report"
     assert edge["run_id"] == "run-1"
-
-
-def test_add_edge_without_pipeline_context_stores_none(artifact_store, provenance) -> None:
-    """stage / run_id are optional — a bare derived_from edge stays valid."""
-    a = artifact_store.put_json(kind="user_plan", obj={"n": 1}, created_by="user", parent_ids=[])
-    b = artifact_store.put_json(
-        kind="experiment_report", obj={"n": 2}, created_by="harness", parent_ids=[]
-    )
-    provenance.add_edge(parent_id=a.id, child_id=b.id)
-    edge = provenance.lineage_graph(a.id)["edges"][0]
-    assert edge["stage"] is None
-    assert edge["run_id"] is None
 
 
 def test_add_edge_backfills_stage_and_run_id_on_duplicate(artifact_store, provenance) -> None:

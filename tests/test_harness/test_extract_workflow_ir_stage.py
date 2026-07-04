@@ -75,19 +75,6 @@ def ctx_with_gateway(tmp_path: Path):
     )
 
 
-def test_extract_workflow_ir_name() -> None:
-    from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
-
-    assert ExtractWorkflowIR.name == "extract_workflow_ir"
-
-
-def test_extract_workflow_ir_is_stage_subclass() -> None:
-    from molexp.harness.core.stage import Stage
-    from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
-
-    assert issubclass(ExtractWorkflowIR, Stage)
-
-
 def test_extract_fail_fast_when_gateway_missing(ctx_no_gateway) -> None:
     from molexp.harness.errors import StageExecutionError
     from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR

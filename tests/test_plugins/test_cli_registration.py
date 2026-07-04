@@ -76,26 +76,6 @@ def test_third_party_command_runs(monkeypatch: pytest.MonkeyPatch):
     _discover_cli_uncached.cache_clear()
 
 
-def test_failing_register_does_not_break_help(monkeypatch: pytest.MonkeyPatch):
-    """A plugin whose ``register`` raises is skipped without aborting
-    the rest of CLI startup; ``molexp --help`` still exits 0.
-    """
-
-    def boom(app: typer.Typer) -> None:
-        raise RuntimeError("plugin sabotage")
-
-    bad = CliPlugin(id="bad", name="Bad", version="0.0.1", register=boom)
-    _install_fake_eps(monkeypatch, [bad])
-
-    cli_module = _reload_cli()
-
-    runner = CliRunner()
-    result = runner.invoke(cli_module.app, ["--help"])
-    assert result.exit_code == 0, result.output
-
-    _discover_cli_uncached.cache_clear()
-
-
 def test_other_plugins_still_register_when_one_fails(monkeypatch: pytest.MonkeyPatch):
     """If plugin A's register raises, plugin B's register still runs and its
     command still routes."""

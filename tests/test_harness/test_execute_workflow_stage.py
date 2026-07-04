@@ -94,14 +94,6 @@ def _write_driver(ctx, driver_text: str) -> Path:
 # ------------------------------------------------------------------ basics
 
 
-def test_name_and_subclass() -> None:
-    from molexp.harness import Stage
-    from molexp.harness.stages import ExecuteWorkflow
-
-    assert ExecuteWorkflow.name == "execute_workflow"
-    assert issubclass(ExecuteWorkflow, Stage)
-
-
 def test_command_spec_built_per_contract(ctx) -> None:
     from molexp.harness import LocalExecutor
     from molexp.harness.stages import ExecuteWorkflow
@@ -118,19 +110,6 @@ def test_command_spec_built_per_contract(ctx) -> None:
     assert spec.cwd == str(generated)
     assert spec.timeout_s == 3600
     assert spec.expected_outputs == ["outputs.json"]
-
-
-def test_custom_timeout_flows_into_command_spec(ctx) -> None:
-    from molexp.harness import DryRunExecutor
-    from molexp.harness.stages import ExecuteWorkflow
-
-    _seed_workflow_source(ctx.artifact_store)
-    _write_driver(ctx, DRIVER_WRITES_OUTPUTS)
-    recorder = _RecordingExecutor(DryRunExecutor())
-
-    asyncio.run(ExecuteWorkflow(recorder, timeout_s=120).run(ctx))
-
-    assert recorder.specs[0].timeout_s == 120
 
 
 # --------------------------------------------- integration (real subprocess)

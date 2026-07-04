@@ -124,69 +124,6 @@ def _seed_workflow_source(ctx, source: str = VALID_SOURCE):
 
 
 class TestValidateWorkflowSource:
-    # ----------------------------------------------------------- ac-001 schema
-
-    def test_workflow_source_schema_fields_and_frozen(self) -> None:
-        from molexp.harness.schemas.workflow_source import WorkflowSource
-
-        ws = WorkflowSource(
-            source=VALID_SOURCE,
-            module_name="generated_workflow",
-            bound_workflow_id="bw-1",
-            symbols=("WorkflowCompiler", "Task"),
-        )
-        assert ws.source == VALID_SOURCE
-        assert ws.module_name == "generated_workflow"
-        assert ws.bound_workflow_id == "bw-1"
-        assert ws.symbols == ("WorkflowCompiler", "Task")
-
-    def test_workflow_source_is_frozen(self) -> None:
-        from pydantic import ValidationError
-
-        from molexp.harness.schemas.workflow_source import WorkflowSource
-
-        ws = WorkflowSource(
-            source="x",
-            module_name="m",
-            bound_workflow_id="bw",
-            symbols=(),
-        )
-        with pytest.raises(ValidationError):
-            ws.source = "mutated"  # type: ignore[misc]
-
-    def test_workflow_source_reexported_from_schemas(self) -> None:
-        from molexp.harness.schemas import WorkflowSource as FromSchemas
-        from molexp.harness.schemas.workflow_source import WorkflowSource as Canonical
-
-        assert FromSchemas is Canonical
-
-    # ------------------------------------------------- ac-002 kind + target kind
-
-    def test_workflow_source_in_well_known_artifact_kinds(self) -> None:
-        from molexp.harness.schemas.artifact import WELL_KNOWN_ARTIFACT_KINDS
-
-        assert "workflow_source" in WELL_KNOWN_ARTIFACT_KINDS
-
-    def test_validation_report_accepts_workflow_source_target_kind(self) -> None:
-        from molexp.harness.schemas.validation import PlanValidationReport
-
-        report = PlanValidationReport.from_violations(
-            target_kind="workflow_source",
-            target_id="ws-1",
-            violations=[],
-        )
-        assert report.target_kind == "workflow_source"
-        assert report.passed is True
-
-    # --------------------------------------------------------- ac-003 prompt
-
-    def test_system_prompt_names_public_api(self) -> None:
-        from molexp.harness.prompts.workflow_source import SYSTEM_PROMPT
-
-        for symbol in ("WorkflowCompiler", "Task", "Actor", "Workflow"):
-            assert symbol in SYSTEM_PROMPT, f"{symbol} missing from SYSTEM_PROMPT"
-        assert "molexp.workflow" in SYSTEM_PROMPT
-
     # ----------------------------------------------- ac-004 pure validator syntax
 
     def test_validate_workflow_source_flags_syntax_error_without_raising(self) -> None:
@@ -241,17 +178,6 @@ class TestValidateWorkflowSource:
         report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is True
         assert report.target_kind == "workflow_source"
-
-    def test_validate_workflow_source_stage_name(self) -> None:
-        from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
-
-        assert ValidateWorkflowSource.name == "validate_workflow_source"
-
-    def test_validate_workflow_source_is_stage_subclass(self) -> None:
-        from molexp.harness.core.stage import Stage
-        from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
-
-        assert issubclass(ValidateWorkflowSource, Stage)
 
     # -------------------------- ac-008 invalid fixtures persist + raise
 

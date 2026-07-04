@@ -38,12 +38,6 @@ def ctx(tmp_path: Path):
     )
 
 
-def test_save_user_plan_name() -> None:
-    from molexp.harness.stages.save_user_plan import SaveUserPlan
-
-    assert SaveUserPlan.name == "save_user_plan"
-
-
 def test_save_user_plan_writes_two_artifacts_and_wires_provenance(ctx) -> None:
     from molexp.harness.core.stage_runner import StageRunner
     from molexp.harness.stages.save_user_plan import SaveUserPlan
@@ -65,23 +59,6 @@ def test_save_user_plan_writes_two_artifacts_and_wires_provenance(ctx) -> None:
     assert raw_ref.id in structured_ref.parent_ids
     ancestors = ctx.lineage_store.trace_backward(structured_ref.id)
     assert [r.id for r in ancestors] == [raw_ref.id]
-
-
-def test_save_user_plan_event_log_quartet(ctx) -> None:
-    from molexp.harness.core.stage_runner import StageRunner
-    from molexp.harness.stages.save_user_plan import SaveUserPlan
-
-    runner = StageRunner(ctx)
-    asyncio.run(runner.run_stage(SaveUserPlan(user_text="hello")))
-
-    events = ctx.event_log.list_events("run-save-user-plan")
-    assert [e.type for e in events] == [
-        "stage_started",
-        "artifact_created",
-        "stage_completed",
-    ]
-    assert events[0].payload == {"stage": "save_user_plan"}
-    assert events[1].payload["kind"] == "user_plan"
 
 
 def test_save_user_plan_structured_json_round_trips_to_user_plan_schema(ctx) -> None:

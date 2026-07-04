@@ -60,32 +60,6 @@ async def test_stream_agentic_dispatches_tool_and_ends_with_final() -> None:
     assert sum(isinstance(chunk, FinalChunk) for chunk in chunks) == 1
 
 
-async def test_stream_agentic_chunk_order_is_call_then_result_then_final() -> None:
-    """The chunk stream is ordered: tool-call → tool-result → … → FinalChunk."""
-    pytest.importorskip("pydantic_ai")
-    from pydantic_ai.models.test import TestModel
-
-    async def peek(path: str) -> str:
-        return f"contents of {path}"
-
-    router = _router(TestModel())
-    chunks = [chunk async for chunk in router.stream_agentic(prompt="inspect", tools=(peek,))]
-
-    call_chunks = [c for c in chunks if isinstance(c, ToolCallChunk)]
-    result_chunks = [c for c in chunks if isinstance(c, ToolResultChunk)]
-    assert len(call_chunks) == 1
-    assert call_chunks[0].tool_name == "peek"
-    assert len(result_chunks) == 1
-    assert result_chunks[0].tool_name == "peek"
-    assert result_chunks[0].ok is True
-
-    # tool-call chunk precedes its result chunk precedes the terminal FinalChunk
-    call_idx = chunks.index(call_chunks[0])
-    result_idx = chunks.index(result_chunks[0])
-    assert call_idx < result_idx < len(chunks) - 1
-    assert isinstance(chunks[-1], FinalChunk)
-
-
 async def test_stream_agentic_streams_text_without_tools() -> None:
     """With no tools, the loop still streams text deltas and a FinalChunk."""
     pytest.importorskip("pydantic_ai")

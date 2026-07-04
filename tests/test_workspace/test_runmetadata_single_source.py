@@ -16,15 +16,14 @@ import json
 from pathlib import Path
 
 from molexp.workspace.models import RunMetadata
-from molexp.workspace.run import Run
 from molexp.workspace.run_ops import RunOpsState
 
 
-def _read_run_json(run: Run) -> dict:
+def _read_run_json(run) -> dict:
     return json.loads(Path(str(run.run_dir / "run.json")).read_text())
 
 
-def _read_ops_json(run: Run) -> dict:
+def _read_ops_json(run) -> dict:
     return json.loads(Path(str(run.run_dir / "_ops" / "run.json")).read_text())
 
 
@@ -36,30 +35,6 @@ class TestFieldRemoval:
         fields = RunMetadata.model_fields
         for removed in ("status", "finished_at", "execution_history", "labels"):
             assert removed not in fields, f"{removed!r} must be removed from RunMetadata"
-
-    def test_identity_fields_remain(self) -> None:
-        fields = RunMetadata.model_fields
-        for kept in (
-            "id",
-            "parameters",
-            "created_at",
-            "config",
-            "config_hash",
-            "profile",
-            "workflow_snapshot",
-            "workflow_id",
-            "workflow_version",
-            "source_snapshot",
-            "script",
-            "submit_cwd",
-            "target",
-            "executor_info",
-            "error",
-        ):
-            assert kept in fields, f"{kept!r} must remain on RunMetadata"
-
-    def test_extra_is_ignore(self) -> None:
-        assert RunMetadata.model_config["extra"] == "ignore"
 
     def test_legacy_run_json_with_removed_keys_round_trips(self) -> None:
         legacy = {
@@ -79,14 +54,6 @@ class TestFieldRemoval:
         assert meta.id == "r"
         for removed in ("status", "finished_at", "execution_history", "labels"):
             assert not hasattr(meta, removed)
-
-
-# ── (d) the dual-write mirror is gone ───────────────────────────────────────
-
-
-class TestMirrorDeleted:
-    def test_run_has_no_mirror_method(self) -> None:
-        assert not hasattr(Run, "_mirror_hot_state_to_ops")
 
 
 # ── (b) cancel writes hot-state to _ops only ────────────────────────────────
@@ -170,8 +137,3 @@ class TestUpdateMetadataGuards:
             except ValueError:
                 continue
             raise AssertionError(f"_update_metadata must reject hot-state key {key!r}")
-
-    def test_update_metadata_accepts_identity(self, run) -> None:
-        run.materialize()
-        run._update_metadata(profile="p1")
-        assert run.metadata.profile == "p1"

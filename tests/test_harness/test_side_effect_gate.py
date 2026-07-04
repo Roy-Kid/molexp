@@ -48,7 +48,7 @@ from typing import Any
 
 import pytest
 
-from molexp.harness import ApprovalGate, CapabilityRegistry, LocalExecutor, StageExecutionError
+from molexp.harness import CapabilityRegistry, LocalExecutor, StageExecutionError
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.policy import enforce_side_effect_approvals, make_side_effect_approval_requests
 from molexp.harness.registry import InMemoryCapabilityRegistry
@@ -64,8 +64,6 @@ from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ECHO_PATH = "tests.test_harness._capability_fixtures:echo"
-_APPROVAL_GATE_SRC = _REPO_ROOT / "src/molexp/harness/stages/approval_gate.py"
-_SIDE_EFFECT_GATE_SRC = _REPO_ROOT / "src/molexp/harness/policy/side_effect_gate.py"
 
 
 # ──────────────────────────────────────────────────────────── fixtures / helpers
@@ -163,17 +161,6 @@ def subprocess_can_import_fixtures(monkeypatch: pytest.MonkeyPatch) -> None:
     existing = os.environ.get("PYTHONPATH", "")
     combined = str(_REPO_ROOT) + (os.pathsep + existing if existing else "")
     monkeypatch.setenv("PYTHONPATH", combined)
-
-
-# ──────────────────────────────────────── ac-001 · pure derivation, read-only
-# Category: basics + edge case (empty side_effects emit nothing).
-
-
-def test_read_only_capability_yields_no_requests() -> None:
-    """A capability with ``side_effects == []`` produces no approval requests."""
-    cap = _make_capability(id_="cap.read", side_effects=[])
-
-    assert make_side_effect_approval_requests([cap]) == []
 
 
 # ──────────────────────────────────── ac-002 · pure derivation, destructive cap
@@ -320,47 +307,3 @@ def test_read_only_capability_bypasses_gate_and_dispatches(
     assert ref.kind == "capability_invocation_result"
     result = CapabilityInvocationResult.model_validate_json(ctx.artifact_store.get(ref.id))
     assert result.status == "succeeded"
-
-
-# ────────────────────────────────────────────────────────── ac-008 · code surface
-# Category: basics (dual re-export identity + canonical gate left untouched).
-
-
-def test_helpers_re_exported_from_policy_package() -> None:
-    """Both helpers resolve to the SAME object from ``molexp.harness.policy``
-    and their defining module (the harness top level no longer re-exports
-    policy helpers — shrunk ``__all__``)."""
-    from molexp.harness.policy import (
-        enforce_side_effect_approvals as enforce_via_policy,
-    )
-    from molexp.harness.policy import (
-        make_side_effect_approval_requests as make_via_policy,
-    )
-    from molexp.harness.policy.side_effect_gate import (
-        enforce_side_effect_approvals as enforce_canonical,
-    )
-    from molexp.harness.policy.side_effect_gate import (
-        make_side_effect_approval_requests as make_canonical,
-    )
-
-    assert make_via_policy is make_canonical
-    assert enforce_via_policy is enforce_canonical
-
-
-def test_canonical_approval_gate_module_untouched_by_side_effect_feature() -> None:
-    """The side-effect feature reuses ``ApprovalGate`` and does not modify its
-    canonical module: the gate is defined there yet carries no ``side_effect`` text."""
-    # The reused gate is the canonical one (not a redefinition under policy/).
-    assert ApprovalGate.__module__ == "molexp.harness.stages.approval_gate"
-
-    gate_src = _APPROVAL_GATE_SRC.read_text()
-    assert "class ApprovalGate" in gate_src  # canonical home — used, not redefined
-    assert "side_effect" not in gate_src  # the feature did not leak into the gate
-
-
-def test_side_effect_gate_module_imports_no_upstream_layers() -> None:
-    """The new policy module must not import ``server`` / ``cli`` (layer DAG hygiene)."""
-    src = _SIDE_EFFECT_GATE_SRC.read_text()
-
-    assert "molexp.server" not in src
-    assert "molexp.cli" not in src

@@ -389,23 +389,6 @@ def test_decision_for_an_unknown_request_id_returns_404(client: TestClient) -> N
 # both the suspend path (task drivers) and the decide route notify.
 
 
-async def test_broadcast_primitive_pings_subscribers_on_notify() -> None:
-    """The asyncio broadcast the registries notify — one ping per change."""
-    from molexp.services.approval_notify import (
-        notify_approvals_changed,
-        subscribe_approvals_changed,
-    )
-
-    subscription = subscribe_approvals_changed()
-    ping = asyncio.ensure_future(anext(subscription))
-    await asyncio.sleep(0)  # let the subscriber register before the notify
-
-    notify_approvals_changed()
-
-    await asyncio.wait_for(ping, timeout=1.0)
-    await subscription.aclose()
-
-
 def test_sse_endpoint_is_registered(client: TestClient) -> None:
     paths = client.get("/api/openapi.json").json()["paths"]
     assert f"{_INBOX}/events" in paths

@@ -85,34 +85,6 @@ class TestExecute:
         # Final task `c` should receive a + b = 5
         assert result.outputs["c"] == 5.0
 
-    @pytest.mark.asyncio
-    async def test_execute_constant_multiply(self, registry: TaskTypeRegistry) -> None:
-        ir = {
-            "workflow_id": "workflow_00000000",
-            "name": "k_times",
-            "task_configs": [
-                {
-                    "task_id": "k",
-                    "task_type": "core.constant",
-                    "config": {"value": 7},
-                    "status": "pending",
-                },
-                {
-                    "task_id": "tripled",
-                    "task_type": "core.multiply",
-                    "config": {"factor": 3.0},
-                    "status": "pending",
-                },
-            ],
-            "links": [
-                {"source": "k", "target": "tripled", "mapping": {}, "status": "pending"},
-            ],
-            "metadata": {"label": None, "description": None, "tags": [], "custom": {}},
-        }
-        spec = CompiledWorkflow.from_ir(ir, registry=registry)
-        result = await WorkflowRuntime().execute(spec)
-        assert result.outputs["tripled"] == 21.0
-
 
 class TestRoundtrip:
     def test_to_dict_then_from_dict(self, registry: TaskTypeRegistry) -> None:

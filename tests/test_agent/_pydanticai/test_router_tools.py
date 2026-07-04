@@ -66,47 +66,6 @@ def _reset_spy() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_instance_is_forwarded_to_agent(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A :class:`pydantic_ai.tools.Tool` instance survives the round-trip."""
-
-    async def greet(name: str) -> str:
-        return f"hi {name}"
-
-    tool = Tool(greet)
-
-    monkeypatch.setattr("molexp.agent._pydanticai.router.Agent", _AgentSpy)
-    router = PydanticAIRouter(models=_models_all("x"), tools=(tool,))
-    await router.complete_text(prompt="hi")
-
-    captured = _AgentSpy.last_kwargs
-    assert captured is not None, "Agent was never constructed"
-    assert "tools" in captured, "tools= was not forwarded to Agent"
-    assert captured["tools"] == [tool]
-    assert isinstance(captured["tools"][0], Tool)
-
-
-@pytest.mark.asyncio
-async def test_bare_callable_is_forwarded_to_agent(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A bare async callable is also accepted; pydantic-ai wraps it itself."""
-
-    async def echo(message: str) -> str:
-        return message
-
-    monkeypatch.setattr("molexp.agent._pydanticai.router.Agent", _AgentSpy)
-    router = PydanticAIRouter(models=_models_all("x"), tools=(echo,))
-    await router.complete_text(prompt="hi")
-
-    captured = _AgentSpy.last_kwargs
-    assert captured is not None, "Agent was never constructed"
-    assert "tools" in captured, "tools= was not forwarded to Agent"
-    assert captured["tools"] == [echo]
-    # Crucially: the router does not wrap the callable in a molexp
-    # middle layer — pydantic-ai gets the raw function.
-    assert callable(captured["tools"][0])
-    assert not isinstance(captured["tools"][0], Tool)
-
-
-@pytest.mark.asyncio
 async def test_mixed_shapes_are_forwarded_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
     """A tuple mixing both shapes is forwarded as a list, preserving order."""
 

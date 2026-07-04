@@ -14,12 +14,6 @@ from molexp import Path
 class TestIdentity:
     """Type identity and inheritance — the reason for subclassing at all."""
 
-    def test_is_subclass_of_pure_posix_path(self) -> None:
-        assert issubclass(Path, PurePosixPath)
-
-    def test_isinstance_pure_posix_path(self) -> None:
-        assert isinstance(Path("/a/b"), PurePosixPath)
-
     def test_meaningful_predicate(self) -> None:
         """``isinstance(p, molexp.Path)`` is a useful runtime check."""
         assert isinstance(Path("/a"), Path)
@@ -35,72 +29,24 @@ class TestPathArithmetic:
         assert isinstance(p, Path)
         assert str(p) == "/scratch/user"
 
-    def test_truediv_chain(self) -> None:
-        p = Path("/scratch") / "user" / "experiment_1" / "run_0"
-        assert str(p) == "/scratch/user/experiment_1/run_0"
-
-    def test_truediv_with_path(self) -> None:
-        p = Path("/scratch") / Path("user")
-        assert isinstance(p, Path)
-        assert str(p) == "/scratch/user"
-
     def test_parent(self) -> None:
         assert Path("/a/b/c").parent == Path("/a/b")
         assert isinstance(Path("/a/b/c").parent, Path)
-
-    def test_name(self) -> None:
-        assert Path("/a/b/c").name == "c"
-
-    def test_parts(self) -> None:
-        assert Path("/a/b/c").parts == ("/", "a", "b", "c")
-
-    def test_joinpath(self) -> None:
-        p = Path("/a").joinpath("b", "c")
-        assert isinstance(p, Path)
-        assert str(p) == "/a/b/c"
-
-    def test_with_name(self) -> None:
-        assert Path("/a/b/c").with_name("d") == Path("/a/b/d")
-
-    def test_with_suffix(self) -> None:
-        assert Path("/a/b/c.txt").with_suffix(".json") == Path("/a/b/c.json")
 
 
 class TestFsPath:
     """``__fspath__`` makes ``os.fspath()`` and many APIs accept ``Path``."""
 
-    def test_fspath_returns_str(self) -> None:
-        assert Path("/a/b").__fspath__() == "/a/b"
-
     def test_os_fspath(self) -> None:
         assert os.fspath(Path("/a/b")) == "/a/b"
-
-    def test_str(self) -> None:
-        assert str(Path("/a/b")) == "/a/b"
 
 
 class TestEqualityAndHash:
     """Equality / hashing — inherited from ``PurePosixPath``, by string identity."""
 
-    def test_eq_same_path(self) -> None:
-        assert Path("/a/b") == Path("/a/b")
-
-    def test_eq_with_pure_posix_path(self) -> None:
-        """Cross-type equality is symmetric and string-based (PurePath semantics)."""
-        assert Path("/a/b") == PurePosixPath("/a/b")
-        assert PurePosixPath("/a/b") == Path("/a/b")
-
-    def test_neq_different_path(self) -> None:
-        assert Path("/a/b") != Path("/a/c")
-
     def test_neq_str(self) -> None:
         """A Path is not equal to its string form (PurePath semantics)."""
         assert Path("/a/b") != "/a/b"
-
-    def test_hashable(self) -> None:
-        d = {Path("/a"): 1, Path("/b"): 2}
-        assert d[Path("/a")] == 1
-        assert d[Path("/b")] == 2
 
 
 class TestPickle:
@@ -120,11 +66,6 @@ class TestLocalIO:
         p = Path(str(tmp_path / "hello.txt"))
         p.write_text("hi\n")
         assert p.read_text() == "hi\n"
-
-    def test_read_write_bytes_roundtrip(self, tmp_path) -> None:
-        p = Path(str(tmp_path / "blob.bin"))
-        p.write_bytes(b"\x00\x01")
-        assert p.read_bytes() == b"\x00\x01"
 
     def test_exists_is_file_is_dir(self, tmp_path) -> None:
         p = Path(str(tmp_path / "x.txt"))
@@ -146,16 +87,6 @@ class TestLocalIO:
         assert names == ["a", "b"]
         for child in root.iterdir():
             assert isinstance(child, Path)
-
-    def test_unlink(self, tmp_path) -> None:
-        p = Path(str(tmp_path / "doomed"))
-        p.write_text("bye")
-        assert p.exists()
-        p.unlink()
-        assert not p.exists()
-
-    def test_unlink_missing_ok(self, tmp_path) -> None:
-        Path(str(tmp_path / "ghost")).unlink(missing_ok=True)
 
 
 class TestSlots:

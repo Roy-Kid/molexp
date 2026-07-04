@@ -1,21 +1,6 @@
 """Tests for ``molexp serve`` multi-workspace resolution helpers."""
 
-from molexp.cli.workspace.serve import _resolve_served, _slug, _unique_key
-
-
-def test_slug_sanitizes_and_never_empty():
-    assert _slug("me@host:/scratch/Runs") == "me-host-scratch-runs"
-    assert _slug("a__b") == "a_b" or _slug("a__b").startswith("a")
-    assert _slug("") == "ws"
-    assert _slug("///") == "ws"
-
-
-def test_unique_key_disambiguates():
-    used: set[str] = set()
-    assert _unique_key("a", used) == "a"
-    assert _unique_key("a", used) == "a-2"
-    assert _unique_key("a", used) == "a-3"
-    assert _unique_key("b", used) == "b"
+from molexp.cli.workspace.serve import _resolve_served
 
 
 def test_resolve_served_local(tmp_path):

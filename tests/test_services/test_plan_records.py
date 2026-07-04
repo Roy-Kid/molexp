@@ -49,7 +49,6 @@ _FINAL_REPORT = {
     "hypothesis_verdict": "supported",
     "metrics": {"mobility": 0.42},
 }
-_AUDIT_REPORT = {"stages": ["execute_workflow"], "events": 3}
 
 # Compiles through the public workflow API — persist_plan_workflow_to_experiment
 # execs it for the UI graph, so the clean-outcome test gets workflow_ir=written.
@@ -246,18 +245,6 @@ class TestFindingRecord:
         assert ("experiment", experiment.id) in pairs
         assert ("artifact", final_ref.id) in pairs, "the final_report ref must be cited"
         assert "Mobility rises" in item.body()
-
-    def test_finding_sources_append_the_audit_report_ref_when_present(
-        self, run: Any, experiment: Any
-    ) -> None:
-        _seed(run, "experiment_report", _EXPERIMENT_REPORT)
-        _seed(run, "final_report", _FINAL_REPORT)
-        audit_ref = _seed(run, "audit_report", _AUDIT_REPORT)
-
-        _materialize(run, experiment)
-
-        item = experiment.get_folder(f"finding-{experiment.id}-{run.id}", cls=KnowledgeItem)
-        assert ("artifact", audit_ref.id) in _source_pairs(item)
 
     def test_finding_cites_the_run_and_references_the_decision_record(
         self, run: Any, experiment: Any

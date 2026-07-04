@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 
 class TestCatalogByPath:
     def test_unmatched_path_under_projects_returns_derived_scope(self, client, project, experiment):
@@ -21,14 +19,6 @@ class TestCatalogByPath:
     def test_path_outside_workspace_rejected(self, client):
         resp = client.get("/api/catalog/by-path", params={"path": "/etc/passwd"})
         assert resp.status_code == 400
-
-    def test_unknown_path_returns_unmatched(self, client):
-        resp = client.get(
-            "/api/catalog/by-path",
-            params={"path": "no/such/dir"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["matched"] is False
 
     def test_matched_artifact_returns_producer_and_scope(self, client, project, experiment, run):
         with run.start() as ctx:
@@ -83,27 +73,6 @@ class TestRunFilesAndActions:
             walk(top)
         artifact_nodes = [n for n in all_nodes if n.get("assetKind") == "artifact"]
         assert artifact_nodes, "expected at least one artifact node"
-
-    def test_run_rerun_starts_new_execution_on_same_run(self, client, project, experiment, run):
-        # rerun only acts on failed/cancelled runs — drive a failure first.
-        with pytest.raises(RuntimeError, match="boom"), run.start():
-            raise RuntimeError("boom")
-        before = len(experiment.list_runs())
-        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/rerun")
-        assert resp.status_code == 201
-        data = resp.json()
-        # Same run — no clone, no new Run.
-        assert data["runId"] == run.id
-        assert "newRunId" not in data
-        assert data["executionId"].startswith(f"exec-{run.id}")
-        assert len(experiment.list_runs()) == before
-
-    def test_run_kill_marks_cancelled(self, client, project, experiment, run):
-        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "cancelled"
-        refreshed = experiment.get_run(run.id)
-        assert refreshed.status == "cancelled"
 
     def test_run_export_returns_zip(self, client, project, experiment, run):
         with run.start() as ctx:

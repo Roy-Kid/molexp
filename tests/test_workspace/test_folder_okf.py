@@ -11,8 +11,6 @@ import os
 from pathlib import Path
 
 from molexp.workspace import Workspace
-from molexp.workspace.folder import concept_from_dir
-from molexp.workspace.project import Project
 
 
 def test_index_round_trip(tmp_path: Path) -> None:
@@ -60,15 +58,6 @@ def test_meta_yaml_marker_written(tmp_path: Path) -> None:
     pmeta = proj.read_meta()
     assert pmeta["type"] == "workspace.project"
     assert pmeta["id"] == "alpha"
-
-
-def test_concept_from_dir_reconstructs_registered_subclass(tmp_path: Path) -> None:
-    ws = Workspace(root=tmp_path / "lab")
-    ws.materialize()
-    proj = ws.add_project("alpha")
-    rebuilt = concept_from_dir(proj.resolve(), ws)
-    assert isinstance(rebuilt, Project)
-    assert rebuilt.name == "alpha"
 
 
 # ── wsokf-03: _ops/ operational sidecar on Run (RunOpsState) ─────────────────

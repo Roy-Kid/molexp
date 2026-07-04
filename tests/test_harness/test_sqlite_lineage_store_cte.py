@@ -182,22 +182,6 @@ class TestSqliteLineageStoreCte:
         assert result_ids == [b, c, d]
         assert result_ids == _reference_bfs(store, a, direction="down")
 
-    def test_ac004_trace_forward_wide_fanout_returns_all_children_at_depth1(
-        self, store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore
-    ) -> None:
-        parent = _make_node(artifact_store, "P")
-        children = [_make_node(artifact_store, f"C{i}") for i in range(5)]
-        for child in children:
-            store.add_edge(parent_id=parent, child_id=child)
-
-        result_ids = [r.id for r in store.trace_forward(parent)]
-
-        # All five children are at depth 1; the exact frontier order must match
-        # the reference BFS.
-        assert sorted(result_ids) == sorted(children)
-        assert len(result_ids) == 5
-        assert result_ids == _reference_bfs(store, parent, direction="down")
-
     # ----------------------------------------------------------------------- #
     # ac-005 — lineage_graph byte-identical shape (golden capture)
     # ----------------------------------------------------------------------- #
@@ -310,31 +294,3 @@ class TestSqliteLineageStoreCte:
         assert len(edge_walk_statements) < len(node_ids)
         # Tightened: the rewrite target is a single recursive CTE.
         assert len(edge_walk_statements) == 1
-
-    # ----------------------------------------------------------------------- #
-    # ac-007 — regression-guard parity with the existing suites
-    # ----------------------------------------------------------------------- #
-    def test_ac007_existing_suites_serve_as_regression_guard(
-        self, store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore
-    ) -> None:
-        """ac-007 parity is served by the pre-existing suites.
-
-        ``tests/test_harness/test_sqlite_lineage_store.py`` and
-        ``tests/test_harness/test_provenance_validator.py`` exercise the public
-        trace API and ``validate_provenance`` against representative DAGs without
-        edits to their assertions. Rather than duplicate them, this test asserts
-        those files exist (so the regression guard is wired) and re-runs the
-        representative trace path here to confirm parity in this module too.
-        """
-        here = Path(__file__).resolve().parent
-        assert (here / "test_sqlite_lineage_store.py").is_file()
-        assert (here / "test_provenance_validator.py").is_file()
-
-        # Representative DAG round-trip via the public API.
-        a = _make_node(artifact_store, "A")
-        b = _make_node(artifact_store, "B")
-        c = _make_node(artifact_store, "C")
-        store.add_edge(parent_id=a, child_id=b)
-        store.add_edge(parent_id=b, child_id=c)
-        assert [r.id for r in store.trace_backward(c)] == [b, a]
-        assert [r.id for r in store.trace_forward(a)] == [b, c]

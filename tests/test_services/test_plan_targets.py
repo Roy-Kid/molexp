@@ -70,18 +70,6 @@ def test_explicit_name_wins_over_run_metadata_target(
     assert resolved.name == "gpu-b"
 
 
-def test_explicit_name_resolves_when_run_has_no_metadata_target(
-    experiment: Experiment, workspace: Workspace
-) -> None:
-    """category: basics — explicit ``name`` needs no ``metadata.target`` at all."""
-    run = experiment.add_run(params={"case": "explicit-only"})
-
-    resolved = resolve_plan_compute_target(run, workspace, name="gpu-a")
-
-    assert resolved is not None
-    assert resolved.name == "gpu-a"
-
-
 def test_falls_back_to_run_metadata_target_when_no_explicit_name(
     experiment: Experiment, workspace: Workspace
 ) -> None:
@@ -135,26 +123,3 @@ def test_unregistered_metadata_target_resolves_to_none_not_error(
     run.metadata = run.metadata.model_copy(update={"target": "ghost-target"})
 
     assert resolve_plan_compute_target(run, workspace) is None
-
-
-def test_empty_workspace_with_no_targets_resolves_to_none(tmp_path: Path) -> None:
-    """category: edge cases — fresh workspace, zero registered targets → None."""
-    ws = Workspace(root=tmp_path / "fresh", name="fresh")
-    ws.materialize()
-    run = ws.add_project("p").add_experiment("e").add_run(params={"case": "fresh"})
-
-    assert resolve_plan_compute_target(run, ws) is None
-
-
-# ───────────────────────────────────────────────────────────── integration
-
-
-def test_resolver_is_exported_from_the_plan_runtime_package() -> None:
-    """category: integration — the package export is the same callable.
-
-    The spec wires ``plan_cmd`` AND the server route through
-    ``molexp.services.plan_runtime`` — the export is the shared seam.
-    """
-    from molexp.services import plan_runtime
-
-    assert plan_runtime.resolve_plan_compute_target is resolve_plan_compute_target

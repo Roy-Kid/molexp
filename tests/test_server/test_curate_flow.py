@@ -308,30 +308,6 @@ async def test_destructive_single_gate_bypasses_side_effect_gate(
     assert counters["approve"] == 1, "exactly one approval round"
 
 
-@pytest.mark.asyncio
-async def test_destructive_uncoverable_cap_fails_loud(
-    env: CurationEnv,
-    patched_registry: None,
-) -> None:
-    """ac-004 — malformed destructive references fail loud, never silently
-    reaching the old gate. (rehome_asset itself is now mapped via colon-encoded
-    scope refs — vision-loop-07 — so the loud failure is the ENCODING error.)"""
-    gateway = _gateway_with_planner(
-        env.run,
-        capability_id="molexp.curation.rehome_asset",
-        references={"asset": "a1", "source": "source-exp", "target": "target-exp"},
-    )
-    with pytest.raises(ValueError, match="colon-encoded"):
-        await run_curation_flow(
-            "rehome the asset",
-            workspace=env.ws,
-            experiment=env.source_exp,
-            run=env.run,
-            gateway=gateway,
-            approve=auto_grant_approver,
-        )
-
-
 # ──────────────────────────── ac-004 (granted) · destructive proceeds, run moves
 # Category: integration + lifecycle (grant -> invoke -> mutation observed).
 

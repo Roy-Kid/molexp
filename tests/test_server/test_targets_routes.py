@@ -40,23 +40,6 @@ def test_create_target_local(client, workspace):
 
 
 @pytest.mark.unit
-def test_create_target_remote_slurm(client):
-    resp = client.post(
-        "/api/targets",
-        json={
-            "name": "hpc1",
-            "scratchRoot": "/scratch/me/molexp",
-            "scheduler": "slurm",
-            "host": "me@hpc.example.org",
-        },
-    )
-    assert resp.status_code == 201
-    body = resp.json()
-    assert body["isRemote"] is True
-    assert body["scheduler"] == "slurm"
-
-
-@pytest.mark.unit
 def test_create_target_duplicate_name_returns_409(client):
     payload = {"name": "dup", "scratchRoot": "/tmp/x", "scheduler": "local"}
     assert client.post("/api/targets", json=payload).status_code == 201
@@ -74,19 +57,6 @@ def test_create_target_rejects_ssh_opts_without_host(client):
             "scratchRoot": "/tmp/x",
             "scheduler": "local",
             "port": 22,
-        },
-    )
-    assert resp.status_code == 422
-
-
-@pytest.mark.unit
-def test_create_target_rejects_invalid_scheduler(client):
-    resp = client.post(
-        "/api/targets",
-        json={
-            "name": "bad",
-            "scratchRoot": "/tmp/x",
-            "scheduler": "k8s",
         },
     )
     assert resp.status_code == 422

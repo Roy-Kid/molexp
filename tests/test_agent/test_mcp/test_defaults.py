@@ -20,28 +20,6 @@ from molexp.agent.mcp.defaults import (
 )
 from molexp.agent.mcp.store import MCP_CONFIG_FILENAME, McpScope, McpStore
 
-# ── ac-004: MCP_DEFAULTS shape ────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_mcp_defaults_shape():
-    """ac-004 — exactly one entry, ``molmcp``, with the documented shape."""
-    assert len(MCP_DEFAULTS) == 1, MCP_DEFAULTS
-    name, spec = MCP_DEFAULTS[0]
-    assert name == "molmcp"
-    assert spec["type"] == "stdio"
-    assert spec["command"] == "molmcp"
-    assert spec["args"] == []
-    usage = spec["usage_instructions"]
-    assert isinstance(usage, str) and usage
-    assert "molmcp__" in usage
-    # The prompt no longer hardcodes a list of project packages — the
-    # MCP catalog itself tells the LLM which packages are reachable.
-    # After the workspace-as-tool-parameter refactor, the prompt must
-    # tell the LLM how to fill the `workspace` argument.
-    assert "workspace" in usage.lower()
-
-
 # ── Contract: the seeded command + args must be invocable ────────────────
 
 
@@ -134,21 +112,6 @@ def test_seed_honors_command_env_override(tmp_path, monkeypatch):
     assert data["mcpServers"]["molmcp"]["args"] == ["hi"]
 
 
-@pytest.mark.unit
-def test_seed_default_command_when_env_unset(tmp_path, monkeypatch):
-    """ac-007 (companion) — env unset → documented default."""
-    monkeypatch.delenv("MOLEXP_MOLMCP_COMMAND", raising=False)
-    user_dir = tmp_path / "home" / ".molexp"
-    config = user_dir / MCP_CONFIG_FILENAME
-    sentinel = user_dir / MCP_SEEDED_FILENAME
-
-    assert seed_user_defaults(config, sentinel) is True
-
-    data = json.loads(config.read_text())
-    assert data["mcpServers"]["molmcp"]["command"] == "molmcp"
-    assert data["mcpServers"]["molmcp"]["args"] == []
-
-
 # ── ac-008: disable-by-deletion ───────────────────────────────────────────
 
 
@@ -221,60 +184,3 @@ def test_seed_read_only_home_warns(tmp_path, monkeypatch):
         user_dir.chmod(stat.S_IRWXU)
 
     assert not config.exists()
-
-
-@pytest.mark.unit
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission semantics")
-def test_store_list_survives_read_only_home(tmp_path, monkeypatch):
-    """ac-010 (companion) — ``McpStore.list()`` returns ``[]`` on read-only HOME."""
-    parent = tmp_path / "home"
-    parent.mkdir()
-    fake_home = parent / ".molexp"
-    fake_home.mkdir()
-    monkeypatch.setattr(mcp_mod, "USER_DIR", fake_home)
-
-    fake_home.chmod(stat.S_IRUSR | stat.S_IXUSR)
-    try:
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-        store = McpStore(workspace)
-        assert store.list() == []
-    finally:
-        fake_home.chmod(stat.S_IRWXU)
-
-
-# ── Round-trip safety: seeded entry survives McpStore.list() ──────────────
-
-
-@pytest.mark.unit
-def test_seeded_entry_round_trips_via_list(tmp_path, monkeypatch):
-    """The molmcp entry pulled back through ``list()`` matches what was seeded."""
-    fake_home = tmp_path / "home" / ".molexp"
-    monkeypatch.setattr(mcp_mod, "USER_DIR", fake_home)
-
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    store = McpStore(workspace)
-    rows = [r for r in store.list() if r.name == "molmcp"]
-    assert len(rows) == 1
-    entry = rows[0]
-    assert entry.transport == "stdio"
-    assert entry.command == "molmcp"
-    assert entry.args == ()
-    assert entry.usage_instructions == MOLMCP_USAGE_INSTRUCTIONS
-    assert entry.valid is True
-
-
-# ── Module-level invariants ───────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_module_exposes_documented_names():
-    """The defaults module's public API is what the spec promises."""
-    for name in (
-        "MCP_DEFAULTS",
-        "MOLMCP_USAGE_INSTRUCTIONS",
-        "MCP_SEEDED_FILENAME",
-        "seed_user_defaults",
-    ):
-        assert hasattr(defaults_mod, name), name

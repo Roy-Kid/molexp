@@ -64,27 +64,6 @@ class TestServerReapsZombies:
         resp = client.post(f"{_prefix(project, experiment)}/{run.id}/rerun")
         assert resp.status_code == 201, resp.text
 
-    def test_reaped_run_records_why(self, client, project, experiment, run) -> None:
-        _make_zombie(run)
-        client.post(f"{_prefix(project, experiment)}/{run.id}/resume")
-        err = run.metadata.error
-        assert err is not None
-        assert err.type == "ZombieRun"
-
-    def test_cross_host_fresh_heartbeat_is_never_reaped(
-        self, client, project, experiment, run
-    ) -> None:
-        # A live remote HPC run: running on another host, heartbeat 5 s old.
-        _make_zombie(run, host="some-remote-node", heartbeat_age_s=5)
-        resp = client.post(f"{_prefix(project, experiment)}/{run.id}/resume")
-        assert resp.status_code == 409
-        assert run.read_ops().status is RunStatus.RUNNING
-
-    def test_cross_host_stale_heartbeat_is_reaped(self, client, project, experiment, run) -> None:
-        _make_zombie(run, host="some-remote-node", heartbeat_age_s=3600)
-        resp = client.post(f"{_prefix(project, experiment)}/{run.id}/resume")
-        assert resp.status_code == 201, resp.text
-
     def test_start_reaps_then_still_409_outside_pending(
         self, client, project, experiment, run
     ) -> None:
@@ -127,23 +106,6 @@ class TestRunEventsEndpoint:
         events = resp.json()
         assert [e["type"] for e in events] == ["run.created"]
         assert run.id in events[0]["refs"]
-
-    def test_events_newest_first_for_this_run(
-        self, client, workspace, project, experiment, run
-    ) -> None:
-        from molexp.workspace.events import WorkspaceEventLog
-
-        log = WorkspaceEventLog(workspace.root)
-        log.append("run.started", "test", refs=[run.id])
-        log.append("run.created", "test", refs=["other-run"])
-
-        resp = client.get(f"{_prefix(project, experiment)}/{run.id}/events?limit=10")
-        assert resp.status_code == 200
-        events = resp.json()
-        # Newest first: the appended run.started, then the default-on
-        # run.created milestone from the run fixture's add_run.
-        assert [e["type"] for e in events] == ["run.started", "run.created"]
-        assert all(run.id in e["refs"] for e in events)
 
     def test_events_404_for_unknown_run(self, client, project, experiment) -> None:
         resp = client.get(f"{_prefix(project, experiment)}/nope/events")

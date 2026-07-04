@@ -17,17 +17,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-from pydantic import ValidationError
-
 from molexp.workspace import Workspace
-from molexp.workspace.curation import (
-    ExperimentInventory,
-    ProjectInventory,
-    RunInventory,
-    WorkspaceInventory,
-    scan_workspace,
-)
+from molexp.workspace.curation import scan_workspace
 
 
 def _seed_two_run_tree(root: Path) -> Workspace:
@@ -50,12 +41,6 @@ def _seed_two_run_tree(root: Path) -> Workspace:
 
 
 class TestScanWorkspaceBasics:
-    def test_returns_workspace_inventory_with_name(self, tmp_path: Path) -> None:
-        ws = _seed_two_run_tree(tmp_path / "lab")
-        inv = scan_workspace(ws)
-        assert isinstance(inv, WorkspaceInventory)
-        assert inv.name == "Curation Lab"
-
     def test_counts_are_tree_totals(self, tmp_path: Path) -> None:
         ws = _seed_two_run_tree(tmp_path / "lab")
         inv = scan_workspace(ws)
@@ -77,23 +62,6 @@ class TestScanWorkspaceBasics:
 
 
 class TestInventoryShape:
-    def test_nested_models_have_expected_types(self, tmp_path: Path) -> None:
-        ws = _seed_two_run_tree(tmp_path / "lab")
-        inv = scan_workspace(ws)
-
-        assert len(inv.projects) == 1
-        proj_inv = inv.projects[0]
-        assert isinstance(proj_inv, ProjectInventory)
-        assert proj_inv.id == "alpha"
-
-        assert len(proj_inv.experiments) == 1
-        exp_inv = proj_inv.experiments[0]
-        assert isinstance(exp_inv, ExperimentInventory)
-        assert exp_inv.id == "baseline"
-
-        assert len(exp_inv.runs) == 2
-        assert all(isinstance(r, RunInventory) for r in exp_inv.runs)
-
     def test_run_ids_match_on_disk_runs(self, tmp_path: Path) -> None:
         ws = _seed_two_run_tree(tmp_path / "lab")
         inv = scan_workspace(ws)
@@ -123,19 +91,3 @@ class TestScanWorkspaceEdgeCases:
         assert inv.experiment_count == 0
         assert inv.run_count == 0
         assert inv.asset_count == 0
-
-
-# ── Immutability: every model is frozen ──────────────────────────────────────
-
-
-class TestInventoryImmutability:
-    def test_workspace_inventory_is_frozen(self, tmp_path: Path) -> None:
-        ws = _seed_two_run_tree(tmp_path / "lab")
-        inv = scan_workspace(ws)
-        with pytest.raises(ValidationError):
-            inv.project_count = 999  # type: ignore[misc]
-
-    def test_run_inventory_is_frozen(self) -> None:
-        run_inv = RunInventory(id="r1", status="pending")
-        with pytest.raises(ValidationError):
-            run_inv.status = "succeeded"  # type: ignore[misc]

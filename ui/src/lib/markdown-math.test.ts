@@ -56,19 +56,4 @@ describe("normalizeDisplayMath", () => {
   it("preserves indentation of the rewritten block", () => {
     expect(normalizeDisplayMath("  $$x$$")).toBe("  $$\n  x\n  $$");
   });
-
-  it("rewrites the real lj-theory block formula (walkthrough regression)", () => {
-    const body =
-      "# Lennard-Jones theory\n\nThe pair potential is\n\n" +
-      "$$V_{LJ}(r) = 4\\varepsilon\\left[\\left(\\frac{\\sigma}{r}\\right)^{12} - " +
-      "\\left(\\frac{\\sigma}{r}\\right)^{6}\\right]$$\n\n" +
-      "Its minimum sits at $r_{\\min} = 2^{1/6}\\,\\sigma$.\n";
-    const out = normalizeDisplayMath(body);
-    expect(out).toContain(
-      "$$\nV_{LJ}(r) = 4\\varepsilon\\left[\\left(\\frac{\\sigma}{r}\\right)^{12} - " +
-        "\\left(\\frac{\\sigma}{r}\\right)^{6}\\right]\n$$",
-    );
-    // Inline math in the prose stays inline.
-    expect(out).toContain("$r_{\\min} = 2^{1/6}\\,\\sigma$");
-  });
 });

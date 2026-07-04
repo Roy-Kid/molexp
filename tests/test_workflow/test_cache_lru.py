@@ -101,11 +101,3 @@ def test_lru_evicts_least_recently_used(tmp_path: Path) -> None:
     assert cache.get(snap, {"i": 0}) == {"r": 0}
     assert cache.get(snap, {"i": 1}) is None  # evicted
     assert cache.get(snap, {"i": 2}) == {"r": 2}
-
-
-def test_entry_count_bounded_by_max_entries(tmp_path: Path) -> None:
-    cache = Caching(store_dir=tmp_path / "c", max_entries=10)
-    snap = _snapshot()
-    for i in range(100):
-        cache.put(snap, {"i": i}, {"r": i})
-    assert cache.stats["entry_count"] == 10

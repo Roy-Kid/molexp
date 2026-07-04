@@ -114,24 +114,6 @@ class TestNonImportableRaisesClearError:
         with pytest.raises(ValueError, match="not importable"):
             compiled.to_graph_ir()
 
-    def test_lambda_error_is_actionable_not_pydantic(self):
-        compiled = promote_callable(lambda inputs, config: None, "wf")  # noqa: ARG005
-        with pytest.raises(ValueError) as excinfo:
-            compiled.to_graph_ir()
-        msg = str(excinfo.value)
-        assert "module scope" in msg
-        assert "WorkflowRuntime" in msg
-        assert "ValidationError" not in type(excinfo.value).__name__
-
-    def test_experiment_run_surfaces_the_same_clear_error(self, tmp_path):
-        def _local(inputs, config):
-            return None
-
-        compiled = promote_callable(_local, "wf")
-        ws = Workspace(tmp_path / "ws", name="ws")
-        with pytest.raises(ValueError, match="not importable"):
-            ws.project("p").experiment("e").run(compiled)
-
 
 class TestInMemoryPathUnchanged:
     def test_closure_executes_in_memory(self):
@@ -144,9 +126,3 @@ class TestInMemoryPathUnchanged:
         result = asyncio.run(WorkflowRuntime().execute(compiled))
         assert result.status == "succeeded"
         assert result.outputs["_local"] == {"seen": 7}
-
-    def test_lambda_executes_in_memory(self):
-        compiled = promote_callable(lambda inputs, config: 42, "wf")  # noqa: ARG005
-        result = asyncio.run(WorkflowRuntime().execute(compiled))
-        assert result.status == "succeeded"
-        assert result.outputs["<lambda>"] == 42

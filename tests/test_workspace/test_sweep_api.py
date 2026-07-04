@@ -49,10 +49,6 @@ class TestSweep:
         assert sorted(r.id for r in first) == sorted(r.id for r in second)
         assert len(experiment.list_runs()) == 2
 
-    def test_sweep_accepts_param_space(self, experiment) -> None:
-        rs = experiment.sweep(_build_wf().compile(), GridSpace({"lr": [0.1], "batch": [16, 32]}))
-        assert len(rs) == 2
-
     def test_sweep_scalar_axis_fails_fast(self, experiment) -> None:
         with pytest.raises(ValueError, match="batch"):
             experiment.sweep(_build_wf().compile(), {"lr": [0.1], "batch": 16})

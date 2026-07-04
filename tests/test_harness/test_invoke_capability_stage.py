@@ -322,18 +322,3 @@ def test_public_surface() -> None:
     assert issubclass(CapabilityResolutionError, HarnessError)
     assert "capability_invocation_params" in WELL_KNOWN_ARTIFACT_KINDS
     assert "capability_invocation_result" in WELL_KNOWN_ARTIFACT_KINDS
-
-
-def test_resolve_callable_re_exported_from_submodule() -> None:
-    """``resolve_callable`` is the same object whether imported from the package
-    root or its owning ``molexp.harness.capability.resolve`` module."""
-    from molexp.harness.capability.resolve import resolve_callable as via_mod
-
-    assert resolve_callable is via_mod
-
-
-def test_capability_resolution_error_re_exported_from_errors() -> None:
-    """``CapabilityResolutionError`` re-export identity holds across modules."""
-    from molexp.harness.errors import CapabilityResolutionError as via_mod
-
-    assert CapabilityResolutionError is via_mod

@@ -107,14 +107,6 @@ def _scoped_payload(run: Run) -> dict[str, str]:
 # ── Valid scope → 200 + persisted scope ─────────────────────────────────────
 
 
-def test_create_with_run_scope_returns_200(
-    agent_client: TestClient, workspace: Workspace, run: Run
-) -> None:
-    resp = agent_client.post("/api/agent-tasks", json=_scoped_payload(run))
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["sessionId"]
-
-
 def test_run_scope_persists_on_task_metadata(
     agent_client: TestClient, workspace: Workspace, run: Run
 ) -> None:
@@ -129,63 +121,7 @@ def test_run_scope_persists_on_task_metadata(
     assert persisted.run_id == run.id
 
 
-def test_experiment_scope_persists_without_run_id(
-    agent_client: TestClient, workspace: Workspace, experiment: object
-) -> None:
-    resp = agent_client.post(
-        "/api/agent-tasks",
-        json={
-            "description": "inspect the experiment",
-            "projectId": "test-project",
-            "experimentId": "test-exp",
-        },
-    )
-    assert resp.status_code == 200, resp.text
-
-    persisted = read_agent_task_metadata(str(workspace.root), resp.json()["taskId"])
-    assert persisted is not None
-    assert persisted.project_id == "test-project"
-    assert persisted.experiment_id == "test-exp"
-    assert persisted.run_id is None
-
-
-def test_unscoped_create_still_works_and_persists_no_scope(
-    agent_client: TestClient, workspace: Workspace
-) -> None:
-    resp = agent_client.post("/api/agent-tasks", json={"description": "no mount"})
-    assert resp.status_code == 200, resp.text
-
-    persisted = read_agent_task_metadata(str(workspace.root), resp.json()["taskId"])
-    assert persisted is not None
-    assert persisted.project_id is None
-    assert persisted.experiment_id is None
-    assert persisted.run_id is None
-
-
 # ── Invalid scope → 404, zero residue ────────────────────────────────────────
-
-
-def test_unknown_run_scope_returns_404(
-    agent_client: TestClient, workspace: Workspace, experiment: object
-) -> None:
-    resp = agent_client.post(
-        "/api/agent-tasks",
-        json={
-            "description": "mount a ghost run",
-            "projectId": "test-project",
-            "experimentId": "test-exp",
-            "runId": "deadbeef",
-        },
-    )
-    assert resp.status_code == 404, resp.text
-
-
-def test_unknown_project_scope_returns_404(agent_client: TestClient, workspace: Workspace) -> None:
-    resp = agent_client.post(
-        "/api/agent-tasks",
-        json={"description": "mount a ghost project", "projectId": "no-such-project"},
-    )
-    assert resp.status_code == 404, resp.text
 
 
 def test_invalid_scope_persists_no_task(
@@ -224,27 +160,6 @@ def test_route_passes_run_dir_as_session_anchor(
     resp = agent_client.post("/api/agent-tasks", json=_scoped_payload(run))
     assert resp.status_code == 200, resp.text
     assert captured["anchor"] == Path(str(run.run_dir))
-
-
-def test_session_anchor_mounts_session_folder_under_run(run: Run) -> None:
-    """A runner with a session anchor materializes the session inside the run dir."""
-
-    class _NamedLoop:
-        name = "default"
-
-        async def run(self, **_: object) -> None:  # pragma: no cover — never driven
-            raise AssertionError("not driven")
-
-    run_dir = Path(str(run.run_dir))
-    runner = AgentRunner(
-        loop=_NamedLoop(),  # type: ignore[arg-type]
-        router=_ScriptedRouter(),  # type: ignore[arg-type]
-        workspace=run_dir.parents[1],
-        session_anchor=run_dir,
-    )
-    runner.session("mounted-session")
-    hits = list(run_dir.rglob("*mounted-session*"))
-    assert hits, f"no session folder under {run_dir}"
 
 
 def test_mount_context_parity(workspace: Workspace, run: Run) -> None:

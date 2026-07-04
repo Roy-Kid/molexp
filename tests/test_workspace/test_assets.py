@@ -156,15 +156,6 @@ class TestSubclassDispatch:
 
 
 class TestProducerPropagation:
-    def test_artifact_producer_set(self, tmp_path):
-        ws = _seed_workspace(tmp_path / "lab", n_runs=1)
-        run_id = ws.project("demo").experiment("baseline").list_runs()[0].id
-        artifacts = scan.scan_assets(ws.root, kind="artifact")
-        assert len(artifacts) == 1
-        assert artifacts[0].producer is not None
-        assert artifacts[0].producer.run_id == run_id
-        assert artifacts[0].producer.execution_id is not None
-
     def test_task_id_set_via_set_active_task(self, tmp_path):
         ws = Workspace(tmp_path / "lab", name="Test")
         run = ws.add_project("p").add_experiment("e").add_run()

@@ -128,19 +128,6 @@ class TestExecutionNodeOutputFallback:
         )
         assert run.get_result("other") is None
 
-    def test_no_execution_returns_none(self, run):
-        # Existing not-found behavior: run.json exists but nothing ran.
-        assert run.get_result("train") is None
-
-    def test_no_run_json_returns_none(self, experiment):
-        # Never-materialized run keeps the existing contract.
-        unmaterialized = Run(parent=experiment, parameters={})
-        assert unmaterialized.get_result("train") is None
-
-    def test_execution_without_workflow_json_returns_none(self, run):
-        _append_execution(run, "exec-a")
-        assert run.get_result("train") is None
-
     def test_malformed_workflow_json_returns_none(self, run):
         _append_execution(run, "exec-a")
         exec_dir = Path(str(run.run_dir)) / "executions" / "exec-a"

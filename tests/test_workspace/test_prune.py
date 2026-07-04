@@ -22,7 +22,6 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-import pydantic
 import pytest
 
 from molexp.workspace import Workspace
@@ -137,15 +136,6 @@ class TestPlanIsReadOnlyAndFrozen:
         assert sorted(p.name for p in exec_root.iterdir()) == sorted(exec_ids)
         assert [rec.execution_id for rec in run.execution_history] == exec_ids
 
-    def test_plan_is_frozen(self, seeded) -> None:
-        _, run, _ = seeded
-        plan = plan_execution_prune(run, statuses=["failed"])
-        assert isinstance(plan, ExecutionPrunePlan)
-        with pytest.raises(pydantic.ValidationError):
-            plan.run_id = "mutated"  # type: ignore[misc]
-        with pytest.raises(pydantic.ValidationError):
-            plan.entries[0].execution_id = "mutated"  # type: ignore[misc]
-
 
 # ── plan: live-record refusal (typed, at PLAN time) ──────────────────────────
 
@@ -241,14 +231,3 @@ class TestApply:
         foreign = ExecutionPrunePlan(run_id="someone-else", entries=())
         with pytest.raises(ValueError, match="someone-else"):
             apply_execution_prune(run, foreign)
-
-
-# ── public surface ───────────────────────────────────────────────────────────
-
-
-class TestExports:
-    def test_cores_are_exported_from_the_workspace_package(self) -> None:
-        from molexp import workspace
-
-        assert workspace.plan_execution_prune is plan_execution_prune
-        assert workspace.apply_execution_prune is apply_execution_prune

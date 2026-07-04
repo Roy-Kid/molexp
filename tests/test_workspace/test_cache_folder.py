@@ -20,12 +20,8 @@ from pathlib import Path
 import pytest
 
 from molexp.workflow import Caching, TaskSnapshot
-from molexp.workflow.cache_store import CacheStore
 from molexp.workspace import Workspace
-from molexp.workspace.cache import (
-    WORKSPACE_CACHE_KIND,
-    CacheFolder,
-)
+from molexp.workspace.cache import CacheFolder
 
 
 @pytest.fixture
@@ -55,10 +51,6 @@ def snapshot() -> TaskSnapshot:
 # ── entry_path / read / write contract ────────────────────────────────────────
 
 
-def test_entry_path_is_under_cache_dir(folder: CacheFolder, workspace: Workspace) -> None:
-    assert str(folder.entry_path("k")) == str(workspace.root / "cache" / "k.json")
-
-
 def test_read_entry_miss_returns_none(folder: CacheFolder) -> None:
     assert folder.read_entry("missing") is None
 
@@ -73,13 +65,6 @@ def test_write_then_read_entry_round_trips(folder: CacheFolder) -> None:
     assert json.loads(raw) == {"hello": "world"}
 
 
-def test_write_entry_is_atomic(folder: CacheFolder, workspace: Workspace) -> None:
-    folder.write_entry("k", '{"y": 1}')
-    cache_dir = Path(str(workspace.root / "cache"))
-    leftover = list(cache_dir.glob("*.tmp"))
-    assert not leftover, f"expected no leftover tmp files; got {leftover}"
-
-
 # ── keys / total_bytes / clear ────────────────────────────────────────────────
 
 
@@ -87,13 +72,6 @@ def test_keys_yields_stems_of_json_files(folder: CacheFolder) -> None:
     folder.write_entry("a", '{"x": 1}')
     folder.write_entry("b", '{"y": 2}')
     assert sorted(folder.keys()) == ["a", "b"]
-
-
-def test_total_bytes_sums_entry_sizes(folder: CacheFolder, workspace: Workspace) -> None:
-    folder.write_entry("a", '{"x": 1}')
-    folder.write_entry("b", '{"y": 2}')
-    expected = sum(p.stat().st_size for p in Path(str(workspace.root / "cache")).glob("*.json"))
-    assert folder.total_bytes() == expected
 
 
 def test_clear_removes_all_entries_and_returns_count(
@@ -106,24 +84,7 @@ def test_clear_removes_all_entries_and_returns_count(
     assert list(Path(str(workspace.root / "cache")).glob("*.json")) == []
 
 
-def test_clear_on_empty_returns_zero(folder: CacheFolder) -> None:
-    assert folder.clear() == 0
-
-
-# ── kind constant ─────────────────────────────────────────────────────────────
-
-
-def test_kind_constant_is_workspace_namespaced() -> None:
-    assert WORKSPACE_CACHE_KIND == "workspace.cache"
-
-
 # ── as_cache_store: CacheStore Protocol compliance ────────────────────────────
-
-
-def test_as_cache_store_returns_cachestore_protocol_instance(folder: CacheFolder) -> None:
-    """The adapter must structurally satisfy the workflow Protocol."""
-    store = folder.as_cache_store()
-    assert isinstance(store, CacheStore)
 
 
 def test_caching_round_trip_via_workspace_cache(

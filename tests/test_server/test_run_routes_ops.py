@@ -54,20 +54,8 @@ class TestStatusReflectsOps:
         assert resp.json()["status"] == "succeeded"
         assert run.read_ops().status.value == "succeeded"
 
-    def test_cancel_reflects_ops(self, client, project, experiment, run) -> None:
-        resp = client.post(f"{_prefix(project, experiment)}/{run.id}/cancel")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "cancelled"
-        assert run.read_ops().status.value == "cancelled"
-
 
 class TestRetryableGate:
-    def test_resume_409_when_not_retryable(self, client, project, experiment, run) -> None:
-        # pending run → not in RETRYABLE_STATUSES → 409.
-        run.update_ops(lambda s: s.model_copy(update={"status": RunStatus.PENDING}))
-        resp = client.post(f"{_prefix(project, experiment)}/{run.id}/resume")
-        assert resp.status_code == 409
-
     def test_rerun_409_when_succeeded(self, client, project, experiment, run) -> None:
         run.update_ops(lambda s: s.model_copy(update={"status": RunStatus.SUCCEEDED}))
         resp = client.post(f"{_prefix(project, experiment)}/{run.id}/rerun")

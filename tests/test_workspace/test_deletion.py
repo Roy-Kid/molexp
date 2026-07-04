@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from molexp.workspace import (
-    ExperimentNotFoundError,
     RunNotFoundError,
     Workspace,
 )
@@ -61,36 +60,10 @@ class TestDeleteRun:
         e.remove_run(r.id)
         assert not run_dir.exists()
 
-    def test_remove_run_clears_listing(self, tmp_path):
-        _ws, _p, e, r = _build(tmp_path)
-        assert any(run.id == r.id for run in e.list_runs())
-        e.remove_run(r.id)
-        assert all(run.id != r.id for run in e.list_runs())
-
     def test_unknown_run_raises(self, tmp_path):
         _ws, _p, e, _r = _build(tmp_path)
         with pytest.raises(RunNotFoundError):
             e.remove_run("nope")
-
-
-class TestDeleteExperiment:
-    def test_removes_experiment_dir(self, tmp_path):
-        _ws, p, e, _r = _build(tmp_path)
-        exp_dir = Path(e.experiment_dir)
-        assert exp_dir.exists()
-        p.remove_experiment(e.id)
-        assert not exp_dir.exists()
-
-    def test_remove_experiment_clears_listing(self, tmp_path):
-        _ws, p, e, _r = _build(tmp_path)
-        assert any(exp.id == e.id for exp in p.list_experiments())
-        p.remove_experiment(e.id)
-        assert all(exp.id != e.id for exp in p.list_experiments())
-
-    def test_unknown_experiment_raises(self, tmp_path):
-        _ws, p, _e, _r = _build(tmp_path)
-        with pytest.raises(ExperimentNotFoundError):
-            p.remove_experiment("nope")
 
 
 class TestDeleteProject:

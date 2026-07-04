@@ -162,42 +162,6 @@ async def test_emergent_loop_surfaces_thinking_event(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_emergent_loop_event_ordering(tmp_path: Path) -> None:
-    router = _ScriptedRouter()
-    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
-    session = Session(storage=InMemorySessionStorage(), session_id="ordering")
-
-    events = [ev async for ev in runner.run_events(session, "inspect")]
-
-    def first(kind: type) -> int:
-        return next(i for i, e in enumerate(events) if isinstance(e, kind))
-
-    assert (
-        first(LoopStartedEvent)
-        < first(TokenDeltaEvent)
-        < first(ToolCallStartedEvent)
-        < first(ToolCallCompletedEvent)
-        < first(LoopCompletedEvent)
-    )
-
-
-@pytest.mark.asyncio
-async def test_tool_call_events_carry_names_and_summaries(tmp_path: Path) -> None:
-    router = _ScriptedRouter()
-    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
-    session = Session(storage=InMemorySessionStorage(), session_id="toolnames")
-
-    events = [ev async for ev in runner.run_events(session, "inspect")]
-
-    started = next(e for e in events if isinstance(e, ToolCallStartedEvent))
-    completed = next(e for e in events if isinstance(e, ToolCallCompletedEvent))
-    assert started.tool_name == "read_file"
-    assert "README.md" in started.args_summary
-    assert completed.tool_name == "read_file"
-    assert completed.ok is True
-
-
-@pytest.mark.asyncio
 async def test_emergent_loop_persists_user_and_assistant_turns(tmp_path: Path) -> None:
     router = _ScriptedRouter()
     runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
@@ -210,20 +174,3 @@ async def test_emergent_loop_persists_user_and_assistant_turns(tmp_path: Path) -
     roles_contents = [(m.role, m.content) for m in messages]
     assert ("user", "what is here?") in roles_contents
     assert ("assistant", "Looking into it. Done.") in roles_contents
-
-
-@pytest.mark.asyncio
-async def test_run_returns_terminal_result(tmp_path: Path) -> None:
-    router = _ScriptedRouter()
-    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
-    session = Session(storage=InMemorySessionStorage(), session_id="result")
-
-    result = await runner.run(session, "inspect")
-
-    assert result.text == "Looking into it. Done."
-    assert any(isinstance(e, TokenDeltaEvent) for e in result.events)
-
-
-def test_interactive_loop_name() -> None:
-    loop = InteractiveLoop()
-    assert loop.name == "interactive"

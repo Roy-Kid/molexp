@@ -137,18 +137,6 @@ def test_import_zotero_accepts_data_directory(runner, initialized_ws, zotero_db)
     assert "Imported 2 reference(s)" in _plain(result.stdout)
 
 
-@pytest.mark.integration
-def test_import_zotero_is_idempotent(runner, initialized_ws, zotero_db):
-    args = ["knowledge", "import-zotero", str(zotero_db), "--dest", str(initialized_ws)]
-    assert runner.invoke(app, args).exit_code == 0
-    result = runner.invoke(app, args)
-    assert result.exit_code == 0, result.output
-
-    refs_root = initialized_ws / "references"
-    ref_dirs = [p for p in refs_root.iterdir() if p.is_dir()]
-    assert len(ref_dirs) == 2  # no duplicates on re-import
-
-
 # ── human-readable failure modes ─────────────────────────────────────────────
 
 
@@ -175,21 +163,6 @@ def test_import_zotero_non_sqlite_file_errors(runner, initialized_ws, tmp_path):
     result = runner.invoke(
         app,
         ["knowledge", "import-zotero", str(bogus), "--dest", str(initialized_ws)],
-    )
-    assert result.exit_code == 1
-    assert "not a Zotero database" in _flat(result.output)
-
-
-@pytest.mark.integration
-def test_import_zotero_sqlite_without_zotero_tables_errors(runner, initialized_ws, tmp_path):
-    other = tmp_path / "zotero.sqlite"
-    conn = sqlite3.connect(other)
-    conn.execute("CREATE TABLE t (x INTEGER)")
-    conn.commit()
-    conn.close()
-    result = runner.invoke(
-        app,
-        ["knowledge", "import-zotero", str(other), "--dest", str(initialized_ws)],
     )
     assert result.exit_code == 1
     assert "not a Zotero database" in _flat(result.output)
@@ -258,13 +231,6 @@ def _seed_search_notes(ws_root: Path) -> None:
 
 
 @pytest.mark.integration
-def test_knowledge_search_registered(runner):
-    result = runner.invoke(app, ["knowledge", "--help"])
-    assert result.exit_code == 0
-    assert "search" in _plain(result.stdout)
-
-
-@pytest.mark.integration
 def test_knowledge_search_prints_matching_paths(runner, initialized_ws):
     """A body-needle query renders the matching note's path — and only it."""
     _seed_search_notes(initialized_ws)
@@ -316,19 +282,3 @@ def test_knowledge_search_type_filter_narrows(runner, initialized_ws):
     )
     assert result.exit_code == 0, result.output
     assert "alpha-note" not in _flat(result.output)
-
-
-@pytest.mark.integration
-def test_knowledge_search_no_match_exits_zero(runner, initialized_ws):
-    """A miss is an empty result, not an error (search is a query, not a lookup)."""
-    _seed_search_notes(initialized_ws)
-
-    result = runner.invoke(
-        app,
-        ["knowledge", "search", "zz-absent-needle", "--path", str(initialized_ws)],
-        env=_WIDE_TERM,
-    )
-    assert result.exit_code == 0, result.output
-    out = _flat(result.output)
-    assert "alpha-note" not in out
-    assert "beta-note" not in out

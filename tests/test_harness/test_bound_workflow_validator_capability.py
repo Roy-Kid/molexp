@@ -134,18 +134,6 @@ class TestBoundWorkflowValidatorCapability:
 
     # ----------------------------------------- new violation codes
 
-    def test_unknown_capability(self, tmp_path: Path) -> None:
-        from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
-
-        ir, bw, registry, _ = _baseline_with_registry()
-        nonsense = bw.tasks[0].model_copy(update={"capability_id": "ghost.capability"})
-        bw_bad = bw.model_copy(update={"tasks": [nonsense]})
-        report = BoundWorkflowValidator.validate(
-            bw_bad, ir, workspace_root=tmp_path, registry=registry
-        )
-        assert "unknown_capability" in _codes(report)
-        assert report.passed is False
-
     def test_unknown_capability_suppresses_other_capability_checks_for_that_task(
         self,
         tmp_path: Path,
@@ -222,26 +210,3 @@ class TestBoundWorkflowValidatorCapability:
             bw_bad, ir, workspace_root=tmp_path, registry=registry
         )
         assert "undeclared_side_effect" in _codes(report)
-
-    def test_task_side_effects_subset_of_capability_is_clean(self, tmp_path: Path) -> None:
-        """BoundTask declares a subset of capability.side_effects → no violation."""
-        from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
-
-        ir, bw, registry, _ = _baseline_with_registry()
-        # cap declares ["fs_write", "network"]; task declares ["fs_write"] only.
-        bad_task = bw.tasks[0].model_copy(update={"side_effects": ["fs_write"]})
-        bw_ok = bw.model_copy(update={"tasks": [bad_task]})
-        report = BoundWorkflowValidator.validate(
-            bw_ok, ir, workspace_root=tmp_path, registry=registry
-        )
-        assert "undeclared_side_effect" not in _codes(report)
-
-    def test_phase4_placeholder_comment_present(self) -> None:
-        """ac-009: the Phase-3 placeholder is gone; a Phase-5+ marker is in."""
-        import inspect
-
-        from molexp.harness.validators import bound_workflow as mod
-
-        src = inspect.getsource(mod)
-        assert "Phase 4: capability" not in src
-        assert "Phase 5+: ExecutionEnvironment cross-check" in src

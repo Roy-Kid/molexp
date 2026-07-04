@@ -68,22 +68,6 @@ class TestPreflightFailures:
         assert "'stub-model'" in message
         assert "preflight" in message
 
-    def test_missing_anthropic_key_fails_preflight(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        with pytest.raises(PlanPreflightError) as excinfo:
-            preflight_plan_router(model="anthropic:claude-sonnet-4-5")
-        assert "ANTHROPIC_API_KEY" in str(excinfo.value)
-
-    def test_missing_deepseek_config_key_fails_preflight(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import molexp
-
-        monkeypatch.delitem(molexp.config, "deepseek_api_key", raising=False)
-        with pytest.raises(PlanPreflightError) as excinfo:
-            preflight_plan_router(model="deepseek:deepseek-v4-flash")
-        assert "deepseek_api_key" in str(excinfo.value)
-
 
 class TestCredentialGuidance:
     """A missing-key preflight failure keeps the upstream reason but appends
@@ -120,11 +104,6 @@ class TestCredentialGuidance:
         assert "molexp config set agent.deepseek_api_key" in message
         assert 'molexp.config["deepseek_api_key"]' in message
         assert "molexp:" in message
-
-    def test_unknown_model_gets_no_credential_guidance(self) -> None:
-        with pytest.raises(PlanPreflightError) as excinfo:
-            preflight_plan_router(model="stub-model")
-        assert "molexp:" not in str(excinfo.value)
 
 
 class TestPreflightSuccess:

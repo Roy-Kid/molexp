@@ -13,8 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.workflow import CompiledWorkflow, WorkflowCompiler, default_codec
-from molexp.workflow.registry import default_registry
+from molexp.workflow import CompiledWorkflow, WorkflowCompiler
 from molexp.workflow.version import WorkflowVersion
 
 
@@ -83,59 +82,4 @@ def test_compile_binds_to_experiment_when_given():
 # ── ac-002: old build/compile/spec classes gone from the public API ──────────
 
 
-@pytest.mark.unit
-def test_old_authoring_classes_are_gone_from_public_api():
-    import molexp.workflow as wf
-
-    assert "WorkflowBuilder" not in wf.__all__
-    assert "Workflow" not in wf.__all__
-    with pytest.raises(ImportError):
-        from molexp.workflow import WorkflowBuilder  # noqa: F401
-    with pytest.raises(ImportError):
-        from molexp.workflow import Workflow  # noqa: F401
-
-
-@pytest.mark.unit
-def test_compiler_and_compiled_are_the_public_surface():
-    import molexp.workflow as wf
-
-    assert "WorkflowCompiler" in wf.__all__
-    assert "CompiledWorkflow" in wf.__all__
-    # WorkflowGraphCompiler is internal — not part of the public surface.
-    assert "WorkflowGraphCompiler" not in wf.__all__
-    assert not hasattr(wf, "WorkflowGraphCompiler")
-
-
 # ── ac-004: codec folded onto CompiledWorkflow; IR round-trip ────────────────
-
-
-def _register_slugs():
-    class _Noop:
-        async def execute(self, ctx):
-            return None
-
-    for slug in ("c_inspect", "c_train"):
-        if slug not in default_registry._factories:  # type: ignore[attr-defined]
-            default_registry.register(slug, lambda cfg: _Noop())  # noqa: ARG005
-
-
-@pytest.mark.unit
-def test_compiled_to_ir_from_ir_round_trip_matches_codec():
-    _register_slugs()
-    ir = {
-        "name": "demo",
-        "task_configs": [
-            {"task_id": "inspect", "task_type": "c_inspect", "config": {}},
-            {"task_id": "train", "task_type": "c_train", "config": {}},
-        ],
-        "links": [{"source": "inspect", "target": "train"}],
-        "metadata": {},
-    }
-    compiled = CompiledWorkflow.from_ir(ir)
-    assert isinstance(compiled, CompiledWorkflow)
-    produced = compiled.to_ir()
-    # byte-identical to the 01 codec output
-    assert produced == default_codec.spec_to_ir(compiled)
-    # round-trips to an equal artifact (same IR out the far side)
-    rebuilt = CompiledWorkflow.from_ir(produced)
-    assert rebuilt.to_ir() == produced

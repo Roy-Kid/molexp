@@ -69,13 +69,6 @@ def test_default_kind_is_local(client: TestClient, tmp_path: Path):
 
 
 @pytest.mark.unit
-def test_request_discriminator_local(client: TestClient, tmp_path: Path):
-    body = {"kind": "local", "path": str(tmp_path / "ws-local"), "create_if_missing": True}
-    resp = client.post("/api/workspace/open", json=body)
-    assert resp.status_code == 200, resp.text
-
-
-@pytest.mark.unit
 def test_request_discriminator_remote(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -101,12 +94,6 @@ def test_unknown_descriptor_404(client: TestClient):
 @pytest.mark.unit
 def test_missing_name_422(client: TestClient):
     resp = client.post("/api/workspace/open", json={"kind": "remote"})
-    assert resp.status_code == 422
-
-
-@pytest.mark.unit
-def test_missing_path_422(client: TestClient):
-    resp = client.post("/api/workspace/open", json={"kind": "local"})
     assert resp.status_code == 422
 
 

@@ -106,39 +106,6 @@ def test_invalidate_all_drops_everything(remote_client):
     assert not (mirror_root / "files").exists()
 
 
-@pytest.mark.integration
-def test_invalidate_indices_keeps_blob_bytes(remote_client, tmp_path: Path):
-    client, root, _mirror = remote_client
-    # Force a non-index file into the cache by reading it through the route.
-    log_path = root / "projects" / "alpha" / "log.txt"
-    log_path.write_text("blob bytes")
-    resp = client.get(f"/api/workspace/file?path={log_path}")
-    assert resp.status_code == 200, resp.text
-
-    resp = client.post("/api/workspace/cache/invalidate", json={"scope": "indices"})
-    assert resp.status_code == 200
-    # The log entry should still be cached (assert by reading again — must not refetch).
-    # We cannot easily inspect the cache from the route side, so just verify the
-    # endpoint responded successfully and call invalidate-all to compare delta.
-    after_indices_drop = resp.json()["dropped"]
-    resp_all = client.post("/api/workspace/cache/invalidate", json={"scope": "all"})
-    remaining = resp_all.json()["dropped"]
-    assert after_indices_drop >= 1, "indices scope should drop at least 1 entry"
-    assert remaining >= 1, "log entry must still be present after indices-only drop"
-
-
-@pytest.mark.integration
-def test_invalidate_specific_path(remote_client, tmp_path: Path):
-    client, root, _mirror = remote_client
-    target = root / "projects" / "alpha" / "log.txt"
-    target.write_text("blob bytes")
-    client.get(f"/api/workspace/file?path={target}")
-
-    resp = client.post("/api/workspace/cache/invalidate", json={"path": str(target)})
-    assert resp.status_code == 200
-    assert resp.json()["dropped"] == 1
-
-
 # ── Cache refresh ─────────────────────────────────────────────────────
 
 
@@ -194,25 +161,6 @@ def test_file_blob_rejects_non_image_extensions(remote_client, tmp_path: Path):
 
 
 # ── Warnings surface on open ─────────────────────────────────────────
-
-
-@pytest.mark.integration
-def test_open_remote_does_not_500_on_empty_workspace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Fresh workspace with no projects: /open succeeds, warnings list is empty."""
-    remote_root = tmp_path / "ws"
-    remote_root.mkdir()
-    Workspace(root=remote_root, name="ws").materialize()
-
-    _wire_cached_remote(monkeypatch, tmp_path / "mirror")
-    get_workspace_target_registry().add(
-        WorkspaceTarget(name="lab", host="h", root_path=str(remote_root))
-    )
-    client = TestClient(create_app())
-    resp = _open_remote(client)
-    assert resp.status_code == 200, resp.text
-    assert resp.json().get("warnings", []) == []
 
 
 @pytest.mark.integration

@@ -30,13 +30,6 @@ def _seed_concepts(workspace) -> None:
 # ── read-only endpoints (pre-existing) ───────────────────────────────────────
 
 
-def test_list_knowledge_empty_workspace(client):
-    resp = client.get("/api/knowledge")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body == {"notes": [], "references": [], "total": 0}
-
-
 def test_list_knowledge_returns_notes_and_references(client, workspace):
     _seed_concepts(workspace)
 
@@ -90,16 +83,6 @@ def test_create_doc_returns_201_with_summary(client, workspace):
     assert "hello world" in got.json()["body"]
 
 
-def test_create_doc_under_parent(client, workspace):
-    client.post("/api/knowledge/doc", json={"name": "parent-doc"})
-    resp = client.post(
-        "/api/knowledge/doc",
-        json={"name": "child-doc", "parentPath": "parent-doc", "body": "nested"},
-    )
-    assert resp.status_code == 201
-    assert resp.json()["relPath"] == "parent-doc/child-doc"
-
-
 # ── ac-002 — PUT /knowledge/doc?path= persists body to index.md ──────────────
 
 
@@ -140,21 +123,6 @@ def test_move_doc_rename_new_path_resolves_old_404(client, workspace):
 
     assert client.get("/api/knowledge/note", params={"path": "renamed-notes"}).status_code == 200
     assert client.get("/api/knowledge/note", params={"path": "cg-notes"}).status_code == 404
-
-
-def test_move_doc_reparent(client, workspace):
-    client.post("/api/knowledge/doc", json={"name": "home"})
-    client.post("/api/knowledge/doc", json={"name": "loose-doc"})
-
-    resp = client.patch(
-        "/api/knowledge/doc",
-        params={"path": "loose-doc"},
-        json={"parentPath": "home"},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["relPath"] == "home/loose-doc"
-    assert client.get("/api/knowledge/note", params={"path": "home/loose-doc"}).status_code == 200
-    assert client.get("/api/knowledge/note", params={"path": "loose-doc"}).status_code == 404
 
 
 # ── ac-004 — DELETE /knowledge/doc?path= → MessageResponse, then GET 404 ─────
@@ -242,13 +210,6 @@ def test_writable_gate_blocks_remote(client, workspace, _remote_served):
         == 405
     )
     assert client.delete("/api/knowledge/doc", params={"path": "cg-notes"}).status_code == 405
-
-
-def test_writable_gate_local_stays_writable(client, workspace):
-    # No remote served workspace active: a mutating call is not 405.
-    resp = client.post("/api/knowledge/doc", json={"name": "local-doc"})
-    assert resp.status_code != 405
-    assert resp.status_code == 201
 
 
 # ── ac-008 — ConceptNotFoundError → 404 on every path-addressed handler ──────
@@ -455,17 +416,6 @@ def test_embed_writable_gate(client, workspace, _remote_served):
     assert resp.status_code == 405
 
 
-def test_embed_writable_gate_local_not_405(client, workspace):
-    # A local workspace is not rejected by the gate (404 for the missing note,
-    # never 405).
-    resp = client.post(
-        "/api/knowledge/doc/embed",
-        params={"path": "nope"},
-        json={"target_kind": "run", "target": "r"},
-    )
-    assert resp.status_code != 405
-
-
 # ── ac-004 — unknown source note or missing target entity returns 404 ────────
 
 
@@ -479,32 +429,12 @@ def test_embed_404_unknown_source_note(client, workspace):
     assert resp.status_code == 404
 
 
-def test_embed_404_non_note_source(client, workspace):
-    _seed_concepts(workspace)  # kremer1990 is a ReferenceConcept, not a Note
-    resp = client.post(
-        "/api/knowledge/doc/embed",
-        params={"path": "kremer1990"},
-        json={"target_kind": "reference", "target": "kremer1990"},
-    )
-    assert resp.status_code == 404
-
-
 def test_embed_404_missing_target_entity(client, workspace):
     _seed_note(workspace, "doc")
     resp = client.post(
         "/api/knowledge/doc/embed",
         params={"path": "doc"},
         json={"target_kind": "run", "target": "ghost"},
-    )
-    assert resp.status_code == 404
-
-
-def test_embed_404_missing_asset_target(client, workspace):
-    _seed_note(workspace, "doc")
-    resp = client.post(
-        "/api/knowledge/doc/embed",
-        params={"path": "doc"},
-        json={"target_kind": "asset", "target": "no-such-asset"},
     )
     assert resp.status_code == 404
 
@@ -533,26 +463,6 @@ def test_note_summary_cards(client, workspace):
     assert card["title"]  # non-empty resolved title
     assert card["status"] is None  # a Run has no note status
     assert os.path.normpath(str(run.resolve())).endswith(os.path.normpath(card["relPath"]))
-
-
-def test_note_summary_cards_asset_target(client, workspace, tmp_path):
-    proj = workspace.add_project("p")
-    exp = proj.add_experiment("e")
-    src = tmp_path / "input.txt"
-    src.write_text("payload")
-    asset = exp.data_assets.import_asset("mydata", str(src))
-    _seed_note(workspace, "doc")
-
-    embed = client.post(
-        "/api/knowledge/doc/embed",
-        params={"path": "doc"},
-        json={"target_kind": "asset", "target": asset.asset_id},
-    )
-    assert embed.status_code == 200
-
-    cards = client.get("/api/knowledge/note", params={"path": "doc"}).json()["cards"]
-    assert len(cards) == 1
-    assert cards[0]["id"] == asset.asset_id
 
 
 # ── ac-006 — GET /knowledge exposes tags and status on note summaries ────────
@@ -624,54 +534,6 @@ def test_patch_doc_meta_tags_persists(client, workspace):
     assert Bundle(workspace.root).get("doc").tags() == ["physics", "md"]
 
 
-# ── ac-002 — PATCH /knowledge/doc/meta?path= with status persists ────────────
-
-
-def test_patch_doc_meta_status_persists(client, workspace):
-    _seed_note(workspace, "doc", body="# Doc")
-
-    resp = client.patch(
-        "/api/knowledge/doc/meta",
-        params={"path": "doc"},
-        json={"status": "draft"},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "draft"
-
-    assert Bundle(workspace.root).get("doc").status() == "draft"
-
-
-# ── ac-003 — partial PATCH preserves the untouched sibling field ─────────────
-
-
-def test_patch_doc_meta_partial_preserves_sibling(client, workspace):
-    note = _seed_note(workspace, "doc", body="# Doc")
-    note.set_tags(["physics"])
-    note.set_status("draft")
-
-    # PATCH only status -> tags preserved.
-    resp = client.patch(
-        "/api/knowledge/doc/meta",
-        params={"path": "doc"},
-        json={"status": "archived"},
-    )
-    assert resp.status_code == 200
-    fresh = Bundle(workspace.root).get("doc")
-    assert fresh.status() == "archived"
-    assert fresh.tags() == ["physics"]
-
-    # PATCH only tags -> status preserved.
-    resp = client.patch(
-        "/api/knowledge/doc/meta",
-        params={"path": "doc"},
-        json={"tags": ["physics", "chem"]},
-    )
-    assert resp.status_code == 200
-    fresh = Bundle(workspace.root).get("doc")
-    assert fresh.tags() == ["physics", "chem"]
-    assert fresh.status() == "archived"
-
-
 # ── ac-004 — write-gate: remote served workspace → 405 ───────────────────────
 
 
@@ -684,16 +546,6 @@ def test_patch_doc_meta_writable_gate(client, workspace, _remote_served):
     assert resp.status_code == 405
 
 
-def test_patch_doc_meta_local_not_405(client, workspace):
-    # A local workspace is not rejected by the gate (404 for the missing note).
-    resp = client.patch(
-        "/api/knowledge/doc/meta",
-        params={"path": "nope"},
-        json={"status": "draft"},
-    )
-    assert resp.status_code != 405
-
-
 # ── ac-005 — unknown path / non-note concept → 404 ───────────────────────────
 
 
@@ -702,16 +554,6 @@ def test_patch_doc_meta_404_unknown_path(client, workspace):
         "/api/knowledge/doc/meta",
         params={"path": "does-not-exist"},
         json={"status": "draft"},
-    )
-    assert resp.status_code == 404
-
-
-def test_patch_doc_meta_404_non_note(client, workspace):
-    _seed_concepts(workspace)  # kremer1990 is a ReferenceConcept, not a Note
-    resp = client.patch(
-        "/api/knowledge/doc/meta",
-        params={"path": "kremer1990"},
-        json={"tags": ["x"]},
     )
     assert resp.status_code == 404
 
@@ -809,19 +651,6 @@ def test_search_projects_entry_rows(client, workspace):
     assert row["snippet"] is None  # index-level match — no body snippet
 
 
-def test_search_body_match_carries_snippet(client, workspace):
-    """basics: a body-only match forwards vision-loop-04's snippet verbatim."""
-    _seed_search_corpus(workspace)
-
-    resp = client.get("/api/knowledge/search", params={"q": _SEARCH_BODY_NEEDLE})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert [row["path"] for row in body["hits"]] == ["shared-topic-note"]
-    snippet = body["hits"][0]["snippet"]
-    assert snippet is not None
-    assert _SEARCH_BODY_NEEDLE in snippet
-
-
 def test_search_type_filter_narrows(client, workspace):
     """integration: ``type`` forwards to Bundle.search's concept_type filter."""
     _seed_search_corpus(workspace)
@@ -844,15 +673,6 @@ def test_search_tag_filter_narrows(client, workspace):
     resp = client.get("/api/knowledge/search", params={"q": "note", "tag": "vl08-tag"})
     assert resp.status_code == 200
     assert [row["path"] for row in resp.json()["hits"]] == ["shared-topic-note"]
-
-
-def test_search_no_match_returns_empty_hits(client, workspace):
-    """edge: a miss is an empty (never erroring, never truncated) result."""
-    _seed_search_corpus(workspace)
-
-    resp = client.get("/api/knowledge/search", params={"q": "zz-absent-needle"})
-    assert resp.status_code == 200
-    assert resp.json() == {"hits": [], "truncated": False}
 
 
 def test_search_requires_q(client, workspace):

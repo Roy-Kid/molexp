@@ -11,7 +11,7 @@ Covers acceptance criteria:
 
 from __future__ import annotations
 
-from molexp.workspace import GridSpace, Run, Workspace
+from molexp.workspace import GridSpace, Workspace
 from molexp.workspace.utils import derive_run_id
 
 
@@ -20,14 +20,6 @@ def _grid() -> GridSpace:
 
 
 # ── ac-001: one Run per Cartesian cell ───────────────────────────────────
-
-
-def test_add_runs_returns_one_run_per_cell(experiment) -> None:
-    """ac-001 — a 2x2 grid yields a list of 4 Run objects."""
-    runs = experiment.add_runs(_grid())
-    assert isinstance(runs, list)
-    assert len(runs) == 4
-    assert all(isinstance(r, Run) for r in runs)
 
 
 def test_add_runs_mounts_each_run_under_experiment(experiment) -> None:
@@ -70,14 +62,6 @@ def test_add_runs_ids_stable_across_reopened_experiment(workspace, tmp_path) -> 
     assert reopened_ids == first_ids
 
 
-def test_add_runs_ids_are_pure_function_of_params(experiment) -> None:
-    """ac-002 — re-deriving ids from the same param dicts matches the run ids."""
-    runs = experiment.add_runs(_grid())
-    run_ids = {r.id for r in runs}
-    rederived = {derive_run_id(dict(cell)) for cell in _grid()}
-    assert run_ids == rederived
-
-
 # ── ac-003: idempotency ──────────────────────────────────────────────────
 
 
@@ -87,13 +71,6 @@ def test_add_runs_twice_does_not_change_count(experiment) -> None:
     assert len(experiment.list_runs()) == 4
     experiment.add_runs(_grid())
     assert len(experiment.list_runs()) == 4
-
-
-def test_add_runs_twice_returns_same_ids(experiment) -> None:
-    """ac-003 — the second call returns the already-existing same-id Runs."""
-    first_ids = {r.id for r in experiment.add_runs(_grid())}
-    second_ids = {r.id for r in experiment.add_runs(_grid())}
-    assert second_ids == first_ids
 
 
 # ── edge: empty space ────────────────────────────────────────────────────

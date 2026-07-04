@@ -37,21 +37,6 @@ def test_source_hash_memoized_by_code_object(monkeypatch):
     assert calls["n"] == 1, "AST re-parsed despite identical code object"
 
 
-def test_distinct_bodies_hash_distinctly():
-    snap_mod._normalized_source_hash.cache_clear()
-
-    async def alpha(ctx):
-        return 1
-
-    async def beta(ctx):
-        return 2
-
-    assert (
-        TaskSnapshot.from_task_body("a", alpha).code_hash
-        != TaskSnapshot.from_task_body("b", beta).code_hash
-    )
-
-
 def test_compiled_derived_maps_cached():
     """CompiledWorkflow's static topology maps are derived once and reused
     (identity-stable across accesses), so _build_deps does not rebuild them

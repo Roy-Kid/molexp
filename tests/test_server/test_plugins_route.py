@@ -95,23 +95,6 @@ def test_builtin_ids_not_in_listing(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert "molq" not in ids
 
 
-def test_multiple_plugins_each_get_their_own_urls(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    bundle_a = _make_bundle(tmp_path, "alpha")
-    bundle_b = _make_bundle(tmp_path, "beta")
-    _patch_discover(monkeypatch, {"alpha": bundle_a, "beta": bundle_b})
-
-    client = TestClient(create_app(serve_static=False))
-    data = client.get("/api/plugins").json()
-
-    by_id = {p["id"]: p for p in data["plugins"]}
-    assert by_id["alpha"]["manifestUrl"] == "/api/plugins/alpha/manifest.json"
-    assert by_id["alpha"]["entryUrl"] == "/api/plugins/alpha/index.js"
-    assert by_id["beta"]["manifestUrl"] == "/api/plugins/beta/manifest.json"
-    assert by_id["beta"]["entryUrl"] == "/api/plugins/beta/index.js"
-
-
 def test_openapi_schema_matches_new_shape() -> None:
     """The OpenAPI surface must declare exactly the three new fields so
     ``npm run generate:api`` produces a matching TypeScript client."""

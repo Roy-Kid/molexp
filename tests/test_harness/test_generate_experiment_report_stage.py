@@ -64,12 +64,6 @@ def stub(ctx):
     return ctx.agent_gateway
 
 
-def test_generate_experiment_report_name() -> None:
-    from molexp.harness.stages.generate_experiment_report import GenerateExperimentReport
-
-    assert GenerateExperimentReport.name == "generate_experiment_report"
-
-
 def test_generate_experiment_report_builds_correct_spec(ctx, user_plan_ref, stub) -> None:
     """The stage must hand the gateway a spec wired to the user_plan
     artifact and carrying ExperimentReport.model_json_schema()."""
@@ -131,27 +125,3 @@ def test_generate_experiment_report_wires_provenance(ctx, user_plan_ref, stub) -
     assert user_plan_ref.id in report_ref.parent_ids
     ancestors = ctx.lineage_store.trace_backward(report_ref.id)
     assert user_plan_ref.id in {r.id for r in ancestors}
-
-
-def test_generate_experiment_report_event_log_quartet(ctx, user_plan_ref, stub) -> None:
-    from molexp.harness.core.stage_runner import StageRunner
-    from molexp.harness.stages.generate_experiment_report import GenerateExperimentReport
-
-    stub.register(
-        agent_name="experiment_report_writer",
-        output={
-            "title": "t",
-            "objective": "o",
-            "system_description": "s",
-            "experimental_design": "e",
-        },
-    )
-    runner = StageRunner(ctx)
-    asyncio.run(runner.run_stage(GenerateExperimentReport()))
-    events = ctx.event_log.list_events("run-gen-report")
-    assert [e.type for e in events] == [
-        "stage_started",
-        "artifact_created",
-        "stage_completed",
-    ]
-    assert events[1].payload["kind"] == "experiment_report"

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import pytest
 import yaml
-from pydantic import ValidationError
 
 from molexp.workflow.codec import default_codec
 from molexp.workflow.contract import (
@@ -61,29 +60,7 @@ def _sample_contract() -> WorkflowContract:
 # ── contract_to_dict ⇄ dict_to_contract ────────────────────────────────────
 
 
-def test_contract_dict_roundtrip_is_field_equal() -> None:
-    contract = _sample_contract()
-    dumped = default_codec.contract_to_dict(contract)
-    rebuilt = default_codec.dict_to_contract(dumped)
-    assert rebuilt == contract
-
-
-def test_dict_to_contract_rejects_unknown_top_level_key() -> None:
-    dumped = default_codec.contract_to_dict(_sample_contract())
-    dumped["stray"] = 1
-    with pytest.raises(ValidationError):
-        default_codec.dict_to_contract(dumped)
-
-
 # ── ir_to_yaml ⇄ yaml_to_ir ────────────────────────────────────────────────
-
-
-def test_yaml_text_roundtrips_through_dict() -> None:
-    contract = _sample_contract()
-    dumped = default_codec.contract_to_dict(contract)
-    text = default_codec.ir_to_yaml(dumped)
-    parsed = default_codec.yaml_to_ir(text)
-    assert parsed == dumped
 
 
 def test_full_contract_yaml_chain_is_field_equal() -> None:
@@ -109,11 +86,6 @@ def test_yaml_to_ir_rejects_non_dict_root() -> None:
     """A list-rooted YAML doc isn't an IR shape; the loader rejects it."""
     with pytest.raises(ValueError):
         default_codec.yaml_to_ir("- a\n- b\n")
-
-
-def test_yaml_to_ir_rejects_scalar_root() -> None:
-    with pytest.raises(ValueError):
-        default_codec.yaml_to_ir("just-a-string\n")
 
 
 # ── Back-compat: old workflow IR (no contract) round-trips intact ──────────

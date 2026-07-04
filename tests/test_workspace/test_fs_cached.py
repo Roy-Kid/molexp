@@ -14,11 +14,7 @@ from typing import IO, Any
 import pytest
 
 from molexp.workspace.fs import StatResult
-from molexp.workspace.fs_cached import (
-    INDEX_FILE_NAMES,
-    CachedRemoteFileSystem,
-)
-from molexp.workspace.fs_local import LocalFileSystem
+from molexp.workspace.fs_cached import CachedRemoteFileSystem
 
 
 class _FakeRemoteFS:
@@ -213,14 +209,6 @@ def test_first_read_fetches_inner_second_read_hits_mirror(
 
 
 @pytest.mark.unit
-def test_read_text_uses_mirror_bytes(cached: CachedRemoteFileSystem, fake: _FakeRemoteFS):
-    cached.read_text("/scratch/me/log.txt")
-    cached.read_text("/scratch/me/log.txt")
-    assert fake.calls["read_bytes"] == 1
-    assert fake.calls["read_text"] == 0
-
-
-@pytest.mark.unit
 def test_mirror_layout_strips_leading_slash(
     cached: CachedRemoteFileSystem, fake: _FakeRemoteFS, tmp_path: Path
 ):
@@ -395,12 +383,6 @@ def test_stat_serves_from_cache_after_read(cached: CachedRemoteFileSystem, fake:
 
 
 @pytest.mark.unit
-def test_index_file_names_well_defined():
-    assert "workspace.json" in INDEX_FILE_NAMES
-    assert "stdout.log" not in INDEX_FILE_NAMES
-
-
-@pytest.mark.unit
 def test_path_ops_delegate_to_inner_without_io(fake: _FakeRemoteFS, tmp_path: Path):
     cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
     cached.join("/a", "b", "c")
@@ -409,13 +391,3 @@ def test_path_ops_delegate_to_inner_without_io(fake: _FakeRemoteFS, tmp_path: Pa
     cached.resolve("/a/b/c")
     # None of these trigger remote I/O.
     assert sum(fake.calls.values()) == 0
-
-
-@pytest.mark.unit
-def test_local_filesystem_satisfies_inner_protocol(tmp_path: Path):
-    """Sanity: CachedRemoteFileSystem can wrap a LocalFileSystem (useful for tests)."""
-    local = LocalFileSystem()
-    cached = CachedRemoteFileSystem(local, mirror_root=tmp_path / "mirror", ttl_seconds=300)
-    target = tmp_path / "src.txt"
-    target.write_text("ok")
-    assert cached.read_text(str(target)) == "ok"

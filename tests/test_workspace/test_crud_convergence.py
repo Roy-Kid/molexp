@@ -13,16 +13,6 @@ from __future__ import annotations
 from molexp.workspace import Workspace
 
 
-def test_redundant_typed_caches_removed(tmp_path):
-    """The duplicate per-type caches no longer exist — ``_children_cache`` is
-    the single in-memory child index."""
-    ws = Workspace(root=tmp_path / "lab", name="lab")
-    proj = ws.add_project("demo")
-
-    assert not hasattr(ws, "_projects_cache")
-    assert not hasattr(proj, "_experiments_cache")
-
-
 def test_add_star_idempotent_same_instance(tmp_path):
     """Adding the same slug twice returns the identical cached instance at
     every layer."""

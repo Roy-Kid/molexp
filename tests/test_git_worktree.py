@@ -87,19 +87,3 @@ async def test_add_lists_then_remove_and_prune(tmp_path: Path):
     await mgr.prune()
     listed_after = await mgr.list()
     assert all("wt-stale" not in str(p) for p in listed_after)
-
-
-@pytest.mark.asyncio
-async def test_remove_and_prune(tmp_path: Path):
-    """Combined: alias for the canonical close-out check (ac-002)."""
-    from molexp.git import GitWorktreeManager
-
-    seed = _init_seed_repo(tmp_path)
-    mgr = GitWorktreeManager(seed)
-    wt_path = tmp_path / "wt"
-    await mgr.add("claude/x", wt_path)
-    await mgr.remove(wt_path)
-    await mgr.prune()
-    assert not wt_path.exists()
-    listed = await mgr.list()
-    assert all("/wt" not in str(p) or "wt-" in str(p) for p in listed)

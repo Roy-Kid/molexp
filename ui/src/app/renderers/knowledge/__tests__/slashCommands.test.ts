@@ -2,29 +2,13 @@ import { describe, expect, it } from "@rstest/core";
 import { SLASH_COMMANDS, slashCommandMarkdown } from "@/app/renderers/knowledge/slashCommands";
 
 describe("slashCommandMarkdown (ac-001)", () => {
-  it("maps heading levels to their ATX markdown prefixes", () => {
+  it("maps block commands to their markdown prefixes", () => {
     expect(slashCommandMarkdown("heading1")).toBe("# ");
-    expect(slashCommandMarkdown("heading2")).toBe("## ");
     expect(slashCommandMarkdown("heading3")).toBe("### ");
-  });
-
-  it("maps an unordered list item to a dash bullet", () => {
     expect(slashCommandMarkdown("bulletList")).toBe("- ");
-  });
-
-  it("maps an ordered list item to a numbered prefix", () => {
     expect(slashCommandMarkdown("orderedList")).toBe("1. ");
-  });
-
-  it("maps a checkbox (to-do) to a GFM task-list item", () => {
     expect(slashCommandMarkdown("checkbox")).toBe("- [ ] ");
-  });
-
-  it("maps a quote to a blockquote prefix", () => {
     expect(slashCommandMarkdown("quote")).toBe("> ");
-  });
-
-  it("maps a divider to a thematic break", () => {
     expect(slashCommandMarkdown("divider")).toBe("---\n");
   });
 

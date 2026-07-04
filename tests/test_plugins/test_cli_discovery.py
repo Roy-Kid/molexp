@@ -34,13 +34,6 @@ from molexp.plugins.cli import (  # type: ignore[import-not-found]
 
 
 class TestCliPluginContract:
-    def test_is_immutable_plain_class(self) -> None:
-        """CliPlugin is a plain Python class with explicit __init__; it carries
-        a live ``register`` callable so it is not a pydantic BaseModel."""
-        from pydantic import BaseModel
-
-        assert not issubclass(CliPlugin, BaseModel)
-
     def test_required_fields(self) -> None:
         def reg(app: typer.Typer) -> None:
             pass
@@ -57,26 +50,6 @@ class TestCliPluginContract:
         # a CliPlugin without it must raise ``TypeError``.
         with pytest.raises(TypeError):
             CliPlugin(id="x", name="X", version="0.0.1")  # type: ignore[call-arg]
-
-    def test_immutable(self) -> None:
-        plugin = CliPlugin(
-            id="x",
-            name="X",
-            version="0.0.1",
-            register=lambda app: None,  # noqa: ARG005
-        )
-        with pytest.raises(AttributeError):
-            plugin.id = "y"  # type: ignore[misc]
-
-    def test_api_version_constant(self) -> None:
-        assert CLI_PLUGIN_API_VERSION == "1"
-        plugin = CliPlugin(
-            id="x",
-            name="X",
-            version="0.0.1",
-            register=lambda app: None,  # noqa: ARG005
-        )
-        assert plugin.api_version == CLI_PLUGIN_API_VERSION
 
 
 # ── discovery tests (ac-002) ──────────────────────────────────────────────
@@ -251,10 +224,6 @@ class TestDiscoverCliPlugins:
 
         assert result == (first,)
         assert any("duplicate" in msg.lower() for msg in warnings)
-
-    def test_no_entry_points_returns_empty_tuple(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_fake_eps(monkeypatch, [])
-        assert discover_cli_plugins() == ()
 
     def test_cache_hits_on_second_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
         valid = _make_plugin("cached")

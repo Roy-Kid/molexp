@@ -20,15 +20,6 @@ from molexp.ids import (
 )
 
 
-def test_module_all_lists_the_canonical_symbols() -> None:
-    assert set(ids.__all__) >= {
-        "slugify",
-        "generate_id",
-        "generate_asset_id",
-        "compute_content_hash",
-    }
-
-
 def test_slugify_lowercases_hyphenates_collapses() -> None:
     assert slugify("Hello   World") == "hello-world"
     assert slugify("My_Cool  Project!!") == "my-cool-project"

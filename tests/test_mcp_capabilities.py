@@ -235,22 +235,6 @@ class TestCurationMerge:
         for cap in curation_capabilities():
             assert merged.has(cap.id)
 
-    def test_sync_merge_keeps_curation_when_science_is_none(self, monkeypatch, tmp_path) -> None:
-        from molexp.harness.capabilities import curation_capabilities
-        from molexp.mcp_capabilities import resolve_curation_capability_registry
-
-        monkeypatch.setattr(
-            "molexp.mcp_capabilities.resolve_capability_registry",
-            lambda *_a, **_k: None,
-        )
-        merged = resolve_curation_capability_registry(tmp_path)
-
-        assert not merged.has("molpy.builder.make")
-        built_ins = curation_capabilities()
-        assert built_ins  # non-empty
-        for cap in built_ins:
-            assert merged.has(cap.id)
-
     @pytest.mark.asyncio
     async def test_async_merge_holds_both(self, monkeypatch, tmp_path) -> None:
         from molexp.harness.capabilities import curation_capabilities

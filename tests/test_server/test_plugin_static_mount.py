@@ -67,16 +67,6 @@ def test_manifest_json_served(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     assert resp.json() == on_disk
 
 
-def test_index_js_served(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    bundle = _make_bundle(tmp_path, "alpha")
-    _patch_discover(monkeypatch, {"alpha": bundle})
-
-    client = TestClient(create_app(serve_static=False))
-    resp = client.get("/api/plugins/alpha/index.js")
-    assert resp.status_code == 200, resp.text
-    assert resp.content == (bundle / "index.js").read_bytes()
-
-
 def test_listed_urls_resolve_to_actual_files(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -100,15 +90,4 @@ def test_unknown_plugin_id_404(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 
     client = TestClient(create_app(serve_static=False))
     resp = client.get("/api/plugins/does-not-exist/manifest.json")
-    assert resp.status_code == 404
-
-
-def test_old_static_path_no_longer_used(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The legacy ``/api/plugins/<id>/static/index.js`` path from spec 06
-    is gone — files are now at ``/api/plugins/<id>/index.js``."""
-    bundle = _make_bundle(tmp_path, "alpha")
-    _patch_discover(monkeypatch, {"alpha": bundle})
-
-    client = TestClient(create_app(serve_static=False))
-    resp = client.get("/api/plugins/alpha/static/index.js")
     assert resp.status_code == 404

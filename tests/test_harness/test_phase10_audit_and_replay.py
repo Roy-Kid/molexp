@@ -1,11 +1,10 @@
-"""Phase-10 tests: AuditReport + generate_audit_report + replay/resume."""
+"""Phase-10 tests: generate_audit_report + replay/resume."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 
 @pytest.fixture()
@@ -19,38 +18,6 @@ def stores(tmp_path: Path):
     e = SQLiteEventLog(path=db)
     p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
     return a, e, p
-
-
-# ============================================================ AuditReport
-
-
-def test_audit_report_frozen_and_defaults() -> None:
-    from molexp.harness.schemas.audit_report import AuditReport
-
-    r = AuditReport(run_id="r", summary="s")
-    assert r.root_artifact_id is None
-    assert r.final_artifact_ids == []
-    assert r.approvals == []
-    assert r.validation_results == []
-    assert r.failures == []
-    assert r.command_summaries == []
-    assert r.limitations == []
-    with pytest.raises(ValidationError):
-        r.summary = "mutated"  # type: ignore[misc]
-
-
-def test_audit_report_round_trip() -> None:
-    from molexp.harness.schemas.audit_report import AuditReport
-
-    r = AuditReport(
-        run_id="r",
-        summary="s",
-        approvals=[{"intent": "hpc_submission"}],
-        validation_results=["v1", "v2"],
-        failures=[{"stage": "x", "error": "y"}],
-    )
-    r2 = AuditReport.model_validate_json(r.model_dump_json())
-    assert r2 == r
 
 
 # ============================================================ generate_audit_report
@@ -124,13 +91,6 @@ def test_replay_metadata_returns_events_in_seq_order(stores) -> None:
 # ============================================================ find_last_successful_stage
 
 
-def test_find_last_empty_run(stores) -> None:
-    from molexp.harness.audit.replay import find_last_successful_stage
-
-    _a, e, _p = stores
-    assert find_last_successful_stage(e, "empty") is None
-
-
 def test_find_last_only_started(stores) -> None:
     from molexp.harness.audit.replay import find_last_successful_stage
 
@@ -171,12 +131,3 @@ def test_find_last_failure_of_same_stage_invalidates_its_completion(stores) -> N
     e.append(run_id="r", type="stage_started", actor="harness", payload={"stage": "A"})
     e.append(run_id="r", type="stage_failed", actor="harness", payload={"stage": "A"})
     assert find_last_successful_stage(e, "r") is None
-
-
-# ============================================================ surface
-
-
-def test_phase10_public_surface() -> None:
-    from molexp.harness import replay_metadata  # noqa: F401
-    from molexp.harness.audit import find_last_successful_stage, generate_audit_report  # noqa: F401
-    from molexp.harness.schemas import AuditReport  # noqa: F401

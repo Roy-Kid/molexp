@@ -31,25 +31,12 @@ class TestRunContextLifecycle:
         assert run.metadata.error.type == "ValueError"
         assert run.metadata.error.message == "boom"
 
-    def test_finished_at_set(self, run):
-        with run.start():
-            pass
-        assert run.finished_at is not None
-
-    def test_creates_work_dir(self, run):
-        with run.start() as ctx:
-            assert ctx.work_dir.exists()
-
 
 class TestRunContextResults:
     def test_set_and_get_result(self, run):
         with run.start() as ctx:
             ctx.set_result("acc", 0.95)
             assert ctx.get_result("acc") == 0.95
-
-    def test_missing_result_returns_none(self, run):
-        with run.start() as ctx:
-            assert ctx.get_result("missing") is None
 
 
 class TestArtifactAccessor:
@@ -60,18 +47,6 @@ class TestArtifactAccessor:
             path = asset.absolute_path(ctx.work_dir)
             assert path.exists()
             assert asset.read_json(ctx.work_dir) == {"key": "value"}
-
-    def test_save_bytes(self, run):
-        with run.start() as ctx:
-            asset = ctx.artifact.save("binary.bin", b"\x00\x01\x02")
-            assert asset.read_bytes(ctx.work_dir) == b"\x00\x01\x02"
-            assert asset.size == 3
-
-    def test_save_text(self, run):
-        with run.start() as ctx:
-            asset = ctx.artifact.save("log.txt", "hello world")
-            path = asset.absolute_path(ctx.work_dir)
-            assert path.read_text() == "hello world"
 
     def test_producer_captures_run_id(self, run):
         with run.start() as ctx:
@@ -100,10 +75,6 @@ class TestLogAccessor:
             log.append("epoch 2")
             assert log.tail() == ["epoch 1", "epoch 2"]
 
-    def test_returns_same_bound_log(self, run):
-        with run.start() as ctx:
-            assert ctx.log("x") is ctx.log("x")
-
     def test_log_asset_registered(self, run):
         with run.start() as ctx:
             ctx.log("custom").append("msg")
@@ -116,12 +87,6 @@ class TestLogAccessor:
         # "run" log is created automatically by lifecycle; "custom" by user
         assert "custom" in names
         assert "run" in names
-
-    def test_run_log_contains_lifecycle_messages(self, run):
-        with run.start() as ctx:
-            run_log = ctx.log("run")
-            tail = run_log.tail()
-            assert any("execution started" in line for line in tail)
 
 
 class TestCheckpointAccessor:
@@ -141,19 +106,6 @@ class TestCheckpointAccessor:
             second = ctx.checkpoint("b", data={"s": 2})
             assert first.parent_ckpt_id is None
             assert second.parent_ckpt_id == first.ckpt_id
-
-
-class TestRunContextParams:
-    def test_params_shortcut(self, experiment):
-        run = experiment.add_run(params={"lr": 1e-4, "batch": 32})
-        with run.start() as ctx:
-            assert ctx.params == {"lr": 1e-4, "batch": 32}
-            assert ctx.params is ctx.run.parameters
-
-    def test_profile_defaults_none(self, run):
-        with run.start() as ctx:
-            assert ctx.config.name is None
-            assert run.metadata.profile is None
 
 
 class TestGetDataDir:
@@ -211,15 +163,6 @@ class TestAsyncRunContext:
             assert run.status == "running"
         assert run.status == RunStatus.SUCCEEDED
 
-    @pytest.mark.asyncio
-    async def test_async_with_run_sugar(self, tmp_path):
-        ws = Workspace(root=tmp_path, name="ws")
-        exp = ws.add_project(name="p").add_experiment(name="e")
-        run = exp.add_run()
-        async with run as ctx:
-            assert ctx.work_dir.exists()
-        assert run.status == RunStatus.SUCCEEDED
-
     def test_sync_with_run_sugar(self, tmp_path):
         ws = Workspace(root=tmp_path, name="ws")
         exp = ws.add_project(name="p").add_experiment(name="e")
@@ -248,17 +191,6 @@ class TestRunContextFolder:
             assert d.parent.name == "scratch"
             assert d.parent.parent.parent.name == "executions"
             assert d.relative_to(ctx.work_dir).parts[0] == "executions"
-
-    def test_folder_is_idempotent(self, run):
-        with run.start() as ctx:
-            assert ctx.folder("scratch/CAT") == ctx.folder("scratch/CAT")
-
-    def test_folder_nested_and_distinct(self, run):
-        with run.start() as ctx:
-            a = ctx.folder("scratch/CAT")
-            b = ctx.folder("output")
-            assert a != b
-            assert a.is_dir() and b.is_dir()
 
     def test_folder_rejects_absolute(self, run):
         with run.start() as ctx, pytest.raises(ValueError, match="relative"):

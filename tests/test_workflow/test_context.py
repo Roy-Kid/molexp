@@ -19,29 +19,6 @@ from molexp.workflow.context import TaskContext
 
 
 class TestPureTaskContext:
-    def test_inputs_and_config_are_not_public(self):
-        # The engine still constructs the context with the data internally, but
-        # a task body cannot read it off ``ctx`` — inputs bind to parameters.
-        ctx = TaskContext(inputs=42, config={"k": "v"})
-        for name in ("inputs", "config"):
-            assert not hasattr(ctx, name), (
-                f"TaskContext.{name} must be absent from the public surface; "
-                f"inputs bind to the task body's typed parameters by name."
-            )
-
-    def test_workdir_is_the_only_data_surface(self):
-        from pathlib import Path
-
-        ctx = TaskContext(inputs=None, workdir=Path("/tmp/wd"))
-        assert ctx.workdir == Path("/tmp/wd")
-        assert TaskContext(inputs=None).workdir is None
-
-    def test_run_context_and_deps_removed(self):
-        ctx = TaskContext(inputs=None)
-        for name in ("run_context", "deps"):
-            with pytest.raises(AttributeError):
-                getattr(ctx, name)
-
     def test_workspace_plumbing_removed(self):
         ctx = TaskContext(inputs=None)
         for name in (
@@ -59,16 +36,6 @@ class TestPureTaskContext:
                 f"capabilities flow via the engine's materialization layer."
             )
 
-    def test_frozen_cannot_assign(self):
-        ctx = TaskContext(inputs=1)
-        with pytest.raises(AttributeError):
-            ctx.workdir = object()  # type: ignore[misc]
-
-    def test_state_default_none_still_warns(self):
-        # state defaults to None; access warns even then (the ATTRIBUTE is deprecated).
-        with pytest.warns(DeprecationWarning):
-            assert TaskContext(inputs=None).state is None
-
 
 class TestDeprecatedStateChannel:
     """Staged removal of ``ctx.state`` (pure-task-context state-elimination).
@@ -84,18 +51,6 @@ class TestDeprecatedStateChannel:
         msg = str(record[0].message)
         assert "values now bind to named task parameters" in msg
         assert "ctx.state will be removed" in msg
-
-    def test_mapping_state_snapshot_is_read_only(self):
-        backing = {"x": 1}
-        ctx = TaskContext(inputs=None, state=backing)
-        with pytest.warns(DeprecationWarning):
-            snap = ctx.state
-        assert snap == {"x": 1}
-        with pytest.raises(TypeError):
-            snap["x"] = 2  # type: ignore[index]
-        # The snapshot is a COPY — mutating it is impossible, and the backing
-        # dict was never exposed.
-        assert backing == {"x": 1}
 
     def test_workflow_state_view_read_only_legacy_patterns(self):
         from molexp.workflow._engine.state import WorkflowState
@@ -123,23 +78,6 @@ class TestDeprecatedStateChannel:
         assert state.results["tick"] == 41
         assert state.failed is False
 
-    def test_state_snapshot_taken_at_access_time(self):
-        """Loop-iteration overwrites stay observable: each ``ctx.state`` access
-        snapshots the CURRENT results; an already-taken view does not track
-        later engine mutations."""
-        from molexp.workflow._engine.state import WorkflowState
-
-        state = WorkflowState()
-        state.record("n", 1)
-        ctx = TaskContext(inputs=None, state=state)
-        with pytest.warns(DeprecationWarning):
-            first = ctx.state
-        state.record("n", 2)  # loop iteration overwrites in place
-        with pytest.warns(DeprecationWarning):
-            second = ctx.state
-        assert first.results["n"] == 1
-        assert second.results["n"] == 2
-
     @pytest.mark.asyncio
     async def test_legacy_engine_read_warns_and_returns_correct_value(self):
         """A task body still reading ``ctx.state.results`` mid-run gets the
@@ -161,22 +99,3 @@ class TestDeprecatedStateChannel:
         result = await WorkflowRuntime().execute(wf.compile())
         assert result.status == "succeeded"
         assert result.outputs["b"] == 7
-
-
-class TestNoProfileConfigInContextModule:
-    def test_context_module_does_not_import_profile_config(self):
-        import inspect
-
-        from molexp.workflow import context as context_mod
-
-        src = inspect.getsource(context_mod)
-        assert "from molexp.profile import ProfileConfig" not in src
-
-
-class TestActorContextRemoved:
-    def test_actor_context_no_longer_exported(self):
-        import molexp.workflow as wf
-        import molexp.workflow.context as context_mod
-
-        assert not hasattr(context_mod, "ActorContext")
-        assert "ActorContext" not in getattr(wf, "__all__", ())

@@ -145,19 +145,6 @@ def test_mode_run_rejects_empty_stage_list(run) -> None:
         asyncio.run(mode.run(run=run, user_input={}))
 
 
-def test_mode_run_single_stage_pipeline(run) -> None:
-    """ac-007 edge case: a single-stage pipeline produces one artifact + final."""
-    counter: dict[str, int] = {}
-    mode = _make_mode(lambda _ui: [CountingStage("Solo", counter, kind="log")])
-
-    result = asyncio.run(mode.run(run=run, user_input={}))
-
-    assert counter == {"Solo": 1}
-    assert len(result.stage_artifacts) == 1
-    assert result.final_artifact is not None
-    assert result.final_artifact.id == result.stage_artifacts[0].id
-
-
 # ──────────────────────────────────────── ac-009: identical re-run hits cache
 
 

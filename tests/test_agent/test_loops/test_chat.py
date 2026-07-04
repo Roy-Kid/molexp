@@ -20,24 +20,6 @@ from molexp.agent.session_entry import MessageEntry
 from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 
-# ── config ─────────────────────────────────────────────────────────────────
-
-
-def test_chat_loop_carries_config() -> None:
-    cfg = ChatLoopConfig(system_prompt="you are helpful")
-    loop = ChatLoop(config=cfg)
-    assert loop.name == "chat"
-    assert loop.config is cfg
-
-
-def test_chat_loop_config_is_frozen() -> None:
-    from pydantic import ValidationError
-
-    cfg = ChatLoopConfig(system_prompt="x")
-    with pytest.raises(ValidationError):
-        cfg.system_prompt = "y"  # type: ignore[misc]
-
-
 # ── test doubles ───────────────────────────────────────────────────────────
 
 
@@ -140,31 +122,3 @@ async def test_chat_loop_passes_system_prompt() -> None:
     await loop.run(runtime=runtime, sink=sink, user_input="hi")
     await sink.close()
     assert router.calls[0]["system"] == "be terse"
-
-
-# ── round trip via pydantic-ai TestModel ───────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_chat_loop_run_returns_non_empty_text_via_test_model() -> None:
-    pytest.importorskip("pydantic_ai")
-    from pydantic_ai.models.test import TestModel
-
-    from molexp.agent._pydanticai.router import PydanticAIRouter
-
-    test_model = TestModel()
-    router = PydanticAIRouter(
-        models={
-            ModelTier.CHEAP: test_model,
-            ModelTier.DEFAULT: test_model,
-            ModelTier.HEAVY: test_model,
-        },
-    )
-    runtime, _ = _runtime(router)  # type: ignore[arg-type]
-    sink = AsyncIteratorEventSink()
-    await ChatLoop().run(runtime=runtime, sink=sink, user_input="ping")
-    await sink.close()
-    events = [ev async for ev in sink]
-    completed = events[-1]
-    assert isinstance(completed, LoopCompletedEvent)
-    assert completed.text

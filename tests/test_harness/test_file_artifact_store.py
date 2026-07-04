@@ -68,18 +68,6 @@ def test_put_json_sha256_matches_workspace_compute(store, store_root: Path) -> N
     assert ":" not in ref.sha256
 
 
-def test_put_text_sha256_matches_workspace_compute(store, store_root: Path) -> None:
-    ref = store.put_text(
-        kind="log",
-        text="hello harness\n",
-        created_by="harness",
-        parent_ids=[],
-    )
-    content_path = store_root / "log" / f"{ref.id}.txt"
-    expected = compute_content_hash(content_path).removeprefix("sha256:")
-    assert ref.sha256 == expected
-
-
 def test_put_file_sha256_matches_workspace_compute(store, store_root: Path, tmp_path: Path) -> None:
     src = tmp_path / "trajectory.dcd"
     src.write_bytes(b"FAKE-DCD-PAYLOAD" * 100)
@@ -105,12 +93,6 @@ def test_put_json_is_idempotent_on_identical_content(store) -> None:
     # list_by_kind should not duplicate.
     refs = store.list_by_kind("workflow_ir")
     assert len(refs) == 1
-
-
-def test_put_text_is_idempotent_on_identical_content(store) -> None:
-    ref1 = store.put_text(kind="log", text="abc\n", created_by="harness", parent_ids=[])
-    ref2 = store.put_text(kind="log", text="abc\n", created_by="harness", parent_ids=[])
-    assert ref1.id == ref2.id
 
 
 def test_same_content_different_kinds_yields_distinct_ids(store) -> None:
@@ -186,13 +168,6 @@ def test_list_by_kind_returns_creation_order(store) -> None:
     c = store.put_json(kind="log", obj={"i": 2}, created_by="harness", parent_ids=[])
     refs = store.list_by_kind("log")
     assert [r.id for r in refs] == [a.id, b.id, c.id]
-
-
-def test_list_by_kind_isolates_kinds(store) -> None:
-    store.put_json(kind="log", obj={"i": 0}, created_by="harness", parent_ids=[])
-    store.put_json(kind="workflow_ir", obj={"i": 0}, created_by="harness", parent_ids=[])
-    assert len(store.list_by_kind("log")) == 1
-    assert len(store.list_by_kind("workflow_ir")) == 1
 
 
 def test_put_json_round_trips_unknown_kind(store, store_root: Path) -> None:

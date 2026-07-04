@@ -230,32 +230,3 @@ def test_out_of_bounds_target_fails_loud_no_mutation(tmp_path: Path) -> None:
 
     with pytest.raises(OutOfAffectedScopeError):
         assert_within_affected_scope(proposal, [ObjectRef(kind="experiment", id="e2")])
-
-
-def test_reorg_failure_recorded_as_failed(tmp_path: Path) -> None:
-    """ac-007 — a reorg that raises surfaces as status=failed via the executor."""
-    ws = _workspace(tmp_path)
-    # create a colliding run r1 under e2 so move_run r1 → e2 raises a collision
-    ws.get_project("p").get_experiment("e2").add_run(id="r1")
-    ctx = _ctx(tmp_path)
-    proposal = _proposal(
-        "asset_move",
-        affected=[ObjectRef(kind="run", id="r1"), ObjectRef(kind="experiment", id="e2")],
-        payload={
-            "curation_op": "move_run",
-            "target_experiment": {"kind": "experiment", "id": "e2"},
-        },
-    )
-    outcome = asyncio.run(_curation_executor().dispatch(ctx, proposal))
-    assert outcome.status == "failed"
-
-
-def test_register_binds_both_ops() -> None:
-    """ac-008 — register_curation_handlers binds asset_move + artifact_delete."""
-    from molexp.harness.actions import ChangeActionRegistry
-    from molexp.harness.actions.handlers import register_curation_handlers
-
-    registry = ChangeActionRegistry()
-    register_curation_handlers(registry)
-    assert registry.has("asset_move")
-    assert registry.has("artifact_delete")

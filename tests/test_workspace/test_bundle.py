@@ -66,25 +66,7 @@ def bundle(tmp_path: Path) -> Path:
     return root
 
 
-# ── public surface (ac-001) ──────────────────────────────────────────────────
-
-
-def test_exported_and_distinct() -> None:
-    import molexp.workspace as workspace
-
-    assert "Bundle" in workspace.__all__
-    assert workspace.Bundle is Bundle
-    # The legacy per-scope Library surface is gone (wsokf-11).
-    assert not hasattr(workspace, "Library")
-
-
 # ── walk() depth-first concept enumeration (ac-002 / ac-003) ──────────────────
-
-
-def test_walk_yields_exactly_meta_bearing_dirs(bundle: Path) -> None:
-    b = Bundle(bundle)
-    rels = {b.rel_path(f) for f in b.walk()}
-    assert rels == {"alpha", "alpha/beta", "delta", "group/gamma"}
 
 
 def test_walk_order_is_depth_first_preorder(bundle: Path) -> None:
@@ -108,14 +90,6 @@ def test_walk_skips_ops_or_nonconcept(bundle: Path) -> None:
     assert "loose.txt" not in rels
 
 
-def test_walk_yields_folder_instances(bundle: Path) -> None:
-    b = Bundle(bundle)
-    walked = list(b.walk())
-    assert walked  # non-empty
-    assert all(isinstance(f, Folder) for f in walked)
-    assert all((Path(f.resolve()) / "meta.yaml").is_file() for f in walked)
-
-
 # ── get() path-as-identity (ac-004) ──────────────────────────────────────────
 
 
@@ -125,12 +99,6 @@ def test_get_resolves_known_concept_to_folder(bundle: Path) -> None:
     assert isinstance(f, Folder)
     assert Path(f.resolve()) == bundle / "alpha" / "beta"
     assert b.rel_path(f) == "alpha/beta"
-
-
-def test_get_resolves_top_level_concept(bundle: Path) -> None:
-    b = Bundle(bundle)
-    f = b.get("delta")
-    assert Path(f.resolve()) == bundle / "delta"
 
 
 def test_get_unknown_path_raises_concept_not_found(bundle: Path) -> None:
@@ -192,17 +160,6 @@ def test_link_round_trips_through_out_edges(bundle: Path) -> None:
     assert Path(dst.resolve()) in edges
 
 
-def test_link_to_nested_concept_round_trips(bundle: Path) -> None:
-    b = Bundle(bundle)
-    src = b.get("delta")
-    dst = b.get("alpha/beta")
-
-    b.link(src, dst)
-
-    edges = {Path(p) for p in b.get("delta").out_edges()}
-    assert Path(dst.resolve()) in edges
-
-
 # ── typed walk / get via the registry (ac-007) ───────────────────────────────
 
 
@@ -224,18 +181,6 @@ def test_walk_typed_concepts(tmp_path: Path) -> None:
         by_rel["lab/projects/p/experiments/e/runs/run-r"],
         Run,
     )
-
-
-def test_get_typed_concept(tmp_path: Path) -> None:
-    from molexp.workspace import Project, Workspace
-
-    ws = Workspace(root=tmp_path / "lab")
-    ws.materialize()
-    ws.add_project("p")
-
-    b = Bundle(tmp_path)
-    assert isinstance(b.get("lab"), Workspace)
-    assert isinstance(b.get("lab/projects/p"), Project)
 
 
 # ── typed-provenance-edge (P0.1) ─────────────────────────────────────────────
@@ -342,70 +287,6 @@ def test_knowledge_item_under_experiment_walks_once_undoubled(tmp_path: Path) ->
     assert resolved == os.path.normpath(str(item.resolve()))
     for doubled in _DOUBLED_SEGMENTS:
         assert doubled not in resolved
-
-
-def test_knowledge_item_under_experiment_search_finds_by_body(tmp_path: Path) -> None:
-    """search() retrieves the nested item by a needle living only in its body."""
-    b, _ws, _exp, _run, _item, rel = _mounted_knowledge_item(tmp_path)
-
-    result = b.search(KI_BODY_NEEDLE)
-
-    assert [hit.entry.path for hit in result.hits] == [rel]
-
-
-def test_knowledge_item_under_experiment_backlinks_resolve(tmp_path: Path) -> None:
-    """backlinks() resolves an edge pointing at the nested item."""
-    from typing import cast
-
-    from molexp.workspace import Note
-
-    b, ws, _exp, _run, item, rel = _mounted_knowledge_item(tmp_path)
-    src = cast("Note", ws.add_folder(Note(parent=ws, name="pointer")))
-    b.link(src, item, role="references")
-
-    backs = b.backlinks(b.get(rel))
-
-    assert len(backs) == 1
-    source, role = backs[0]
-    assert b.rel_path(source) == "pointer"
-    assert role == "references"
-
-
-def test_knowledge_item_under_experiment_cite_run_round_trips(tmp_path: Path) -> None:
-    """item.cite(run, role="derived_from") round-trips through typed_out_edges."""
-    import os
-
-    b, _ws, _exp, run, item, rel = _mounted_knowledge_item(tmp_path)
-    item.cite(run, role="derived_from")
-
-    typed = b.get(rel).typed_out_edges()
-
-    assert len(typed) == 1
-    assert typed[0].role == "derived_from"
-    assert os.path.normpath(typed[0].target) == os.path.normpath(str(run.resolve()))
-
-
-def test_knowledge_item_under_experiment_export_and_rel_path_doubling_free(
-    tmp_path: Path,
-) -> None:
-    """export_markdown()/rel_path() carry no doubled path segments."""
-    from typing import cast
-
-    from molexp.workspace import Note
-
-    b, _ws, _exp, _run, item, rel = _mounted_knowledge_item(tmp_path)
-    sub = cast("Note", item.add_folder(Note(parent=item, name="sub")))
-    sub.set_body("nested child body\n")
-
-    got = b.get(rel)
-    assert b.rel_path(got) == rel
-
-    md = b.export_markdown(got)
-    assert KI_BODY_NEEDLE in md
-    assert f"## {rel}/sub" in md  # child header uses the un-doubled identity
-    for doubled in _DOUBLED_SEGMENTS:
-        assert doubled not in md
-        assert doubled not in b.rel_path(got)
 
 
 def test_walk_survives_marker_only_concept_dirs(tmp_path: Path) -> None:

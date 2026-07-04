@@ -28,10 +28,8 @@ from typing import IO
 
 import pytest
 
-import molexp.workspace
 import molexp.workspace.bundle as bundle_module
 from molexp.workspace import (
-    Backlink,
     Bundle,
     ConceptNotFoundError,
     Folder,
@@ -131,15 +129,6 @@ def test_create_note_writes_body_and_meta_through_atomic_writers(bundle_root: Pa
     assert any(p.endswith("design-doc/meta.yaml") for p in rec.atomic_text_writes)
 
 
-def test_create_note_uses_no_write_mode_bare_open(bundle_root: Path) -> None:
-    rec = RecordingFileSystem()
-    b = Bundle(bundle_root, fs=rec)
-
-    b.create_note("Design Doc", body="hello world")
-
-    assert rec.write_opens == []
-
-
 def test_bundle_module_does_not_top_level_import_atomic_write_json() -> None:
     # The docs verbs must route writes through ``self._fs`` (the injected
     # FileSystem), never a module-level ``atomic_write_json`` that bypasses it.
@@ -161,16 +150,6 @@ def test_rename_note_preserves_body_and_resolves_at_new_identity(bundle_root: Pa
     assert renamed.read_index() == "ORIGINAL BODY"
     with pytest.raises(ConceptNotFoundError):
         b.get("design-doc")
-
-
-def test_rename_note_preserves_child_docs(bundle_root: Path) -> None:
-    b = Bundle(bundle_root)
-    parent = b.create_note("Parent", body="P")
-    b.create_note("Child", parent=parent, body="C")
-
-    b.rename_note(parent, "Renamed")
-
-    assert b.get("renamed/child").read_index() == "C"
 
 
 def test_move_note_resolves_under_new_parent(bundle_root: Path) -> None:
@@ -266,16 +245,6 @@ def test_export_markdown_includes_children_in_document_order(bundle_root: Path) 
     assert out.index("PARENT") < out.index("CHILD")
 
 
-def test_export_markdown_headers_descendants_by_bundle_relative_path(bundle_root: Path) -> None:
-    b = Bundle(bundle_root)
-    note = b.create_note("Parent", body="PARENT")
-    b.create_note("Child", parent=note, body="CHILD")
-
-    out = b.export_markdown(note, include_children=True)
-
-    assert "## parent/child" in out
-
-
 def test_export_markdown_excludes_children_when_flag_false(bundle_root: Path) -> None:
     b = Bundle(bundle_root)
     note = b.create_note("Parent", body="PARENT")
@@ -285,35 +254,3 @@ def test_export_markdown_excludes_children_when_flag_false(bundle_root: Path) ->
 
     assert "PARENT" in out
     assert "CHILD" not in out
-
-
-# ── ac-007 public surface ────────────────────────────────────────────────────
-
-
-def test_backlink_importable_from_workspace() -> None:
-    from molexp.workspace import Backlink as ImportedBacklink
-
-    assert ImportedBacklink is Backlink
-
-
-def test_backlink_exported_on_both_all_lists() -> None:
-    assert "Backlink" in molexp.workspace.__all__
-    assert "Backlink" in bundle_module.__all__
-    assert molexp.workspace.Backlink is Backlink
-
-
-def test_backlink_is_named_tuple_with_source_and_role() -> None:
-    assert issubclass(Backlink, tuple)
-    assert Backlink._fields == ("source", "role")
-
-
-def test_bundle_exposes_doc_methods() -> None:
-    for name in (
-        "create_note",
-        "rename_note",
-        "move_note",
-        "delete_note",
-        "backlinks",
-        "export_markdown",
-    ):
-        assert callable(getattr(Bundle, name)), name

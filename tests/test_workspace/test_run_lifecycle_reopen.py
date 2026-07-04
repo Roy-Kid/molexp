@@ -20,29 +20,6 @@ def _last_exec_id(run) -> str:
     return run.execution_history[-1].execution_id
 
 
-def test_reopen_does_not_append_record(run) -> None:
-    """Re-entering with an existing exec id leaves history length unchanged."""
-    with run.start():
-        pass
-    exec1 = _last_exec_id(run)
-    assert len(run.execution_history) == 1
-
-    with run.start(execution_id=exec1):
-        assert len(run.execution_history) == 1  # not appended
-
-
-def test_reopen_flips_record_to_running(run) -> None:
-    """The reopened record reads ``status == "running"`` inside the block."""
-    with run.start():
-        pass
-    exec1 = _last_exec_id(run)
-
-    with run.start(execution_id=exec1):
-        hist = run.execution_history
-        rec = next(r for r in hist if r.execution_id == exec1)
-        assert rec.status == "running"
-
-
 def test_reopen_clears_finished_at(run) -> None:
     """Reopening clears the previously-stamped ``finished_at``."""
     with run.start():

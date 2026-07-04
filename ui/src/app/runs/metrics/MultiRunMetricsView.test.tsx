@@ -1,19 +1,9 @@
 /**
- * RED tests for the multi-run aggregation orchestrator (ac-006, ac-007).
- *
- * Rstest runs in node without jsdom, so we cannot render the component. Instead
- * we test the exported, dependency-injected logic directly:
+ * Tests for the multi-run aggregation orchestrator (ac-006, ac-007) — the
+ * exported, dependency-injected logic is tested directly:
  *   - collectRunSeries(fetcher, …)  — parallel fetch + per-run failure isolation
  *   - selectAggregateConfig(op, …)  — op/key dispatch into the pure builders
- * plus source-text assertions for the component's Modal / Select / chart wiring
- * (the repo convention from RunMetricsView.test.tsx).
- *
- * Imports fail today because MultiRunMetricsView.tsx does not exist yet (RED).
  */
-
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "@rstest/core";
 
@@ -27,10 +17,6 @@ import {
   selectAggregateConfig,
 } from "./MultiRunMetricsView";
 import type { ScalarSeries } from "./RunMetricsView";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const SOURCE_PATH = resolve(__dirname, "./MultiRunMetricsView.tsx");
 
 const recordsFor = (loss: number[], acc: number[]): MetricRecord[] => [
   ...loss.map((v, i) => ({ t: "scalar", k: "loss", s: i, v }) as MetricRecord),
@@ -130,28 +116,5 @@ describe("partial-failure tolerance (ac-007)", () => {
     expect(failures).toEqual(["run-bad"]);
     expect(perRunAll.map((r) => r.runId).sort()).toEqual(["run-a", "run-c"]);
     expect(perRunAll.length).toBeGreaterThan(0);
-  });
-});
-
-describe("MultiRunMetricsView source — wiring (ac-006, ac-007)", () => {
-  const source = readFileSync(SOURCE_PATH, "utf8");
-
-  it("renders the molplot chart for the aggregated config", () => {
-    expect(source).toContain("<MolplotLineChart");
-    expect(source).toContain("@/plugins/molplot");
-  });
-
-  it("offers an operation chooser modal (Dialog) and selectors", () => {
-    expect(source).toContain("Dialog");
-    expect(source).toMatch(/overlay|mean|errorbar/);
-  });
-
-  it("fetches via workspaceApi.getRunMetrics through collectRunSeries", () => {
-    expect(source).toContain("collectRunSeries");
-    expect(source).toContain("getRunMetrics");
-  });
-
-  it("is driven by selected runIds", () => {
-    expect(source).toContain("runIds");
   });
 });

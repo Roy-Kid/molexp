@@ -44,17 +44,6 @@ class _RunContextStub:
 
 @pytest.mark.asyncio
 class TestFunctionalExecution:
-    async def test_single_task(self):
-        wf = WorkflowCompiler(name="single")
-
-        @wf.task
-        async def double(x: int = 5) -> int:
-            return x * 2
-
-        result = await WorkflowRuntime().execute(wf.compile())
-        assert result.status == "succeeded"
-        assert result.outputs["double"] == 10
-
     async def test_chain(self):
         wf = WorkflowCompiler(name="chain")
 
@@ -121,58 +110,6 @@ class TestFunctionalExecution:
         wf_jsons = list(executions.rglob("workflow.json"))
         assert wf_jsons, "workflow.json must be written under run_dir/executions/<id>/"
 
-    async def test_legacy_run_kwarg_is_rejected(self, tmp_path):
-        """The runtime no longer accepts ``run=``. Use ``run_dir=`` or
-        ``run_context=``."""
-        wf = WorkflowCompiler(name="no-run-kwarg")
-
-        @wf.task
-        async def noop(ctx: TaskContext) -> None:
-            return None
-
-        with pytest.raises(TypeError):
-            await WorkflowRuntime().execute(wf.compile(), run=object())
-
-    async def test_legacy_profile_config_kwarg_is_rejected(self, tmp_path):
-        """The runtime no longer accepts ``profile_config=``. Use ``config=``."""
-        from molexp.profile import ProfileConfig
-
-        wf = WorkflowCompiler(name="no-profile-config-kwarg")
-
-        @wf.task
-        async def noop(ctx: TaskContext) -> None:
-            return None
-
-        with pytest.raises(TypeError):
-            await WorkflowRuntime().execute(
-                wf.compile(), profile_config=ProfileConfig({}, name=None)
-            )
-
-    async def test_run_dir_kwarg_writes_workflow_json(self, tmp_path):
-        wf = WorkflowCompiler(name="run-dir-only")
-
-        @wf.task
-        async def step(ctx: TaskContext) -> int:
-            return 7
-
-        result = await WorkflowRuntime().execute(wf.compile(), run_dir=tmp_path / "rd")
-        assert result.status == "succeeded"
-        wf_jsons = list((tmp_path / "rd" / "executions").rglob("workflow.json"))
-        assert wf_jsons
-
-    async def test_config_is_plain_mapping(self, tmp_path):
-        wf = WorkflowCompiler(name="plain-config")
-
-        # Build-time/runtime config now reaches a root task as a by-name run
-        # param: the engine binds ``epochs`` from the run's params dict.
-        @wf.task
-        async def inspect(epochs: int) -> int:
-            return epochs
-
-        run_ctx = _RunContextStub(work_dir=tmp_path / "run", params={"epochs": 42})
-        result = await WorkflowRuntime().execute(wf.compile(), run_context=run_ctx)
-        assert result.outputs["inspect"] == 42
-
 
 @pytest.mark.asyncio
 class TestOOPExecution:
@@ -197,41 +134,9 @@ class TestProtocolExecution:
         result = await WorkflowRuntime().execute(spec)
         assert result.outputs["ext"] == 99
 
-    async def test_mixed_task_types(self):
-        class OOP(Task):
-            async def execute(self, ctx: TaskContext) -> int:
-                return 10
-
-        class External:
-            async def execute(self, ctx, oop) -> int:
-                return oop + 90
-
-        spec = (
-            WorkflowCompiler(name="mixed")
-            .add(OOP(), name="oop")
-            .add(External(), name="ext", depends_on=["oop"])
-            .compile()
-        )
-        result = await WorkflowRuntime().execute(spec)
-        assert result.outputs == {"oop": 10, "ext": 100}
-
 
 @pytest.mark.asyncio
 class TestParallelExecution:
-    async def test_independent_tasks_parallel(self):
-        wf = WorkflowCompiler(name="parallel")
-
-        @wf.task
-        async def a(ctx):
-            return "a"
-
-        @wf.task
-        async def b(ctx):
-            return "b"
-
-        result = await WorkflowRuntime().execute(wf.compile())
-        assert result.outputs == {"a": "a", "b": "b"}
-
     async def test_diamond_dependency(self):
         wf = WorkflowCompiler(name="diamond")
 

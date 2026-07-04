@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 
-from molexp.harness import Mode, ModeResult, PlanMode
+from molexp.harness import ModeResult, PlanMode
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.schemas import ExecutionResult, WorkflowSource
+from molexp.harness.schemas import ExecutionResult
 from molexp.harness.stages.approval_gate import auto_grant_approver
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
@@ -247,13 +247,6 @@ def _fixture_gateway(run, *, test_source: Mapping[str, object] | None = None) ->
 
 
 class TestPlanModeShape:
-    def test_plan_mode_is_a_mode_subclass_exported(self) -> None:
-        import molexp.harness as harness
-
-        assert issubclass(PlanMode, Mode)
-        assert "PlanMode" in harness.__all__
-        assert not hasattr(harness, "RunMode"), "RunMode is retired"
-
     def test_plan_mode_declares_the_nine_step_sequence(self) -> None:
         names = [s.name for s in PlanMode().stages("draft")]
         assert names == [
@@ -385,17 +378,6 @@ class TestTestCodeRepairChain:
     of failing the whole plan (production: `from __future__` emitted at line
     98 cost a full re-run)."""
 
-    def test_test_code_chain_is_a_repair_loop_matching_the_shared_budget(self) -> None:
-        from molexp.harness.stages import GenerateTestCode, RepairLoop, ValidateTestSource
-
-        stages = {s.name: s for s in PlanMode().stages("draft")}
-        loop = stages["generate_test_code"]
-        assert isinstance(loop, RepairLoop)
-        assert isinstance(loop._generate, GenerateTestCode)
-        assert [type(v) for v in loop._validators] == [ValidateTestSource]
-        assert loop._feedback_kind == "test_code_feedback"
-        assert loop._attempts == stages["generate_test_spec"]._attempts == 4
-
     @pytest.mark.integration
     def test_test_code_repair_feeds_violations_back_and_converges(self, tmp_path: Path) -> None:
         """Stubbed LLM emits a non-compiling module first, then a valid one:
@@ -510,20 +492,6 @@ class TestPlanModeRun:
         )
         ancestors = {ref.id for ref in provenance.trace_backward(src_ref.id)}
         assert user_plan_ref.id in ancestors
-
-    @pytest.mark.integration
-    def test_recoverable_workflow_source(self, tmp_path: Path) -> None:
-        run = _make_run(tmp_path)
-        gateway = _fixture_gateway(run)
-        store = FileArtifactStore(root=run.run_dir / "artifacts")
-
-        result = asyncio.run(
-            PlanMode(approver=auto_grant_approver).run(run=run, user_input=_DRAFT, gateway=gateway)
-        )
-        src_refs = [a for a in result.stage_artifacts if a.kind == "workflow_source"]
-        assert len(src_refs) == 1
-        ws_obj = WorkflowSource.model_validate_json(store.get(src_refs[0].id))
-        assert "build_workflow" in ws_obj.source
 
 
 # ───────────────────────────────────────────── --execute tail (real run)

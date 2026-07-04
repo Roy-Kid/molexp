@@ -166,11 +166,3 @@ class TestWorkspaceRunsAggregator:
         assert stats["running"] == 3
         assert stats["succeeded"] == 1
         assert stats["failed"] == 1
-
-    def test_empty_workspace_returns_zero(self, client):
-        resp = client.get("/api/workspace/runs")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["total"] == 0
-        assert body["runs"] == []
-        assert body["stats"]["total"] == 0

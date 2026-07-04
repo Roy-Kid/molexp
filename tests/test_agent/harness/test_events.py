@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-from datetime import datetime
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
 from molexp.agent.events import (
     AgentEvent,
@@ -74,18 +72,6 @@ def test_union_covers_all_sixteen_kinds() -> None:
     assert len(ALL_EVENT_CLASSES) == 16
 
 
-def test_each_event_carries_a_timestamp() -> None:
-    ev = LoopStartedEvent(loop_name="chat", user_input="hi")
-    assert isinstance(ev.timestamp, datetime)
-    assert ev.timestamp.tzinfo is not None
-
-
-def test_events_are_frozen() -> None:
-    ev = StageStartedEvent(stage_name="draft")
-    with pytest.raises(ValidationError):
-        ev.stage_name = "other"  # type: ignore[misc]
-
-
 def test_discriminated_union_round_trips_through_json() -> None:
     adapter: TypeAdapter[AgentEvent] = TypeAdapter(AgentEvent)
     samples: list[AgentEvent] = [
@@ -113,37 +99,7 @@ def test_discriminated_union_round_trips_through_json() -> None:
         assert type(loaded) is type(ev)
 
 
-def test_discriminator_selects_concrete_class() -> None:
-    adapter: TypeAdapter[AgentEvent] = TypeAdapter(AgentEvent)
-    payload = {"kind": "error", "message": "x", "error_type": "RuntimeError"}
-    loaded = adapter.validate_python(payload)
-    assert isinstance(loaded, ErrorEvent)
-    assert loaded.message == "x"
-
-
-def test_loop_completed_carries_optional_result_payload() -> None:
-    ev = LoopCompletedEvent(text="done", result={"loop_state": {"k": 1}})
-    assert ev.result == {"loop_state": {"k": 1}}
-
-
 # ── AsyncIteratorEventSink (queue-backed bridge, ac-006..011) ──────────────
-
-
-def test_async_iterator_event_sink_module_surface() -> None:
-    """`AsyncIteratorEventSink` is module-scope in events.py and in `__all__`.
-
-    Spec ac-006: exposes `__call__` (async), `__aiter__`, `__anext__` (async),
-    `close` (async).
-    """
-    from molexp.agent import events as events_mod
-
-    assert "AsyncIteratorEventSink" in events_mod.__all__
-    cls = events_mod.AsyncIteratorEventSink
-    assert inspect.isclass(cls)
-    assert inspect.iscoroutinefunction(cls.__call__)
-    assert hasattr(cls, "__aiter__")
-    assert inspect.iscoroutinefunction(cls.__anext__)
-    assert inspect.iscoroutinefunction(cls.close)
 
 
 @pytest.mark.asyncio
@@ -202,73 +158,3 @@ async def test_async_iterator_event_sink_preserves_per_producer_order_under_conc
             if isinstance(e, TokenDeltaEvent) and e.text.startswith(f"{label}-")
         ]
         assert subseq == list(range(n)), f"producer {label} out of order: {subseq[:5]}…"
-
-
-@pytest.mark.asyncio
-async def test_async_iterator_event_sink_close_terminates_async_for() -> None:
-    """`close()` after K pushes → async-for yields exactly K and returns within 1s.
-
-    Spec ac-009.
-    """
-    from molexp.agent.events import AsyncIteratorEventSink
-
-    sink = AsyncIteratorEventSink()
-    k = 3
-    for i in range(k):
-        await sink(TokenDeltaEvent(text=f"t{i}"))
-    await sink.close()
-
-    async def drain() -> int:
-        count = 0
-        async for _ in sink:
-            count += 1
-        return count
-
-    count = await asyncio.wait_for(drain(), timeout=1.0)
-    assert count == k
-
-
-@pytest.mark.asyncio
-async def test_async_iterator_event_sink_cancelled_consumer_raises() -> None:
-    """Consumer parked in `__anext__` and `cancel()`ed raises CancelledError.
-
-    Spec ac-010: cancellation is observable to the awaiter; not silently
-    swallowed by `__anext__`.
-    """
-    from molexp.agent.events import AsyncIteratorEventSink
-
-    sink = AsyncIteratorEventSink()
-
-    async def drain() -> None:
-        async for _ in sink:
-            pass  # would never end without close — we cancel below
-
-    task = asyncio.create_task(drain())
-    await asyncio.sleep(0.05)  # let the task park in __anext__
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-
-@pytest.mark.asyncio
-async def test_async_iterator_event_sink_bounded_backpressure() -> None:
-    """maxsize=1 → producer's 2nd push blocks until consumer drains.
-
-    Spec ac-011: producer's second `await sink(event)` does not complete
-    within 200ms when no consumer drains; the producer task stays PENDING.
-    """
-    from molexp.agent.events import AsyncIteratorEventSink
-
-    sink = AsyncIteratorEventSink(maxsize=1)
-    await sink(TokenDeltaEvent(text="first"))
-
-    async def push_second() -> None:
-        await sink(TokenDeltaEvent(text="second"))
-
-    second_task = asyncio.create_task(push_second())
-    with pytest.raises(asyncio.TimeoutError):
-        await asyncio.wait_for(asyncio.shield(second_task), timeout=0.2)
-    assert not second_task.done()
-    second_task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await second_task

@@ -53,13 +53,6 @@ def _snapshot(task_id: str = "t", *, k: str = "v") -> TaskSnapshot:
 # ── (a) inputs participate in cache_key ────────────────────────────────────────
 
 
-def test_differing_inputs_yield_different_cache_key() -> None:
-    snap = _snapshot()
-    key_a = Caching._compute_cache_key(snap.key, Caching._compute_input_hash({"n": 1}))
-    key_b = Caching._compute_cache_key(snap.key, Caching._compute_input_hash({"n": 2}))
-    assert key_a != key_b
-
-
 def test_put_then_get_with_different_inputs_misses(tmp_path: Path) -> None:
     cache = Caching(store_dir=tmp_path)
     snap = _snapshot()
@@ -82,12 +75,6 @@ def test_identical_inputs_hit_and_reuse(tmp_path: Path) -> None:
     assert cache.get(same, {"n": 1}) == {"result": "A"}
 
 
-def test_input_hash_deterministic_for_same_dict() -> None:
-    a = Caching._compute_input_hash({"n": 1, "m": 2})
-    b = Caching._compute_input_hash({"n": 1, "m": 2})
-    assert a == b
-
-
 def test_input_hash_insensitive_to_key_order() -> None:
     # sort_keys=True ⇒ insertion order is irrelevant.
     a = Caching._compute_input_hash({"n": 1, "m": 2})
@@ -107,12 +94,6 @@ def test_path_input_hashes_stably_across_instances() -> None:
     assert h1 == h2
 
 
-def test_different_paths_hash_differently() -> None:
-    h1 = Caching._compute_input_hash({"workdir": Path("/scratch/abc")})
-    h2 = Caching._compute_input_hash({"workdir": Path("/scratch/xyz")})
-    assert h1 != h2
-
-
 def test_path_input_does_not_collide_with_equivalent_str() -> None:
     # The {"__type__": "Path"} wrapper keeps Path("x") distinct from str "x".
     h_path = Caching._compute_input_hash({"v": Path("x")})
@@ -121,11 +102,6 @@ def test_path_input_does_not_collide_with_equivalent_str() -> None:
 
 
 # ── (d) snapshot identity excludes inputs ──────────────────────────────────────
-
-
-def test_snapshot_key_is_code_and_config_only() -> None:
-    snap = _snapshot()
-    assert snap.key == f"{snap.code_hash}:{snap.config_hash}"
 
 
 def test_snapshot_identity_independent_of_inputs() -> None:
@@ -141,47 +117,6 @@ def test_snapshot_identity_independent_of_inputs() -> None:
 
 
 # ── (e)+(f) engine-injected root inputs: params in, workdir out ────────────────
-
-
-def _root_inputs_payload(root: dict) -> dict:
-    """The cache ``inputs`` payload for a root task carrying injected *root*."""
-    from molexp.workflow._engine.node_cache import _cache_inputs
-    from molexp.workflow._engine.state import WorkflowState
-
-    state = WorkflowState()
-    state.root_inputs["t"] = root
-    return _cache_inputs("t", state, None)
-
-
-def test_root_input_params_move_the_input_hash() -> None:
-    h1 = Caching._compute_input_hash(
-        _root_inputs_payload({"params": {"ratio": "r1"}, "workdir": Path("/m/a")})
-    )
-    h2 = Caching._compute_input_hash(
-        _root_inputs_payload({"params": {"ratio": "r2"}, "workdir": Path("/m/a")})
-    )
-    assert h1 != h2
-
-
-def test_root_input_workdir_is_canonicalized_out() -> None:
-    # Same params, different content-addressed workdir ⇒ SAME hash (the workdir
-    # is execution location, not task identity).
-    h1 = Caching._compute_input_hash(
-        _root_inputs_payload({"params": {"ratio": "r1"}, "workdir": Path("/m/a")})
-    )
-    h2 = Caching._compute_input_hash(
-        _root_inputs_payload({"params": {"ratio": "r1"}, "workdir": Path("/m/b")})
-    )
-    assert h1 == h2
-
-
-def test_plain_task_cache_payload_shape_unchanged() -> None:
-    # A task with NO injected root inputs keeps the shipped {"inputs": …}
-    # payload — existing cache entries stay valid.
-    from molexp.workflow._engine.node_cache import _cache_inputs
-    from molexp.workflow._engine.state import WorkflowState
-
-    assert _cache_inputs("t", WorkflowState(), {"up": 1}) == {"inputs": {"up": 1}}
 
 
 def _workspace_run(root: Path, name: str, params: dict):

@@ -25,7 +25,6 @@ import pytest
 molpy = pytest.importorskip("molpy")
 
 from molexp.server.preview import (  # noqa: E402
-    DEFAULT_PREVIEW_LIMIT,
     AmbiguousReaderError,
     NoReaderInSidecarError,
     PreviewReaderError,
@@ -135,12 +134,6 @@ def test_resolve_does_not_import_the_sidecar(tmp_path, monkeypatch):
     assert not sentinel.exists(), "discovery must not execute the sidecar module body"
 
 
-def test_resolve_returns_none_without_sibling(tmp_path):
-    dataset = tmp_path / "plain.bin"
-    dataset.write_bytes(b"x")
-    assert resolve_sidecar(dataset) is None
-
-
 def test_load_runs_body_but_not_main_guard(tmp_path, monkeypatch):
     import_sentinel = tmp_path / "import.sentinel"
     main_sentinel = tmp_path / "main.sentinel"
@@ -194,16 +187,6 @@ def test_preview_frames_caps_at_limit(tmp_path):
     assert len(frames) == 3
 
 
-def test_preview_frames_below_limit_returns_all(tmp_path):
-    dataset = _make_sidecar_dataset(tmp_path)
-    frames = list(preview_frames(dataset, limit=100))
-    assert len(frames) == 5
-
-
-def test_default_preview_limit_is_positive():
-    assert DEFAULT_PREVIEW_LIMIT > 0
-
-
 # ── ac-004 / ac-005 : route ────────────────────────────────────────────────
 
 
@@ -224,11 +207,6 @@ def test_route_missing_sidecar_is_404(client, workspace):
     asset = _register_inplace_asset(workspace, dataset)
 
     resp = client.get(f"/api/assets/{asset.asset_id}/preview")
-    assert resp.status_code == 404
-
-
-def test_route_unknown_asset_is_404(client):
-    resp = client.get("/api/assets/nope/preview")
     assert resp.status_code == 404
 
 

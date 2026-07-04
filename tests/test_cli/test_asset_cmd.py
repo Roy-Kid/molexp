@@ -138,20 +138,6 @@ def test_asset_info_renders_identity_fields(runner, lineage_ws):
 
 
 @pytest.mark.integration
-def test_asset_info_renders_producer_fields(runner, lineage_ws):
-    """basics: the producer's run id and consumed-input asset ids are rendered."""
-    result = runner.invoke(
-        app,
-        ["asset", "info", lineage_ws.mid_id, "--workspace", str(lineage_ws.root)],
-        env=_WIDE_TERM,
-    )
-    assert result.exit_code == 0, result.output
-    out = _flat(result.output)
-    assert lineage_ws.run_id in out  # producer run
-    assert lineage_ws.raw_id[:8] in out  # producer inputs (lineage edge food)
-
-
-@pytest.mark.integration
 def test_asset_info_unknown_id_fails_with_typed_message(runner, lineage_ws):
     """edge: an unknown id exits non-zero and NAMES the id — no silent success."""
     result = runner.invoke(
@@ -202,27 +188,6 @@ def test_asset_lineage_ancestors_only_excludes_descendants(runner, lineage_ws):
     out = _flat(result.output)
     assert lineage_ws.raw_id[:8] in out
     assert lineage_ws.final_id[:8] not in out
-
-
-@pytest.mark.integration
-def test_asset_lineage_descendants_only_excludes_ancestors(runner, lineage_ws):
-    result = runner.invoke(
-        app,
-        [
-            "asset",
-            "lineage",
-            lineage_ws.mid_id,
-            "--direction",
-            "descendants",
-            "--workspace",
-            str(lineage_ws.root),
-        ],
-        env=_WIDE_TERM,
-    )
-    assert result.exit_code == 0, result.output
-    out = _flat(result.output)
-    assert lineage_ws.final_id[:8] in out
-    assert lineage_ws.raw_id[:8] not in out
 
 
 @pytest.mark.integration

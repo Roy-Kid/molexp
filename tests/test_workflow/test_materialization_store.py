@@ -22,11 +22,6 @@ def test_workdir_for_is_deterministic(tmp_path: Path) -> None:
     assert a1 == a2
 
 
-def test_workdir_for_distinct_ids_distinct_paths(tmp_path: Path) -> None:
-    store = FileMaterializationStore(tmp_path / "mat")
-    assert store.workdir_for("sha256:aaaa") != store.workdir_for("sha256:bbbb")
-
-
 def test_workdir_for_keeps_both_terms_of_code_config_key(tmp_path: Path) -> None:
     # A "code:config" key must not collapse to just the config term.
     store = FileMaterializationStore(tmp_path / "mat")

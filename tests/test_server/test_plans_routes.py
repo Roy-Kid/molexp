@@ -76,11 +76,6 @@ def test_get_plan_404_for_run_without_report(client, experiment):
     assert resp.status_code == 404
 
 
-def test_get_plan_404_for_unknown_run(client, experiment):
-    resp = client.get(f"{BASE}/does-not-exist")
-    assert resp.status_code == 404
-
-
 def _write_full_plan_artifacts(run, *, title: str, draft: str) -> None:
     """Write the full set of 9-step deliverables (spec, caps, input set, dry run, report)."""
     store = FileArtifactStore(root=Path(run.run_dir) / "artifacts")

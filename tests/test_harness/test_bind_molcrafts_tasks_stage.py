@@ -85,19 +85,6 @@ def ctx_with_gw(tmp_path: Path):
     )
 
 
-def test_bind_molcrafts_tasks_name() -> None:
-    from molexp.harness.stages.bind_molcrafts_tasks import BindMolcraftsTasks
-
-    assert BindMolcraftsTasks.name == "bind_molcrafts_tasks"
-
-
-def test_bind_molcrafts_tasks_is_stage() -> None:
-    from molexp.harness.core.stage import Stage
-    from molexp.harness.stages.bind_molcrafts_tasks import BindMolcraftsTasks
-
-    assert issubclass(BindMolcraftsTasks, Stage)
-
-
 def test_bind_fail_fast_when_gateway_missing(ctx_no_gw) -> None:
     from molexp.harness.errors import StageExecutionError
     from molexp.harness.stages.bind_molcrafts_tasks import BindMolcraftsTasks

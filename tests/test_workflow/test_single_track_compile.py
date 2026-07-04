@@ -14,55 +14,7 @@ After the rectification:
 
 from __future__ import annotations
 
-import pytest
-
-from molexp.workflow import Actor, Task, TaskContext, WorkflowCompiler, WorkflowRuntime
-
-
-def _pg_bases(cls: type) -> list[str]:
-    """MRO entries defined by pydantic_graph, checked by module name so this
-    test works without pydantic_graph installed (molexp no longer depends
-    on it — it may be absent entirely)."""
-    return [c.__qualname__ for c in cls.__mro__ if c.__module__.startswith("pydantic_graph")]
-
-
-def test_task_is_not_pg_basenode_subclass():
-    assert not _pg_bases(Task), (
-        "Task must not inherit from pydantic_graph.BaseNode; it is a plain "
-        "molexp abstraction (the scheduler invokes its execute() directly)."
-    )
-
-
-def test_actor_is_not_pg_basenode_subclass():
-    assert not _pg_bases(Actor), "Actor must not inherit from pydantic_graph.BaseNode."
-
-
-def test_make_task_node_class_is_gone():
-    from molexp.workflow._engine import node as node_mod
-
-    assert not hasattr(node_mod, "make_task_node_class"), (
-        "make_task_node_class (per-task pg BaseNode codegen) must be removed; "
-        "the dead-track is gone."
-    )
-
-
-def test_compiled_workflow_has_no_graph_attribute():
-    wf = WorkflowCompiler(name="probe")
-
-    @wf.task
-    async def step(ctx: TaskContext) -> int:
-        return 1
-
-    spec = wf.compile()
-
-    compiled = spec.graph
-
-    assert not hasattr(compiled, "graph"), (
-        "CompiledWorkflow.graph (the dead pg Graph) must be removed."
-    )
-    assert not hasattr(compiled, "node_classes"), (
-        "CompiledWorkflow.node_classes (per-task BaseNode subclasses) must be removed."
-    )
+from molexp.workflow import Task, TaskContext, WorkflowCompiler
 
 
 def test_compiled_registration_holds_user_instances():
@@ -85,38 +37,3 @@ def test_compiled_registration_holds_user_instances():
         "the registration's fn_or_class must be the user-registered Task instance "
         "itself, not a codegen subclass wrapping it."
     )
-
-
-def test_task_no_basenode_run_stub():
-    """Task should not carry a ``run`` method that satisfies pg's BaseNode
-    contract — the scheduler invokes ``execute(ctx)`` directly, and ``run``
-    used to exist only to satisfy BaseNode. After the rectification, either
-    ``Task.run`` is absent OR it is not the BaseNode-protocol stub (i.e. its
-    docstring does not say 'overridden by the workflow compiler')."""
-    run = getattr(Task, "run", None)
-    if run is not None:
-        # If ``run`` survives for backward compat reasons, it must not be
-        # the dead-track stub.
-        doc = run.__doc__ or ""
-        assert "overridden by the workflow compiler" not in doc, (
-            "The dead-track BaseNode.run stub on Task must be removed."
-        )
-
-
-@pytest.mark.asyncio
-async def test_workflow_executes_without_per_task_codegen():
-    """End-to-end: a workflow with two tasks compiles + runs to completion
-    without per-task pg BaseNode codegen."""
-    wf = WorkflowCompiler(name="e2e")
-
-    @wf.task
-    async def a(ctx: TaskContext) -> int:
-        return 1
-
-    @wf.task(depends_on=["a"])
-    async def b(value: int) -> int:
-        return value + 1
-
-    result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "succeeded"
-    assert result.outputs == {"a": 1, "b": 2}

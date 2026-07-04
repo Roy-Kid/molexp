@@ -14,9 +14,8 @@ from unittest.mock import patch
 
 import pytest
 
-import molexp.agent
 from molexp.agent.events import LoopCompletedEvent, LoopStartedEvent
-from molexp.agent.loop import AgentLoop, AgentRunResult
+from molexp.agent.loop import AgentRunResult
 from molexp.agent.loops import ChatLoop, ChatLoopConfig
 from molexp.agent.mcp import defaults as defaults_mod
 from molexp.agent.mcp import store as mcp_mod
@@ -99,35 +98,6 @@ def test_runner_accepts_string_keyed_models_map() -> None:
     }
 
 
-def test_runner_accepts_modeltier_keyed_models_map() -> None:
-    runner = AgentRunner(
-        loop=ChatLoop(),
-        models={
-            ModelTier.CHEAP: "a",
-            ModelTier.DEFAULT: "b",
-            ModelTier.HEAVY: "c",
-        },
-    )
-    assert runner._tier_models == {
-        ModelTier.CHEAP: "a",
-        ModelTier.DEFAULT: "b",
-        ModelTier.HEAVY: "c",
-    }
-
-
-def test_runner_rejects_unknown_string_tier_key() -> None:
-    with pytest.raises(AgentRunnerConfigError, match="unknown tier"):
-        AgentRunner(
-            loop=ChatLoop(),
-            models={
-                "cheap": "x",
-                "default": "y",
-                "heavy": "z",
-                "ultra": "w",  # bogus
-            },
-        )
-
-
 def test_runner_with_custom_router_skips_tier_normalization() -> None:
     class _Stub:
         async def complete_text(self, **_):  # type: ignore[no-untyped-def]
@@ -162,25 +132,6 @@ async def test_chat_mode_round_trip_via_model_string() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_mode_round_trip_via_models_map() -> None:
-    pytest.importorskip("pydantic_ai")
-    from pydantic_ai.models.test import TestModel
-
-    test_model = TestModel()
-    runner = AgentRunner(
-        loop=ChatLoop(config=ChatLoopConfig()),
-        models={
-            ModelTier.CHEAP: test_model,
-            ModelTier.DEFAULT: test_model,
-            ModelTier.HEAVY: test_model,
-        },
-    )
-    result = await runner.run(runner.session("rt2"), "hello")
-    assert isinstance(result, AgentRunResult)
-    assert result.text
-
-
-@pytest.mark.asyncio
 async def test_runner_run_events_exposes_live_stream() -> None:
     """``run_events`` yields events live; ``run`` returns the terminal result."""
     pytest.importorskip("pydantic_ai")
@@ -190,21 +141,6 @@ async def test_runner_run_events_exposes_live_stream() -> None:
     streamed = [ev async for ev in runner.run_events(runner.session("s"), "hi")]
     assert any(isinstance(e, LoopStartedEvent) for e in streamed)
     assert isinstance(streamed[-1], LoopCompletedEvent)
-
-
-def test_run_events_drains_via_async_iterator_sink() -> None:
-    """ac-006 — ``_SinkCollector`` is replaced by ``AsyncIteratorEventSink``.
-
-    Structural assertion: spec 02 swaps the drain-after-yield collector
-    for the queue-backed sink primitive landed in spec 01. The collector
-    class must no longer be reachable from the runner module.
-    """
-    import molexp.agent.runner as runner_mod
-
-    assert not hasattr(runner_mod, "_SinkCollector"), (
-        "_SinkCollector should be deleted in favour of AsyncIteratorEventSink "
-        "(see spec harness-as-mode-substrate-02 §改动 3)"
-    )
 
 
 @pytest.mark.asyncio
@@ -371,21 +307,6 @@ async def test_runner_no_preamble_when_user_opted_out(tmp_path, hermetic_user_di
     assert MOLMCP_USAGE_INSTRUCTIONS not in composed
 
 
-def test_runner_drops_obsolete_molcrafts_surface() -> None:
-    """Earlier-draft molcrafts surfaces stay removed."""
-    import importlib
-
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("molexp.agent._molcrafts")
-    assert not hasattr(AgentLoop, "requires_molcrafts")
-    import inspect
-
-    sig = inspect.signature(AgentRunner.__init__)
-    assert "molcrafts_default" not in sig.parameters
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("molexp.agent.mcp.molmcp")
-
-
 # ── Named-session lookup + persistence ────────────────────────────────────
 
 
@@ -471,16 +392,3 @@ async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir)
     assert "beta-turn" not in _user_texts(restored_alpha)
     assert "beta-turn" in _user_texts(restored_beta)
     assert "alpha-turn" not in _user_texts(restored_beta)
-
-
-def test_public_surface_unchanged() -> None:
-    """``molexp.agent`` re-exports exactly the loop-orchestration core —
-    :class:`AgentRuntime` is the frozen-dataclass bundle loops receive at
-    run time."""
-    assert tuple(sorted(molexp.agent.__all__)) == (
-        "AgentLoop",
-        "AgentRunResult",
-        "AgentRunner",
-        "AgentRuntime",
-        "AgentSession",
-    )

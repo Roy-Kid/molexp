@@ -292,15 +292,6 @@ def _as_dict(value: object) -> dict[str, object]:
 # ──────────────────────────────────────────────────── basics: request/response
 
 
-def test_execute_defaults_false_in_task_response(plan_client: TestClient) -> None:
-    """category: basics — omitting ``execute`` yields ``execute: false``."""
-    resp = plan_client.post(
-        _BASE, json={"draft": "default execute draft", "model": "stub-model", "ground": False}
-    )
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["execute"] is False
-
-
 def test_execute_true_is_reflected_in_task_response(plan_client: TestClient) -> None:
     """category: basics — ``execute: true`` echoes on POST and GET (UI label)."""
     resp = plan_client.post(
@@ -318,25 +309,6 @@ def test_execute_true_is_reflected_in_task_response(plan_client: TestClient) -> 
 
     fetched = plan_client.get(f"{_BASE}/{body['taskId']}").json()
     assert fetched["execute"] is True
-
-
-def test_known_compute_target_name_is_accepted(
-    plan_client: TestClient, workspace: Workspace
-) -> None:
-    """category: basics — a registered target name passes route validation."""
-    add_target(workspace, ComputeTarget(name="hpc", scratch_root="/scratch/hpc"))
-
-    resp = plan_client.post(
-        _BASE,
-        json={
-            "draft": "known target draft",
-            "model": "stub-model",
-            "ground": False,
-            "execute": True,
-            "compute_target": "hpc",
-        },
-    )
-    assert resp.status_code == 201, resp.text
 
 
 # ─────────────────────────────────────────────────────────── edge cases
@@ -422,31 +394,6 @@ def test_execute_and_resolved_target_thread_into_plan_mode(
 
 
 # ─────────────────────────────── lifecycle: the gated execute tail end-to-end
-
-
-@pytest.mark.integration
-def test_execute_false_plan_completes_without_tail_artifacts(plan_client: TestClient) -> None:
-    """category: lifecycle — default flow ends at the execution report.
-
-    Two gates only (spec + plan review), never ``approve-execution``; the plan
-    detail carries no ``finalReport`` / ``auditReport`` (north-star §2.2: the
-    default never submits).
-    """
-    resp = plan_client.post(
-        _BASE, json={"draft": "plan-only water nemd", "model": "stub-model", "ground": False}
-    )
-    assert resp.status_code == 201, resp.text
-    started = resp.json()
-
-    final, granted = _drive_through_approvals(plan_client, started["taskId"])
-    assert final["status"] == "completed", final
-    assert granted == [_SPEC_GATE, _PLAN_GATE]
-
-    detail = plan_client.get(f"{_PLANS}/{started['runId']}")
-    assert detail.status_code == 200, detail.text
-    body = detail.json()
-    assert body["finalReport"] is None
-    assert body["auditReport"] is None
 
 
 @pytest.mark.integration

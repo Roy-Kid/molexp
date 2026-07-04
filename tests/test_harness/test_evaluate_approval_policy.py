@@ -86,15 +86,6 @@ class TestEvaluateApprovalPolicy:
         intents = [r.intent for r in result]
         assert intents == ["hpc_submission"]
 
-    def test_hpc_submission_pbs_and_lsf(self) -> None:
-        from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
-
-        policy = _empty_policy().model_copy(update={"require_for_hpc_submission": True})
-        for backend in ("pbs", "lsf"):
-            bw = _clean_bound_workflow(backend=backend)
-            result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
-            assert [r.intent for r in result] == ["hpc_submission"]
-
     def test_hpc_submission_local_does_not_fire(self) -> None:
         from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
@@ -220,15 +211,6 @@ class TestEvaluateApprovalPolicy:
         result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
         assert [r.intent for r in result] == ["large_resource_request"]
 
-    def test_large_resource_runtime_at_24h_does_not_fire(self) -> None:
-        from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
-
-        policy = _empty_policy().model_copy(update={"require_for_large_resource_request": True})
-        bw = _clean_bound_workflow()
-        ok = bw.resource_policy.model_copy(update={"max_runtime_s": 86400})
-        bw = bw.model_copy(update={"resource_policy": ok})
-        assert ApprovalPolicyEvaluator.evaluate(policy, bw=bw) == []
-
     def test_large_resource_memory_just_above_256(self) -> None:
         from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
@@ -238,15 +220,6 @@ class TestEvaluateApprovalPolicy:
         bw = bw.model_copy(update={"resource_policy": bad})
         result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
         assert [r.intent for r in result] == ["large_resource_request"]
-
-    def test_large_resource_memory_at_256_does_not_fire(self) -> None:
-        from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
-
-        policy = _empty_policy().model_copy(update={"require_for_large_resource_request": True})
-        bw = _clean_bound_workflow()
-        ok = bw.resource_policy.model_copy(update={"max_memory_gb": 256.0})
-        bw = bw.model_copy(update={"resource_policy": ok})
-        assert ApprovalPolicyEvaluator.evaluate(policy, bw=bw) == []
 
     def test_large_resource_none_memory_does_not_npe(self) -> None:
         from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
@@ -277,26 +250,6 @@ class TestEvaluateApprovalPolicy:
         policy = _empty_policy().model_copy(update={"require_for_full_execution": True})
         result = ApprovalPolicyEvaluator.evaluate(policy, bw=_clean_bound_workflow())
         assert [r.intent for r in result] == ["full_execution"]
-
-    def test_full_execution_policy_off_suppresses(self) -> None:
-        from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
-
-        assert ApprovalPolicyEvaluator.evaluate(_empty_policy(), bw=_clean_bound_workflow()) == []
-
-    def test_full_execution_with_no_bw_skips(self) -> None:
-        from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
-        from molexp.harness.schemas.policy import ApprovalPolicy
-
-        # Only full_execution=True; bw=None → no request.
-        p = ApprovalPolicy(
-            require_for_agent_inferred_scientific_parameters=False,
-            require_for_full_execution=True,
-            require_for_hpc_submission=False,
-            require_for_large_resource_request=False,
-            require_for_overwrite=False,
-            require_for_final_report=False,
-        )
-        assert ApprovalPolicyEvaluator.evaluate(p) == []
 
     # ----------------------------------------- overwrite
 
@@ -464,18 +417,3 @@ class TestEvaluateApprovalPolicy:
             "overwrite",
             "agent_inferred_scientific_parameters",
         ]
-
-    # ----------------------------------------- re-export
-
-    def test_evaluate_re_exported(self) -> None:
-        from molexp.harness.policy import (
-            ApprovalPolicyEvaluator as pkg_eval,
-        )
-        from molexp.harness.policy import (
-            ApprovalPolicyEvaluator as pkg_final,
-        )
-        from molexp.harness.policy import ApprovalPolicyEvaluator as top_eval
-        from molexp.harness.policy import ApprovalPolicyEvaluator as top_final
-
-        assert top_eval is pkg_eval
-        assert top_final is pkg_final

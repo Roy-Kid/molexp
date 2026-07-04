@@ -39,11 +39,6 @@ def test_spec_preview_renders_the_gated_fields(tmp_path: Path) -> None:
     assert "grid? -> 0.001" in text
 
 
-def test_spec_preview_states_a_missing_artifact(tmp_path: Path) -> None:
-    run = _run(tmp_path)
-    assert "no experiment_spec artifact" in render_approval_preview(run, "experiment_spec")
-
-
 def test_plan_preview_includes_source_and_verdicts(tmp_path: Path) -> None:
     run = _run(tmp_path)
     store = _store(run)
@@ -58,17 +53,3 @@ def test_plan_preview_includes_source_and_verdicts(tmp_path: Path) -> None:
     assert "def build_workflow():" in text
     assert "generated tests    : passed" in text
     assert "compiled / dry-ran : False" in text
-
-
-def test_plan_preview_caps_a_long_source(tmp_path: Path) -> None:
-    run = _run(tmp_path)
-    _store(run).put_json(
-        kind="workflow_source",
-        obj={"source": "\n".join(f"line{i}" for i in range(200))},
-        created_by="test",
-        parent_ids=[],
-    )
-    text = render_approval_preview(run, "final_report")
-    assert "line119" in text
-    assert "line150" not in text
-    assert "(+80 more lines)" in text

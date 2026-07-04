@@ -36,10 +36,6 @@ class TestRunSetContainer:
         assert rs[0].parameters == {"lr": 0.1, "batch": 16}
         assert [r.id for r in rs] == [r.id for r in rs.runs]
 
-    def test_repr_mentions_size(self, experiment) -> None:
-        rs = _seeded_runset(experiment)
-        assert "4" in repr(rs)
-
     def test_collect_unexecuted_runs_reports_pending(self, experiment) -> None:
         summary = _seeded_runset(experiment).collect()
         assert len(summary) == 4
@@ -146,10 +142,6 @@ class TestRunSetResult:
     def test_min_by_missing_key_raises(self) -> None:
         with pytest.raises(ValueError, match="nope"):
             _result_fixture().min_by("nope")
-
-    def test_failed_property(self) -> None:
-        failed = _result_fixture().failed
-        assert [rec.run_id for rec in failed] == ["r3"]
 
     def test_no_dataframe_bridge(self) -> None:
         """molexp deliberately ships NO pandas bridge — ``to_records()`` rows

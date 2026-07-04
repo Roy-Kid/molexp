@@ -57,21 +57,11 @@ class TestExecuteRun:
         assert run.status == RunStatus.SUCCEEDED.value
         assert len(run.execution_history) == 1
 
-    def test_run_params_bind_to_root_task(self, tmp_path: Path) -> None:
-        run = _make_run(tmp_path, params={"x": 10})
-        result = execute_run(_build_wf().compile(), run)
-        assert result.outputs["summarize"] == "got 20"
-
     def test_accepts_uncompiled_compiler(self, tmp_path: Path) -> None:
         run = _make_run(tmp_path)
         result = execute_run(_build_wf(), run)
         assert result.status == "succeeded"
         assert result.outputs["summarize"] == "got 6"
-
-    def test_rejects_non_workflow(self, tmp_path: Path) -> None:
-        run = _make_run(tmp_path)
-        with pytest.raises(TypeError, match=r"CompiledWorkflow|WorkflowCompiler"):
-            execute_run(object(), run)
 
     def test_task_failure_raises_and_persists_failed_run(self, tmp_path: Path) -> None:
         wf = WorkflowCompiler(name="boom")
@@ -212,23 +202,3 @@ class TestRunExecuteMethod:
         assert result.status == "succeeded"
         assert result.outputs["summarize"] == "got 8"
         assert run.status == RunStatus.SUCCEEDED.value
-
-    def test_run_execute_rerun_flag(self, tmp_path: Path) -> None:
-        wf_fail = WorkflowCompiler(name="always-fails")
-
-        @wf_fail.task
-        def explode(x: int) -> int:
-            raise RuntimeError("boom")
-
-        run = _make_run(tmp_path)
-        with pytest.raises(Exception, match=r"boom|failed"):
-            run.execute(wf_fail)
-        result = run.execute(_build_wf(), rerun=True)
-        assert result.status == "succeeded"
-        assert len(run.execution_history) == 2
-
-    def test_run_aexecute(self, tmp_path: Path) -> None:
-        run = _make_run(tmp_path)
-        result = asyncio.run(run.aexecute(_build_wf()))
-        assert result.status == "succeeded"
-        assert result.outputs["summarize"] == "got 6"

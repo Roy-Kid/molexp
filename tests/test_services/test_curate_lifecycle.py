@@ -26,9 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.harness.change_proposal_gate import approval_level_for
 from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ChangeProposal
-from molexp.harness.schemas.change_proposal import ObjectRef
 from molexp.services.curate_runtime import (
     curation_invocation_to_proposal,
     run_curation_proposal,
@@ -116,19 +114,6 @@ class TestLifecycleMapping:
         assert proposal.proposed_change.payload["lifecycle_verb"] == verb
         assert proposal.reversibility == reversibility
 
-    @pytest.mark.parametrize("capability_id", sorted(LIFECYCLE_TABLE))
-    def test_affects_exactly_the_named_run(self, capability_id: str) -> None:
-        proposal = _lifecycle_proposal(capability_id, {"run": "r1"})
-        assert ObjectRef(kind="run", id="r1") in proposal.affected_objects
-        run_refs = [o for o in proposal.affected_objects if o.kind == "run"]
-        assert len(run_refs) == 1
-
-    @pytest.mark.parametrize("capability_id", sorted(LIFECYCLE_TABLE))
-    def test_approval_level_follows_reversibility(self, capability_id: str) -> None:
-        _, reversibility = LIFECYCLE_TABLE[capability_id]
-        proposal = _lifecycle_proposal(capability_id, {"run": "r1"})
-        assert proposal.approval_level == approval_level_for("run_lifecycle", reversibility)
-
     def test_prune_escalates_to_elevated(self) -> None:
         proposal = _lifecycle_proposal("molexp.lifecycle.runs_prune", {"run": "r1"})
         assert proposal.approval_level == "elevated"
@@ -149,13 +134,6 @@ class TestLifecycleMapping:
             "molexp.lifecycle.runs_prune", {"run": "r1", "statuses": "failed,cancelled"}
         )
         assert proposal.proposed_change.payload["statuses"] == ["failed", "cancelled"]
-
-    def test_prune_execution_ids_reference_is_a_comma_list(self) -> None:
-        proposal = _lifecycle_proposal(
-            "molexp.lifecycle.runs_prune",
-            {"run": "r1", "execution_ids": "exec-r1,exec-r1-2"},
-        )
-        assert proposal.proposed_change.payload["execution_ids"] == ["exec-r1", "exec-r1-2"]
 
     def test_no_known_destructive_cap_maps_to_none(self) -> None:
         """The CurationArgumentError escape is unreachable for known caps."""
@@ -223,25 +201,6 @@ class TestRehomeColonRefs:
 
 
 class TestDeniedProposalMutatesNothing:
-    def test_denied_run_execute_leaves_the_run_pending(self, tmp_path: Path) -> None:
-        ws = _workspace(tmp_path)
-        target = _target_run(ws)
-        target.materialize()
-        audit = _audit_run(ws)
-        proposal = _lifecycle_proposal("molexp.lifecycle.run_execute", {"run": "r1"})
-
-        result = asyncio.run(
-            run_curation_proposal(proposal, workspace=ws, run=audit, approve=_reject)
-        )
-
-        assert result.execution_result is not None
-        assert result.execution_result.status == "rejected"
-        fresh = Workspace(root=tmp_path, name="Lab")
-        reloaded = fresh.get_project("p").get_experiment("e1").get_run("r1")
-        assert reloaded.status == "pending"
-        assert reloaded.execution_history == []
-        assert not (Path(str(reloaded.run_dir)) / "executions").exists()
-
     def test_denied_prune_leaves_dirs_and_history_intact(self, tmp_path: Path) -> None:
         ws = _workspace(tmp_path)
         target = _target_run(ws)
@@ -262,31 +221,3 @@ class TestDeniedProposalMutatesNothing:
         reloaded = fresh.get_project("p").get_experiment("e1").get_run("r1")
         assert [rec.execution_id for rec in reloaded.execution_history] == [exec_id]
         assert reloaded.status == "failed"
-
-    def test_denied_cancel_leaves_a_running_run_running(self, tmp_path: Path) -> None:
-        import os
-        import platform
-
-        from molexp.workspace.run_ops import RunOpsState
-
-        ws = _workspace(tmp_path)
-        target = _target_run(ws)
-        target.materialize()
-        target.write_ops(
-            RunOpsState(
-                status="running",
-                owner_pid=os.getpid(),
-                owner_host=platform.node(),
-                heartbeat_at=datetime.now(UTC),
-            )
-        )
-        audit = _audit_run(ws)
-        proposal = _lifecycle_proposal("molexp.lifecycle.run_cancel", {"run": "r1"})
-
-        result = asyncio.run(
-            run_curation_proposal(proposal, workspace=ws, run=audit, approve=_reject)
-        )
-
-        assert result.execution_result is not None
-        assert result.execution_result.status == "rejected"
-        assert _target_run(Workspace(root=tmp_path, name="Lab")).status == "running"

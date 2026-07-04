@@ -288,44 +288,6 @@ class TestRouterBackedGateway:
         # node_id is forwarded as the agent_name for traceability.
         assert router.structured_calls[0]["node_id"] == "tiny_writer"
 
-    # ── ac-003: prose-wrapped output still yields a schema-valid object ───────
-
-    @pytest.mark.asyncio
-    async def test_prose_wrapped_output_yields_valid_artifact(self, tmp_path: Path) -> None:
-        """ac-003 — the structured path closes the prose-crash regression.
-
-        A router that returns a valid instance regardless of surrounding prose
-        (as pydantic-ai's ``output_type`` enforcement does) lets ``call``
-        return a resolvable, schema-valid output artifact instead of raising —
-        where the OLD ``complete_text`` + ``model_validate_json`` path crashed
-        on prose.
-        """
-        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
-        from molexp.harness.schemas import AgentCallResult, AgentCallSpec
-        from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-        instance = _TinyReport(title="resilient", score=42)
-        router = _RecordingRouter(instance=instance)
-        store = FileArtifactStore(root=tmp_path / "artifacts")
-        gateway = RouterBackedAgentGateway(
-            router=router,
-            artifact_store=store,
-            agent_responses={"tiny_writer": _TinyReport},
-            output_kind_by_agent={"tiny_writer": "experiment_report"},
-        )
-
-        result = await gateway.call(
-            AgentCallSpec(
-                agent_name="tiny_writer",
-                input_artifact_ids=[],
-                output_schema=_TinyReport.model_json_schema(),
-            )
-        )
-
-        assert isinstance(result, AgentCallResult)
-        parsed = json.loads(store.get(result.output_artifact.id).decode("utf-8"))
-        assert parsed == {"title": "resilient", "score": 42}
-
     # ── ac-004: unknown agent_name still raises ───────────────────────────────
 
     @pytest.mark.asyncio
@@ -358,58 +320,6 @@ class TestRouterBackedGateway:
                 )
             )
         assert isinstance(exc_info.value, HarnessError)
-
-    # ── ac-002: raw persisted before parsed (both with parent_ids) ────────────
-
-    @pytest.mark.asyncio
-    async def test_raw_log_persisted_with_parent_ids_alongside_output(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """ac-002 — kind="log" raw + registered-kind output both carry parent_ids.
-
-        The §10.2 invariant: the raw record (now ``instance.model_dump_json()``)
-        is persisted as ``kind="log"`` and the parsed output under the
-        registered kind, both with ``parent_ids == spec.input_artifact_ids``.
-        """
-        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
-        from molexp.harness.schemas import AgentCallSpec
-        from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-        instance = _TinyReport(title="audited", score=9)
-        router = _RecordingRouter(instance=instance)
-        store = FileArtifactStore(root=tmp_path / "artifacts")
-        gateway = RouterBackedAgentGateway(
-            router=router,
-            artifact_store=store,
-            agent_responses={"tiny_writer": _TinyReport},
-            output_kind_by_agent={"tiny_writer": "experiment_report"},
-        )
-
-        parent = store.put_text(
-            kind="user_plan",
-            text="plan",
-            created_by="test",
-            parent_ids=[],
-        )
-
-        result = await gateway.call(
-            AgentCallSpec(
-                agent_name="tiny_writer",
-                input_artifact_ids=[parent.id],
-                output_schema=_TinyReport.model_json_schema(),
-            )
-        )
-
-        # Raw log artifact present, holds the model_dump_json of the instance.
-        log_refs = store.list_by_kind("log")
-        log_payloads = [store.get(ref.id).decode("utf-8") for ref in log_refs]
-        assert json.loads(instance.model_dump_json()) in [json.loads(p) for p in log_payloads]
-
-        # Both refs carry the spec's parent_ids (plus the composed-prompt id).
-        assert result.raw_response_artifact.kind == "log"
-        assert parent.id in result.raw_response_artifact.parent_ids
-        assert parent.id in result.output_artifact.parent_ids
 
     # ── ac-007: gateway forwards the per-agent SYSTEM_PROMPT into structured ──
 

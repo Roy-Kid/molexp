@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import pytest
 
-import molexp.knowledge as knowledge
 from molexp.knowledge.types import (
     concept_type,
     register_concept_type,
@@ -24,16 +23,6 @@ from molexp.knowledge.types import (
 
 class _Concept:
     """Local placeholder standing in for any caller's Concept/Folder class."""
-
-
-def test_package_surface_is_registry_only() -> None:
-    assert knowledge.__all__ == [
-        "concept_type",
-        "register_concept_type",
-        "resolve_concept_type",
-    ]
-    for name in ("Folder", "Library", "ConceptMeta", "FileSystem", "Run", "Reference"):
-        assert not hasattr(knowledge, name)
 
 
 def test_register_and_resolve_round_trip() -> None:

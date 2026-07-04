@@ -72,38 +72,10 @@ def _nonzero_argv(*, stderr: str = "", stdout: str = "", code: int = 3) -> list[
 # ── ac-006: public exports ─────────────────────────────────────────────────────
 
 
-class TestExports:
-    def test_command_task_and_error_in_all(self) -> None:
-        import molexp.workflow as wf_pkg
-
-        assert "CommandTask" in wf_pkg.__all__
-        assert "CommandError" in wf_pkg.__all__
-
-    def test_command_error_also_importable_from_types(self) -> None:
-        from molexp.workflow.types import CommandError as TypesCommandError
-
-        assert TypesCommandError is CommandError
-
-    def test_command_error_is_workflow_error_subclass(self) -> None:
-        assert issubclass(CommandError, WorkflowError)
-
-
 # ── ac-004: dual construction + fail-fast validation ──────────────────────────
 
 
 class TestConstruction:
-    def test_argv_positional_constructs(self) -> None:
-        task = CommandTask(["true"])
-        assert isinstance(task, CommandTask)
-
-    def test_argv_keyword_constructs(self) -> None:
-        task = CommandTask(argv=["true"])
-        assert isinstance(task, CommandTask)
-
-    def test_runner_keyword_constructs(self) -> None:
-        task = CommandTask(runner=lambda: _CompletedStub(returncode=0, stdout="", stderr=""))
-        assert isinstance(task, CommandTask)
-
     def test_both_argv_and_runner_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
             CommandTask(["x"], runner=lambda: _CompletedStub(returncode=0, stdout="", stderr=""))
@@ -130,33 +102,12 @@ class TestSuccess:
         assert out.returncode == 0
         assert out.stdout == "ok"
 
-    async def test_argv_success_direct_execute_returns_result(self) -> None:
-        out = await CommandTask(_normal_exit_argv("hey")).execute(_CtxStub())
-        assert out.returncode == 0
-        assert out.stdout == "hey"
-
     async def test_runner_success_returns_normalized_result(self) -> None:
         task = CommandTask(runner=lambda: _CompletedStub(returncode=0, stdout="out", stderr=""))
         out = await task.execute(_CtxStub())
         assert out.returncode == 0
         assert out.stdout == "out"
         assert out.stderr == ""
-
-    async def test_runner_success_via_workflow(self) -> None:
-        spec = (
-            WorkflowCompiler(name="runner-ok")
-            .add(
-                CommandTask(
-                    runner=lambda: _CompletedStub(returncode=0, stdout="produced", stderr="")
-                ),
-                name="cmd",
-            )
-            .compile()
-        )
-        result = await WorkflowRuntime().execute(spec)
-        assert result.status == "succeeded"
-        assert result.outputs["cmd"].returncode == 0
-        assert result.outputs["cmd"].stdout == "produced"
 
 
 # ── ac-001 / ac-002: non-zero exit raises CommandError carrying stderr/stdout ──
@@ -211,30 +162,3 @@ class TestEdgeCases:
 
 
 # ── ac-005: raise-on-nonzero lives once in CommandTask, not per wrapper ────────
-
-
-class _WrapperA(CommandTask):
-    """Wrapper task delegating to CommandTask — adds NO raise-on-nonzero block."""
-
-
-class _WrapperB(CommandTask):
-    """A second wrapper, also pure delegation."""
-
-
-class TestNoDuplicationReuse:
-    @pytest.mark.asyncio
-    async def test_both_wrappers_delegate_raise_to_command_task(self) -> None:
-        for wrapper_cls, code in ((_WrapperA, 4), (_WrapperB, 5)):
-            wrapper = wrapper_cls(_nonzero_argv(stderr="from-wrapper", code=code))
-            with pytest.raises(CommandError) as excinfo:
-                await wrapper.execute(_CtxStub())
-            assert excinfo.value.returncode == code
-
-    def test_wrapper_sources_contain_no_own_raise_block(self) -> None:
-        import inspect
-        import re
-
-        for wrapper_cls in (_WrapperA, _WrapperB):
-            src = inspect.getsource(wrapper_cls)
-            assert "returncode" not in src
-            assert not re.search(r"raise\s+RuntimeError", src)

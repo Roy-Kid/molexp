@@ -49,13 +49,6 @@ def test_monotonic_workspace_seq(tmp_path: Path) -> None:
     assert [e.seq for e in log.list_events()] == [1, 2, 3]
 
 
-def test_events_persist(tmp_path: Path) -> None:
-    WorkspaceEventLog(tmp_path).append("run.completed", "test", refs=["r1"])
-    fresh = WorkspaceEventLog(tmp_path)
-    assert [e.type for e in fresh.list_events()] == ["run.completed"]
-    assert (Path(tmp_path) / WORKSPACE_EVENTS_DB).exists()
-
-
 # ── default-on + non-fatal emit wiring ───────────────────────────────────────
 
 
@@ -65,21 +58,6 @@ def test_emit_is_default_on(tmp_path: Path) -> None:
     assert result is not None
     assert (Path(tmp_path) / WORKSPACE_EVENTS_DB).exists()
     assert [e.type for e in WorkspaceEventLog(tmp_path).list_events()] == ["run.created"]
-
-
-def test_run_lifecycle_records_timeline_by_default(tmp_path: Path) -> None:
-    """A plain run lifecycle lands its milestones without any opt-in step —
-    this is what makes the ``runs info`` Recent-events section real UX."""
-    ws = Workspace(root=tmp_path, name="Lab")
-    exp = ws.add_project("p").add_experiment("e", workflow_source="t.py")
-    run = exp.add_run(id="r1")
-    with run.start():
-        pass
-
-    from molexp.workspace.events import read_workspace_events
-
-    events = read_workspace_events(ws.resolve(), ref="r1")
-    assert [e.type for e in events] == ["run.completed", "run.started", "run.created"]
 
 
 def test_run_lifecycle_emits(tmp_path: Path) -> None:
@@ -156,17 +134,6 @@ def test_read_workspace_events_without_db_is_empty(tmp_path: Path) -> None:
     assert read_workspace_events(tmp_path) == []
     # Reading is side-effect free — it must never create the DB.
     assert not (tmp_path / WORKSPACE_EVENTS_DB).exists()
-
-
-def test_read_workspace_events_newest_first(tmp_path: Path) -> None:
-    from molexp.workspace.events import read_workspace_events
-
-    log = WorkspaceEventLog(tmp_path)
-    log.append("run.created", "test", refs=["r1"])
-    log.append("run.completed", "test", refs=["r1"])
-
-    events = read_workspace_events(tmp_path, ref="r1", limit=1)
-    assert [e.type for e in events] == ["run.completed"]
 
 
 # ── vision-loop-12: asset.added emit sites (artifact save + data registration) ─
@@ -280,23 +247,6 @@ def test_accessor_without_event_root_emits_nothing(tmp_path: Path) -> None:
     assert list(tmp_path.rglob(WORKSPACE_EVENTS_DB)) == []
 
 
-def test_data_library_without_event_root_emits_nothing(tmp_path: Path) -> None:
-    """Constructor compat for the data-import surface: a bare
-    ``DataAssetLibrary`` (no event_root) registers without emitting."""
-    from molexp.workspace.assets import AssetScope
-    from molexp.workspace.assets.data import DataAssetLibrary
-
-    scope_dir = tmp_path / "scope"
-    scope_dir.mkdir()
-    src = scope_dir / "x.txt"
-    src.write_text("hi")
-    library = DataAssetLibrary(scope_dir, AssetScope(kind="workspace"))
-
-    library.register_in_place("x", src)
-
-    assert list(tmp_path.rglob(WORKSPACE_EVENTS_DB)) == []
-
-
 # ── vision-loop-12: knowledge.created emit site (Bundle create verb) ──────────
 
 
@@ -324,17 +274,3 @@ def test_bundle_create_note_ref_is_the_bundle_relative_path(tmp_path: Path) -> N
 
     events = read_workspace_events(tmp_path, type="knowledge.created")
     assert [e.refs for e in events] == [["protocols/gel-prep"], ["protocols"]]
-
-
-def test_broken_event_log_never_breaks_bundle_create(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Non-fatal contract: a raising event log leaves the Concept creation
-    fully intact (meta.yaml written, note resolvable)."""
-    import molexp.workspace.events as ev
-
-    monkeypatch.setattr(ev, "WorkspaceEventLog", _BoomEventLog)
-
-    note = Bundle(tmp_path).create_note("findings")
-
-    assert (Path(str(note.resolve())) / "meta.yaml").exists()

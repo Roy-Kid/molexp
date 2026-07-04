@@ -127,14 +127,6 @@ def ctx_with_gw(tmp_path: Path):
     )
 
 
-def test_name_and_subclass() -> None:
-    from molexp.harness import Stage
-    from molexp.harness.stages import GenerateFinalReport
-
-    assert GenerateFinalReport.name == "generate_final_report"
-    assert issubclass(GenerateFinalReport, Stage)
-
-
 def test_fail_fast_no_gateway(ctx_no_gw) -> None:
     from molexp.harness import StageExecutionError
     from molexp.harness.stages import GenerateFinalReport

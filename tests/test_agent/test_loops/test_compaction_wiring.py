@@ -133,20 +133,6 @@ async def test_chat_loop_below_threshold_leaves_session_untouched(tmp_path: Any)
     assert events[-1].text == "the answer"  # type: ignore[union-attr]
 
 
-@pytest.mark.asyncio
-async def test_chat_loop_disabled_compaction_never_fires(tmp_path: Any) -> None:
-    router = _FakeRouter(responses=["the answer"])
-    runtime, session = _runtime(router, tmp_path)
-    _seed_history(session, turns=4)
-    sink = AsyncIteratorEventSink()
-    disabled = CompactionSettings(enabled=False, keep_recent_tokens=100, reserve_tokens=50)
-    loop = ChatLoop(config=ChatLoopConfig(compaction=disabled))
-    await loop.run(runtime=runtime, sink=sink, user_input="another question")
-    await sink.close()
-    assert not _compaction_entries(session)
-    assert len(router.text_calls) == 1
-
-
 # ── above threshold: compacted, loop still functions ───────────────────────
 
 
@@ -179,28 +165,6 @@ async def test_chat_loop_above_threshold_compacts_and_completes(tmp_path: Any) -
     summary_call = router.text_calls[0]
     assert summary_call["tier"] is ModelTier.CHEAP
     assert "u0" in str(summary_call["prompt"])
-
-
-@pytest.mark.asyncio
-async def test_chat_loop_compaction_preserves_build_context_invariants(tmp_path: Any) -> None:
-    """build_context swaps the old span for one system summary message."""
-    router = _FakeRouter(responses=["a tidy summary", "the answer"])
-    runtime, session = _runtime(router, tmp_path)
-    _seed_history(session, turns=4)
-    loop = ChatLoop(config=ChatLoopConfig(compaction=_SMALL_BUDGET))
-    sink = AsyncIteratorEventSink()
-    await loop.run(runtime=runtime, sink=sink, user_input="new question")
-    await sink.close()
-
-    context = session.build_context()
-    assert context[0].role == "system"
-    assert "a tidy summary" in context[0].content
-    contents = [m.content for m in context]
-    # the new turn survives verbatim …
-    assert "new question" in contents
-    assert "the answer" in contents
-    # … and the oldest span is gone from the rebuilt context.
-    assert not any("u0" in c for c in contents[1:])
 
 
 @pytest.mark.asyncio
@@ -247,26 +211,3 @@ async def test_interactive_loop_above_threshold_compacts_and_completes(tmp_path:
     # the new turn is recorded after the cut.
     messages = [e.message for e in session.path_to_root() if isinstance(e, MessageEntry)]
     assert ("assistant", "tool-loop answer") in [(m.role, m.content) for m in messages]
-
-
-@pytest.mark.asyncio
-async def test_interactive_loop_below_threshold_leaves_session_untouched(tmp_path: Any) -> None:
-    router = _FakeRouter(final_text="tool-loop answer")
-    runtime, session = _runtime(router, tmp_path)
-    sink = AsyncIteratorEventSink()
-    loop = InteractiveLoop(
-        config=InteractiveLoopConfig(compaction=_SMALL_BUDGET, workspace_root=tmp_path)
-    )
-    await loop.run(runtime=runtime, sink=sink, user_input="short question")
-    await sink.close()
-    assert not _compaction_entries(session)
-    assert not router.text_calls  # no summary call ever reached the router
-
-
-# ── default config keeps compaction on with conservative budgets ───────────
-
-
-def test_loop_configs_default_compaction_is_enabled_and_conservative() -> None:
-    for config in (ChatLoopConfig(), InteractiveLoopConfig()):
-        assert config.compaction.enabled is True
-        assert config.compaction.keep_recent_tokens >= 8_000

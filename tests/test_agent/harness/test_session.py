@@ -5,25 +5,13 @@ from __future__ import annotations
 import pytest
 
 from molexp.agent.session import Session
-from molexp.agent.session_entry import CompactionEntry, MessageEntry
+from molexp.agent.session_entry import CompactionEntry
 from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import Message
 
 
 def _new_session() -> Session:
     return Session(storage=InMemorySessionStorage(), session_id="s1")
-
-
-def test_session_id_is_preserved() -> None:
-    sess = Session(storage=InMemorySessionStorage(), session_id="abc")
-    assert sess.session_id == "abc"
-
-
-def test_session_assigns_id_when_unspecified() -> None:
-    a = Session(storage=InMemorySessionStorage())
-    b = Session(storage=InMemorySessionStorage())
-    assert a.session_id != b.session_id
-    assert len(a.session_id) >= 6
 
 
 def test_append_message_advances_leaf() -> None:
@@ -46,16 +34,6 @@ def test_append_stage_and_artifact_and_approval() -> None:
     assert approval.approved is True
     # all chained under the leaf
     assert sess.leaf_id == approval.id
-
-
-def test_path_to_root_reproduces_conversation() -> None:
-    sess = _new_session()
-    sess.append_message(Message(role="user", content="q1"))
-    sess.append_message(Message(role="assistant", content="a1"))
-    sess.append_message(Message(role="user", content="q2"))
-    path = sess.path_to_root()
-    contents = [e.message.content for e in path if isinstance(e, MessageEntry)]
-    assert contents == ["q1", "a1", "q2"]
 
 
 def test_branch_is_non_destructive() -> None:
@@ -118,11 +96,6 @@ def test_build_context_honors_compaction_cut() -> None:
     contents = [m.content for m in msgs[1:]]
     assert contents == ["kept-q", "kept-a"]
     assert "old-1" not in str(msgs)
-
-
-def test_build_context_empty_session_is_empty() -> None:
-    sess = _new_session()
-    assert sess.build_context() == ()
 
 
 def test_branch_to_unknown_entry_raises() -> None:

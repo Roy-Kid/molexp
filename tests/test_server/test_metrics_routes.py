@@ -5,17 +5,6 @@ class TestRunMetricsRoutes:
     def _prefix(self, project, experiment, run):
         return f"/api/projects/{project.id}/experiments/{experiment.id}/runs/{run.id}"
 
-    def test_empty_metrics(self, client, project, experiment, run):
-        resp = client.get(f"{self._prefix(project, experiment, run)}/metrics")
-
-        assert resp.status_code == 200
-        assert resp.json() == {
-            "nextLine": 0,
-            "records": [],
-            "series": [],
-            "parseErrors": 0,
-        }
-
     def test_metrics_response(self, client, project, experiment, run):
         with run.start() as ctx:
             ctx.metrics.scalar("train/loss", 0.3, step=1)

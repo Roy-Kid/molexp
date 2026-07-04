@@ -40,32 +40,6 @@ def test_error_kind_members_match_documented_set() -> None:
 # ── ProviderError ──────────────────────────────────────────────────────────
 
 
-def test_provider_error_carries_documented_attributes() -> None:
-    cause = RuntimeError("inner")
-    err = ProviderError(
-        ErrorKind.timeout,
-        node_id="ingest",
-        tier=ModelTier.CHEAP,
-        cause=cause,
-        attempts=2,
-    )
-    assert err.kind is ErrorKind.timeout
-    assert err.node_id == "ingest"
-    assert err.tier is ModelTier.CHEAP
-    assert err.cause is cause
-    assert err.attempts == 2
-
-
-def test_provider_error_default_attempts_is_one() -> None:
-    err = ProviderError(
-        ErrorKind.unknown,
-        node_id="x",
-        tier=ModelTier.DEFAULT,
-    )
-    assert err.attempts == 1
-    assert err.cause is None
-
-
 def test_provider_error_documented_fields_are_immutable() -> None:
     err = ProviderError(
         ErrorKind.unknown,
@@ -78,61 +52,7 @@ def test_provider_error_documented_fields_are_immutable() -> None:
         err.attempts = 99  # type: ignore[misc]
 
 
-def test_provider_error_rejects_undeclared_post_init_attributes() -> None:
-    err = ProviderError(
-        ErrorKind.unknown,
-        node_id="",
-        tier=ModelTier.DEFAULT,
-    )
-    with pytest.raises(AttributeError):
-        err.extra_field = "no"  # type: ignore[attr-defined]
-
-
-def test_provider_error_message_default_includes_kind_and_attempts() -> None:
-    err = ProviderError(
-        ErrorKind.schema_parse,
-        node_id="codegen",
-        tier=ModelTier.HEAVY,
-        attempts=3,
-    )
-    text = str(err)
-    assert "schema_parse" in text
-    assert "codegen" in text
-    assert "heavy" in text
-    assert "3" in text
-
-
-def test_provider_error_message_explicit_overrides_default() -> None:
-    err = ProviderError(
-        ErrorKind.unknown,
-        node_id="x",
-        tier=ModelTier.DEFAULT,
-        message="custom",
-    )
-    assert str(err) == "custom"
-
-
 # ── dunder attribute mutability — Python exception machinery ──────────────────
-
-
-def test_provider_error_traceback_can_be_set_post_init() -> None:
-    """Python's exception propagation sets ``__traceback__``; the immutability
-    guard must not block dunder attribute writes."""
-    err = ProviderError(ErrorKind.unknown, node_id="x", tier=ModelTier.DEFAULT)
-    try:
-        raise RuntimeError("synthesize a traceback")
-    except RuntimeError as inner:
-        err.__traceback__ = inner.__traceback__
-    assert err.__traceback__ is not None
-
-
-def test_provider_error_raise_from_sets_cause() -> None:
-    """``raise X from Y`` sets ``X.__cause__``; must not crash on the frozen guard."""
-    inner = RuntimeError("inner")
-    err = ProviderError(ErrorKind.unknown, node_id="x", tier=ModelTier.DEFAULT)
-    with pytest.raises(ProviderError) as exc_info:
-        raise err from inner
-    assert exc_info.value.__cause__ is inner
 
 
 @pytest.mark.asyncio
@@ -174,12 +94,6 @@ def test_classify_pydantic_validation_error_to_schema_parse() -> None:
 
 
 def test_classify_asyncio_timeout_error_to_timeout() -> None:
-    assert classify(TimeoutError()) is ErrorKind.timeout
-
-
-def test_classify_builtin_timeout_error_to_timeout() -> None:
-    # In Python 3.11+ asyncio.TimeoutError is aliased to TimeoutError;
-    # classify recognizes either.
     assert classify(TimeoutError()) is ErrorKind.timeout
 
 

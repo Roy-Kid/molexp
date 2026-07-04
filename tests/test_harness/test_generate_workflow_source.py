@@ -130,14 +130,6 @@ def ctx_with_gw(tmp_path: Path):
     )
 
 
-def test_name_and_subclass() -> None:
-    from molexp.harness.core.stage import Stage
-    from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSource
-
-    assert GenerateWorkflowSource.name == "generate_workflow_source"
-    assert issubclass(GenerateWorkflowSource, Stage)
-
-
 def test_fail_fast_no_gateway(ctx_no_gw) -> None:
     from molexp.harness.errors import StageExecutionError
     from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSource

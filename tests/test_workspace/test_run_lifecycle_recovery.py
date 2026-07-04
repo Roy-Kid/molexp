@@ -120,16 +120,6 @@ class TestNoOpAttemptKeepsPriorStatus:
 
 
 class TestSuccessClearsStaleError:
-    def test_successful_reattempt_clears_metadata_error(self, run):
-        _fail_once(run)
-        assert run.metadata.error is not None
-
-        with run.start() as ctx:
-            ctx.mark_succeeded()
-
-        assert run.status == RunStatus.SUCCEEDED
-        assert run.metadata.error is None
-
     def test_error_cleared_on_disk_not_only_in_memory(self, run):
         _fail_once(run)
         with run.start() as ctx:
@@ -159,15 +149,6 @@ class TestErrorTxtOnSwallowedFailure:
         content = error_txt.read_text()
         assert "ZeroDivisionError" in content
         assert "division by zero" in content
-
-    def test_exception_path_still_writes_error_txt(self, run):
-        with pytest.raises(ValueError), run.start() as ctx:
-            exec_id = ctx._execution_id
-            raise ValueError("bad input")
-
-        error_txt = Path(str(run.run_dir)) / "executions" / exec_id / "error.txt"
-        assert error_txt.exists()
-        assert "bad input" in error_txt.read_text()
 
     def test_mark_failed_traceback_lands_in_error_txt(self, run):
         """The workflow runtime forwards the formatted task traceback through

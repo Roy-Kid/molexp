@@ -38,54 +38,6 @@ def _make_spec(name: str = "wf") -> CompiledWorkflow:
 # ── Rename + module-level deletions ────────────────────────────────────────
 
 
-def test_compiled_workflow_class_name():
-    assert CompiledWorkflow.__name__ == "CompiledWorkflow"
-
-
-def test_workflow_builder_class_name():
-    assert WorkflowCompiler.__name__ == "WorkflowCompiler"
-
-
-def test_old_workflowspec_export_is_gone():
-    with pytest.raises(ImportError):
-        from molexp.workflow import WorkflowSpec  # noqa: F401
-
-
-def test_old_workflow_export_is_gone():
-    with pytest.raises(ImportError):
-        from molexp.workflow import Workflow  # noqa: F401
-
-
-def test_set_workflow_module_function_is_gone():
-    with pytest.raises(ImportError):
-        from molexp.workflow import set_workflow  # noqa: F401
-
-
-def test_get_workflow_module_function_is_gone():
-    with pytest.raises(ImportError):
-        from molexp.workflow import get_workflow  # noqa: F401
-
-
-def test_has_workflow_module_function_is_gone():
-    with pytest.raises(ImportError):
-        from molexp.workflow import has_workflow  # noqa: F401
-
-
-def test_clear_workflow_module_function_is_gone():
-    with pytest.raises(ImportError):
-        from molexp.workflow import clear_workflow  # noqa: F401
-
-
-def test_reset_bindings_module_function_is_gone():
-    with pytest.raises(ImportError):
-        from molexp.workflow import reset_bindings  # noqa: F401
-
-
-def test_bindings_module_is_gone():
-    with pytest.raises(ImportError):
-        import molexp.workflow.bindings  # noqa: F401
-
-
 # ── bind / for_experiment / is_bound / unbind ──────────────────────────────
 
 
@@ -95,21 +47,6 @@ def test_bind_then_for_experiment_returns_same_spec():
     exp = _StubExperiment("e1")
     reg.bind(exp, spec)
     assert reg.for_experiment(exp) is spec
-
-
-def test_for_experiment_returns_none_when_unbound():
-    reg = WorkflowBindingRegistry()
-    exp = _StubExperiment("never-bound")
-    assert reg.for_experiment(exp) is None
-
-
-def test_is_bound_reflects_binding_state():
-    reg = WorkflowBindingRegistry()
-    spec = _make_spec("a")
-    exp = _StubExperiment("e1")
-    assert reg.is_bound(exp, spec) is False
-    reg.bind(exp, spec)
-    assert reg.is_bound(exp, spec) is True
 
 
 def test_unbind_returns_true_when_present_false_when_absent():
@@ -132,22 +69,6 @@ def test_rebinding_overwrites_previous_spec():
     assert reg.for_experiment(exp) is s2
 
 
-def test_clear_clears_all_bindings():
-    reg = WorkflowBindingRegistry()
-    spec = _make_spec("a")
-    exp = _StubExperiment("e1")
-    reg.bind(exp, spec)
-    reg.clear()
-    assert reg.for_experiment(exp) is None
-
-
-def test_default_binding_registry_is_a_registry():
-    spec = _make_spec("a")
-    exp = _StubExperiment("e1")
-    default_binding_registry.bind(exp, spec)
-    assert default_binding_registry.for_experiment(exp) is spec
-
-
 # ── Validation: ValueError preserved from old free function ────────────────
 
 
@@ -157,23 +78,3 @@ def test_bind_rejects_non_workflow_target():
     spec = _make_spec("a")
     with pytest.raises(ValueError):
         reg.bind(not_an_exp, spec)
-
-
-def test_bind_rejects_experiment_with_non_string_id():
-    class _BadExp:
-        id = 42
-
-    reg = WorkflowBindingRegistry()
-    spec = _make_spec("a")
-    with pytest.raises(ValueError):
-        reg.bind(_BadExp(), spec)
-
-
-def test_bind_rejects_experiment_with_empty_id():
-    class _EmptyIdExp:
-        id = ""
-
-    reg = WorkflowBindingRegistry()
-    spec = _make_spec("a")
-    with pytest.raises(ValueError):
-        reg.bind(_EmptyIdExp(), spec)

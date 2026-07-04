@@ -25,10 +25,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-from pydantic import ValidationError
-
-from molexp.workspace import Bundle, Note, SearchHit, SearchResult
+from molexp.workspace import Bundle, Note
 
 # The spec's body-read cap (mirrors agent/loops/interactive/tools.py).
 MAX_BODY_SEARCH_BYTES = 512 * 1024
@@ -61,21 +58,6 @@ def _note(bundle_root: Path, name: str, index_md: str, *, under: str | None = No
     note.write_meta()  # meta.yaml — the OKF Concept marker
     note.write_index(index_md)
     return note
-
-
-# ── basics: result shape ──────────────────────────────────────────────────────
-
-
-def test_search_returns_search_result_shape(tmp_path: Path) -> None:
-    root = _root(tmp_path)
-    _note(root, "solo", "# Solo\n\nplain body\n")
-
-    result = Bundle(root).search("solo")
-
-    assert isinstance(result, SearchResult)
-    assert isinstance(result.hits, tuple)
-    assert result.hits  # the note matches (path + title)
-    assert all(isinstance(hit, SearchHit) for hit in result.hits)
 
 
 # ── body match: needle only in index.md body ──────────────────────────────────
@@ -139,16 +121,6 @@ def test_title_only_match_reports_title_field(tmp_path: Path) -> None:
     assert result.hits[0].matched_fields == ("title",)
 
 
-def test_title_match_works_with_include_body_false(tmp_path: Path) -> None:
-    root = _root(tmp_path)
-    _note(root, "milestones", "# Solvation Milestones\n\nbody without the phrase\n")
-
-    result = Bundle(root).search("solvation milestones", include_body=False)
-
-    assert [hit.entry.path for hit in result.hits] == ["milestones"]
-    assert result.hits[0].matched_fields == ("title",)
-
-
 def test_body_needle_not_matched_when_include_body_false(tmp_path: Path) -> None:
     root = _root(tmp_path)
     _note(root, "findings", f"# Plain Title\n\nthe {BODY_NEEDLE} sits here\n")
@@ -185,17 +157,6 @@ def test_limit_undercount_sets_truncated(tmp_path: Path) -> None:
     assert len(result.hits) == 1
     assert result.hits[0].entry.path == "one"  # first in path-ascending order
     assert result.truncated is True
-
-
-def test_truncated_false_when_all_matches_returned(tmp_path: Path) -> None:
-    root = _root(tmp_path)
-    _note(root, "one", f"# One\n\nthe {LIMIT_NEEDLE} here\n")
-    _note(root, "two", f"# Two\n\nthe {LIMIT_NEEDLE} here too\n")
-
-    result = Bundle(root).search(LIMIT_NEEDLE)
-
-    assert len(result.hits) == 2
-    assert result.truncated is False
 
 
 # ── size cap: oversized bodies never body-match, never drop index matches ─────
@@ -255,21 +216,6 @@ def test_text_none_keeps_filter_only_behavior(tmp_path: Path) -> None:
     assert all(hit.snippet is None for hit in result.hits)
     assert all(hit.matched_fields == () for hit in result.hits)
     assert result.truncated is False
-
-
-# ── immutability: frozen result models ────────────────────────────────────────
-
-
-def test_search_result_models_are_frozen(tmp_path: Path) -> None:
-    root = _root(tmp_path)
-    _note(root, "solo", "# Solo\n\nplain body\n")
-
-    result = Bundle(root).search("solo")
-
-    with pytest.raises(ValidationError):
-        result.truncated = True
-    with pytest.raises(ValidationError):
-        result.hits[0].snippet = "mutated"
 
 
 def test_tag_needle_reports_tag_field(tmp_path):

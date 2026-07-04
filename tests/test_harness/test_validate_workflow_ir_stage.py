@@ -99,24 +99,6 @@ def _seed_workflow_ir(ctx, obj):
 
 
 class TestValidateWorkflowIRStage:
-    def test_validate_workflow_ir_name(self) -> None:
-        from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
-
-        assert ValidateWorkflowIR.name == "validate_workflow_ir"
-
-    def test_validate_workflow_ir_is_stage_subclass(self) -> None:
-        from molexp.harness.core.stage import Stage
-        from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
-
-        assert issubclass(ValidateWorkflowIR, Stage)
-
-    def test_raise_on_failure_is_keyword_only(self) -> None:
-        """Calling ValidateWorkflowIR('x', True) must fail — True is positional, not allowed."""
-        from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
-
-        with pytest.raises(TypeError):
-            ValidateWorkflowIR("x", True)  # type: ignore[misc]
-
     def test_happy_path_persists_validation_report_and_returns_ref(self, ctx) -> None:
         from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
 
@@ -205,21 +187,3 @@ class TestValidateWorkflowIRStage:
         assert any(v.code == "ir_parse_error" for v in report.violations)
         # And the persisted ref is reachable from the exception.
         assert exc_info.value.persisted_ref.id == reports[0].id
-
-    def test_unparseable_input_soft_mode_returns_parse_error_report(self, ctx) -> None:
-        """raise_on_failure=False on unparseable IR returns the parse-error report."""
-        from molexp.harness.schemas.validation import PlanValidationReport
-        from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
-
-        ctx.artifact_store.put_json(
-            kind="workflow_ir",
-            obj={"oops": True},
-            created_by="seed",
-            parent_ids=[],
-        )
-        stage = ValidateWorkflowIR(raise_on_failure=False)
-        report_ref = asyncio.run(stage.run(ctx))
-        raw = ctx.artifact_store.get(report_ref.id)
-        report = PlanValidationReport.model_validate(json.loads(raw))
-        assert report.passed is False
-        assert any(v.code == "ir_parse_error" for v in report.violations)

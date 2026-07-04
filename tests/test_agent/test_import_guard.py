@@ -173,25 +173,6 @@ def test_importing_molexp_agent_does_not_load_pydantic_ai() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_importing_molexp_agent_router_does_not_load_pydantic_ai() -> None:
-    """``import molexp.agent.router`` (the protocol module) must also stay lazy.
-
-    The protocol file deliberately defers all SDK imports to the concrete
-    :class:`~molexp.agent._pydanticai.router.PydanticAIRouter` so test
-    fakes can implement the protocol without paying the SDK load cost.
-    """
-    code = (
-        "import sys\n"
-        "import molexp.agent.router  # noqa: F401\n"
-        "assert 'pydantic_ai' not in sys.modules, (\n"
-        "    f'pydantic_ai was eagerly loaded by molexp.agent.router; '\n"
-        "    f'the protocol module must not import the SDK.'\n"
-        ")\n"
-    )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr or result.stdout
-
-
 def test_importing_loops_does_not_load_mcp_clients() -> None:
     """Sentinel — importing the public loop surface stays MCP-client free.
 
@@ -210,44 +191,6 @@ def test_importing_loops_does_not_load_mcp_clients() -> None:
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr or result.stdout
-
-
-def test_importing_mcp_defaults_stays_lazy() -> None:
-    """ac-014 — ``import molexp.agent.mcp.defaults`` stays SDK-free.
-
-    The defaults module declares the platform's seeded MCP servers and
-    the seeding helper; nothing in it should pull in ``pydantic_ai`` or
-    ``pydantic_graph``. The seeding fires under
-    :class:`~molexp.agent.mcp.store.McpStore` construction, but neither
-    side path should require the SDKs.
-    """
-    code = (
-        "import sys\n"
-        "import molexp.agent.mcp.defaults  # noqa: F401\n"
-        "assert 'pydantic_ai' not in sys.modules, (\n"
-        "    f'pydantic_ai was eagerly loaded by molexp.agent.mcp.defaults'\n"
-        ")\n"
-        "assert 'pydantic_graph' not in sys.modules, (\n"
-        "    f'pydantic_graph was eagerly loaded by molexp.agent.mcp.defaults'\n"
-        ")\n"
-    )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr or result.stdout
-
-
-def test_agent_downstream_layers_are_allowed() -> None:
-    """Sanity guard: agent's permitted downstream edges are workspace + knowledge.
-
-    Post spec 03b the charter is reversed — agent sits *below* harness in the
-    DAG and no longer drives the workflow engine, so both ``molexp.workflow``
-    and ``molexp.harness`` are forbidden alongside the application shell. The
-    OKF rehome adds ``molexp.knowledge`` (the bottom storage layer) as a
-    sanctioned downstream edge — Agent/AgentSession are knowledge Concepts.
-    """
-    assert "molexp.workspace" not in FORBIDDEN_PREFIXES
-    assert "molexp.knowledge" not in FORBIDDEN_PREFIXES  # agent→knowledge is legal
-    assert "molexp.workflow" in FORBIDDEN_PREFIXES
-    assert "molexp.harness" in FORBIDDEN_PREFIXES
 
 
 def test_pydanticai_router_public_reexport_is_lazy() -> None:

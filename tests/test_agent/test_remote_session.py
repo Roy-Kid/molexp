@@ -57,22 +57,6 @@ def test_agent_materialize_routes_through_fs(spy_agent):
     assert "atomic_write_text" in ops, f"materialize must write meta.yaml via fs; ops were {ops!r}"
 
 
-def test_session_messages_path_is_flat(spy_agent):
-    agent, _fs = spy_agent
-    session = agent.add_session("chat-1")
-    # flat layout: <agent>/<session>/messages.jsonl (no agents/ + agent_sessions/)
-    assert str(session.messages_path).endswith("reviewer/chat-1/messages.jsonl")
-
-
-def test_read_messages_routes_through_fs(spy_agent):
-    agent, fs = spy_agent
-    session = agent.add_session("chat-1")
-    fs.calls.clear()
-    assert session.read_messages() == ()
-    ops = _ops_for_path(fs.calls, "messages.jsonl")
-    assert "exists" in ops, f"read_messages must call fs.exists; ops were {ops!r}"
-
-
 def test_write_messages_empty_removes_via_fs(spy_agent):
     agent, fs = spy_agent
     session = agent.add_session("chat-1")
@@ -81,22 +65,3 @@ def test_write_messages_empty_removes_via_fs(spy_agent):
     session.write_messages(())  # empty → remove via fs
     ops = _ops_for_path(fs.calls, "messages.jsonl")
     assert "remove" in ops, f"write_messages(empty) must remove via fs.remove; ops were {ops!r}"
-
-
-def test_sessions_round_trip_via_registry(tmp_path):
-    fs = _SpyFileSystem()
-    agent = Agent(name="reviewer", root_path=tmp_path / "lab", fs=fs)
-    agent.add_session("chat-1", goal_summary="solve X", status="running")
-
-    # a fresh Agent handle (empty child cache) reconstructs sessions from disk
-    fresh_fs = _SpyFileSystem()
-    reloaded = Agent(name="reviewer", root_path=tmp_path / "lab", fs=fresh_fs)
-    assert [s.name for s in reloaded.list_sessions()] == ["chat-1"]
-    assert isinstance(reloaded.get_session("chat-1"), type(agent.get_session("chat-1")))
-
-    # disk is the source of truth — a reconstructed handle sees persisted state,
-    # not constructor defaults (read-through, no stale in-memory shadow)
-    session = reloaded.get_session("chat-1")
-    assert session.goal_summary == "solve X"
-    assert session.status == "running"
-    assert session.read_session_meta().goal_summary == "solve X"

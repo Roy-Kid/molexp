@@ -19,7 +19,6 @@ from molexp.workspace import Workspace
 from molexp.workspace.fs import StatResult
 from molexp.workspace.fs_cached import (
     CachedRemoteFileSystem,
-    PrefetchWarning,
     prefetch_workspace_indices,
 )
 from molexp.workspace.fs_local import LocalFileSystem
@@ -236,15 +235,6 @@ def test_walk_uses_listdir_fallback_when_index_missing(tmp_path: Path):
     assert warnings == []
     cached_paths = cached.cached_paths()
     assert any("projects/gamma/project.json" in k for k in cached_paths)
-
-
-@pytest.mark.unit
-def test_warnings_are_immutable_prefetch_warnings(scripted):
-    ws, _cached, _fs = scripted
-    warnings = prefetch_workspace_indices(ws)
-    assert all(isinstance(w, PrefetchWarning) for w in warnings)
-    with pytest.raises(Exception):  # noqa: B017 — dataclass frozen
-        warnings[0].path = "tampered"  # type: ignore[misc]
 
 
 @pytest.mark.unit

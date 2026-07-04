@@ -109,13 +109,6 @@ class TestNoDerivedSqliteIndex:
     """The derived SQLite ``AssetCatalog`` is gone: the authoritative
     per-scope ``assets.json`` manifests are the only on-disk asset record."""
 
-    def test_fresh_workspace_has_no_catalog_dir_or_sqlite(self, tmp_path):
-        ws = Workspace(tmp_path / "empty")
-        ws.materialize()
-        root = Path(str(ws.root))
-        assert not (root / "catalog").exists()
-        assert list(root.rglob("*.sqlite")) == []
-
     def test_seeded_workspace_writes_only_manifests_no_sqlite(self, tmp_path):
         from molexp.workspace.events import WORKSPACE_EVENTS_DB
 

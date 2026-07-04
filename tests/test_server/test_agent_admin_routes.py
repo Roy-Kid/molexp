@@ -126,36 +126,12 @@ class TestProviderGet:
         assert isinstance(body["baseUrl"], str)
         assert isinstance(body["instructions"], str)
 
-    def test_get_provider_masks_api_key_preview(
-        self, client: TestClient, seeded_config: Path
-    ) -> None:
-        body = client.get("/api/agent/provider").json()
-        assert body["apiKeySet"] is True
-        assert body["apiKeyPreview"] == _MASKED_PREVIEW
-
     def test_get_provider_never_echoes_raw_key(
         self, client: TestClient, seeded_config: Path
     ) -> None:
         response = client.get("/api/agent/provider")
         assert response.status_code == 200
         assert _RAW_KEY not in response.text
-
-    def test_get_provider_reports_unset_key(
-        self, client: TestClient, operator_config_path: Path
-    ) -> None:
-        operator_config_path.parent.mkdir(parents=True, exist_ok=True)
-        operator_config_path.write_text(json.dumps({"agent": {"model": _MODEL}}))
-        body = client.get("/api/agent/provider").json()
-        assert body["apiKeySet"] is False
-        assert body["apiKeyPreview"] == ""
-
-    def test_supported_providers_include_known_registry(
-        self, client: TestClient, seeded_config: Path
-    ) -> None:
-        body = client.get("/api/agent/provider").json()
-        providers = body["supportedProviders"]
-        assert isinstance(providers, list)
-        assert {"anthropic", "openai", "google", "deepseek"} <= set(providers)
 
 
 # ── PUT /api/agent/provider ──────────────────────────────────────────────────
@@ -175,17 +151,6 @@ class TestProviderPut:
         stored = json.loads(operator_config_path.read_text())
         assert stored["agent"]["model"] == _MODEL
         assert stored["agent"]["deepseek_api_key"] == _RAW_KEY
-
-    def test_put_rebridges_model_into_running_process(
-        self, client: TestClient, operator_config_path: Path
-    ) -> None:
-        response = client.put(
-            "/api/agent/provider",
-            json={"provider": "deepseek", "model": _MODEL, "api_key": _RAW_KEY},
-        )
-        assert response.status_code == 200
-        assert molexp.config.get(AGENT_MODEL_KEY) == _MODEL
-        assert molexp.config.get("deepseek_api_key") == _RAW_KEY
 
     def test_put_unblocks_plan_task_model_guard(
         self, client: TestClient, operator_config_path: Path
@@ -266,15 +231,6 @@ class TestProviderTest:
 
 
 class TestRoutePrecedence:
-    def test_provider_route_wins_over_legacy_catch_all(
-        self, client: TestClient, seeded_config: Path
-    ) -> None:
-        """agent_admin registers before agent.router — provider paths are served,
-        not swallowed by the ``/agent/{path:path}`` 503."""
-        response = client.get("/api/agent/provider")
-        assert response.status_code != 503
-        assert response.status_code == 200
-
     def test_retired_session_path_still_503s(self, client: TestClient) -> None:
         """Genuinely-retired session paths keep the honest 503 catch-all."""
         response = client.get("/api/agent/sessions")

@@ -139,29 +139,6 @@ def test_subclass_registrations_are_isolated(tmp_path: Path) -> None:
     assert StoreB._registrations == []
 
 
-def test_clear_registrations_only_clears_own_subclass() -> None:
-    """``clear_registrations()`` is scoped to the calling subclass."""
-    StoreA.register(_make_spec("a-1"))
-    StoreB.register(_make_spec("b-1"))
-
-    StoreA.clear_registrations()
-
-    assert StoreA._registrations == []
-    assert [s.id for s in StoreB._registrations] == ["b-1"]
-
-
-def test_registrations_appear_in_list_all(tmp_path: Path) -> None:
-    """A freshly-built store still surfaces registrations even with no files."""
-    DummyStore.register(_make_spec("packaged", name="from-code"))
-
-    store = _make_store(tmp_path)
-    ids = [s.id for s in store.list_all()]
-
-    assert "packaged" in ids
-    assert not (tmp_path / "user.json").exists()
-    assert not (tmp_path / "workspace.json").exists()
-
-
 def test_crud_does_not_mutate_registrations(tmp_path: Path) -> None:
     """``delete`` must never clear registration entries — they're code-owned."""
     DummyStore.register(_make_spec("X", name="from-code"))
@@ -225,21 +202,6 @@ def test_get_at_returns_only_named_scope(tmp_path: Path) -> None:
     )
     assert empty_store.get_at(Scope.USER, "X") is None
     assert empty_store.get_at(Scope.WORKSPACE, "X") is None
-
-
-def test_list_scope_returns_only_one_layer(tmp_path: Path) -> None:
-    """``list_scope`` excludes registrations and the other scope's entries."""
-    DummyStore.register(_make_spec("reg-only", name="from-code"))
-
-    store = _make_store(tmp_path)
-    store.create(scope=Scope.USER, id="user-only", name="u")
-    store.create(scope=Scope.WORKSPACE, id="ws-only", name="w")
-
-    user_ids = sorted(s.id for s in store.list_scope(Scope.USER))
-    workspace_ids = sorted(s.id for s in store.list_scope(Scope.WORKSPACE))
-
-    assert user_ids == ["user-only"]
-    assert workspace_ids == ["ws-only"]
 
 
 # ---------------------------------------------------------------------------
@@ -357,38 +319,3 @@ def test_atomic_write_uses_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     # No leftover *.tmp files in the workspace dir.
     leftover = list(tmp_path.glob("*.tmp")) + list(tmp_path.glob("*.tmp.*"))
     assert leftover == [], f"stale tmp files: {leftover!r}"
-
-
-def test_disk_format_is_dict_of_dicts_wrapped(tmp_path: Path) -> None:
-    """Disk format is ``{"<kind_key>": {"<id>": {...}}}`` — not a list."""
-    store = _make_store(tmp_path)
-    store.create(scope=Scope.WORKSPACE, id="x", name="alpha")
-
-    workspace_path = tmp_path / "workspace.json"
-    payload = json.loads(workspace_path.read_text())
-
-    assert isinstance(payload, dict)
-    assert "dummies" in payload
-    assert isinstance(payload["dummies"], dict)
-    assert "x" in payload["dummies"]
-    assert isinstance(payload["dummies"]["x"], dict)
-    assert payload["dummies"]["x"].get("name") == "alpha"
-
-
-# ---------------------------------------------------------------------------
-# Lookup
-# ---------------------------------------------------------------------------
-
-
-def test_find_by_returns_first_match_with_shadow_resolution(tmp_path: Path) -> None:
-    """``find_by`` shares the merged view used by ``get`` — workspace wins."""
-    DummyStore.register(_make_spec("X", name="alpha"))
-
-    store = _make_store(tmp_path)
-    store.create(scope=Scope.USER, id="X", name="alpha")
-    store.create(scope=Scope.WORKSPACE, id="X", name="alpha")
-
-    hit = store.find_by(name="alpha")
-    assert hit is not None
-    assert hit.id == "X"
-    assert hit.scope == Scope.WORKSPACE

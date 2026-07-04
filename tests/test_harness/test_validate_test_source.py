@@ -190,15 +190,6 @@ class TestValidateTestSource:
         assert report.passed is False
         assert len(report.violations) >= 1
 
-    # ------------------------------------------------------------ stage shape
-
-    def test_stage_name_and_subclass(self) -> None:
-        from molexp.harness.core.stage import Stage
-        from molexp.harness.stages import ValidateTestSource
-
-        assert ValidateTestSource.name == "validate_test_source"
-        assert issubclass(ValidateTestSource, Stage)
-
     # ------------------------------------------------------- stage happy path
 
     def test_stage_persists_passing_report_for_good_source(self, ctx) -> None:
@@ -278,18 +269,6 @@ class TestValidateTestSourcePerTask:
         assert len(missing) == 1
         assert "analyze" in missing[0].message
 
-    def test_accepts_a_test_per_required_task(self) -> None:
-        """ac-005 — every required task covered by a ``test_*`` → passes."""
-        from molexp.harness.validators import TestSourceValidator
-
-        report = TestSourceValidator.validate(
-            _TWO_TASK_SOURCE,
-            target_id="ts-art-1",
-            required_task_ids={"build", "relax"},
-        )
-        assert report.passed is True
-        assert report.violations == []
-
     def test_normalizes_non_identifier_task_ids(self) -> None:
         """A hyphenated task id is matched by its identifier-safe token."""
         from molexp.harness.validators import TestSourceValidator
@@ -298,11 +277,4 @@ class TestValidateTestSourcePerTask:
         report = TestSourceValidator.validate(
             source, target_id="ts-art-1", required_task_ids={"b-build"}
         )
-        assert report.passed is True
-
-    def test_none_required_keeps_legacy_behaviour(self) -> None:
-        """required_task_ids=None → only the legacy 'at least one test' check."""
-        from molexp.harness.validators import TestSourceValidator
-
-        report = TestSourceValidator.validate(VALID_TEST_SOURCE, target_id="ts-art-1")
         assert report.passed is True

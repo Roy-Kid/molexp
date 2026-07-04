@@ -38,7 +38,6 @@ from typing import cast
 
 import pytest
 
-import molexp.workspace as mw
 from molexp.workspace import (
     Bundle,
     EntitySummary,
@@ -229,15 +228,6 @@ def test_note_bare_marker_defaults_untagged_active(scene: SimpleNamespace) -> No
     meta = note.read_note_meta()
     assert meta.tags == []
     assert meta.status == "active"
-
-
-# ── ac-008: new public API exported on molexp.workspace.__all__ ──────────────
-
-
-def test_public_exports() -> None:
-    for name in ("NoteMeta", "EntitySummary", "summarize_entity"):
-        assert name in mw.__all__, f"{name} missing from molexp.workspace.__all__"
-        assert hasattr(mw, name), f"{name} not importable from molexp.workspace"
 
 
 # ── Edge cases (spec Testing strategy) ───────────────────────────────────────

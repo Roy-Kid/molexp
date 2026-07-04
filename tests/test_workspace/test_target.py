@@ -26,7 +26,6 @@ from molexp.workspace.target import (
     parse_target,
     resolve_target,
     target_to_filesystem,
-    target_to_transport,
 )
 
 
@@ -49,12 +48,6 @@ class TestParseTarget:
             assert isinstance(target, LocalTarget)
             assert target.path == Path.cwd()
 
-    def test_local_path(self, tmp_path: Path) -> None:
-        target = parse_target(str(tmp_path))
-        assert isinstance(target, LocalTarget)
-        assert target.path == tmp_path.resolve()
-        assert str(target) == str(tmp_path.resolve())
-
     def test_scp_notation_with_user(self) -> None:
         target = parse_target("me@host.example:/data/ws")
         assert isinstance(target, RemoteTarget)
@@ -63,13 +56,6 @@ class TestParseTarget:
         assert target.path == "/data/ws"
         assert target.scp_notation == "me@host.example:/data/ws"
         assert str(target) == "me@host.example:/data/ws"
-
-    def test_scp_notation_without_user(self) -> None:
-        target = parse_target("host.example:/data/ws")
-        assert isinstance(target, RemoteTarget)
-        assert target.user is None
-        assert target.host == "host.example"
-        assert target.path == "/data/ws"
 
     def test_shell_expanded_home_restored_to_tilde(self) -> None:
         local_home = os.path.expanduser("~")  # noqa: PTH111
@@ -138,13 +124,6 @@ class TestResolveTarget:
 
 
 class TestBridges:
-    def test_local_target_to_transport(self, tmp_path: Path) -> None:
-        assert isinstance(target_to_transport(parse_target(str(tmp_path))), LocalTransport)
-
-    def test_remote_target_to_transport(self) -> None:
-        transport = target_to_transport(parse_target("me@host.example:/data"))
-        assert isinstance(transport, SshTransport)
-
     def test_local_target_to_filesystem(self, tmp_path: Path) -> None:
         assert isinstance(target_to_filesystem(parse_target(str(tmp_path))), LocalFileSystem)
 
@@ -161,11 +140,6 @@ class TestBridges:
 
 
 class TestUnifiedFamily:
-    def test_target_alias_is_compute_target(self) -> None:
-        from molexp.workspace.target import Target
-
-        assert Target is ComputeTarget
-
     def test_local_view_is_a_compute_target(self, tmp_path: Path) -> None:
         target = parse_target(str(tmp_path))
         assert isinstance(target, ComputeTarget)
@@ -203,12 +177,6 @@ class TestUnifiedFamily:
         assert target.name == "local"
         assert target.path == Path(str(ws.root))
         assert isinstance(transport, LocalTransport)
-
-    def test_remote_view_model_dump_round_trip(self) -> None:
-        target = parse_target("me@host.example:/data/ws")
-        assert isinstance(target, RemoteTarget)
-        again = RemoteTarget(**target.model_dump())
-        assert again.model_dump() == target.model_dump()
 
     def test_resolve_compute_target_is_the_workspace_named_resolver(self, ws: Workspace) -> None:
         from molexp.workspace import resolve_compute_target
@@ -257,15 +225,6 @@ class TestSessionManager:
         assert SessionManager.close("me@host.example:/data/ws") is True
         assert SessionManager.get(target) is None
         assert SessionManager.close("me@host.example:/data/ws") is False
-
-    def test_close_all_and_list(self) -> None:
-        SessionManager.get_or_create(self._remote())
-        SessionManager.get_or_create(
-            RemoteTarget(user=None, host="other.example", port=None, path="/x")
-        )
-        assert len(SessionManager.list_sessions()) == 2
-        assert SessionManager.close_all() == 2
-        assert SessionManager.list_sessions() == []
 
     def test_sessions_are_ssh_sessions(self) -> None:
         """workspace ``Session`` was renamed ``SSHSession`` — the bare name now

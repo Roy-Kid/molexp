@@ -25,17 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import pydantic
-import pytest
-
 from molexp.harness.capabilities import curation_capabilities
-from molexp.harness.capabilities.curation import (
-    CURATION_CAPABILITIES,
-)
-from molexp.harness.capabilities.curation import (
-    curation_capabilities as curation_capabilities_local,
-)
-from molexp.harness.schemas import ToolCapability
 
 # ── shared constants ────────────────────────────────────────────────────────
 
@@ -160,31 +150,13 @@ def _imports_with_prefix(prefix: str, root: Path) -> list[tuple[Path, int, str]]
 
 
 class TestAccessorShape:
-    """ac-001 — ``curation_capabilities()`` returns a fresh list of frozen entries."""
-
-    def test_returns_non_empty_list_of_tool_capabilities(self) -> None:
-        catalog = curation_capabilities()
-        assert isinstance(catalog, list)
-        assert len(catalog) >= 1
-        assert all(isinstance(entry, ToolCapability) for entry in catalog)
-
-    def test_local_and_reexported_accessor_are_the_same_object(self) -> None:
-        assert curation_capabilities is curation_capabilities_local
+    """ac-001 — ``curation_capabilities()`` returns a fresh list each call."""
 
     def test_returns_a_fresh_list_each_call(self) -> None:
         first = curation_capabilities()
         second = curation_capabilities()
         assert first == second
         assert first is not second
-
-    def test_frozen_tuple_is_the_backing_source(self) -> None:
-        assert isinstance(CURATION_CAPABILITIES, tuple)
-        assert list(CURATION_CAPABILITIES) == curation_capabilities()
-
-    def test_entries_are_frozen(self) -> None:
-        entry = curation_capabilities()[0]
-        with pytest.raises(pydantic.ValidationError):
-            entry.id = "mutated.id"  # type: ignore[misc]
 
 
 # ── ac-002: id namespace + package contract ──────────────────────────────────
@@ -200,27 +172,6 @@ class TestIdContract:
     def test_every_id_is_curation_namespaced(self) -> None:
         for entry in curation_capabilities():
             assert entry.id.startswith("molexp.curation."), entry.id
-
-    def test_every_package_is_molexp(self) -> None:
-        for entry in curation_capabilities():
-            assert entry.package == "molexp", entry.id
-
-    def test_id_differs_from_callable_path(self) -> None:
-        for entry in curation_capabilities():
-            assert entry.id != entry.callable_path, entry.id
-
-
-# ── ac-003: callable_path resolves to a real callable ────────────────────────
-
-
-class TestCallablePathResolves:
-    """ac-003 (drift guard) — every ``callable_path`` imports to a callable."""
-
-    def test_each_callable_path_resolves(self) -> None:
-        for entry in curation_capabilities():
-            assert entry.callable_path is not None, entry.id
-            resolved = _resolve_callable(entry.callable_path)
-            assert callable(resolved), f"{entry.id} -> {entry.callable_path} is not callable"
 
 
 # ── ac-004: side-effects contract, classified by tag ─────────────────────────
@@ -247,13 +198,6 @@ class TestSideEffectsContract:
                 assert all(isinstance(token, str) and token for token in entry.side_effects), (
                     entry.id
                 )
-
-    def test_catalog_has_both_read_only_and_destructive_entries(self) -> None:
-        catalog = curation_capabilities()
-        read_only = [e for e in catalog if "read-only" in e.tags]
-        destructive = [e for e in catalog if "destructive" in e.tags]
-        assert read_only, "expected at least one read-only capability"
-        assert destructive, "expected at least one destructive capability"
 
     def test_destructive_id_set_is_exactly_the_three_mutators(self) -> None:
         destructive_ids = {

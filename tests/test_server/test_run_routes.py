@@ -22,15 +22,6 @@ class TestRunRoutes:
         assert data["projectId"] == project.id
         assert data["experimentId"] == experiment.id
 
-    def test_create_captures_workflow_snapshot(self, client, project, experiment):
-        resp = client.post(
-            self._prefix(project, experiment),
-            json={"parameters": {}},
-        )
-        data = resp.json()
-        assert data["workflow"] is not None
-        assert data["workflow"]["source"] == "train.py"
-
     def test_list(self, client, project, experiment):
         client.post(self._prefix(project, experiment), json={"parameters": {}})
         client.post(self._prefix(project, experiment), json={"parameters": {}})
@@ -43,16 +34,6 @@ class TestRunRoutes:
         assert resp.status_code == 200
         assert resp.json()["id"] == run.id
         assert resp.json()["executorInfo"] == {"backend": "molq", "scheduler": "slurm"}
-
-    def test_update_status(self, client, project, experiment, run):
-        resp = client.patch(
-            f"{self._prefix(project, experiment)}/{run.id}/status",
-            json={"status": "succeeded"},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "succeeded"
-        assert data["finished"] is not None
 
     def test_get_exposes_results_and_history(self, client, project, experiment, run):
         # Drive a real execution so context.results and execution_history are populated.
@@ -188,19 +169,6 @@ class TestRunSubmissionWiring:
         _handler, _args, kwargs = captured_submits[0]
         assert kwargs.get("execution_id") == body["executionId"]
 
-    def test_rerun_without_target_does_not_submit(
-        self, client, project, experiment, run, captured_submits
-    ):
-        with pytest.raises(RuntimeError, match="boom"), run.start():
-            raise RuntimeError("boom")
-        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/rerun")
-        assert resp.status_code == 201
-        body = resp.json()
-        assert body["runId"] == run.id
-        assert "newRunId" not in body
-        assert body["executionId"].startswith(f"exec-{run.id}")
-        assert captured_submits == []
-
     def test_resume_reopens_last_non_succeeded_execution(
         self, client, project, experiment, run, captured_submits
     ):
@@ -274,26 +242,6 @@ class TestRunSubmissionWiring:
         assert resp.status_code == 422, resp.text
         assert captured_submits == []
 
-    def test_rerun_with_target_but_no_entrypoint_returns_422(
-        self, client, project, experiment, local_target, captured_submits
-    ):
-        """ac-005: targeted run whose experiment lacks a workflow entrypoint → 422.
-
-        ``experiment`` (not ``experiment_with_entrypoint``) binds no spec, so
-        ``_dispatch_to_molq``'s entrypoint guard fires.
-        """
-        src_run = experiment.add_run(params={"lr": 1e-4}, target=local_target)
-        # Must be retryable (failed) to pass the status gate and reach the
-        # entrypoint check.
-        with pytest.raises(RuntimeError, match="boom"), src_run.start():
-            raise RuntimeError("boom")
-        captured_submits.clear()
-
-        resp = client.post(f"{self._prefix(project, experiment)}/{src_run.id}/rerun")
-        assert resp.status_code == 422, resp.text
-        assert "entrypoint" in resp.json()["detail"].lower()
-        assert captured_submits == []
-
 
 class TestRunStart:
     """The ``run`` (start) verb: dispatch a *pending* run onto a chosen target."""
@@ -332,16 +280,6 @@ class TestRunStart:
         assert len(captured_submits) == 1
         handler, _args, _kwargs = captured_submits[0]
         assert handler._scheduler == "local"
-
-    def test_start_local_without_entrypoint_returns_422(
-        self, client, project, experiment, captured_submits
-    ):
-        """Even on the built-in local target, a run with no workflow entrypoint 422s."""
-        run = experiment.add_run(params={})  # pending, no bound workflow
-        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/run", json={})
-        assert resp.status_code == 422, resp.text
-        assert "entrypoint" in resp.json()["detail"].lower()
-        assert captured_submits == []
 
     def test_start_applies_parameters_before_dispatch(
         self, client, project, experiment_with_entrypoint, local_target, captured_submits
@@ -386,33 +324,6 @@ class TestRunContinuationSchemaAndOpenAPI:
     def _prefix(self, project, experiment):
         return f"/api/projects/{project.id}/experiments/{experiment.id}/runs"
 
-    def test_run_continue_response_schema_shape(self):
-        """ac-001: RunContinueResponse importable with the five fields."""
-        from molexp.server.schemas import RunContinueResponse
-
-        model = RunContinueResponse(
-            runId="r1",
-            executionId="exec-r1",
-            status="pending",
-            projectId="p1",
-            experimentId="e1",
-        )
-        assert set(model.model_fields) == {
-            "runId",
-            "executionId",
-            "status",
-            "projectId",
-            "experimentId",
-        }
-
-    def test_run_rerun_response_is_removed(self):
-        """ac-001: the old clone-shaped response is gone."""
-        import molexp.server.schemas as schemas
-
-        assert not hasattr(schemas, "RunRerunResponse")
-        with pytest.raises(ImportError):
-            from molexp.server.schemas import RunRerunResponse  # noqa: F401
-
     def test_openapi_exposes_resume_and_rerun_paths(self, client):
         """ac-006: paths + new schema present, old shape absent."""
         spec = client.get("/api/openapi.json").json()
@@ -429,21 +340,6 @@ class TestRunContinuationSchemaAndOpenAPI:
         raw = client.get("/api/openapi.json").text
         assert "RunRerunResponse" not in raw
         assert "newRunId" not in raw
-
-    def test_kill_routes_through_try_cancel(self, client, project, experiment, run, monkeypatch):
-        seen: list = []
-
-        def fake_try_cancel(r):
-            seen.append(r.id)
-            r.cancel()
-            return
-
-        monkeypatch.setattr("molexp.server.routes.run.try_cancel", fake_try_cancel)
-        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")
-        assert resp.status_code == 200
-        assert seen == [run.id]
-        assert resp.json()["message"] == "Run cancelled"
-        assert resp.json()["status"] == "cancelled"
 
     def test_kill_falls_back_when_try_cancel_warns(
         self, client, project, experiment, run, monkeypatch

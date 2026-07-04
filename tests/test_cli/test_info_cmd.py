@@ -7,7 +7,6 @@ healthy-looking empty workspace for any directory; now a missing
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
@@ -34,17 +33,6 @@ def test_info_errors_on_non_workspace_path(tmp_path: Path):
     plain = _plain(result.output)
     assert "No workspace found at" in plain
     assert "molexp init" in plain
-
-
-def test_info_errors_in_non_workspace_cwd(tmp_path: Path):
-    cwd = Path.cwd()
-    os.chdir(tmp_path)
-    try:
-        result = runner.invoke(app, ["info"])
-    finally:
-        os.chdir(cwd)
-    assert result.exit_code == 1
-    assert "No workspace found at" in result.output
 
 
 def test_info_succeeds_on_initialized_workspace(tmp_path: Path):

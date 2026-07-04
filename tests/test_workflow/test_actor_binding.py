@@ -11,7 +11,7 @@ like a task's, and the async-generator drain (last yield → output) is unchange
 
 from __future__ import annotations
 
-from molexp.workflow import Actor, TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
 
 
 async def test_decorator_actor_reads_upstream_by_name_without_ctx() -> None:
@@ -29,41 +29,6 @@ async def test_decorator_actor_reads_upstream_by_name_without_ctx() -> None:
 
     result = await WorkflowRuntime().execute(wf.compile())
     assert result.outputs["stream"] == 30  # last yield: 3 * 10
-
-
-async def test_decorator_actor_reads_upstream_with_ctx_first() -> None:
-    wf = WorkflowCompiler(name="actor-ctx-upstream")
-
-    @wf.task
-    async def source() -> list[int]:
-        return [4, 5, 6]
-
-    @wf.actor(depends_on=["source"])
-    async def stream(ctx: TaskContext, source: list[int]):
-        # ``ctx`` is the leading param (workdir); ``source`` still binds by name.
-        assert ctx.workdir is None  # no workspace run attached
-        for x in source:
-            yield x + 1
-
-    result = await WorkflowRuntime().execute(wf.compile())
-    assert result.outputs["stream"] == 7  # last yield: 6 + 1
-
-
-async def test_oop_actor_subclass_reads_upstream_by_name() -> None:
-    class Streamer(Actor):
-        async def run(self, ctx: TaskContext, data: list[int]):
-            for x in data:
-                yield x - 1
-
-    wf = WorkflowCompiler(name="oop-actor")
-
-    @wf.task
-    async def data() -> list[int]:
-        return [10, 20, 30]
-
-    compiled = wf.add(Streamer(), name="stream", depends_on=["data"]).compile()
-    result = await WorkflowRuntime().execute(compiled)
-    assert result.outputs["stream"] == 29  # last yield: 30 - 1
 
 
 async def test_actor_reads_build_time_config_by_name() -> None:

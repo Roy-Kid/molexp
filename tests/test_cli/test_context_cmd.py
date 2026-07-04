@@ -32,20 +32,6 @@ def test_context_populated(
     assert "recent runs:" in result.output  # the run surfaces
 
 
-def test_context_empty_is_explicit(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ws = Workspace(root=tmp_path, name="Empty")
-    ws.materialize()
-    monkeypatch.chdir(tmp_path)
-
-    result = runner.invoke(app, ["context"])
-
-    assert result.exit_code == 0, result.output
-    assert "none" in result.output  # no runs → explicit "none", not a crash
-    assert "Traceback" not in result.output
-
-
 def test_context_uses_shared_backend(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

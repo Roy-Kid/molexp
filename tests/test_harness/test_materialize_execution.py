@@ -126,28 +126,13 @@ def _find_by_parents(refs, parent_ids: list[str]):
 # ------------------------------------------------------------------ basics
 
 
-def test_name_and_subclass() -> None:
-    from molexp.harness import Stage
-    from molexp.harness.stages import MaterializeExecution
-
-    assert MaterializeExecution.name == "materialize_execution"
-    assert issubclass(MaterializeExecution, Stage)
-
-
-def test_writes_exactly_three_files(ctx) -> None:
+def test_writes_exactly_three_files_with_sources_verbatim(ctx) -> None:
     _seed_all(ctx.artifact_store)
     _run(ctx)
 
     generated = ctx.workspace_root / "generated"
     names = sorted(p.name for p in generated.iterdir())
     assert names == ["generated_workflow.py", "run_workflow.py", "test_generated_workflow.py"]
-
-
-def test_module_files_match_sources_verbatim(ctx) -> None:
-    _seed_all(ctx.artifact_store)
-    _run(ctx)
-
-    generated = ctx.workspace_root / "generated"
     assert (generated / "generated_workflow.py").read_text() == WORKFLOW_SOURCE_TEXT
     assert (generated / "test_generated_workflow.py").read_text() == TEST_SOURCE_TEXT
 
@@ -155,7 +140,10 @@ def test_module_files_match_sources_verbatim(ctx) -> None:
 # ------------------------------------------------------------------ driver
 
 
-def test_driver_parses_and_names_runtime_surface(ctx) -> None:
+def test_driver_rendered_per_contract(ctx) -> None:
+    """Parses; names the runtime surface; embeds sorted params JSON; mentions
+    outputs.json + the canonical terminal-success status; branches on
+    --compile-only (plan-step-7 dry run)."""
     _seed_all(ctx.artifact_store)
     _run(ctx)
 
@@ -163,58 +151,30 @@ def test_driver_parses_and_names_runtime_surface(ctx) -> None:
     ast.parse(driver)
     assert "from molexp import WorkflowRuntime" in driver
     assert "from generated_workflow import build_workflow" in driver
-
-
-def test_driver_embeds_sorted_params_json(ctx) -> None:
-    _seed_all(ctx.artifact_store)
-    _run(ctx)
-
-    expected_params = json.dumps({"n_steps": 500}, sort_keys=True)
-    assert expected_params in _driver_text(ctx)
-
-
-def test_driver_mentions_outputs_file_and_succeeded_status(ctx) -> None:
-    _seed_all(ctx.artifact_store)
-    _run(ctx)
-
-    driver = _driver_text(ctx)
+    assert json.dumps({"n_steps": 500}, sort_keys=True) in driver
     assert "outputs.json" in driver
     # The canonical terminal-success status (workspace status law).
     assert '== "succeeded"' in driver
+    assert "--compile-only" in driver
 
 
 # ----------------------------------------------------------------- lineage
 
 
-def test_registers_three_input_file_artifacts_with_lineage(ctx) -> None:
+def test_registers_three_input_file_artifacts_with_lineage_and_returns_driver(ctx) -> None:
     ws_ref, ts_ref, ir_ref = _seed_all(ctx.artifact_store)
-    _run(ctx)
+    ref = _run(ctx)
 
     refs = ctx.artifact_store.list_by_kind("input_file")
     assert len(refs) == 3
     _find_by_parents(refs, [ws_ref.id])  # workflow module
     _find_by_parents(refs, [ts_ref.id])  # test module
-    _find_by_parents(refs, [ws_ref.id, ir_ref.id, ts_ref.id])  # driver
-
-
-def test_returns_the_driver_artifact_ref(ctx) -> None:
-    ws_ref, ts_ref, ir_ref = _seed_all(ctx.artifact_store)
-    ref = _run(ctx)
-
-    refs = ctx.artifact_store.list_by_kind("input_file")
-    driver = _find_by_parents(refs, [ws_ref.id, ir_ref.id, ts_ref.id])
+    driver = _find_by_parents(refs, [ws_ref.id, ir_ref.id, ts_ref.id])  # driver
     assert ref.kind == "input_file"
     assert ref.id == driver.id
 
 
-# ------------------------------------------------- compile-only + input_set
-
-
-def test_driver_supports_compile_only(ctx) -> None:
-    """The driver branches on --compile-only (plan-step-7 dry run)."""
-    _seed_all(ctx.artifact_store)
-    _run(ctx)
-    assert "--compile-only" in _driver_text(ctx)
+# --------------------------------------------------------------- input_set
 
 
 def _seed_input_set(store, *, fixed_params=None):

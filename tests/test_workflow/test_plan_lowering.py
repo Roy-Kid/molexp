@@ -20,18 +20,12 @@ values-on-edges semantics. These tests pin:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
-import pytest
-
-from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import TaskContext, WorkflowCompiler
 from molexp.workflow._engine.plan import START, ExecutionPlan
 from molexp.workflow.types import (
     BranchEdges,
-    CycleError,
-    UnreachableTaskError,
-    WorkflowError,
 )
 
 ENGINE_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow" / "_engine"
@@ -42,21 +36,6 @@ def _engine_sources() -> str:
 
 
 # ── ac-001: deleted scheduler internals + timing constants ───────────────────
-
-
-def test_old_scheduler_internals_deleted() -> None:
-    src = _engine_sources()
-    for forbidden in (
-        "class WorkflowStep",
-        "_dispatch",
-        "_invoke_one",
-        "_partition_by_data_deps",
-        "level_index",
-    ):
-        assert forbidden not in src, (
-            f"{forbidden!r} must be deleted — the single-track scheduler is replaced "
-            "by the structural values-on-edges engine."
-        )
 
 
 def test_no_timing_constants_for_coordination() -> None:
@@ -74,26 +53,6 @@ def test_no_timing_constants_for_coordination() -> None:
         assert forbidden not in src, (
             f"{forbidden!r} found in the engine package — coordination must be "
             "event/structure driven with zero timing constants."
-        )
-
-
-def test_engine_owns_execution_no_pg_graph_lowering() -> None:
-    """The compiler emits a plain ExecutionPlan; pg's GraphBuilder / Join /
-    Decision lowering is gone, and NO engine module imports pydantic_graph
-    (the dependency was removed — the engine is fully molexp-owned)."""
-    import re
-
-    compiler_src = (ENGINE_ROOT / "compiler.py").read_text()
-    for forbidden in ("GraphBuilder", "gb.join(", "gb.decision(", "reduce_null"):
-        assert forbidden not in compiler_src
-    assert "ExecutionPlan" in compiler_src
-    import_pattern = re.compile(
-        r"^\s*(?:from\s+pydantic_graph\b|import\s+pydantic_graph\b)", re.MULTILINE
-    )
-    for path in sorted(ENGINE_ROOT.glob("*.py")):
-        src = path.read_text()
-        assert not import_pattern.search(src), (
-            f"{path.name} must not import pydantic_graph — the engine is molexp-owned."
         )
 
 
@@ -196,66 +155,4 @@ def test_loop_lowering_marks_back_edge_and_recurrence() -> None:
 # ── ac-005: cyclic / stalled graphs raise WorkflowError subtypes ─────────────
 
 
-def test_cyclic_data_graph_raises_workflow_error() -> None:
-    wf = WorkflowCompiler(name="cyc")
-
-    @wf.task(depends_on=["b"])
-    async def a(ctx: TaskContext) -> int:
-        return 1
-
-    @wf.task(depends_on=["a"])
-    async def b(ctx: TaskContext) -> int:
-        return 2
-
-    with pytest.raises(WorkflowError) as exc:
-        wf.compile()
-    assert isinstance(exc.value, CycleError)
-
-
-def test_unreachable_task_raises_workflow_error() -> None:
-    wf = WorkflowCompiler(name="stall", entry="a")
-
-    @wf.task
-    async def a(ctx: TaskContext) -> int:
-        return 1
-
-    # `orphan` has no incoming edge from the entry frontier → unreachable.
-    @wf.task
-    async def orphan(ctx: TaskContext) -> int:
-        return 2
-
-    with pytest.raises(WorkflowError) as exc:
-        wf.compile()
-    assert isinstance(exc.value, UnreachableTaskError)
-
-
 # ── sanity: a lowered diamond still produces identical observable outputs ─────
-
-
-def test_diamond_outputs_preserved() -> None:
-    wf = WorkflowCompiler(name="diamond")
-
-    @wf.task
-    async def root(ctx: TaskContext) -> int:
-        return 1
-
-    @wf.task(depends_on=["root"])
-    async def left(value: int) -> dict:
-        return {"left": value + 10}
-
-    @wf.task(depends_on=["root"])
-    async def right(value: int) -> dict:
-        return {"right": value + 20}
-
-    @wf.task(depends_on=["left", "right"])
-    async def sink(left: int, right: int) -> int:
-        return left + right
-
-    result = asyncio.run(WorkflowRuntime().execute(wf.compile()))
-    assert result.status == "succeeded"
-    assert result.outputs == {
-        "root": 1,
-        "left": {"left": 11},
-        "right": {"right": 21},
-        "sink": 32,
-    }

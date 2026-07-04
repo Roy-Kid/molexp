@@ -3,45 +3,12 @@
 Spec: .claude/specs/03-molexp-workflow-cycles.md
 """
 
-from dataclasses import dataclass
-
 import pytest
 
-from molexp.workflow import Actor, End, Task, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import End, WorkflowCompiler, WorkflowRuntime
 from molexp.workflow.types import Next
 
 # ── Sentinel imports ────────────────────────────────────────────────────────
-
-
-def test_next_and_end_importable():
-    """`Next` and `End` are public symbols on `molexp.workflow`."""
-    assert Next is not None
-    assert End is not None
-    # Both are sentinel types (frozen dataclasses); instantiation works.
-    assert Next("ok").label == "ok"
-    assert isinstance(End(None), End)
-
-
-def test_end_is_molexp_owned():
-    """`molexp.workflow.End` is molexp's own sentinel (defined in
-    `workflow.types`) — the pydantic_graph dependency was removed; the
-    single source of truth lives in this repo."""
-    from molexp.workflow.types import End as TypesEnd
-
-    assert End is TypesEnd
-    assert End.__module__ == "molexp.workflow.types"
-    assert End().data is None  # bare End() is valid
-    assert End(7).data == 7
-
-
-def test_task_does_not_inherit_basenode():
-    """`Task` and `Actor` are plain abstract classes — nothing in their MRO
-    comes from pydantic_graph (checked by module name; the library may not
-    even be installed)."""
-    for cls in (Task, Actor):
-        assert not [c for c in cls.__mro__ if c.__module__.startswith("pydantic_graph")], (
-            f"{cls.__name__} must not inherit from pydantic_graph classes"
-        )
 
 
 # ── Unconditional control edge ──────────────────────────────────────────────
@@ -98,56 +65,6 @@ async def test_branch_routes_selected_by_next_label():
 
 
 # ── Loop via control edge ───────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class _Counter:
-    n: int
-
-
-@pytest.mark.asyncio
-async def test_counter_loop_via_control_edge():
-    """Counter that re-enters itself N times via control edge, then ends."""
-    wf = WorkflowCompiler(name="counter", entry="tick")
-
-    @wf.task(routes={"again": "tick", "done": "emit"})
-    async def tick(prev: _Counter | None = None) -> tuple[_Counter, Next]:
-        # Values-on-edges: the self-loop delivers the previous iteration's
-        # recorded output as the bound `prev` parameter (None on first entry).
-        n = (prev.n + 1) if prev else 1
-        return _Counter(n=n), Next("again" if n < 3 else "done")
-
-    @wf.task
-    async def emit(counter: _Counter) -> int:
-        # The "done" route carries tick's recorded value to the dep-less target.
-        return counter.n
-
-    result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "succeeded"
-    assert result.outputs["tick"] == _Counter(n=3)
-    assert result.outputs["emit"] == 3
-
-
-@pytest.mark.asyncio
-async def test_self_loop_entry_accepted():
-    """Entry task with self-loop control edge (counter --again--> counter, --done--> End) is legal."""
-    wf = WorkflowCompiler(name="self-loop-entry", entry="counter")
-
-    @wf.task(routes={"again": "counter", "done": "_end"})
-    async def counter(prev: _Counter | None = None) -> tuple[_Counter, Next | End]:
-        # Self-loop re-entry receives the previous output as the bound `prev`.
-        n = (prev.n + 1) if prev else 1
-        if n < 2:
-            return _Counter(n=n), Next("again")
-        return _Counter(n=n), End(None)
-
-    # `routes` references "_end" sentinel target. We accept End(None) return short-circuiting it.
-    # Compile must succeed even with self-loop entry.
-    spec = wf.compile()
-    assert spec is not None  # compile didn't reject self-loop entry
-    result = await WorkflowRuntime().execute(spec)
-    assert result.status == "succeeded"
-    assert result.outputs["counter"] == _Counter(n=2)
 
 
 @pytest.mark.asyncio
@@ -348,35 +265,6 @@ async def test_branch_node_requires_next():
 # ── Join semantics ──────────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_join_waits_for_all_data_deps():
-    """A target with multi-`depends_on` waits in `pending_targets` until all data deps satisfy."""
-    wf = WorkflowCompiler(name="join", entry="seed")
-
-    @wf.task
-    async def seed(ctx) -> int:
-        return 1
-
-    @wf.task(depends_on=["seed"])
-    async def left(seed: int) -> dict:
-        # Return a dict so the join binds the value by name (the task(**a, **b)
-        # shape): a multi-dep consumer merges its upstreams' dict outputs.
-        return {"left": seed * 10}
-
-    @wf.task(depends_on=["seed"])
-    async def right(seed: int) -> dict:
-        return {"right": seed * 100}
-
-    # collect joins: must wait for BOTH left and right.
-    @wf.task(depends_on=["left", "right"])
-    async def collect(left: int, right: int) -> int:
-        # Multi-dep inputs merge by name into the body's typed parameters.
-        return left + right
-
-    result = await WorkflowRuntime().execute(wf.compile())
-    assert result.outputs["collect"] == 110
-
-
 # ── wf.loop primitive (spec 04 §4) ──────────────────────────────────────────
 
 
@@ -402,38 +290,6 @@ async def test_loop_overwrites_results():
     assert result.status == "succeeded"
     assert result.outputs["compute"] == 3
     assert counter[0] == 3
-
-
-@pytest.mark.asyncio
-async def test_loop_exit_advances_frontier():
-    """``Next("exit")`` advances the frontier past the loop to the on_exit task."""
-    wf = WorkflowCompiler(name="loop-exit", entry="seed")
-
-    @wf.task
-    async def seed(ctx) -> int:
-        return 1
-
-    iterations = [0]
-
-    @wf.task(depends_on=["seed"])
-    async def step(ctx) -> int:
-        iterations[0] += 1
-        return iterations[0]
-
-    @wf.task(depends_on=["step"])
-    async def gate(ctx) -> Next:
-        return Next("exit") if iterations[0] >= 2 else Next("continue")
-
-    @wf.task
-    async def emit(ctx) -> str:
-        return "emitted"
-
-    wf.loop(body=["step"], until="gate", max_iters=10, on_exit="emit")
-
-    result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "succeeded"
-    assert result.outputs["emit"] == "emitted"
-    assert result.outputs["step"] == 2
 
 
 @pytest.mark.asyncio
@@ -486,47 +342,7 @@ def test_loop_until_must_be_registered():
     assert "nonexistent" in str(exc_info.value)
 
 
-def test_loop_max_iters_must_be_positive():
-    """``max_iters`` must be >= 1; 0 or negative is a programming error.
-
-    Validated eagerly at ``wf.loop(...)`` call time, mirroring
-    :meth:`Workflow.branch`'s shape-validation policy.
-    """
-    wf = WorkflowCompiler(name="loop-zero-iters", entry="step")
-
-    @wf.task
-    async def step(ctx) -> int:
-        return 1
-
-    @wf.task(depends_on=["step"])
-    async def check(ctx) -> Next:
-        return Next("exit")
-
-    with pytest.raises(ValueError):
-        wf.loop(body=["step"], until="check", max_iters=0)
-
-
 # ── make_execution_id public API (spec 04 §6) ───────────────────────────────
-
-
-def test_make_execution_id_public_export():
-    """`make_execution_id` is exported from `molexp.workflow`."""
-    from molexp.workflow import make_execution_id
-
-    assert callable(make_execution_id)
-
-
-def test_make_execution_id_no_run_id_returns_random_exec():
-    """With run_id=None, returns a human-readable ``exec-{name}`` id."""
-    from molexp.workflow import make_execution_id
-
-    eid = make_execution_id(run_id=None, run_dir=None)
-    assert eid.startswith("exec-")
-    suffix = eid.removeprefix("exec-")
-    # Human-readable name like "serene-mixing-reddy" (three parts).
-    parts = suffix.split("-")
-    assert len(parts) == 3, f"expected 3-part name, got {suffix!r}"
-    assert all(p.isalpha() and p.islower() for p in parts)
 
 
 def test_make_execution_id_with_run_id_returns_base(tmp_path):

@@ -94,19 +94,6 @@ def _seed_pair(ctx, ir_dict, bw_dict):
 
 
 class TestValidateBoundWorkflowStage:
-    def test_name_and_stage_subclass(self) -> None:
-        from molexp.harness.core.stage import Stage
-        from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
-
-        assert ValidateBoundWorkflow.name == "validate_bound_workflow"
-        assert issubclass(ValidateBoundWorkflow, Stage)
-
-    def test_raise_on_failure_is_keyword_only(self) -> None:
-        from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
-
-        with pytest.raises(TypeError):
-            ValidateBoundWorkflow("bw", "ir", True)  # type: ignore[misc]
-
     def test_happy_path_persists_report_and_returns_ref(self, ctx) -> None:
         from molexp.harness.schemas.validation import PlanValidationReport
         from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow

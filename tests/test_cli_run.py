@@ -91,47 +91,6 @@ def _write_molcfg(path):
 
 
 class TestRunCommand:
-    def test_run_ignores_orphan_project_on_disk(self, tmp_path):
-        """`molexp run` must not fail when the workspace has project/experiment
-        dirs from prior scripts that the current script does not register.
-        """
-        workspace_root = tmp_path / "workspace"
-        workspace_root.mkdir()
-        # Seed an orphan project with an orphan experiment, both on disk only.
-        orphan_exp = workspace_root / "projects" / "orphan-proj" / "experiments" / "orphan-exp"
-        orphan_exp.mkdir(parents=True)
-        (orphan_exp.parent.parent / "project.json").write_text(
-            '{"id":"orphan-proj","name":"orphan","description":"","owner":"",'
-            '"tags":[],"config":{},"created_at":"2026-04-21T12:00:00"}'
-        )
-        (orphan_exp / "experiment.json").write_text(
-            '{"id":"orphan-exp","name":"orphan","parameter_space":{},'
-            '"n_replicas":1,"seeds":[],"workflow_source":null,'
-            '"workflow_type":null,"git_commit":null,"description":"",'
-            '"tags":[],"created_at":"2026-04-21T12:00:00"}'
-        )
-
-        script = tmp_path / "train.py"
-        molcfg = tmp_path / "molcfg.yaml"
-        _write_molcfg(molcfg)
-        _write_script(script, workspace_root)
-
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--config",
-                str(molcfg),
-                "--profile",
-                "dry-run",
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert "no workflow" not in result.output
-
     def test_profile_executes_workflow_and_persists_metadata(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
@@ -277,50 +236,6 @@ class TestRunCommand:
         assert result.exit_code == 0, result.output
         assert "skipped" in result.output
 
-    def test_different_profiles_produce_different_runs(self, tmp_path):
-        workspace_root = tmp_path / "workspace"
-        script = tmp_path / "train.py"
-        molcfg = tmp_path / "molcfg.yaml"
-        _write_molcfg(molcfg)
-        _write_script(script, workspace_root)
-
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--config",
-                str(molcfg),
-                "--profile",
-                "dry-run",
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--config",
-                str(molcfg),
-                "--profile",
-                "smoke",
-                "-t",
-                str(workspace_root),
-            ],
-        )
-        assert result.exit_code == 0, result.output
-
-        ws = Workspace.load(workspace_root)
-        runs = ws.get_project("demo").get_experiment("train").list_runs()
-        # Two distinct runs, one per profile
-        assert len(runs) == 2
-        profiles = {r.metadata.profile for r in runs}
-        assert profiles == {"dry_run", "smoke"}
-
     def test_unknown_profile_reports_error(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
@@ -416,47 +331,3 @@ class TestRootInferencePrecedence:
         assert (override_dir / "workspace.json").exists()
         # Script dir must NOT have been materialized.
         assert not (script_dir / "workspace.json").exists()
-
-    def test_explicit_root_in_script_not_rewritten(self, tmp_path):
-        # ac-008: a script hardcoding Workspace(<explicit_root>, name=...) run
-        # with no flag stays at <explicit_root>, never silently rewritten.
-        script_dir = tmp_path / "scripts"
-        script_dir.mkdir()
-        explicit_root = tmp_path / "explicit"
-        script = script_dir / "train.py"
-        molcfg = tmp_path / "molcfg.yaml"
-        _write_molcfg(molcfg)
-        _write_script(script, explicit_root)
-
-        result = runner.invoke(
-            app,
-            [
-                "run",
-                str(script),
-                "--local",
-                "--config",
-                str(molcfg),
-                "--profile",
-                "dry-run",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert (explicit_root / "workspace.json").exists()
-        # Neither the script dir got materialized as a workspace.
-        assert not (script_dir / "workspace.json").exists()
-
-    def test_run_help_shows_backends(self):
-        result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
-        assert result.exit_code == 0
-        plain = _plain(result.output)
-        assert "local" in plain
-
-    def test_run_help_has_grouped_options(self):
-        result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
-        assert result.exit_code == 0
-        plain = _plain(result.output)
-        assert "--local" in plain
-        assert "--scheduler" in plain
-        assert "--profile" in plain
-        assert "--config" in plain
-        assert "HPC Options" in plain

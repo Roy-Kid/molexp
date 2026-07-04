@@ -21,7 +21,6 @@ import {
 } from "@/__fixtures__/api";
 import {
   buildEmptySnapshot,
-  emptyConsoleEntries,
   mapAgentSessions,
   mapAssets,
   mapExperiments,
@@ -32,7 +31,7 @@ import {
 } from "@/app/state/api";
 
 describe("buildEmptySnapshot", () => {
-  it("returns empty arrays for all collections", () => {
+  it("returns empty collections and a null workspaceRoot", () => {
     const snap = buildEmptySnapshot();
     expect(snap.projects).toEqual([]);
     expect(snap.experiments).toEqual([]);
@@ -41,48 +40,23 @@ describe("buildEmptySnapshot", () => {
     expect(snap.workflows).toEqual([]);
     expect(snap.agentSessions).toEqual([]);
     expect(snap.consoleEntries).toEqual([]);
-  });
-
-  it("sets workspaceRoot to null", () => {
-    expect(buildEmptySnapshot().workspaceRoot).toBeNull();
-  });
-});
-
-describe("emptyConsoleEntries", () => {
-  it("returns an empty array", () => {
-    expect(emptyConsoleEntries()).toEqual([]);
+    expect(snap.workspaceRoot).toBeNull();
   });
 });
 
 describe("mapProjects", () => {
-  it("maps id and name from API response", () => {
+  it("maps id, name, summary, status, and updatedAt from the API response", () => {
     const [result] = mapProjects([fixtureProject]);
     expect(result.id).toBe("proj-alpha");
     expect(result.name).toBe("Alpha Project");
-  });
-
-  it("uses description as summary when present", () => {
-    const [result] = mapProjects([fixtureProject]);
     expect(result.summary).toBe("First project");
+    expect(result.status).toBe("active");
+    expect(result.updatedAt).toBe(fixtureProject.created);
   });
 
   it("falls back to 'No description' when description is absent", () => {
     const [result] = mapProjects([fixtureProjectNoDescription]);
     expect(result.summary).toBe("No description");
-  });
-
-  it("sets status to 'active'", () => {
-    const [result] = mapProjects([fixtureProject]);
-    expect(result.status).toBe("active");
-  });
-
-  it("maps updatedAt from created timestamp", () => {
-    const [result] = mapProjects([fixtureProject]);
-    expect(result.updatedAt).toBe(fixtureProject.created);
-  });
-
-  it("maps an empty array to an empty array", () => {
-    expect(mapProjects([])).toEqual([]);
   });
 
   it("preserves order of multiple projects", () => {
@@ -93,88 +67,53 @@ describe("mapProjects", () => {
 });
 
 describe("mapExperiments", () => {
-  it("maps id, name, and projectId", () => {
+  it("maps id, name, projectId, summary, and workflowFile", () => {
     const [result] = mapExperiments("proj-alpha", [fixtureExperiment]);
     expect(result.id).toBe("exp-001");
     expect(result.name).toBe("Baseline");
     expect(result.projectId).toBe("proj-alpha");
-  });
-
-  it("uses description as summary when present", () => {
-    const [result] = mapExperiments("proj-alpha", [fixtureExperiment]);
     expect(result.summary).toBe("Baseline experiment");
+    expect(result.workflowFile).toBe("workflow.py");
   });
 
-  it("does not use workflow as summary when description is absent", () => {
-    const [result] = mapExperiments("proj-alpha", [fixtureExperimentNoDescription]);
-    expect(result.summary).toBe("");
-  });
-
-  it("does not expose inline workflow JSON as summary", () => {
-    const [result] = mapExperiments("proj-alpha", [
+  it("never exposes the workflow (even inline JSON) as summary when description is absent", () => {
+    const [plain] = mapExperiments("proj-alpha", [fixtureExperimentNoDescription]);
+    expect(plain.summary).toBe("");
+    const [inline] = mapExperiments("proj-alpha", [
       {
         ...fixtureExperimentNoDescription,
         workflow: JSON.stringify({ task_configs: [{ id: "build" }], links: [] }),
       },
     ]);
-    expect(result.summary).toBe("");
-  });
-
-  it("sets workflowFile from workflow field", () => {
-    const [result] = mapExperiments("proj-alpha", [fixtureExperiment]);
-    expect(result.workflowFile).toBe("workflow.py");
-  });
-
-  it("maps an empty array to an empty array", () => {
-    expect(mapExperiments("proj-alpha", [])).toEqual([]);
+    expect(inline.summary).toBe("");
   });
 });
 
 describe("mapRuns", () => {
-  it("maps id and name from runId", () => {
+  it("maps id/name from runId plus the parent coordinates", () => {
     const [result] = mapRuns("proj-alpha", "exp-001", [fixtureRun]);
     expect(result.id).toBe("run-abc");
     expect(result.name).toBe("run-abc");
-  });
-
-  it("maps projectId and experimentId", () => {
-    const [result] = mapRuns("proj-alpha", "exp-001", [fixtureRun]);
     expect(result.projectId).toBe("proj-alpha");
     expect(result.experimentId).toBe("exp-001");
   });
 
-  it("maps status 'succeeded'", () => {
-    const [result] = mapRuns("p", "e", [fixtureRun]);
-    expect(result.status).toBe("succeeded");
+  it("maps every run status", () => {
+    const [succeeded] = mapRuns("p", "e", [fixtureRun]);
+    const [pending] = mapRuns("p", "e", [fixtureRunPending]);
+    const [failed] = mapRuns("p", "e", [fixtureRunFailed]);
+    const [cancelled] = mapRuns("p", "e", [fixtureRunCancelled]);
+    expect(succeeded.status).toBe("succeeded");
+    expect(pending.status).toBe("pending");
+    expect(failed.status).toBe("failed");
+    expect(cancelled.status).toBe("cancelled");
   });
 
-  it("maps status 'pending'", () => {
-    const [result] = mapRuns("p", "e", [fixtureRunPending]);
-    expect(result.status).toBe("pending");
-  });
-
-  it("maps status 'failed'", () => {
-    const [result] = mapRuns("p", "e", [fixtureRunFailed]);
-    expect(result.status).toBe("failed");
-  });
-
-  it("maps status 'cancelled'", () => {
-    const [result] = mapRuns("p", "e", [fixtureRunCancelled]);
-    expect(result.status).toBe("cancelled");
-  });
-
-  it("uses finished timestamp for updatedAt when available", () => {
-    const [result] = mapRuns("p", "e", [fixtureRun]);
-    expect(result.updatedAt).toBe("2026-03-01T12:00:00Z");
-  });
-
-  it("falls back to created when finished is absent", () => {
-    const [result] = mapRuns("p", "e", [fixtureRunPending]);
-    expect(result.updatedAt).toBe(fixtureRunPending.created);
-  });
-
-  it("maps an empty array to an empty array", () => {
-    expect(mapRuns("p", "e", [])).toEqual([]);
+  it("uses finished for updatedAt, falling back to created", () => {
+    const [finished] = mapRuns("p", "e", [fixtureRun]);
+    expect(finished.updatedAt).toBe("2026-03-01T12:00:00Z");
+    const [unfinished] = mapRuns("p", "e", [fixtureRunPending]);
+    expect(unfinished.updatedAt).toBe(fixtureRunPending.created);
   });
 
   it("maps profile metadata when present", () => {
@@ -185,42 +124,22 @@ describe("mapRuns", () => {
 });
 
 describe("mapAssets", () => {
-  it("maps id from asset.id", () => {
+  it("maps id, name, summary, size, timestamp, and scope from the asset record", () => {
     const [result] = mapAssets([fixtureAsset]);
     expect(result.id).toBe("asset-001");
-  });
-
-  it("maps name directly from asset.name", () => {
-    const [result] = mapAssets([fixtureAsset]);
     expect(result.name).toBe("checkpoint.pt");
-  });
-
-  it("builds summary from kind and scope_kind", () => {
-    const [result] = mapAssets([fixtureAsset]);
     expect(result.summary).toBe("artifact · run scope");
-  });
-
-  it("reads sizeBytes from extra.size", () => {
-    const [result] = mapAssets([fixtureAsset]);
     expect(result.sizeBytes).toBe(1024);
+    expect(result.updatedAt).toBe("2026-03-01T16:00:00Z");
+    expect(result.projectId).toBe("proj-alpha");
+    expect(result.experimentId).toBe("exp-001");
+    expect(result.runId).toBe("run-abc");
+    expect(result.scopeKind).toBe("run");
   });
 
   it("returns null sizeBytes when extra.size is absent", () => {
     const [result] = mapAssets([{ ...fixtureAsset, extra: {} }]);
     expect(result.sizeBytes).toBeNull();
-  });
-
-  it("uses updated_at for updatedAt", () => {
-    const [result] = mapAssets([fixtureAsset]);
-    expect(result.updatedAt).toBe("2026-03-01T16:00:00Z");
-  });
-
-  it("derives project/experiment/run scope from scope_ids", () => {
-    const [result] = mapAssets([fixtureAsset]);
-    expect(result.projectId).toBe("proj-alpha");
-    expect(result.experimentId).toBe("exp-001");
-    expect(result.runId).toBe("run-abc");
-    expect(result.scopeKind).toBe("run");
   });
 
   it("falls back to the projectId arg when the asset has no scope ids", () => {
@@ -232,40 +151,20 @@ describe("mapAssets", () => {
 });
 
 describe("mapWorkflows", () => {
-  it("constructs workflow id from experiment id", () => {
+  it("derives id, name, and summary from the experiment", () => {
     const rawExp = [fixtureExperiment];
     const expSummaries = mapExperiments("proj-alpha", rawExp);
     const [result] = mapWorkflows(expSummaries, rawExp);
     expect(result.id).toBe("workflow:exp-001");
-  });
-
-  it("names workflow from experiment name", () => {
-    const rawExp = [fixtureExperiment];
-    const expSummaries = mapExperiments("proj-alpha", rawExp);
-    const [result] = mapWorkflows(expSummaries, rawExp);
     expect(result.name).toBe("Baseline workflow");
-  });
-
-  it("sets summary to workflow path", () => {
-    const rawExp = [fixtureExperiment];
-    const expSummaries = mapExperiments("proj-alpha", rawExp);
-    const [result] = mapWorkflows(expSummaries, rawExp);
     expect(result.summary).toBe("workflow.py");
-  });
-
-  it("maps an empty array to an empty array", () => {
-    expect(mapWorkflows([], [])).toEqual([]);
   });
 });
 
 describe("mapWorkspaceTree", () => {
-  it("sets id to 'workspace-root'", () => {
-    const result = mapWorkspaceTree("/ws", {});
-    expect(result.id).toBe("workspace-root");
-  });
-
-  it("uses response.path when present", () => {
+  it("uses response.path when present, keeping the fixed root id", () => {
     const result = mapWorkspaceTree("/fallback", { path: "/actual/path" });
+    expect(result.id).toBe("workspace-root");
     expect(result.name).toBe("/actual/path");
     expect(result.path).toBe("/actual/path");
   });
@@ -275,7 +174,7 @@ describe("mapWorkspaceTree", () => {
     expect(result.name).toBe("/fallback");
   });
 
-  it("maps children recursively", () => {
+  it("maps children recursively, defaulting to an empty array", () => {
     const result = mapWorkspaceTree("/ws", {
       children: [
         { name: "src", path: "/ws/src", type: "directory" },
@@ -285,11 +184,7 @@ describe("mapWorkspaceTree", () => {
     expect(result.children).toHaveLength(2);
     expect(result.children[0].kind).toBe("directory");
     expect(result.children[1].kind).toBe("file");
-  });
-
-  it("produces empty children array when response has none", () => {
-    const result = mapWorkspaceTree("/ws", {});
-    expect(result.children).toEqual([]);
+    expect(mapWorkspaceTree("/ws", {}).children).toEqual([]);
   });
 });
 
@@ -307,10 +202,15 @@ describe("mapAgentSessions", () => {
     ],
   };
 
-  it("uses taskId as the navigation id when present", () => {
+  it("maps ids, goal, title, status, createdAt, and event count", () => {
     const [result] = mapAgentSessions([rawSession]);
     expect(result.id).toBe("task-abc");
     expect(result.sessionId).toBe("sess-abc");
+    expect(result.goal).toBe("Run baseline experiment");
+    expect(result.title).toBe("Baseline experiment");
+    expect(result.status).toBe("completed");
+    expect(result.createdAt).toBe("2026-03-01T10:00:00Z");
+    expect(result.eventCount).toBe(2);
   });
 
   it("falls back to sessionId for id when taskId is absent", () => {
@@ -325,40 +225,11 @@ describe("mapAgentSessions", () => {
     expect(result.sessionId).toBe("sess-abc");
   });
 
-  it("maps goal", () => {
-    const [result] = mapAgentSessions([rawSession]);
-    expect(result.goal).toBe("Run baseline experiment");
-  });
-
-  it("maps the server title (curated for plan tasks)", () => {
-    const [result] = mapAgentSessions([rawSession]);
-    expect(result.title).toBe("Baseline experiment");
-  });
-
   it("defaults title to an empty string when absent", () => {
     const { title: _drop, ...withoutTitle } = rawSession;
     const [result] = mapAgentSessions([
       withoutTitle as Parameters<typeof mapAgentSessions>[0][number],
     ]);
     expect(result.title).toBe("");
-  });
-
-  it("maps status", () => {
-    const [result] = mapAgentSessions([rawSession]);
-    expect(result.status).toBe("completed");
-  });
-
-  it("maps createdAt", () => {
-    const [result] = mapAgentSessions([rawSession]);
-    expect(result.createdAt).toBe("2026-03-01T10:00:00Z");
-  });
-
-  it("counts events", () => {
-    const [result] = mapAgentSessions([rawSession]);
-    expect(result.eventCount).toBe(2);
-  });
-
-  it("maps an empty array to an empty array", () => {
-    expect(mapAgentSessions([])).toEqual([]);
   });
 });

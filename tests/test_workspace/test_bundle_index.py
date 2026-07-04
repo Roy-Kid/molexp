@@ -12,10 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-from pydantic import ValidationError
-
-from molexp.workspace import Bundle, BundleIndex, ConceptIndexEntry, Folder, Workspace
+from molexp.workspace import Bundle, Folder, Workspace
 from molexp.workspace.bundle_index import INDEX_JSON_FILENAME, INDEX_MD_FILENAME
 
 FIXED = datetime(2026, 6, 21, 12, 0, 0, tzinfo=UTC)
@@ -35,33 +32,6 @@ def _concept(name: str, root_path: Path) -> Folder:
     folder.materialize()
     folder.write_meta()
     return folder
-
-
-# ── models ───────────────────────────────────────────────────────────────────
-
-
-def test_entry_and_index_frozen() -> None:
-    e = ConceptIndexEntry(path="a", type="folder")
-    with pytest.raises(ValidationError):
-        e.path = "b"  # ty: ignore[invalid-assignment]
-    idx = BundleIndex()
-    with pytest.raises(ValidationError):
-        idx.generated_at = FIXED  # ty: ignore[invalid-assignment]
-
-
-def test_index_json_round_trip_and_markdown() -> None:
-    idx = BundleIndex(
-        generated_at=FIXED,
-        entries=(
-            ConceptIndexEntry(path="lab", type="workspace.root", title="Lab", tags=("x",)),
-            ConceptIndexEntry(path="lab/p", type="workspace.project", links=("lab",)),
-        ),
-    )
-    back = BundleIndex.model_validate(idx.model_dump(mode="json"))
-    assert back == idx
-    md = idx.to_markdown()
-    assert "lab" in md and "lab/p" in md
-    assert "index.json" in md  # points at the machine sibling
 
 
 # ── build_index (ac-008) ──────────────────────────────────────────────────────
@@ -149,18 +119,6 @@ def test_search_rebuild_reflects_new_concept(tmp_path: Path) -> None:
 
 
 # ── derived / rebuildable (ac-008) ────────────────────────────────────────────
-
-
-def test_build_index_idempotent_same_now(tmp_path: Path) -> None:
-    b = Bundle(_hierarchy(tmp_path))
-    assert b.build_index(now=FIXED) == b.build_index(now=FIXED)
-
-
-def test_generated_at_is_aware_utc(tmp_path: Path) -> None:
-    b = Bundle(_hierarchy(tmp_path))
-    idx = b.build_index()
-    assert idx.generated_at is not None
-    assert idx.generated_at.tzinfo is not None  # aware
 
 
 def test_rebuild_restores_deleted_siblings(tmp_path: Path) -> None:

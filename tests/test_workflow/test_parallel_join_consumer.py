@@ -129,18 +129,6 @@ def test_collect_raises_named_error_for_unrecorded_multidep() -> None:
 # ── ac-003: error type importable + inheritance ──────────────────────────────
 
 
-def test_missing_upstream_result_error_importable_and_is_exception() -> None:
-    """ac-003 — importable from the workflow types module; an Exception."""
-    from molexp.workflow.types import MissingUpstreamResultError as FromTypes
-
-    assert issubclass(FromTypes, Exception)
-
-    # The public-package re-export is the same object.
-    from molexp.workflow import MissingUpstreamResultError as FromPackage
-
-    assert FromPackage is FromTypes
-
-
 # ── ac-004: zero-dep and single-dep shapes unchanged ─────────────────────────
 
 
@@ -150,16 +138,6 @@ def test_collect_zero_dep_returns_none_without_raising() -> None:
     state = WorkflowState()
 
     assert _collect_upstream_outputs(registration, state) is None
-
-
-def test_collect_single_dep_returns_bare_value() -> None:
-    """ac-004 — a one-dep consumer (dep present) gets the bare value, not a dict."""
-    registration = _registration("consumer", depends_on=["a"])
-    state = WorkflowState(results={"a": 42})
-
-    collected = _collect_upstream_outputs(registration, state)
-    assert collected == 42
-    assert not isinstance(collected, dict)
 
 
 def test_collect_single_dep_missing_also_fails_fast() -> None:

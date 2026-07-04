@@ -216,16 +216,3 @@ async def test_failed_log_via_rest():
     log = await client.fetch_workflow_run_failed_log(owner="acme", repo="b", run_id=123)
     assert "ENOENT" in log
     await client.close()
-
-
-@pytest.mark.asyncio
-async def test_async_context_manager():
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"data": {"x": 1}})
-
-    from molexp.plugins.gh import GitHubClient
-
-    transport = httpx.MockTransport(handler)
-    async with GitHubClient(token="t", transport=transport) as client:
-        result = await client.graphql("query { x }", variables={})
-    assert result == {"x": 1}

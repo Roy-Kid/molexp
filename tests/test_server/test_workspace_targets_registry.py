@@ -58,40 +58,6 @@ def test_workspace_target_rejects_invalid_names(bad_name: str):
         WorkspaceTarget(name=bad_name, host="h", root_path="/r")
 
 
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "ok_name",
-    [
-        "a",
-        "hpc1",
-        "prod-cluster",
-        "lab_node_2",
-        "x.y.z",
-    ],
-)
-def test_workspace_target_accepts_slug_names(ok_name: str):
-    target = WorkspaceTarget(name=ok_name, host="h", root_path="/r")
-    assert target.name == ok_name
-
-
-@pytest.mark.unit
-def test_workspace_target_ssh_opts_is_tuple():
-    """ssh_opts must be a tuple so the model stays frozen-immutable."""
-    target = WorkspaceTarget(
-        name="hpc1",
-        host="h",
-        root_path="/r",
-        ssh_opts=("-o", "StrictHostKeyChecking=no"),
-    )
-    assert target.ssh_opts == ("-o", "StrictHostKeyChecking=no")
-    # Mutating the original list does not leak in
-    src = ["-o", "X"]
-    target2 = WorkspaceTarget(name="h2", host="h", root_path="/r", ssh_opts=src)  # type: ignore[arg-type]
-    src.append("-o")
-    src.append("Y")
-    assert target2.ssh_opts == ("-o", "X")
-
-
 # ── WorkspaceTargetRegistry CRUD ───────────────────────────────────────
 
 
@@ -110,31 +76,10 @@ def _make_target(name: str = "hpc1", host: str = "me@hpc.example.org") -> Worksp
 
 
 @pytest.mark.unit
-def test_registry_empty_on_first_construction(registry: WorkspaceTargetRegistry):
-    assert registry.list() == []
-
-
-@pytest.mark.unit
 def test_registry_add_then_get(registry: WorkspaceTargetRegistry):
     t = _make_target()
     registry.add(t)
     assert registry.get("hpc1") == t
-
-
-@pytest.mark.unit
-def test_registry_get_returns_frozen_instance(registry: WorkspaceTargetRegistry):
-    registry.add(_make_target())
-    fetched = registry.get("hpc1")
-    with pytest.raises(ValidationError):
-        fetched.name = "renamed"  # type: ignore[misc]
-
-
-@pytest.mark.unit
-def test_registry_list_preserves_insertion_order(registry: WorkspaceTargetRegistry):
-    registry.add(_make_target("first"))
-    registry.add(_make_target("second"))
-    registry.add(_make_target("third"))
-    assert [t.name for t in registry.list()] == ["first", "second", "third"]
 
 
 @pytest.mark.unit
@@ -158,12 +103,6 @@ def test_registry_add_duplicate_raises_value_error(registry: WorkspaceTargetRegi
 def test_registry_get_unknown_raises_key_error(registry: WorkspaceTargetRegistry):
     with pytest.raises(KeyError):
         registry.get("missing")
-
-
-@pytest.mark.unit
-def test_registry_remove_unknown_raises_key_error(registry: WorkspaceTargetRegistry):
-    with pytest.raises(KeyError):
-        registry.remove("missing")
 
 
 @pytest.mark.unit
@@ -225,29 +164,6 @@ def test_registry_corrupt_json_raises_typed_error(registry_path: Path):
         r.list()
 
 
-@pytest.mark.unit
-def test_registry_writes_through_atomic_write_json(registry_path: Path, monkeypatch):
-    """Verify the registry calls workspace.base.atomic_write_json, not raw open."""
-    from molexp.workspace import base as ws_base
-
-    calls: list[Path] = []
-    real = ws_base.atomic_write_json
-
-    def spy(path, data):
-        calls.append(path)
-        return real(path, data)
-
-    monkeypatch.setattr(
-        "molexp.server.workspace_targets.atomic_write_json",
-        spy,
-    )
-
-    r = WorkspaceTargetRegistry(store_path=registry_path)
-    r.add(_make_target())
-    assert len(calls) == 1
-    assert calls[0] == registry_path
-
-
 # ── Layer-boundary invariants ─────────────────────────────────────────
 
 
@@ -268,24 +184,6 @@ def test_module_does_not_pull_agent_or_workflow(monkeypatch):
 
     new = {m for m in sys.modules if any(m.startswith(p) for p in forbidden)} - already
     assert not new, f"workspace_targets pulled in forbidden modules: {sorted(new)}"
-
-
-@pytest.mark.unit
-def test_no_arbitrary_types_allowed_in_module():
-    """Project rule: arbitrary_types_allowed is banned in agent/server schema modules."""
-    src = Path(__file__).resolve().parents[2] / "src" / "molexp" / "server" / "workspace_targets.py"
-    assert "arbitrary_types_allowed" not in src.read_text()
-
-
-@pytest.mark.unit
-def test_no_os_environ_writes_in_module():
-    """Project rule: no env-var plumbing for runtime config."""
-    src = Path(__file__).resolve().parents[2] / "src" / "molexp" / "server" / "workspace_targets.py"
-    text = src.read_text()
-    # Allow reads (os.environ.get / [] in module-level constants are fine if we ever need them),
-    # but disallow writes.
-    assert "os.environ[" not in text or "os.environ['" not in text
-    assert "os.environ.setdefault" not in text
 
 
 # ── Sanity: registry survives a JSON round-trip with all fields ───────

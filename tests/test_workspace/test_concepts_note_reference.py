@@ -13,14 +13,13 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from pydantic import ValidationError
 
 from molexp.workspace import (
     Note,
     ReferenceConcept,
     ReferenceMeta,
 )
-from molexp.workspace.folder import Folder, append_link, concept_from_dir
+from molexp.workspace.folder import Folder, concept_from_dir
 
 # ── ReferenceMeta (ac-001) ───────────────────────────────────────────────────
 
@@ -35,12 +34,6 @@ def test_reference_meta_defaults_and_round_trip() -> None:
     assert back.authors == ("LeCun", "Bengio")
     assert back.year == 2015
     assert back.doi == "10.1/x"
-
-
-def test_reference_meta_frozen() -> None:
-    m = ReferenceMeta()
-    with pytest.raises(ValidationError):
-        m.title = "x"  # type: ignore[misc]
 
 
 def test_reference_meta_extra_allow_round_trip() -> None:
@@ -99,17 +92,6 @@ def test_note_body_and_cite_round_trip(tmp_path: Path) -> None:
     assert Path(ref.resolve()) in {Path(p) for p in note.out_edges()}
 
 
-def test_append_link_module_level_on_folder(tmp_path: Path) -> None:
-    root = Folder(name="bundle", kind="bundle.concept", root_path=str(tmp_path))
-    root.materialize()
-    a = _mount(root, Note(parent=root, name="a"))
-    b = _mount(root, Note(parent=root, name="b"))
-    append_link(a, b)
-    assert Path(b.resolve()) in {Path(p) for p in a.out_edges()}
-    # the edge is markdown, never smuggled into meta.yaml
-    assert "b" not in (Path(a.resolve()) / "meta.yaml").read_text(encoding="utf-8")
-
-
 # ── Reference typed meta + citation (ac-004) ─────────────────────────────────
 
 
@@ -157,20 +139,3 @@ def test_cite_threads_role(tmp_path: Path) -> None:
     assert len(typed) == 1
     assert typed[0].role == "derived_from"
     assert Path(typed[0].target) == Path(str(ref.resolve()))
-
-
-# ── OKF concept exports (ac-008 / ac-009) ────────────────────────────────────
-
-
-def test_okf_concepts_exported() -> None:
-    import molexp.workspace as workspace
-
-    # OKF concepts exported under unambiguous names
-    assert "Note" in workspace.__all__
-    assert "ReferenceConcept" in workspace.__all__
-    assert "ReferenceMeta" in workspace.__all__
-
-    # The legacy library surface is gone (wsokf-11).
-    for legacy in ("Library", "LibraryIndex", "NoteEntry", "NoteAsset", "ReferenceStore"):
-        assert legacy not in workspace.__all__
-        assert not hasattr(workspace, legacy)

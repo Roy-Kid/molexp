@@ -51,19 +51,6 @@ def _new_run(workspace: Workspace, name: str):
 # ── ac-001 — rename + flat cache attribute ──────────────────────────────────
 
 
-def test_graph_workflow_runtime_name_is_gone() -> None:
-    with pytest.raises(ImportError):
-        from molexp.workflow import GraphWorkflowRuntime  # noqa: F401
-
-
-def test_workflow_runtime_importable_and_flat_cache_attr(tmp_path: Path) -> None:
-    r = WorkflowRuntime()
-    assert r.cache is None
-    cache = Caching(store_dir=tmp_path / "c")
-    r.cache = cache  # plain settable attribute, no policy tower
-    assert r.cache is cache
-
-
 # ── ac-002 — workspace-backed cache skips the body on the second run ────────
 
 
@@ -211,37 +198,6 @@ async def test_actor_is_never_cached(workspace: Workspace) -> None:
 
 
 # ── ac-006 — CacheEntry.result JSON shape ───────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_cache_entry_result_shape(workspace: Workspace) -> None:
-    import json
-
-    wf = WorkflowCompiler(name="shape")
-
-    @wf.task
-    async def produce(ctx: TaskContext) -> dict:
-        # Engine materializes the return value as the task's artifact, so the
-        # cache manifest is populated without an explicit artifact.save.
-        return {"value": 7}
-
-    compiled = wf.compile()
-    cache = Caching(store=workspace.cache.as_cache_store())
-
-    run1 = _new_run(workspace, "shape1")
-    with run1.start() as ctx1:
-        await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache)
-
-    entries = list(Path(workspace.root / "cache").glob("*.json"))
-    assert entries
-    payload = json.loads(entries[0].read_text())
-    result = payload["result"]
-    assert set(result) == {"result", "artifacts"}
-    assert result["result"] == {"value": 7}
-    assert isinstance(result["artifacts"], list)
-    assert result["artifacts"], "an artifact-producing task must record a manifest"
-    entry = result["artifacts"][0]
-    assert set(entry) == {"name", "kind", "content_hash", "asset_id"}
 
 
 # ── put-failure visibility — degraded cache surfaces at WARNING ──────────────

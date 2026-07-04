@@ -20,14 +20,13 @@ The store shares the run's existing ``harness.sqlite`` (same ``db_path`` as
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
-from molexp.harness.store.approval_store import ApprovalStore, SQLiteApprovalStore
+from molexp.harness.store.approval_store import SQLiteApprovalStore
 
 _RUN_ID = "run-approvals"
 
@@ -79,24 +78,6 @@ class TestApprovalStoreBasics:
         assert pending.triggered_by_policy == request.triggered_by_policy
         assert pending.metadata == request.metadata
         assert pending.created_at == request.created_at
-
-    def test_pending_for_unknown_run_is_empty(self, store: SQLiteApprovalStore) -> None:
-        assert store.pending("run-that-never-asked") == []
-
-    def test_granted_decision_for_unknown_request_returns_none(
-        self, store: SQLiteApprovalStore
-    ) -> None:
-        assert store.granted_decision_for("req-never-seen") is None
-
-    def test_sqlite_store_satisfies_the_protocol(self, store: SQLiteApprovalStore) -> None:
-        assert isinstance(store, ApprovalStore)
-
-    def test_store_and_pending_error_are_harness_public_surface(self) -> None:
-        # Spec: harness/__init__ exports both (public surface 19 → 21 symbols).
-        import molexp.harness as harness
-
-        assert harness.SQLiteApprovalStore is SQLiteApprovalStore
-        assert issubclass(harness.ApprovalPendingError, harness.StageExecutionError)
 
 
 # ─────────────────────────────────────────────────────── replay law
@@ -167,31 +148,3 @@ class TestPendingUpsert:
         # "Fails loud on an unknown request_id — no fallback" (spec §1).
         with pytest.raises(ValueError, match="request_id"):
             store.record_decision(_decision("req-never-recorded", granted=True))
-
-
-# ─────────────────────────────────────────────────────── integration
-
-
-class TestSharedHarnessSqlite:
-    def test_store_shares_the_runs_harness_sqlite(self, tmp_path: Path) -> None:
-        """The approvals table lives in the same ``harness.sqlite`` as the
-        event log — one run directory, one database file."""
-        from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-
-        db = tmp_path / "harness.sqlite"
-        event_log = SQLiteEventLog(path=db)
-        store = SQLiteApprovalStore(db)
-
-        event_log.append(run_id=_RUN_ID, type="stage_started", actor="test")
-        store.record_pending(_RUN_ID, _request())
-
-        assert db.exists()
-        with sqlite3.connect(db) as conn:
-            tables = {
-                row[0]
-                for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-            }
-        assert "approvals" in tables
-        assert "events" in tables
-        assert len(event_log.list_events(_RUN_ID)) == 1
-        assert len(store.pending(_RUN_ID)) == 1

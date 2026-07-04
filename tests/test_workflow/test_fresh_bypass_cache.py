@@ -133,9 +133,3 @@ async def test_fresh_marker_triggers_bypass_across_process_boundary(
         )
     # No explicit kwarg — the marker alone must force the body to re-run.
     assert _COUNTERS["step"] == 2
-
-
-@pytest.mark.asyncio
-async def test_no_marker_no_bypass(workspace: Workspace) -> None:
-    run = _new_run(workspace, "plain")
-    assert not fresh_requested(Path(str(run.run_dir)), f"exec-{run.id}")

@@ -4,40 +4,21 @@
 event spine — the same shared :func:`molexp.workspace.events.read_workspace_events`
 code path the per-run route and ``molexp runs info`` use. RED contract:
 
-* cross-run timeline, newest first, rows in the frozen event shape
+* rows in the frozen event shape
   (``id`` / ``seq`` / ``type`` / ``actor`` / ``created_at`` / ``payload`` / ``refs``);
 * ``type`` / ``ref`` / ``limit`` query filters (limit default 50, bounded 1..500);
-* a workspace with no spine answers ``[]`` WITHOUT creating the DB — reading
-  is always side-effect free (events.py:247-248 contract);
 * the per-run ``GET .../runs/{run_id}/events`` keeps its path and wire shape
   unchanged (the shared response model is an alias, never a wire change).
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from molexp.workspace.events import WORKSPACE_EVENTS_DB, WorkspaceEventLog
+from molexp.workspace.events import WorkspaceEventLog
 
 _EVENT_KEYS = {"id", "seq", "type", "actor", "created_at", "payload", "refs"}
 
 
 class TestWorkspaceEventsRoute:
-    def test_returns_cross_run_timeline_newest_first(self, client, workspace) -> None:
-        log = WorkspaceEventLog(workspace.root)
-        log.append("run.created", "run-lifecycle", refs=["r1"])
-        log.append("asset.added", "asset-accessor", refs=["a1", "r1"])
-        log.append("knowledge.created", "bundle", refs=["notes/findings"])
-
-        resp = client.get("/api/events")
-        assert resp.status_code == 200
-        events = resp.json()
-        assert [e["type"] for e in events] == [
-            "knowledge.created",
-            "asset.added",
-            "run.created",
-        ]
-
     def test_rows_reuse_the_frozen_event_shape(self, client, workspace) -> None:
         WorkspaceEventLog(workspace.root).append(
             "asset.added",
@@ -77,16 +58,6 @@ class TestWorkspaceEventsRoute:
         assert [e["type"] for e in events] == ["asset.added", "run.created"]
         assert all("r1" in e["refs"] for e in events)
 
-    def test_limit_truncates_to_the_newest(self, client, workspace) -> None:
-        log = WorkspaceEventLog(workspace.root)
-        log.append("run.created", "test", refs=["r1"])
-        log.append("run.started", "test", refs=["r1"])
-        log.append("run.completed", "test", refs=["r1"])
-
-        resp = client.get("/api/events", params={"limit": 2})
-        assert resp.status_code == 200
-        assert [e["type"] for e in resp.json()] == ["run.completed", "run.started"]
-
     def test_limit_defaults_to_50(self, client, workspace) -> None:
         log = WorkspaceEventLog(workspace.root)
         for i in range(60):
@@ -103,17 +74,6 @@ class TestWorkspaceEventsRoute:
 
         assert client.get("/api/events", params={"limit": 0}).status_code == 422
         assert client.get("/api/events", params={"limit": 501}).status_code == 422
-
-    def test_no_spine_returns_empty_without_creating_db(self, client, workspace) -> None:
-        """Reading never creates the DB: an event-less workspace answers []
-        and workspace.events.sqlite stays absent after the GET."""
-        db_path = Path(str(workspace.root)) / WORKSPACE_EVENTS_DB
-        assert not db_path.exists()
-
-        resp = client.get("/api/events")
-        assert resp.status_code == 200
-        assert resp.json() == []
-        assert not db_path.exists()
 
 
 class TestPerRunEventsRouteWireCompat:

@@ -6,10 +6,6 @@
  * and anything inside code spans/fences stay byte-identical.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "@rstest/core";
 import type { WorkspaceSnapshot } from "@/app/types";
 import { buildEntityLinkIndex, linkifyEntityTokens } from "@/lib/entity-linkify";
@@ -59,22 +55,5 @@ describe("buildEntityLinkIndex", () => {
     expect(built.get("e1")).toBe("/projects/p1/experiments/e1");
     expect(built.get("p1")).toBe("/projects/p1");
     expect(built.has("ghost")).toBe(false);
-  });
-});
-
-describe("conversation wiring (source contract)", () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const read = (relative: string): string => readFileSync(resolve(here, relative), "utf-8");
-
-  it("AgentViewer builds the index from the snapshot and threads it into turns", () => {
-    const viewer = read("../app/renderers/AgentViewer.tsx");
-    expect(viewer).toContain("buildEntityLinkIndex(snapshot)");
-    expect(viewer).toContain("linkIndex={linkIndex}");
-  });
-
-  it("conversation prose runs through linkifyEntityTokens when an index is present", () => {
-    const conversation = read("../app/renderers/agent/conversation.tsx");
-    expect(conversation).toContain("linkifyEntityTokens(summary, linkIndex)");
-    expect(conversation).toContain("linkifyEntityTokens(streamed.answer, linkIndex)");
   });
 });

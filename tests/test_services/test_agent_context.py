@@ -99,18 +99,6 @@ class TestRunScope:
         assert "sigma" in out
         assert "0.25" in out
 
-    def test_renders_status(self, tmp_path: Path) -> None:
-        ws, _, ok, _ = _seed(tmp_path)
-        assert "succeeded" in _run_scope(ws, ok)
-
-    def test_renders_config_hash(self, tmp_path: Path) -> None:
-        ws, _, ok, _ = _seed(tmp_path)
-        assert _CONFIG_HASH in _run_scope(ws, ok)
-
-    def test_renders_execution_id(self, tmp_path: Path) -> None:
-        ws, _, ok, _ = _seed(tmp_path)
-        assert f"exec-{ok.id}" in _run_scope(ws, ok)
-
     def test_renders_artifacts(self, tmp_path: Path) -> None:
         ws, _, ok, _ = _seed(tmp_path)
         assert "m1.json" in _run_scope(ws, ok)
@@ -122,10 +110,6 @@ class TestRunScope:
         assert "ValueError" in out
         assert "lattice exploded" in out
 
-    def test_run_scope_names_the_mounted_run(self, tmp_path: Path) -> None:
-        ws, _, ok, _ = _seed(tmp_path)
-        assert ok.id in _run_scope(ws, ok)
-
 
 # ── Experiment scope ─────────────────────────────────────────────────────────
 
@@ -135,11 +119,6 @@ class TestExperimentScope:
         ws, _, _, _ = _seed(tmp_path)
         out = build_mount_context(ws, project_id="proton-transport", experiment_id="sigma-scan")
         assert "lr" in out
-
-    def test_renders_workflow_presence(self, tmp_path: Path) -> None:
-        ws, _, _, _ = _seed(tmp_path)
-        out = build_mount_context(ws, project_id="proton-transport", experiment_id="sigma-scan")
-        assert "workflow" in out.lower()
 
     def test_renders_per_status_run_counts(self, tmp_path: Path) -> None:
         ws, exp, _, _ = _seed(tmp_path)
@@ -236,12 +215,3 @@ class TestBudget:
         assert out, "truncated output must not be empty"
         assert len(out) <= 400
         assert "(truncated)" in out
-
-
-# ── Public surface ───────────────────────────────────────────────────────────
-
-
-def test_builder_exported_from_services_package() -> None:
-    from molexp import services
-
-    assert services.build_mount_context is build_mount_context

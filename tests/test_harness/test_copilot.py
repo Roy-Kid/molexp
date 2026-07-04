@@ -10,7 +10,7 @@ References:
 
 from __future__ import annotations
 
-from molexp.harness.copilot import NextAction, WorkspaceSummary, summarize_workspace
+from molexp.harness.copilot import WorkspaceSummary, summarize_workspace
 from molexp.workspace import (
     ContextFocus,
     HealthFlag,
@@ -103,9 +103,3 @@ def test_summarize_is_pure() -> None:
     assert summarize_workspace(ctx) == summarize_workspace(ctx)
     # ctx is frozen — a second call cannot have mutated it
     assert ctx.failed_runs[0].run_id == "r1"
-
-
-def test_next_action_carries_rationale() -> None:
-    action = summarize_workspace(_context()).next_actions[0]
-    assert isinstance(action, NextAction)
-    assert action.rationale  # non-empty grounded reason

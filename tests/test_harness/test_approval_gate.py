@@ -144,15 +144,6 @@ class TestStoredGrantReplay:
             _decision(request.id, granted=True, decided_by="ui-operator", reason="approved")
         )
 
-    async def test_stored_grant_passes_the_gate(self, env: _Env) -> None:
-        request = _request()
-        self._store_grant(env, request)
-        gate = ApprovalGate(requests=[request], approve=None)
-
-        ref = await gate.run(env.ctx)
-
-        assert ref.kind == "analysis_result"
-
     async def test_audit_stored_replay_logs_request_then_decision_preserving_decided_by(
         self, env: _Env
     ) -> None:

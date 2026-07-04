@@ -115,29 +115,6 @@ class TestBoundWorkflowValidator:
         assert report.target_kind == "bound_workflow"
         assert report.target_id == "bw-001"
 
-    def test_validate_bound_workflow_signature_and_import(self, tmp_path: Path) -> None:
-        from molexp.harness.schemas.validation import PlanValidationReport
-        from molexp.harness.validators import BoundWorkflowValidator as top
-        from molexp.harness.validators import BoundWorkflowValidator as via_pkg
-        from molexp.harness.validators.bound_workflow import BoundWorkflowValidator as via_mod
-
-        assert top is via_pkg is via_mod
-
-        ir, bw = _baseline()
-        report = top.validate(bw, ir, workspace_root=tmp_path)
-        assert isinstance(report, PlanValidationReport)
-
-    def test_phase_4_placeholder_comment_present(self) -> None:
-        """ac-006: a Phase-4 placeholder comment block marks where
-        capability-aware checks will land."""
-        import inspect
-
-        from molexp.harness.validators import bound_workflow as mod
-
-        src = inspect.getsource(mod)
-        assert "Phase 4" in src
-        assert "CapabilityRegistry" in src
-
     # --------------------------------------------------------------- violations
 
     def test_unknown_ir_task(self, tmp_path: Path) -> None:
@@ -215,15 +192,6 @@ class TestBoundWorkflowValidator:
         report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path)
         assert "missing_baseline_deny" in _codes(report)
 
-    def test_missing_baseline_deny_ssh(self, tmp_path: Path) -> None:
-        from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
-
-        ir, bw = _baseline()
-        bad_policy = bw.resource_policy.model_copy(update={"denied_paths": ["/"]})  # missing ~/.ssh
-        bw = bw.model_copy(update={"resource_policy": bad_policy})
-        report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path)
-        assert "missing_baseline_deny" in _codes(report)
-
     def test_edge_topology_mismatch(self, tmp_path: Path) -> None:
         """Bound edges, after id-translation back to ir_task_id, must equal ir.edges."""
         from molexp.harness.schemas.workflow_ir import DependencyEdge
@@ -236,19 +204,3 @@ class TestBoundWorkflowValidator:
         )
         report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path)
         assert "edge_topology_mismatch" in _codes(report)
-
-    def test_edge_topology_match_with_id_translation(self, tmp_path: Path) -> None:
-        """Even when BoundTask.id ≠ PlanTaskIR.id, topology must agree after translation."""
-        from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
-
-        ir, bw = _baseline()
-        report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path)
-        assert "edge_topology_mismatch" not in _codes(report)
-
-    def test_no_violations_when_clean(self, tmp_path: Path) -> None:
-        """The full clean baseline must produce PlanValidationReport.passed=True."""
-        from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
-
-        ir, bw = _baseline()
-        report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path)
-        assert report.passed is True

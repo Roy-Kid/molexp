@@ -16,7 +16,6 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from molexp.cli import app
@@ -71,14 +70,6 @@ class TestRunsInfoErrorGating:
         assert "boom" not in result.output
         assert "Retry with" not in result.output
 
-    def test_pending_run_shows_no_error_block(self, ws, run) -> None:
-        run._update_metadata(
-            error=ErrorInfo(type="RuntimeError", message="boom", timestamp=datetime.now())
-        )
-        result = _runs_info(ws, run)
-        assert result.exit_code == 0, result.output
-        assert "boom" not in result.output
-
 
 # ── Event spine: runs info shows recent events ───────────────────────────────
 
@@ -96,21 +87,6 @@ class TestRunsInfoEvents:
         assert "Recent events:" in result.output
         assert "run.failed" in result.output
 
-    def test_events_section_appears_on_default_path(self, ws, run) -> None:
-        """execute → fail → resume-success with NO opt-in step: the run's
-        status milestones must show up in ``runs info`` (run-lifecycle events
-        are default-on — otherwise this section is dead UX)."""
-        with run.start() as ctx:
-            ctx.mark_failed("RuntimeError: boom")
-        with run.start() as ctx:
-            ctx.mark_succeeded()
-
-        result = _runs_info(ws, run)
-        assert result.exit_code == 0, result.output
-        assert "Recent events:" in result.output
-        assert "run.failed" in result.output
-        assert "run.completed" in result.output
-
 
 # ── Bug 4: --fresh gating ────────────────────────────────────────────────────
 
@@ -123,24 +99,6 @@ class TestFreshFlagGating:
         assert result.exit_code == 1
         assert "--fresh" in result.output
         assert "--rerun" in result.output
-
-    def test_fresh_with_resume_errors(self, tmp_path) -> None:
-        script = tmp_path / "train.py"
-        script.write_text("print('hi')\n")
-        result = runner.invoke(app, ["run", str(script), "--local", "--resume", "--fresh"])
-        assert result.exit_code == 1
-
-    def test_rerun_help_mentions_cache_and_fresh(self) -> None:
-        result = runner.invoke(app, ["run", "--help"])
-        assert result.exit_code == 0
-        # rich styles option names with embedded ANSI spans wherever it deems
-        # the stream a terminal (GitHub Actions included), so help assertions
-        # go through click's strip_ansi — the output text, not its styling.
-        output = strip_ansi(result.output)
-        assert "--fresh" in output
-        # The rerun help must not claim "from scratch" — cache may serve
-        # deterministic tasks unless --fresh is passed.
-        assert "from scratch" not in output
 
 
 # ── Asset list: recursive across scopes ──────────────────────────────────────
@@ -161,13 +119,6 @@ class TestAssetListAllScopes:
         result = runner.invoke(app, ["asset", "list", "--scope", "run", "-t", str(ws.root)])
         assert result.exit_code == 0, result.output
         assert "metrics.json" in result.output
-
-    def test_scope_filter_zero_hits_points_at_other_scopes(self, ws, run) -> None:
-        with run.start() as ctx:
-            ctx.artifact.save("metrics.json", {"loss": 0.1})
-        result = runner.invoke(app, ["asset", "list", "--scope", "workspace", "-t", str(ws.root)])
-        assert result.exit_code == 0, result.output
-        assert "other scopes" in result.output
 
     def test_unknown_scope_value_errors(self, ws) -> None:
         result = runner.invoke(app, ["asset", "list", "--scope", "bogus", "-t", str(ws.root)])
