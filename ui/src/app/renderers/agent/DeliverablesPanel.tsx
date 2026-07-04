@@ -1,9 +1,11 @@
 import { Check, ClipboardCopy, FileQuestion, Loader2, Package, WrapText } from "lucide-react";
 import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { PlanDetailResponse } from "@/api/generated/models/PlanDetailResponse";
 import { StatusBadge } from "@/app/components/entity";
 import type { PlanRef } from "@/app/renderers/agentEvents";
 import { collectArtifacts, derivePlanRef } from "@/app/renderers/agentEvents";
+import { runPath } from "@/app/entities/paths";
 import { workspaceApi } from "@/app/state/api";
 import type { ApiSessionEvent, SemanticStatus } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
@@ -748,6 +750,7 @@ const PlanDeliverables = ({
   planRef: PlanRef;
   activeStageKind: string;
 }): JSX.Element => {
+  const navigate = useNavigate();
   const [plan, setPlan] = useState<PlanDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -834,7 +837,14 @@ const PlanDeliverables = ({
             {title}
           </p>
           <p className="font-mono text-[10px] text-muted-foreground">
-            run {planRef.runId}
+            <button
+              type="button"
+              className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+              title="Open this run in the Projects tree"
+              onClick={() => navigate(runPath(planRef.projectId, planRef.experimentId, planRef.runId))}
+            >
+              run {planRef.runId}
+            </button>
             {stage && <span className="ml-1.5 text-muted-foreground/70">· {stage.label}</span>}
           </p>
         </div>

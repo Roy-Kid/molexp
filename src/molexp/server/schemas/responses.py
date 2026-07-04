@@ -105,6 +105,7 @@ class ExperimentResponse(BaseModel):
     description: str = ""
     workflow: str | None = None
     workflowType: str | None = None
+    planRunId: str | None = None
     gitCommit: str | None = None
     parameterSpace: dict[str, Any] = Field(default_factory=dict)
     defaultTarget: str | None = None
@@ -136,6 +137,7 @@ class ExperimentResponse(BaseModel):
             description=experiment.description,
             workflow=experiment.metadata.workflow_source,
             workflowType=experiment.metadata.workflow_type,
+            planRunId=experiment.metadata.plan_run_id,
             gitCommit=experiment.metadata.git_commit,
             parameterSpace=experiment.metadata.parameter_space,
             defaultTarget=experiment.metadata.default_target,

@@ -1,6 +1,9 @@
 import { Ban, Copy, FileQuestion, PlayCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { DashboardCard, DashboardGrid, EmptyState, EntityPage } from "@/app/components/entity";
+// Imported by module path, NOT the entity barrel: its react-router + generated-client
+// graph trips Node's require(esm) loader for barrel consumers in the rstest node env.
+import { KnowledgeBacklinksCard } from "@/app/components/entity/KnowledgeBacklinksCard";
 import { formatScalar } from "@/app/renderers/dashboardData";
 import { RunExecutionsPanel } from "@/app/renderers/RunExecutionsPanel";
 import { RunLogsPanel } from "@/app/renderers/RunLogsPanel";
@@ -170,6 +173,14 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
           </div>
         </dl>
       </DashboardCard>
+
+      <KnowledgeBacklinksCard
+        kind="run"
+        projectId={run.projectId}
+        experimentId={run.experimentId}
+        runId={run.id}
+        className="lg:col-span-4"
+      />
 
       {run.errorMessage && (
         <DashboardCard title="Error" className="border-destructive/30 lg:col-span-12">

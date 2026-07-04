@@ -9,6 +9,7 @@ import type { DocMetaUpdate } from '../models/DocMetaUpdate';
 import type { DocMoveRequest } from '../models/DocMoveRequest';
 import type { EmbedRequest } from '../models/EmbedRequest';
 import type { EmbedResponse } from '../models/EmbedResponse';
+import type { EntityBacklinksResponse } from '../models/EntityBacklinksResponse';
 import type { KnowledgeListResponse } from '../models/KnowledgeListResponse';
 import type { KnowledgeSearchResponse } from '../models/KnowledgeSearchResponse';
 import type { MessageResponse } from '../models/MessageResponse';
@@ -232,6 +233,41 @@ export class KnowledgeService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Entity Backlinks
+     * Knowledge documents citing one entity — a thin ``Bundle.backlinks`` read.
+     *
+     * Pure derived read (no reverse index persisted): resolves the entity
+     * Folder, then asks the bundle which Concepts' ``index.md`` edges point at
+     * it. 404 on an unresolvable entity — never an empty-list fallback for a
+     * bad ref (no-fallback law).
+     * @param kind Entity kind.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns EntityBacklinksResponse Successful Response
+     * @throws ApiError
+     */
+    public static entityBacklinksApiKnowledgeEntityBacklinksGet(
+        kind: 'run' | 'experiment',
+        projectId: string,
+        experimentId: string,
+        runId?: (string | null),
+    ): CancelablePromise<EntityBacklinksResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/knowledge/entity-backlinks',
+            query: {
+                'kind': kind,
+                'projectId': projectId,
+                'experimentId': experimentId,
+                'runId': runId,
+            },
             errors: {
                 422: `Validation Error`,
             },

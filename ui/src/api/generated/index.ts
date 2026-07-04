@@ -48,6 +48,8 @@ export type { DocMetaUpdate } from './models/DocMetaUpdate';
 export type { DocMoveRequest } from './models/DocMoveRequest';
 export { EmbedRequest } from './models/EmbedRequest';
 export { EmbedResponse } from './models/EmbedResponse';
+export type { EntityBacklinkRow } from './models/EntityBacklinkRow';
+export type { EntityBacklinksResponse } from './models/EntityBacklinksResponse';
 export type { EntityCard } from './models/EntityCard';
 export type { ErrorEvent } from './models/ErrorEvent';
 export type { ExecutionCreateRequest } from './models/ExecutionCreateRequest';

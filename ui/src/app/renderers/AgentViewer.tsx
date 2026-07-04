@@ -29,6 +29,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
+import { buildEntityLinkIndex } from "@/lib/entity-linkify";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
 import { ApprovalsInbox } from "./agent/ApprovalsInbox";
 import { ConversationTurnView } from "./agent/conversation";
@@ -591,6 +592,8 @@ const AgentSessionViewer = ({
   const [selectedStage, setSelectedStage] = useState<string>(DEFAULT_PLAN_STAGE);
   const scrollRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
+  // Known-entity link index for conversation prose (vision-loop-10).
+  const linkIndex = useMemo(() => buildEntityLinkIndex(snapshot), [snapshot]);
 
   // Fetch agent health up-front so the new-session view can warn the user
   // about a missing API key before they spend time typing a goal.
@@ -908,7 +911,7 @@ const AgentSessionViewer = ({
       <ScrollArea className="min-h-0 flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
         <div className={`${COLUMN} flex flex-col gap-5 px-4 pb-6 pt-4 md:px-6`}>
           {turns.map((turn) => (
-            <ConversationTurnView key={turn.key} turn={turn} />
+            <ConversationTurnView key={turn.key} turn={turn} linkIndex={linkIndex} />
           ))}
         </div>
       </ScrollArea>

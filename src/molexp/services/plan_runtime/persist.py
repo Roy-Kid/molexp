@@ -269,7 +269,12 @@ def persist_plan_workflow_to_experiment(run: Run, experiment: Experiment) -> boo
     if ir is None:
         return False
     experiment.metadata = experiment.metadata.model_copy(
-        update={"workflow_source": json.dumps(ir, sort_keys=True)}
+        update={
+            "workflow_source": json.dumps(ir, sort_keys=True),
+            # Plan provenance rides the same write (vision-loop-10): the
+            # experiment records WHICH plan run generated its workflow.
+            "plan_run_id": run.id,
+        }
     )
     experiment.save()
     return True

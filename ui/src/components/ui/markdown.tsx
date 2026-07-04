@@ -74,11 +74,15 @@ export const MarkdownContent = ({
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[[rehypeKatex, { strict: "ignore" }]]}
       components={{
-        a: ({ children, href }) => (
-          <a href={href} target="_blank" rel="noreferrer">
-            {children}
-          </a>
-        ),
+        a: ({ children, href }) =>
+          href?.startsWith("/") ? (
+            // Internal entity link (entity-linkify) — same-tab navigation.
+            <a href={href}>{children}</a>
+          ) : (
+            <a href={href} target="_blank" rel="noreferrer">
+              {children}
+            </a>
+          ),
       }}
     >
       {normalizeDisplayMath(text)}

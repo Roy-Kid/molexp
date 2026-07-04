@@ -874,3 +874,45 @@ def test_search_parity_with_bundle_search(client, workspace):
 
     resp = client.get("/api/knowledge/search", params={"q": "shared-topic"})
     assert [row["path"] for row in resp.json()["hits"]] == expected
+
+
+class TestEntityBacklinks:
+    """vision-loop-10 — knowledge documents citing an entity, thin Bundle.backlinks read."""
+
+    def test_run_backlinks_return_the_citing_item(self, client, workspace):
+        from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
+
+        exp = workspace.add_project("blp").add_experiment("ble")
+        run = exp.add_run(params={"x": 1})
+        item = KnowledgeItem(name="finding-bl")
+        exp.add_folder(item)
+        item.write_knowledge_meta(
+            KnowledgeMeta(
+                kind="Finding", sources=[SourceRef(kind="run", ref=run.id)], created_by="t"
+            )
+        )
+        item.write_index("# Backlink finding\n\nbody")
+        item.cite(run, role="derived_from")
+
+        resp = client.get(
+            f"/api/knowledge/entity-backlinks?kind=run&projectId=blp&experimentId=ble&runId={run.id}"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        rows = body["backlinks"]
+        assert any(
+            r["title"] == "Backlink finding" and r["role"] == "derived_from" for r in rows
+        ), rows
+
+    def test_unknown_entity_is_404_not_empty(self, client):
+        resp = client.get(
+            "/api/knowledge/entity-backlinks?kind=run&projectId=nope&experimentId=x&runId=y"
+        )
+        assert resp.status_code == 404
+
+    def test_run_kind_requires_run_id(self, client, workspace):
+        workspace.add_project("blp2").add_experiment("ble2")
+        resp = client.get(
+            "/api/knowledge/entity-backlinks?kind=run&projectId=blp2&experimentId=ble2"
+        )
+        assert resp.status_code == 422

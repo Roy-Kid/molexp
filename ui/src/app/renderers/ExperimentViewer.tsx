@@ -16,6 +16,8 @@ import {
 import { useMemo, useState } from "react";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
+// Module-path import (not the barrel) — see RunViewer.tsx for the loader rationale.
+import { KnowledgeBacklinksCard } from "@/app/components/entity/KnowledgeBacklinksCard";
 import {
   DashboardCard,
   DashboardGrid,
@@ -460,6 +462,13 @@ export const ExperimentViewer = ({
           ))}
         </dl>
       </DashboardCard>
+
+      <KnowledgeBacklinksCard
+        kind="experiment"
+        projectId={experiment.projectId}
+        experimentId={experiment.id}
+        className="lg:col-span-4"
+      />
 
       <DashboardCard title="Workflow" className="lg:col-span-6" bodyClassName="space-y-3">
         {workflowGraph ? (

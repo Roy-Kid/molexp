@@ -840,6 +840,7 @@ export const mapExperiments = (
     projectId,
     parameterSpace: (experiment.parameterSpace ?? {}) as Record<string, unknown>,
     workflowSource: experiment.workflow ?? null,
+    planRunId: experiment.planRunId ?? null,
   }));
 };
 

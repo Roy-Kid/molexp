@@ -125,6 +125,8 @@ export interface ExperimentSummary {
   projectId: string;
   parameterSpace: Record<string, unknown>;
   workflowSource: string | null;
+  /** The plan run that generated this experiment's workflow (vision-loop-10). */
+  planRunId: string | null;
 }
 
 export interface ExecutionRecordSummary {

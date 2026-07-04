@@ -322,6 +322,72 @@ def _resolve_note(bundle: Bundle, path: str) -> Note:
     return concept
 
 
+class EntityBacklinkRow(BaseModel):
+    """One knowledge document citing the queried entity."""
+
+    path: str
+    title: str
+    type: str
+    role: str
+
+
+class EntityBacklinksResponse(BaseModel):
+    """``GET /knowledge/entity-backlinks`` — who cites this entity?"""
+
+    entity: str
+    backlinks: list[EntityBacklinkRow]
+
+
+@router.get("/entity-backlinks", response_model=EntityBacklinksResponse)
+def entity_backlinks(
+    kind: Annotated[Literal["run", "experiment"], Query(description="Entity kind.")],
+    project_id: Annotated[str, Query(alias="projectId")],
+    experiment_id: Annotated[str, Query(alias="experimentId")],
+    run_id: Annotated[str | None, Query(alias="runId")] = None,
+    workspace: Workspace = Depends(get_workspace),
+) -> EntityBacklinksResponse:
+    """Knowledge documents citing one entity — a thin ``Bundle.backlinks`` read.
+
+    Pure derived read (no reverse index persisted): resolves the entity
+    Folder, then asks the bundle which Concepts' ``index.md`` edges point at
+    it. 404 on an unresolvable entity — never an empty-list fallback for a
+    bad ref (no-fallback law).
+    """
+    from molexp.workspace.bundle_index import extract_title
+    from molexp.workspace.errors import (
+        ExperimentNotFoundError,
+        ProjectNotFoundError,
+        RunNotFoundError,
+    )
+
+    try:
+        experiment = workspace.get_project(project_id).get_experiment(experiment_id)
+        if kind == "run":
+            if not run_id:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "kind=run requires runId"
+                )
+            entity = experiment.get_run(run_id)
+        else:
+            entity = experiment
+    except (ProjectNotFoundError, ExperimentNotFoundError, RunNotFoundError) as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    bundle = _bundle(workspace)
+    rows: list[EntityBacklinkRow] = []
+    for link in bundle.backlinks(entity):
+        meta = link.source.read_meta()
+        rows.append(
+            EntityBacklinkRow(
+                path=bundle.rel_path(link.source),
+                title=extract_title(link.source.read_index() or "") or link.source.name,
+                type=str(meta.get("type", "")),
+                role=str(link.role),
+            )
+        )
+    return EntityBacklinksResponse(entity=f"{kind}:{run_id or experiment_id}", backlinks=rows)
+
+
 class KnowledgeSearchRow(BaseModel):
     """One search hit projected from the bundle index entry."""
 

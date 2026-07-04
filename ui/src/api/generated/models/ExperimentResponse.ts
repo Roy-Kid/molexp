@@ -11,6 +11,7 @@ export type ExperimentResponse = {
     id: string;
     name: string;
     parameterSpace?: Record<string, any>;
+    planRunId?: (string | null);
     projectId: string;
     runCount?: (number | null);
     runs?: Array<RunSummary>;

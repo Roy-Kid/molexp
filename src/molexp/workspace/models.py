@@ -196,6 +196,10 @@ class ExperimentMetadata(BaseModel, frozen=True):
     # grouping; workspace never interprets it.
     workflow_source: str | None = None
     workflow_type: str | None = None
+    # Provenance: the plan run that generated this experiment's workflow
+    # (a plan IS a run, so one string suffices — no new entity, and runs
+    # inherit by association; a second run-identity field is forbidden).
+    plan_run_id: str | None = None
     parameter_space: dict[str, JSONValue] = Field(default_factory=dict)
     git_commit: str | None = None
 

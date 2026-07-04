@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { MarkdownContent } from "@/components/ui/markdown";
 import { ThinkingBlock } from "@/components/ui/thinking-block";
 import { ToolCallRow } from "@/components/ui/tool-call-row";
+import { linkifyEntityTokens } from "@/lib/entity-linkify";
 import { formatDurationCompact } from "@/lib/format-time";
 import { ToolResultArtifacts } from "./artifacts";
 
@@ -122,9 +123,11 @@ const EventRow = ({
 const TurnAnswer = ({
   result,
   inProgress,
+  linkIndex,
 }: {
   result: ApiSessionEvent | null;
   inProgress: boolean;
+  linkIndex?: Map<string, string>;
 }): JSX.Element => {
   if (!result) {
     if (inProgress) {
@@ -147,7 +150,7 @@ const TurnAnswer = ({
   if (result.type === "loop_completed") {
     const summary = typeof payload.text === "string" ? payload.text : "";
     return summary ? (
-      <MarkdownContent text={summary} />
+      <MarkdownContent text={linkIndex ? linkifyEntityTokens(summary, linkIndex) : summary} />
     ) : (
       <p className="text-sm italic text-muted-foreground">Session ended without a summary.</p>
     );
@@ -276,7 +279,13 @@ const InternalSteps = ({ turn }: { turn: ConversationTurn }): JSX.Element | null
 // two distinct, role-separated blocks (prompt on the right, reply on the left).
 // ---------------------------------------------------------------------------
 
-export const ConversationTurnView = ({ turn }: { turn: ConversationTurn }): JSX.Element => {
+export const ConversationTurnView = ({
+  turn,
+  linkIndex,
+}: {
+  turn: ConversationTurn;
+  linkIndex?: Map<string, string>;
+}): JSX.Element => {
   const streamed = useMemo(
     () => foldStreamedTurn(turn.result ? [...turn.steps, turn.result] : turn.steps),
     [turn.steps, turn.result],
@@ -321,9 +330,11 @@ export const ConversationTurnView = ({ turn }: { turn: ConversationTurn }): JSX.
 
           {turn.inProgress && !turn.result && streamed.answer ? (
             // Token-by-token streaming answer before a terminal result lands.
-            <MarkdownContent text={streamed.answer} />
+            <MarkdownContent
+            text={linkIndex ? linkifyEntityTokens(streamed.answer, linkIndex) : streamed.answer}
+          />
           ) : (
-            <TurnAnswer result={turn.result} inProgress={turn.inProgress} />
+            <TurnAnswer result={turn.result} inProgress={turn.inProgress} linkIndex={linkIndex} />
           )}
 
           <TurnFooter turn={turn} />
