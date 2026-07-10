@@ -113,7 +113,7 @@ async def test_interactive_loop_opens_mcp_store_toolsets(
     assert router.stream_agentic_calls == 1
     assert built == ["demo"]
     assert router.last_toolsets == (sentinel,)
-    assert any(t.__name__ == "write_file" for t in router.last_tools)
+    assert any(t.__name__ == "code_write" for t in router.last_tools)
     assert isinstance(events[-1], LoopCompletedEvent)
 
 

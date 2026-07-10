@@ -94,17 +94,18 @@ class TestReadKnowledge:
     def test_rejects_path_escape(self, tmp_path: Path) -> None:
         ws = _seed_workspace(tmp_path)
         _, read = knowledge_tools(Path(ws.resolve()))
-        with pytest.raises(ValueError, match=r"escape|relative"):
+        with pytest.raises(ValueError, match=r"escape|\.\.|outside"):
             read("../outside")
-        with pytest.raises(ValueError, match=r"escape|relative"):
+        with pytest.raises(ValueError, match=r"escape|outside"):
             read("/etc/passwd")
 
 
 class TestLoopBinding:
     @pytest.mark.asyncio
-    async def test_interactive_loop_hands_tools_to_router(self, tmp_path: Path) -> None:
-        """InteractiveLoop binds file + knowledge + code tools (7 total)."""
+    async def test_interactive_loop_hands_ops_tools_to_router(self, tmp_path: Path) -> None:
+        """InteractiveLoop binds the stable ops tool surface (6 names)."""
         from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
+        from molexp.agent.ops import OPS_TOOL_NAMES
         from molexp.agent.router import FinalChunk
         from molexp.agent.runner import AgentRunner
         from molexp.agent.session import Session
@@ -143,13 +144,5 @@ class TestLoopBinding:
         async for _ in runner.run_events(session, "hello"):
             pass
 
-        names = [tool.__name__ for tool in captured["tools"]]
-        assert names == [
-            "read_file",
-            "list_directory",
-            "search_code",
-            "search_knowledge",
-            "read_knowledge",
-            "write_file",
-            "execute_python",
-        ]
+        names = {tool.__name__ for tool in captured["tools"]}
+        assert names == OPS_TOOL_NAMES

@@ -137,9 +137,7 @@ async def test_interactive_loop_always_mounts_code_tools(tmp_path: Path) -> None
     _ = [ev async for ev in runner.run_events(session, "write a script")]
 
     names = _tool_names(router.last_tools)
-    assert {"write_file", "execute_python"}.issubset(names)
-    assert "read_file" in names
-    assert "search_knowledge" in names
+    assert {"code_write", "code_run", "workspace_ensure", "discover"}.issubset(names)
     # lifecycle tools stay off under default/legacy readonly
     assert "cancel_run" not in names
     assert "harvest_run" not in names

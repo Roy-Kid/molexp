@@ -55,15 +55,14 @@ value resolves to the documented default."""
 
 
 MOLMCP_USAGE_INSTRUCTIONS = (
-    "You have access to project code-discovery + molexp scaffold tools "
-    "through `molmcp__*` / `molexp_*` tools (layout, materialize, "
-    "add_project/experiment, list_*, validate_workflow). Use them for "
-    "navigation and create-or-get scaffolding only — not to run large "
-    "parameter sweeps or science workflows. Implement sweeps and plots "
-    "by writing Python (molexp + molplot APIs) via write_file / "
-    "execute_python. Any tool that takes a `workspace` parameter expects "
-    "the absolute path supplied in the session preamble (see the "
-    "`Workspace:` line) — pass it verbatim."
+    "An MCP server is attached for this session. Call the stable "
+    "`discover` tool (or inspect the runtime MCP catalog in the system "
+    "prompt) to see **which tools exist right now** — never invent names "
+    "from memory. Use MCP tools for discovery and workspace scaffold only; "
+    "parameter sweeps, science, and plots go through `code_write` / "
+    "`code_run` with ordinary Python imports. Tools that take a "
+    "`workspace` parameter expect the absolute path in the `Workspace:` "
+    "line of the session preamble — pass it verbatim."
 )
 """Per-server prompt fragment surfaced to the LLM. The runner
 concatenates the strings from every active entry's

@@ -1,12 +1,8 @@
-"""``InteractiveLoopConfig.context_block`` → ``stream_agentic(system=…)`` (vision-loop-11, RED).
+"""``InteractiveLoopConfig.context_block`` → ``stream_agentic(system=…)``.
 
-The agent layer stays mechanism-only: the loop composes
-``system = system_prompt + "\\n\\n" + context_block`` when the block is
-non-empty and leaves the system prompt untouched otherwise. It never sources
-the block itself — that is the services builder's job
-(``molexp.services.agent_context.build_mount_context``).
-
-Spec: ``.claude/specs/vision-loop-11-mount-context.md`` (Design §2).
+Composition order: ops preamble → user ``system_prompt`` →
+``context_block``. The loop never sources the block itself — that is
+the services builder's job (``molexp.services.agent_context``).
 """
 
 from __future__ import annotations
@@ -72,13 +68,20 @@ async def test_context_block_composed_after_base_prompt(tmp_path: Path) -> None:
         context_block=_CONTEXT_BLOCK,
     )
     system = await _captured_system(config)
-    assert system == f"{_BASE_PROMPT}\n\n{_CONTEXT_BLOCK}"
+    assert _BASE_PROMPT in system
+    assert _CONTEXT_BLOCK in system
+    assert system.index(_BASE_PROMPT) < system.index(_CONTEXT_BLOCK)
+    # ops preamble precedes user prompt
+    assert "code_run" in system
+    assert system.index("code_run") < system.index(_BASE_PROMPT)
 
 
-async def test_empty_context_block_leaves_system_unchanged(tmp_path: Path) -> None:
+async def test_empty_context_block_still_has_ops_preamble(tmp_path: Path) -> None:
     config = InteractiveLoopConfig(
         system_prompt=_BASE_PROMPT,
         workspace_root=tmp_path,
     )
     system = await _captured_system(config)
-    assert system == _BASE_PROMPT
+    assert _BASE_PROMPT in system
+    assert "code_run" in system
+    assert _CONTEXT_BLOCK not in system

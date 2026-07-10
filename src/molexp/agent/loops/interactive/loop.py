@@ -12,20 +12,12 @@ each :data:`AgenticChunk` to the injected sink as the corresponding
 * ``FinalChunk``     → the assistant's terminal text (captured + appended
   to the session entry-tree; emitted as ``LoopCompletedEvent``)
 
-Tools always include read-only file tools, knowledge tools, and the
-code tools (:func:`~molexp.agent.loops.interactive.code_tools.code_tools`
-— ``write_file`` / ``execute_python``). Optional lifecycle tools
-(cancel/harvest) append when ``operation_mode == "lifecycle"``.
-``operation_mode`` does **not** strip write/exec — it only gates the
-extra lifecycle pair.
-
-MCP toolsets from :class:`~molexp.agent.mcp.store.McpStore` are opened
-best-effort via :func:`~molexp.agent.loops.interactive.mcp_toolsets.open_mcp_toolsets`
-and passed as ``stream_agentic(toolsets=...)``. A single server build
-failure is logged and skipped; the turn still completes. Bare tools go
-to ``tools=``; the loop body itself is pydantic-ai's native
-``Agent.iter()``, reached through the Router Protocol — this module
-imports nothing from pydantic-ai directly.
+Stable tools come from :mod:`molexp.agent.ops` (StructureOps / CodeEnv /
+Discovery adapters) — not a grab-bag of hard-coded third-party names.
+MCP toolsets open best-effort and pass as ``stream_agentic(toolsets=...)``;
+their **names** are never compiled into molexp (auto-discovery law).
+Optional lifecycle tools append when ``operation_mode == "lifecycle"``.
+``operation_mode`` is behavior only — never a capability mask.
 
 The harness's planning pipeline lives in ``molexp.harness.PlanMode`` (a
 harness ``Mode``), reached through the ``AgentGateway`` Protocol — not from
@@ -53,11 +45,14 @@ from molexp.agent.events import (
 )
 from molexp.agent.loop import AgentLoop, AgentRunResult
 from molexp.agent.loops._compact import maybe_compact
-from molexp.agent.loops.interactive.code_tools import code_tools
-from molexp.agent.loops.interactive.knowledge_tools import knowledge_tools
 from molexp.agent.loops.interactive.lifecycle_tools import lifecycle_tools
 from molexp.agent.loops.interactive.mcp_toolsets import open_mcp_toolsets
-from molexp.agent.loops.interactive.tools import readonly_tools
+from molexp.agent.ops import (
+    DEFAULT_OPS_PREAMBLE,
+    build_ops_tools,
+    build_session_context,
+)
+from molexp.agent.ops.tools import render_discovery_catalog
 from molexp.agent.router import (
     FinalChunk,
     TextDeltaChunk,
@@ -74,7 +69,15 @@ if TYPE_CHECKING:
 
 _LOG = get_logger(__name__)
 
-__all__ = ["DEFAULT_CODE_LOOP_PREAMBLE", "InteractiveLoop", "InteractiveLoopConfig"]
+__all__ = [
+    "DEFAULT_CODE_LOOP_PREAMBLE",
+    "DEFAULT_OPS_PREAMBLE",
+    "InteractiveLoop",
+    "InteractiveLoopConfig",
+]
+
+# Back-compat alias — prefer DEFAULT_OPS_PREAMBLE (no hard-coded MCP tool names).
+DEFAULT_CODE_LOOP_PREAMBLE = DEFAULT_OPS_PREAMBLE
 
 
 def _session_messages_path(session: Session) -> Path | None:
@@ -108,48 +111,25 @@ def _save_model_history(session: Session, messages_json: bytes) -> None:
     path.write_bytes(messages_json)
 
 
-#: Default behavior contract for the code-loop (consult → write → exec).
-#: Always composed into ``system`` before user ``system_prompt`` and
-#: ``context_block``. Tests assert the marked substrings.
-DEFAULT_CODE_LOOP_PREAMBLE = """\
-You are molexp's interactive research agent. Work by consulting tools, \
-then writing and running Python — not by inventing parallel APIs.
-
-1. Prefer `molmcp` tools (`molmcp__*` / `molexp_*`) for discovery and \
-workspace scaffold (layout, materialize, add project/experiment). \
-MCP is not a batch science executor — do not use it to run large sweeps.
-2. Implement experiments, parameter sweeps, recovery, and analysis by \
-writing Python against molexp APIs (see examples/agent/code_loop_golden_path.py). \
-Use `write_file` then `execute_python` to run scripts under the workspace.
-3. Plot with `import molplot` in that Python — molexp has no built-in plot tool.
-4. A short plan before multi-step work is fine; planning never locks tools.
-"""
-
-
 class InteractiveLoopConfig(BaseModel):
     """Tunables for :class:`InteractiveLoop`.
 
     Attributes:
-        system_prompt: Extra system-prompt text composed **after**
-            :data:`DEFAULT_CODE_LOOP_PREAMBLE` (or ``behavior_preamble``).
-        workspace_root: Directory file/knowledge/code tools are confined
-            to. ``None`` falls back to the current working directory at
-            run time.
-        context_block: Mount-point context (vision-loop-11) — a rendered
-            snapshot of the entity this session is attached to, composed
-            after the preamble and ``system_prompt``. The block is built
-            by ``services.agent_context``.
+        system_prompt: Extra system-prompt text composed **after** the
+            ops behavior preamble (or ``behavior_preamble`` override).
+        workspace_root: Session workspace root for StructureOps / CodeEnv.
+            ``None`` falls back to the current working directory at run
+            time.
+        context_block: Mount-point context (vision-loop-11) — composed
+            after the preamble and ``system_prompt``.
         compaction: Context-compaction policy; pass
             ``CompactionSettings(enabled=False)`` to opt out.
-        operation_mode: **Behavior label only**, not a capability mask.
-            ``write_file`` / ``execute_python`` are always mounted.
-            ``lifecycle`` additionally adds cancel/harvest tools (no
-            harness ApprovalGate — use Plan/Curate for gated
-            execute/resume/rerun). Legacy ``readonly`` does **not**
-            strip code tools.
-        behavior_preamble: Override the default code-loop preamble.
-            Empty string keeps :data:`DEFAULT_CODE_LOOP_PREAMBLE`.
-            Set a custom string to replace it entirely.
+        operation_mode: Behavior label only — **not a capability mask**.
+            Ops tools (``code_write`` / ``code_run`` / …) are always
+            mounted. ``lifecycle`` additionally adds cancel/harvest.
+        behavior_preamble: Override :data:`DEFAULT_OPS_PREAMBLE`. Empty
+            keeps the default (stable ops names only — no hard-coded
+            third-party MCP tool list).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -189,24 +169,23 @@ class InteractiveLoop(AgentLoop):
         )
 
         workspace = self.config.workspace_root or Path.cwd()
-        # Read + knowledge + write/exec (always). Lifecycle cancel/harvest is
-        # optional; operation_mode never strips code tools.
-        tools = (
-            tuple(readonly_tools(workspace_root=workspace))
-            + tuple(knowledge_tools(workspace_root=workspace))
-            + tuple(
-                code_tools(
-                    workspace_root=workspace,
-                    execution_env=runtime.execution_env,
-                )
-            )
+        # MCP toolsets first (runtime catalog); names never hard-coded in molexp.
+        toolsets = open_mcp_toolsets(workspace)
+        ctx = build_session_context(
+            workspace_root=workspace,
+            execution_env=runtime.execution_env,
+            mcp_toolsets=toolsets,
         )
+        tools = tuple(build_ops_tools(ctx))
         if self.config.operation_mode == "lifecycle":
             tools = tools + tuple(lifecycle_tools(workspace_root=workspace))
 
-        # Composition order: behavior preamble → user system_prompt → context_block.
-        preamble = self.config.behavior_preamble or DEFAULT_CODE_LOOP_PREAMBLE
+        # Composition: ops preamble → optional live MCP catalog → user → context.
+        preamble = self.config.behavior_preamble or ctx.behavior.system_preamble()
         parts = [preamble.strip()]
+        catalog = render_discovery_catalog(ctx)
+        if catalog:
+            parts.append(catalog)
         if self.config.system_prompt.strip():
             parts.append(self.config.system_prompt.strip())
         if self.config.context_block.strip():
@@ -214,8 +193,6 @@ class InteractiveLoop(AgentLoop):
         system = "\n\n".join(parts)
 
         history = _load_model_history(runtime.session)
-        # MCP toolsets: best-effort open; Agent.iter owns enter/exit lifecycle.
-        toolsets = open_mcp_toolsets(workspace)
         final_text = ""
         async for chunk in runtime.router.stream_agentic(
             prompt=user_input,

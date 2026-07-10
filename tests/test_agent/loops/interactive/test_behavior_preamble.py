@@ -68,13 +68,12 @@ async def test_default_preamble_mentions_consult_write_exec_molplot(
     _ = [ev async for ev in runner.run_events(session, "hi")]
 
     system = router.system
-    assert "molmcp" in system.lower() or "molmcp" in system
-    assert "execute_python" in system
-    assert "write_file" in system
-    assert "molplot" in system
-    # preamble markers from DEFAULT_CODE_LOOP_PREAMBLE
-    assert "write_file" in DEFAULT_CODE_LOOP_PREAMBLE
-    assert "molplot" in DEFAULT_CODE_LOOP_PREAMBLE
+    assert "code_run" in system
+    assert "code_write" in system
+    assert "discover" in system
+    # ops preamble — no hard-coded MCP tool names
+    assert "code_run" in DEFAULT_CODE_LOOP_PREAMBLE
+    assert "molexp_add_project" not in system
 
 
 @pytest.mark.asyncio
@@ -89,7 +88,7 @@ async def test_operation_mode_readonly_still_mounts_code_tools(tmp_path: Path) -
     _ = [ev async for ev in runner.run_events(session, "hi")]
 
     names = {t.__name__ for t in router.tools}
-    assert {"write_file", "execute_python", "read_file"}.issubset(names)
+    assert {"code_write", "code_run", "workspace_ensure", "discover"}.issubset(names)
 
 
 @pytest.mark.asyncio
@@ -107,14 +106,14 @@ async def test_user_system_prompt_composes_with_preamble(tmp_path: Path) -> None
     session = Session(storage=InMemorySessionStorage(), session_id="compose")
     _ = [ev async for ev in runner.run_events(session, "hi")]
 
-    assert "execute_python" in router.system
+    assert "code_run" in router.system
     assert marker in router.system
     # preamble comes first
-    assert router.system.index("execute_python") < router.system.index(marker)
+    assert router.system.index("code_run") < router.system.index(marker)
 
 
 def test_config_docstring_describes_behavior_not_capability_mask() -> None:
-    """AC-003: docs state operation_mode does not strip write/exec."""
+    """AC-003: docs state operation_mode is not a capability mask."""
     doc = InteractiveLoopConfig.__doc__ or ""
-    assert "not a capability mask" in doc.lower() or "Behavior label" in doc
-    assert "does **not**" in doc or "does not" in doc.lower()
+    assert "capability mask" in doc.lower()
+    assert "behavior" in doc.lower()
