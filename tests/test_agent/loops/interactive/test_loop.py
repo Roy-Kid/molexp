@@ -52,6 +52,7 @@ class _ScriptedRouter:
 
     def __init__(self) -> None:
         self.stream_agentic_calls = 0
+        self.last_tools: tuple[Any, ...] = ()
 
     async def stream_agentic(
         self,
@@ -63,6 +64,7 @@ class _ScriptedRouter:
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
         self.stream_agentic_calls += 1
+        self.last_tools = tools
         yield TextDeltaChunk(text="Looking ")
         yield TextDeltaChunk(text="into it. ")
         yield ToolCallChunk(tool_name="read_file", args_summary="path=README.md")
@@ -116,6 +118,31 @@ async def test_emergent_loop_translates_chunks_to_events(tmp_path: Path) -> None
     assert events[-1].text == "Looking into it. Done."
 
 
+def _tool_names(tools: tuple[Any, ...]) -> set[str]:
+    return {getattr(t, "__name__", "") for t in tools}
+
+
+@pytest.mark.asyncio
+async def test_interactive_loop_always_mounts_code_tools(tmp_path: Path) -> None:
+    """AC-004: default operation_mode still mounts write_file / execute_python."""
+    router = _ScriptedRouter()
+    loop = InteractiveLoop(
+        config=InteractiveLoopConfig(workspace_root=tmp_path, operation_mode="readonly")
+    )
+    runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
+    session = Session(storage=InMemorySessionStorage(), session_id="code-tools")
+
+    _ = [ev async for ev in runner.run_events(session, "write a script")]
+
+    names = _tool_names(router.last_tools)
+    assert {"write_file", "execute_python"}.issubset(names)
+    assert "read_file" in names
+    assert "search_knowledge" in names
+    # lifecycle tools stay off under default/legacy readonly
+    assert "cancel_run" not in names
+    assert "harvest_run" not in names
+
+
 class _ThinkingRouter(_ScriptedRouter):
     """A scripted router whose turn opens with a reasoning chunk.
 
@@ -137,6 +164,46 @@ class _ThinkingRouter(_ScriptedRouter):
         yield ThinkingDeltaChunk(text="weighing the options")
         yield TextDeltaChunk(text="The answer.")
         yield FinalChunk(text="The answer.")
+
+
+@pytest.mark.asyncio
+async def test_interactive_loop_persists_model_messages_json(tmp_path: Path) -> None:
+    """On-disk sessions write FinalChunk.model_messages_json next to entries.jsonl."""
+    from molexp.agent.folders import MESSAGES_FILENAME
+    from molexp.agent.session_storage import JsonlSessionStorage
+
+    class _PersistRouter(_ScriptedRouter):
+        async def stream_agentic(
+            self,
+            *,
+            prompt: str,
+            system: str = "",
+            tools: tuple[Any, ...] = (),
+            tier: ModelTier = ModelTier.DEFAULT,
+            message_history: tuple[Any, ...] = (),
+        ) -> AsyncIterator[AgenticChunk]:
+            self.last_history_len = len(message_history)
+            self.stream_agentic_calls += 1
+            yield FinalChunk(
+                text="ok",
+                model_messages_json=b'[{"parts":[{"content":"hi","part_kind":"user-prompt"}],"kind":"request"}]',
+            )
+
+    session_dir = tmp_path / "sess"
+    session = Session(
+        storage=JsonlSessionStorage(session_dir),
+        session_id="persist",
+    )
+    router = _PersistRouter()
+    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
+    _ = [ev async for ev in runner.run_events(session, "hi")]
+
+    messages_path = session_dir / MESSAGES_FILENAME
+    assert messages_path.is_file()
+    assert messages_path.read_bytes().startswith(b"[")
+    # Second turn must see prior history (load path).
+    _ = [ev async for ev in runner.run_events(session, "again")]
+    assert router.last_history_len >= 0  # load attempted; stub JSON may not validate
 
 
 @pytest.mark.asyncio

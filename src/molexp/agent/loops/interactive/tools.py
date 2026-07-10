@@ -1,10 +1,9 @@
 """Read-only tool set for the emergent :class:`InteractiveLoop` loop.
 
 Three plain-Python callables — :func:`read_file`, :func:`list_directory`,
-:func:`search_code` — handed verbatim to pydantic-ai's
-``Agent(tools=[...])``. The model may *inspect* the workspace; it may
-not change it. v1 ships **no** write / edit / shell tool: write-side
-orchestration lives in :mod:`molexp.harness`, not in InteractiveLoop.
+:func:`search_code` — handed to pydantic-ai's ``Agent(tools=[...])``
+alongside knowledge tools and :mod:`.code_tools` (write/exec). This
+module stays read-only; write and execute live in ``code_tools``.
 
 Every tool is confined to one workspace root. A path that is absolute,
 contains a ``..`` component, or otherwise resolves outside the root is

@@ -12,13 +12,15 @@ each :data:`AgenticChunk` to the injected sink as the corresponding
 * ``FinalChunk``     → the assistant's terminal text (captured + appended
   to the session entry-tree; emitted as ``LoopCompletedEvent``)
 
-Read-only tools are pulled from
-:func:`~molexp.agent.loops.interactive.tools.readonly_tools` plus the
-knowledge tools (:func:`~molexp.agent.loops.interactive.knowledge_tools.knowledge_tools`,
-five callables total) and passed
-to ``stream_agentic`` as the ``tools=`` kwarg; the loop body itself is
-pydantic-ai's native ``Agent.iter()``, reached through the Router
-Protocol — this module imports nothing from pydantic-ai directly.
+Tools always include read-only file tools, knowledge tools, and the
+code tools (:func:`~molexp.agent.loops.interactive.code_tools.code_tools`
+— ``write_file`` / ``execute_python``). Optional lifecycle tools
+(cancel/harvest) append when ``operation_mode == "lifecycle"``.
+``operation_mode`` does **not** strip write/exec — it only gates the
+extra lifecycle pair. Tools are passed to ``stream_agentic`` as the
+``tools=`` kwarg; the loop body itself is pydantic-ai's native
+``Agent.iter()``, reached through the Router Protocol — this module
+imports nothing from pydantic-ai directly.
 
 The harness's planning pipeline lives in ``molexp.harness.PlanMode`` (a
 harness ``Mode``), reached through the ``AgentGateway`` Protocol — not from
@@ -46,7 +48,9 @@ from molexp.agent.events import (
 )
 from molexp.agent.loop import AgentLoop, AgentRunResult
 from molexp.agent.loops._compact import maybe_compact
+from molexp.agent.loops.interactive.code_tools import code_tools
 from molexp.agent.loops.interactive.knowledge_tools import knowledge_tools
+from molexp.agent.loops.interactive.lifecycle_tools import lifecycle_tools
 from molexp.agent.loops.interactive.tools import readonly_tools
 from molexp.agent.router import (
     FinalChunk,
@@ -55,14 +59,47 @@ from molexp.agent.router import (
     ToolCallChunk,
     ToolResultChunk,
 )
+from molexp.agent.session_storage import JsonlSessionStorage
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
     from molexp.agent.runtime import AgentRuntime
+    from molexp.agent.session import Session
 
 _LOG = get_logger(__name__)
 
 __all__ = ["InteractiveLoop", "InteractiveLoopConfig"]
+
+
+def _session_messages_path(session: Session) -> Path | None:
+    """Return ``…/messages.jsonl`` beside the session entry tree, if on-disk."""
+    storage = session.storage
+    if not isinstance(storage, JsonlSessionStorage):
+        return None
+    from molexp.agent.folders import MESSAGES_FILENAME
+
+    return storage.directory / MESSAGES_FILENAME
+
+
+def _load_model_history(session: Session) -> tuple[object, ...]:
+    path = _session_messages_path(session)
+    if path is None or not path.exists():
+        return ()
+    from molexp.agent._pydanticai.messages_codec import load_model_messages
+
+    try:
+        return load_model_messages(path.read_bytes())
+    except Exception as exc:
+        _LOG.warning(f"[interactive] could not load model history ({exc!r}); starting fresh")
+        return ()
+
+
+def _save_model_history(session: Session, messages_json: bytes) -> None:
+    path = _session_messages_path(session)
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(messages_json)
 
 
 class InteractiveLoopConfig(BaseModel):
@@ -71,15 +108,20 @@ class InteractiveLoopConfig(BaseModel):
     Attributes:
         system_prompt: Extra system-prompt text appended to the
             built-in interactive-assistant preamble.
-        workspace_root: Directory the read-only tools are confined to.
-            ``None`` falls back to the current working directory at run
-            time.
+        workspace_root: Directory file/knowledge/code tools are confined
+            to. ``None`` falls back to the current working directory at
+            run time.
         context_block: Mount-point context (vision-loop-11) — a rendered
             snapshot of the entity this session is attached to, composed
             after ``system_prompt``. The loop renders whatever it is
             handed; the block is built by ``services.agent_context``.
         compaction: Context-compaction policy; pass
             ``CompactionSettings(enabled=False)`` to opt out.
+        operation_mode: Behavior label. ``write_file`` / ``execute_python``
+            are always mounted. ``lifecycle`` additionally adds
+            cancel/harvest tools (no harness ApprovalGate — use Plan/Curate
+            for gated execute/resume/rerun). Legacy ``readonly`` does **not**
+            strip code tools.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -88,6 +130,7 @@ class InteractiveLoopConfig(BaseModel):
     workspace_root: Path | None = None
     context_block: str = ""
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
+    operation_mode: str = "readonly"
 
 
 class InteractiveLoop(AgentLoop):
@@ -117,11 +160,20 @@ class InteractiveLoop(AgentLoop):
         )
 
         workspace = self.config.workspace_root or Path.cwd()
-        # File tools + knowledge tools: the model can inspect raw files AND
-        # query the workspace's typed knowledge base (vision-loop-05 channel).
-        tools = tuple(readonly_tools(workspace_root=workspace)) + tuple(
-            knowledge_tools(workspace_root=workspace)
+        # Read + knowledge + write/exec (always). Lifecycle cancel/harvest is
+        # optional; operation_mode never strips code tools.
+        tools = (
+            tuple(readonly_tools(workspace_root=workspace))
+            + tuple(knowledge_tools(workspace_root=workspace))
+            + tuple(
+                code_tools(
+                    workspace_root=workspace,
+                    execution_env=runtime.execution_env,
+                )
+            )
         )
+        if self.config.operation_mode == "lifecycle":
+            tools = tools + tuple(lifecycle_tools(workspace_root=workspace))
 
         system = self.config.system_prompt
         if self.config.context_block:
@@ -129,11 +181,13 @@ class InteractiveLoop(AgentLoop):
                 f"{system}\n\n{self.config.context_block}" if system else self.config.context_block
             )
 
+        history = _load_model_history(runtime.session)
         final_text = ""
         async for chunk in runtime.router.stream_agentic(
             prompt=user_input,
             system=system,
             tools=tools,
+            message_history=history,
         ):
             if isinstance(chunk, ThinkingDeltaChunk):
                 await sink(ThinkingDeltaEvent(text=chunk.text))
@@ -156,6 +210,8 @@ class InteractiveLoop(AgentLoop):
                 )
             elif isinstance(chunk, FinalChunk):
                 final_text = chunk.text
+                if chunk.model_messages_json is not None:
+                    _save_model_history(runtime.session, chunk.model_messages_json)
 
         runtime.session.append_message(Message(role="assistant", content=final_text))
         breakdown = runtime.router.snapshot_usage()
