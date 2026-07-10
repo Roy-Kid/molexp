@@ -15,6 +15,10 @@ examples/agent/smoke_runs/
 /catalog/
 /projects/
 /cache/
+# Accidental agent/session materialisation at repo root (never commit)
+/agent_tasks/
+/interactive/
+/meta.yaml
 # SQLite WAL/SHM sidecars (transient — never commit)
 *.sqlite-shm
 *.sqlite-wal
