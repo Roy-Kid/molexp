@@ -49,3 +49,46 @@ def test_codec_rejects_malformed_bytes() -> None:
 
     with pytest.raises(ValidationError):
         load_model_messages(b'{"not": "a-message-list"}')
+
+
+def test_codec_round_trips_tool_call_parts() -> None:
+    """Tool call + tool return parts survive dump/load (export harvest feedstock)."""
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import (
+        ModelRequest,
+        ModelResponse,
+        TextPart,
+        ToolCallPart,
+        ToolReturnPart,
+        UserPromptPart,
+    )
+
+    from molexp.agent._pydanticai.messages_codec import (
+        dump_model_messages,
+        load_model_messages,
+    )
+
+    original = [
+        ModelRequest(parts=[UserPromptPart(content="peek")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="t1"),
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="read_file",
+                    content="print(1)",
+                    tool_call_id="t1",
+                )
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="done")]),
+    ]
+    restored = load_model_messages(dump_model_messages(original))
+    assert list(restored) == original
+    # Tool identity is load-bearing for harvest/export.
+    tool_part = restored[1].parts[0]
+    assert tool_part.tool_name == "read_file"
+    assert tool_part.args == {"path": "a.py"}

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import json
-import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -54,6 +53,7 @@ from ..schemas import (
     RunFileNode,
     RunFilesResponse,
     RunFileTextResponse,
+    RunHarvestRequest,
     RunLogsResponse,
     RunMetricsResponse,
     RunResponse,
@@ -835,13 +835,11 @@ def export_run(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    run_dir = Path(run.run_dir)
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        if run_dir.exists():
-            for path in sorted(run_dir.rglob("*")):
-                if path.is_file():
-                    zf.write(path, arcname=path.relative_to(run_dir).as_posix())
+    from molexp.workspace.archive import archive_folder_zip
+
+    # One zip writer for CLI/agent/server (agent-record-export-03/07).
+    payload = archive_folder_zip(run)
+    buffer = io.BytesIO(payload)
     buffer.seek(0)
 
     filename = f"run-{run.id}.zip"
@@ -850,6 +848,42 @@ def export_run(
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/{run_id}/harvest")
+def harvest_run_route(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    body: RunHarvestRequest,
+    workspace=Depends(get_workspace),  # noqa: ANN001
+) -> dict[str, str]:
+    """Harvest a terminal run into a sourced KnowledgeItem under its experiment."""
+    from molexp.workspace import harvest_run as harvest_run_core
+
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = _get_run_or_none(experiment, run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    try:
+        item = harvest_run_core(
+            run,
+            kind=body.kind,
+            narrative=body.narrative,
+            created_by=body.created_by,
+            results=body.results,
+            name=body.name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Bundle-relative path so the UI can open Knowledge without stripping roots.
+    try:
+        rel = item.resolve().relative_to(workspace.resolve()).as_posix()
+    except Exception:
+        rel = item.name
+    return {"name": item.name, "path": rel}
 
 
 @router.patch("/{run_id}/status", response_model=RunStatusResponse)

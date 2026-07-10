@@ -19,12 +19,12 @@ the P1 lifecycle-capability slice can expose this as a harness
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from molexp.ids import slugify
 
-from .knowledge_item import KnowledgeItem, KnowledgeKind, KnowledgeMeta, SourceRef
+from .knowledge_item import KnowledgeItem, KnowledgeKind, SourceRef
+from .knowledge_write import write_knowledge_item
 
 if TYPE_CHECKING:
     from molexp._typing import JSONValue
@@ -79,21 +79,19 @@ def harvest_run(
         )
 
     experiment = run.experiment
-    item = experiment.add_folder(KnowledgeItem(name=name or f"{slugify(kind)}-{run.id}"))
-    item.write_knowledge_meta(
-        KnowledgeMeta(
-            kind=kind,
-            sources=[
-                SourceRef(kind="run", ref=run.id),
-                SourceRef(kind="experiment", ref=experiment.id),
-            ],
-            created_by=created_by,
-            timestamp=datetime.now(UTC),
-        )
+    item_name = name or f"{slugify(kind)}-{run.id}"
+    return write_knowledge_item(
+        experiment,
+        name=item_name,
+        kind=kind,
+        sources=[
+            SourceRef(kind="run", ref=run.id),
+            SourceRef(kind="experiment", ref=experiment.id),
+        ],
+        created_by=created_by,
+        body=_render_body(run, kind=kind, narrative=narrative, results=results),
+        cite=[(run, "derived_from")],
     )
-    item.set_body(_render_body(run, kind=kind, narrative=narrative, results=results))
-    item.cite(run, role="derived_from")
-    return item
 
 
 def _render_body(

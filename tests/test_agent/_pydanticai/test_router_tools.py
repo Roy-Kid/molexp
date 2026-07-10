@@ -35,6 +35,7 @@ class _AgentSpyResult:
 
     output = "ok"
 
+    @property
     def usage(self) -> object:
         class _U:
             input_tokens = 0

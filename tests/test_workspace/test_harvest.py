@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from molexp.workspace import Bundle, harvest_run
+from molexp.workspace import Bundle, harvest_run, read_workspace_events
 from molexp.workspace.knowledge_item import KnowledgeItem
 
 _NARRATIVE = "Mobility rises monotonically with temperature."
@@ -184,6 +184,22 @@ class TestHarvestIdempotency:
         assert len(items) == 1, [i.name for i in items]
         assert "Second take" in items[0].body()
         assert "First take." not in items[0].body()
+
+    def test_first_harvest_emits_knowledge_created_once(
+        self, workspace: Any, experiment: Any
+    ) -> None:
+        """agent-record-export-01: harvest_run emits knowledge.created on create only."""
+        run = experiment.add_run(params={"temperature": 350})
+        _succeed(run)
+
+        _harvest(run, narrative="First take.")
+        events = read_workspace_events(workspace.root, type="knowledge.created")
+        assert len(events) == 1
+        assert events[0].payload.get("type") == "knowledge.item"
+
+        _harvest(run, narrative="Second take.")
+        events2 = read_workspace_events(workspace.root, type="knowledge.created")
+        assert len(events2) == 1
 
     def test_explicit_name_allows_a_second_harvest(self, workspace: Any, experiment: Any) -> None:
         run = experiment.add_run(params={"temperature": 350})

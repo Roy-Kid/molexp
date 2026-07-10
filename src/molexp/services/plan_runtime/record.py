@@ -261,31 +261,9 @@ def _artifact_kinds(run: Run) -> list[str]:
 
 
 # ── knowledge experiment-record note ─────────────────────────────────────────
-
-
-def _emit_knowledge_created(item: KnowledgeItem, experiment: Experiment, title: str) -> None:
-    """Best-effort ``knowledge.created`` on the workspace event spine.
-
-    Emitted after the item's meta + body are durable; non-fatal by
-    ``emit_workspace_event``'s contract (vision-loop-12). Ref is the item's
-    workspace-relative identity path.
-    """
-    from molexp.workspace.events import emit_workspace_event
-    from molexp.workspace.knowledge_item import KNOWLEDGE_ITEM_KIND
-
-    try:
-        root = Path(str(experiment.workspace.root)).resolve()
-        rel = Path(str(item.resolve())).resolve().relative_to(root).as_posix()
-    except Exception as exc:
-        _LOG.debug(f"[plan-record] knowledge.created ref unresolvable: {exc!r}")
-        return
-    emit_workspace_event(
-        root,
-        "knowledge.created",
-        "plan-record",
-        payload={"type": KNOWLEDGE_ITEM_KIND, "title": title},
-        refs=[rel],
-    )
+# Disk write + knowledge.created + guarded cite all go through
+# ``molexp.workspace.write_knowledge_item`` (agent-record-export-02). Plan-only
+# rendering stays here.
 
 
 def write_experiment_record(
@@ -295,13 +273,14 @@ def write_experiment_record(
     draft: str,
     model: str,
 ) -> KnowledgeItem:
-    """Write the Decision-kind experiment record; returns the KnowledgeItem.
+    """Write the Decision-kind experiment record via ``write_knowledge_item``.
 
     Raises when no ``experiment_report`` artifact exists — the record renders
     from it, and a missing report is the caller's signal to skip this writer
     (checked via :func:`has_artifact`), never a silent no-op.
     """
-    from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
+    from molexp.workspace.knowledge_item import SourceRef
+    from molexp.workspace.knowledge_write import write_knowledge_item
 
     report = _read_artifact_json(run, "experiment_report")
     if report is None:
@@ -320,13 +299,7 @@ def write_experiment_record(
         tasks=tasks,
         source=source,
     )
-    # Auto-derived project knowledge is a TYPED, SOURCE-ATTRIBUTED KnowledgeItem —
-    # not an unsourced free-form Note (integration.md §5, invariant #4). Mounted
-    # at its natural home — the owning EXPERIMENT (the vision-loop-04 nested-mount
-    # closure proves the whole Bundle verb surface for this shape).
     item_name = f"experiment-record-{experiment.id}-{run.id}"
-    newly_created = not experiment.has_folder(item_name, cls=KnowledgeItem)
-    item = experiment.add_folder(KnowledgeItem(name=item_name))
     sources = [
         SourceRef(kind="run", ref=run.id),
         SourceRef(kind="experiment", ref=experiment.id),
@@ -334,25 +307,17 @@ def write_experiment_record(
     report_ref = _artifact_ref_id(run, "experiment_report")
     if report_ref is not None:
         sources.append(SourceRef(kind="artifact", ref=report_ref))
-    item.write_knowledge_meta(
-        KnowledgeMeta(
-            kind="Decision",
-            sources=sources,
-            created_by=f"PlanMode/{model}",
-            timestamp=datetime.now(UTC),
-        )
+    return write_knowledge_item(
+        experiment,
+        name=item_name,
+        kind="Decision",
+        sources=sources,
+        created_by=f"PlanMode/{model}",
+        body=body,
+        cite=[(run, "derived_from")],
+        title=title,
+        actor="plan-record",
     )
-    item.set_body(body)
-    if newly_created:
-        _emit_knowledge_created(item, experiment, title)
-    # A typed provenance out-edge to the in-tree run makes the item reachable from
-    # what it derives from (reuses the P0.1 edge; guarded so a link failure never
-    # loses the meta + body already written).
-    try:
-        item.cite(run, role="derived_from")
-    except Exception as exc:
-        _LOG.warning(f"[plan-record {run.id}] provenance edge to run failed: {exc!r}")
-    return item
 
 
 def write_finding_record(
@@ -370,15 +335,14 @@ def write_finding_record(
     ``references`` edge connects the Finding to the Decision record when
     that record exists — plan → outcome stays traversable.
     """
-    from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
+    from molexp.workspace.knowledge_item import KnowledgeItem, SourceRef
+    from molexp.workspace.knowledge_write import write_knowledge_item
 
     final_report = _read_artifact_json(run, "final_report")
     if final_report is None:
         raise ValueError(f"run {run.id} has no final_report artifact to harvest")
     title = _title(final_report, draft, run.id)
     item_name = f"finding-{experiment.id}-{run.id}"
-    newly_created = not experiment.has_folder(item_name, cls=KnowledgeItem)
-    item = experiment.add_folder(KnowledgeItem(name=item_name))
     sources = [
         SourceRef(kind="run", ref=run.id),
         SourceRef(kind="experiment", ref=experiment.id),
@@ -387,26 +351,12 @@ def write_finding_record(
         ref_id = _artifact_ref_id(run, kind)
         if ref_id is not None:
             sources.append(SourceRef(kind="artifact", ref=ref_id))
-    item.write_knowledge_meta(
-        KnowledgeMeta(
-            kind="Finding",
-            sources=sources,
-            created_by=f"PlanMode/{model}",
-            timestamp=datetime.now(UTC),
-        )
-    )
     lines = [f"# Finding: {title}", ""]
     for key, label in _FINAL_REPORT_FIELDS:
         block = _render_value(final_report.get(key))
         if block:
             lines += [f"## {label}", "", block, ""]
-    item.set_body("\n".join(lines).rstrip() + "\n")
-    if newly_created:
-        _emit_knowledge_created(item, experiment, title)
-    try:
-        item.cite(run, role="derived_from")
-    except Exception as exc:
-        _LOG.warning(f"[plan-record {run.id}] finding edge to run failed: {exc!r}")
+    cites: list[tuple[Any, str]] = [(run, "derived_from")]
     try:
         decision = experiment.get_folder(
             f"experiment-record-{experiment.id}-{run.id}", cls=KnowledgeItem
@@ -414,11 +364,18 @@ def write_finding_record(
     except Exception:
         decision = None  # no Decision record (its write raced/failed) — Finding stands alone
     if decision is not None:
-        try:
-            item.cite(decision, role="references")
-        except Exception as exc:
-            _LOG.warning(f"[plan-record {run.id}] references edge to Decision failed: {exc!r}")
-    return item
+        cites.append((decision, "references"))
+    return write_knowledge_item(
+        experiment,
+        name=item_name,
+        kind="Finding",
+        sources=sources,
+        created_by=f"PlanMode/{model}",
+        body="\n".join(lines).rstrip() + "\n",
+        cite=cites,
+        title=title,
+        actor="plan-record",
+    )
 
 
 def write_failure_analysis_record(
@@ -434,22 +391,10 @@ def write_failure_analysis_record(
     Never called for an approval suspension — a suspension is not a failure
     (the callers carve ``ApprovalPendingError`` out before reaching this).
     """
-    from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
+    from molexp.workspace.knowledge_item import SourceRef
+    from molexp.workspace.knowledge_write import write_knowledge_item
 
     item_name = f"failure-{experiment.id}-{run.id}"
-    newly_created = not experiment.has_folder(item_name, cls=KnowledgeItem)
-    item = experiment.add_folder(KnowledgeItem(name=item_name))
-    item.write_knowledge_meta(
-        KnowledgeMeta(
-            kind="FailureAnalysis",
-            sources=[
-                SourceRef(kind="run", ref=run.id),
-                SourceRef(kind="experiment", ref=experiment.id),
-            ],
-            created_by=f"PlanMode/{model}",
-            timestamp=datetime.now(UTC),
-        )
-    )
     completed = _artifact_kinds(run)
     lines = [
         f"# Failure analysis: plan run {run.id}",
@@ -469,14 +414,21 @@ def write_failure_analysis_record(
         "Re-running the same draft resumes the stage ledger from here; artifacts "
         "a validator rejected are regenerated, not reused.",
     ]
-    item.set_body("\n".join(lines).rstrip() + "\n")
-    if newly_created:
-        _emit_knowledge_created(item, experiment, f"Failure analysis: plan run {run.id}")
-    try:
-        item.cite(run, role="derived_from")
-    except Exception as exc:
-        _LOG.warning(f"[plan-record {run.id}] failure edge to run failed: {exc!r}")
-    return item
+    title = f"Failure analysis: plan run {run.id}"
+    return write_knowledge_item(
+        experiment,
+        name=item_name,
+        kind="FailureAnalysis",
+        sources=[
+            SourceRef(kind="run", ref=run.id),
+            SourceRef(kind="experiment", ref=experiment.id),
+        ],
+        created_by=f"PlanMode/{model}",
+        body="\n".join(lines).rstrip() + "\n",
+        cite=[(run, "derived_from")],
+        title=title,
+        actor="plan-record",
+    )
 
 
 _FINAL_REPORT_FIELDS: list[tuple[str, str]] = [
@@ -495,7 +447,11 @@ def has_artifact(run: Run, kind: str) -> bool:
 
 def _read_workflow_tasks(experiment: Experiment) -> list[str]:
     """The generated workflow's task ids (the spec), from the persisted IR."""
-    raw = getattr(experiment.metadata, "workflow_source", None)
+    raw = (
+        experiment.metadata.workflow_source
+        if hasattr(experiment.metadata, "workflow_source")
+        else None
+    )
     if not isinstance(raw, str) or not raw:
         return []
     try:

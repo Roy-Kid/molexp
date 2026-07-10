@@ -522,6 +522,46 @@ def run_cancel(
         rprint(".")
 
 
+@run_app.command("harvest")
+def run_harvest(
+    project_id: Annotated[str, typer.Argument(help="Project ID")],
+    experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
+    run_id: Annotated[str, typer.Argument(help="Run ID")],
+    narrative: Annotated[str, typer.Argument(help="Interpretation of the run outcome")],
+    kind: Annotated[str, typer.Option("--kind", help="Knowledge kind")] = "Finding",
+    created_by: Annotated[str, typer.Option("--created-by")] = "cli",
+    target_spec: TargetOption = ".",
+) -> None:
+    """Harvest a terminal run into a KnowledgeItem (workspace.harvest_run)."""
+    target, _transport, _fs = resolve_workspace_target(target_spec)
+    if not isinstance(target, LocalTarget):
+        _remote_only("runs harvest")
+    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    from molexp.workspace import ExperimentNotFoundError as _ExpNotFound
+    from molexp.workspace import ProjectNotFoundError as _ProjNotFound
+    from molexp.workspace import RunNotFoundError as _RunNotFound
+    from molexp.workspace import harvest_run
+
+    try:
+        project = ws.get_project(project_id)
+        experiment = project.get_experiment(experiment_id)
+        run = experiment.get_run(run_id)
+    except (_ProjNotFound, _ExpNotFound, _RunNotFound) as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from None
+    try:
+        item = harvest_run(
+            run,
+            kind=kind,  # type: ignore[arg-type]
+            narrative=narrative,
+            created_by=created_by,
+        )
+    except ValueError as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from None
+    rprint(f"[green]OK[/green] Harvested KnowledgeItem: {item.name}")
+
+
 @run_app.command("info")
 def run_info(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
@@ -565,7 +605,7 @@ def run_info(
     err = r.metadata.error
     if err is not None and r.status in RETRYABLE_STATUSES:
         rprint(f"  [red]Error:[/red] {err.type}: {err.message}")
-        script = getattr(r.metadata, "script", None)
+        script = r.metadata.script if hasattr(r.metadata, "script") else None
         hint = f"molexp run {script} --resume" if script else "molexp run <script> --resume"
         rprint(f"  [dim]Retry with:[/dim] {hint}")
     rprint(f"  Created: {r.metadata.created_at}")
@@ -672,7 +712,7 @@ def asset_list(
         table.add_row(
             a.asset_id[:12] + "...",
             a.name,
-            getattr(a, "kind", "-"),
+            a.kind if hasattr(a, "kind") else "-",
             _format_asset_scope(a.scope),
             a.created_at.strftime("%Y-%m-%d %H:%M"),
         )
@@ -700,7 +740,7 @@ def asset_info(
         raise typer.Exit(1)
     rprint(f"[bold]{asset.name}[/bold]  ({asset.asset_id})")
     # ``kind`` is the subclass-declared discriminator (base Asset omits it).
-    rprint(f"  kind         : {getattr(asset, 'kind', type(asset).__name__)}")
+    rprint(f"  kind         : {asset.kind if hasattr(asset, 'kind') else type(asset).__name__}")
     rprint(f"  scope        : {_format_asset_scope(asset.scope)}")
     rprint(f"  content_hash : {asset.content_hash or '(none)'}")
     producer = asset.producer
@@ -747,7 +787,9 @@ def asset_lineage(
         for related_id in sorted(ids):
             related = asset_scan.get_asset(ws.root, related_id)
             suffix = (
-                f"  {related.name} ({getattr(related, 'kind', '?')})" if related is not None else ""
+                f"  {related.name} ({related.kind if hasattr(related, 'kind') else '?'})"
+                if related is not None
+                else ""
             )
             rprint(f"  {arrow} {related_id}{suffix}")
 

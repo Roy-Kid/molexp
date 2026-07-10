@@ -142,6 +142,11 @@ class JsonlSessionStorage:
         self._leaf_id: str | None = None
         self._loaded = False
 
+    @property
+    def directory(self) -> Path:
+        """On-disk session directory (next to ``messages.jsonl`` / meta.yaml)."""
+        return self._dir
+
     # ── lazy load ───────────────────────────────────────────────────────────
 
     def _ensure_loaded(self) -> None:

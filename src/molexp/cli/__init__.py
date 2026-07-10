@@ -30,9 +30,9 @@ from molexp.cli.workspace import sync as _sync
 
 app.command(name="init")(_init_cmd)
 
-from molexp.cli.agent_cmd import agent as _agent_cmd  # noqa: E402
+from molexp.cli.agent_cmd import agent_app as _agent_app  # noqa: E402
 
-app.command(name="agent")(_agent_cmd)
+app.add_typer(_agent_app, name="agent")
 
 from molexp.cli.plan_cmd import plan as _plan_cmd  # noqa: E402
 

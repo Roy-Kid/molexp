@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from molexp.agent.loops import InteractiveLoop
     from molexp.agent.session import Session
 
-__all__ = ["agent"]
+__all__ = ["agent", "agent_app"]
 
 _PROMPT = "\n❯ "  # noqa: RUF001 — deliberate prompt glyph, not a `>`
 
@@ -167,7 +167,70 @@ async def _repl(runner: AgentRunner, session: Session, ctx: _ReplContext) -> Non
             renderer.finish()
 
 
+agent_app = typer.Typer(
+    name="agent",
+    help="Interactive agent REPL + session harvest/export.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+
+
+def _run_repl(
+    *,
+    model: str | None,
+    session: str,
+    workspace: Path | None,
+    project: str | None,
+    experiment: str | None,
+    run: str | None,
+) -> None:
+    """Start an interactive molexp agent REPL (emergent InteractiveLoop)."""
+    from molexp.agent.loops import InteractiveLoop, InteractiveLoopConfig
+    from molexp.cli._common import rprint
+
+    workspace_root = (workspace or Path.cwd()).resolve()
+    resolved_model = model or _configured_model()
+    if not resolved_model:
+        rprint(
+            "[red]No model configured.[/red] Pass [bold]--model <id>[/bold] or run "
+            "[bold]molexp config set agent.model <id>[/bold]."
+        )
+        raise typer.Exit(1)
+
+    with contextlib.suppress(ImportError):
+        import readline  # noqa: F401
+
+    context_block = ""
+    session_anchor: Path | None = None
+    if project or experiment or run:
+        from molexp.services.agent_context import mount_session_scope
+        from molexp.workspace import Workspace
+
+        try:
+            context_block, session_anchor = mount_session_scope(
+                Workspace(workspace_root), project_id=project, experiment_id=experiment, run_id=run
+            )
+        except (ValueError, LookupError) as exc:
+            rprint(f"[red]Mount scope failed to resolve:[/red] {exc}")
+            raise typer.Exit(1) from exc
+
+    loop = InteractiveLoop(
+        config=InteractiveLoopConfig(workspace_root=workspace_root, context_block=context_block)
+    )
+    runner = _make_runner(
+        loop=loop, model=resolved_model, workspace=workspace_root, session_anchor=session_anchor
+    )
+    repl_session = runner.session(session)
+    ctx = _ReplContext(model=resolved_model, session_name=session, workspace=workspace_root)
+    try:
+        asyncio.run(_repl(runner, repl_session, ctx))
+    except KeyboardInterrupt:
+        rprint("[dim]bye[/dim]")
+
+
+@agent_app.callback(invoke_without_command=True)
 def agent(
+    ctx: typer.Context,
     model: Annotated[
         str | None,
         typer.Option("--model", help="Model id; defaults to `molexp config` agent.model."),
@@ -193,50 +256,108 @@ def agent(
         typer.Option("--run", help="Mount scope: run id (requires --project + --experiment)."),
     ] = None,
 ) -> None:
-    """Start an interactive molexp agent REPL (emergent InteractiveLoop)."""
-    from molexp.agent.loops import InteractiveLoop, InteractiveLoopConfig
+    """Interactive agent (default) or subcommands harvest / export."""
+    if ctx.invoked_subcommand is not None:
+        return
+    _run_repl(
+        model=model,
+        session=session,
+        workspace=workspace,
+        project=project,
+        experiment=experiment,
+        run=run,
+    )
+
+
+@agent_app.command("chat")
+def agent_chat(
+    model: Annotated[str | None, typer.Option("--model")] = None,
+    session: Annotated[str, typer.Option("--session")] = "default",
+    workspace: Annotated[Path | None, typer.Option("--workspace")] = None,
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    experiment: Annotated[str | None, typer.Option("--experiment")] = None,
+    run: Annotated[str | None, typer.Option("--run")] = None,
+) -> None:
+    """Explicit alias for the interactive REPL."""
+    _run_repl(
+        model=model,
+        session=session,
+        workspace=workspace,
+        project=project,
+        experiment=experiment,
+        run=run,
+    )
+
+
+def _resolve_agent_session(workspace_root: Path, *, agent_name: str, session_id: str):
+    from molexp.agent.folders import Agent
+    from molexp.workspace import Workspace
+
+    ws = Workspace(workspace_root)
+    agent = Agent(name=agent_name, root_path=ws.root)
+    if not agent.has_session(session_id):
+        raise FileNotFoundError(
+            f"no agent session {session_id!r} under agent {agent_name!r} in {workspace_root}"
+        )
+    return ws, agent, agent.get_session(session_id)
+
+
+@agent_app.command("harvest")
+def agent_harvest(
+    narrative: Annotated[str, typer.Argument(help="Interpretation of the session (required).")],
+    session: Annotated[str, typer.Option("--session", help="Session id.")] = "default",
+    agent_name: Annotated[
+        str, typer.Option("--agent-name", help="Agent folder name (loop name).")
+    ] = "interactive",
+    workspace: Annotated[Path | None, typer.Option("--workspace")] = None,
+    kind: Annotated[str, typer.Option("--kind")] = "Observation",
+    created_by: Annotated[str, typer.Option("--created-by")] = "cli",
+) -> None:
+    """Harvest an on-disk agent session into a KnowledgeItem on the workspace."""
+    from molexp.agent.harvest import harvest_session
     from molexp.cli._common import rprint
 
-    workspace_root = (workspace or Path.cwd()).resolve()
-    resolved_model = model or _configured_model()
-    if not resolved_model:
-        rprint(
-            "[red]No model configured.[/red] Pass [bold]--model <id>[/bold] or run "
-            "[bold]molexp config set agent.model <id>[/bold]."
-        )
-        raise typer.Exit(1)
-
-    # Arrow-key line editing + in-session history for the prompt, where
-    # the platform provides readline (no-op fallback elsewhere).
-    with contextlib.suppress(ImportError):
-        import readline  # noqa: F401
-
-    context_block = ""
-    session_anchor: Path | None = None
-    if project or experiment or run:
-        # Same composition as the server route (Python = UI): strict
-        # resolution — a bad or parentless id fails the command instead of
-        # silently downgrading to an unscoped session.
-        from molexp.services.agent_context import mount_session_scope
-        from molexp.workspace import Workspace
-
-        try:
-            context_block, session_anchor = mount_session_scope(
-                Workspace(workspace_root), project_id=project, experiment_id=experiment, run_id=run
-            )
-        except (ValueError, LookupError) as exc:
-            rprint(f"[red]Mount scope failed to resolve:[/red] {exc}")
-            raise typer.Exit(1) from exc
-
-    loop = InteractiveLoop(
-        config=InteractiveLoopConfig(workspace_root=workspace_root, context_block=context_block)
-    )
-    runner = _make_runner(
-        loop=loop, model=resolved_model, workspace=workspace_root, session_anchor=session_anchor
-    )
-    repl_session = runner.session(session)
-    ctx = _ReplContext(model=resolved_model, session_name=session, workspace=workspace_root)
+    root = (workspace or Path.cwd()).resolve()
     try:
-        asyncio.run(_repl(runner, repl_session, ctx))
-    except KeyboardInterrupt:
-        rprint("[dim]bye[/dim]")
+        ws, _agent, sess = _resolve_agent_session(root, agent_name=agent_name, session_id=session)
+    except FileNotFoundError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    try:
+        item = harvest_session(
+            sess,
+            kind=kind,  # type: ignore[arg-type]
+            narrative=narrative,
+            created_by=created_by,
+            host=ws,
+        )
+    except ValueError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    rprint(f"[green]Harvested[/green] KnowledgeItem [bold]{item.name}[/bold]")
+
+
+@agent_app.command("export")
+def agent_export(
+    session: Annotated[str, typer.Option("--session")] = "default",
+    agent_name: Annotated[str, typer.Option("--agent-name")] = "interactive",
+    workspace: Annotated[Path | None, typer.Option("--workspace")] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Zip path; default session-<id>.zip in cwd."),
+    ] = None,
+) -> None:
+    """Export an on-disk agent session directory as a zip archive."""
+    from molexp.agent.harvest import export_session_zip
+    from molexp.cli._common import rprint
+
+    root = (workspace or Path.cwd()).resolve()
+    try:
+        _ws, _agent, sess = _resolve_agent_session(root, agent_name=agent_name, session_id=session)
+    except FileNotFoundError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    data = export_session_zip(sess)
+    out = output or Path(f"session-{session}.zip")
+    out.write_bytes(data)
+    rprint(f"[green]Wrote[/green] {out} ({len(data)} bytes)")

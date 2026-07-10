@@ -41,7 +41,9 @@ def _workspace_open_discriminator(v: object) -> str:
     if isinstance(v, dict):
         kind = cast(dict[str, object], v).get("kind")
         return str(kind) if kind is not None else "local"
-    return str(getattr(v, "kind", "local"))
+    if hasattr(v, "kind"):
+        return str(v.kind)
+    return "local"
 
 
 WorkspaceOpenRequest = Annotated[
@@ -96,6 +98,28 @@ class RunCreateRequest(BaseModel):
     target: str | None = Field(
         default=None,
         description="Compute target name (must exist in workspace registry)",
+    )
+
+
+class RunHarvestRequest(BaseModel):
+    """Harvest a terminal run into a sourced KnowledgeItem under its experiment."""
+
+    kind: Literal[
+        "Observation",
+        "Decision",
+        "Assumption",
+        "Constraint",
+        "Finding",
+        "FailureAnalysis",
+        "ProtocolNote",
+        "ParameterRationale",
+        "OpenQuestion",
+    ] = Field(..., description="Knowledge kind")
+    narrative: str = Field(..., description="Non-empty interpretation")
+    created_by: str = Field(default="ui", description="Author string")
+    name: str | None = Field(default=None, description="Optional KnowledgeItem name")
+    results: dict[str, Any] | None = Field(
+        default=None, description="Optional headline results table"
     )
 
 

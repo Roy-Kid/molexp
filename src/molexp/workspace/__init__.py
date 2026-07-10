@@ -86,6 +86,7 @@ from .knowledge_item import (
     SourceKind,
     SourceRef,
 )
+from .knowledge_write import write_knowledge_item
 from .lifecycle_ops import cancel_run
 from .models import (
     ComputeTarget,
@@ -301,4 +302,5 @@ __all__ = [
     "target_run_dir",
     "target_to_transport",
     "to_transport",
+    "write_knowledge_item",
 ]
