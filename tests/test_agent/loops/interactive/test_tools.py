@@ -34,8 +34,9 @@ def test_read_file_returns_contents(workspace: Path) -> None:
 
 def test_read_file_rejects_parent_traversal(workspace: Path) -> None:
     read_file = _tools(workspace)["read_file"]
-    with pytest.raises(ValueError, match="\\.\\."):
-        read_file("../secret.txt")  # type: ignore[operator]
+    out = read_file("../secret.txt")  # type: ignore[operator]
+    assert out.startswith("error:")
+    assert ".." in out
 
 
 def test_list_directory_lists_entries(workspace: Path) -> None:

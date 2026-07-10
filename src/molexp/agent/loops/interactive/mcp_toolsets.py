@@ -48,12 +48,17 @@ def open_mcp_toolsets(workspace_root: Path) -> tuple[Any, ...]:
             continue
         try:
             resolved = store.resolve(entry)
+            # Point molexp (and similar) providers at this session workspace
+            # so tools without an explicit path still target the right root.
+            env = dict(resolved.env) if resolved.env else {}
+            if resolved.transport == "stdio":
+                env.setdefault("MOLEXP_WORKSPACE", str(root.resolve()))
             toolset = build_mcp_server(
                 transport=resolved.transport,
                 name=entry.name,
                 command=resolved.command or "",
                 args=resolved.args,
-                env=resolved.env or None,
+                env=env or None,
                 url=resolved.url or "",
                 headers=resolved.headers or None,
             )

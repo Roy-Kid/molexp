@@ -6,8 +6,6 @@ import ast
 import sys
 from pathlib import Path
 
-import pytest
-
 from molexp.agent.execution_env import ExecResult, ExecutionError, LocalExecutionEnv
 from molexp.agent.loops.interactive.code_tools import (
     _MAX_WRITE_BYTES,
@@ -82,22 +80,34 @@ def test_write_file_writes_utf8_under_workspace(tmp_path: Path) -> None:
 
 def test_write_file_rejects_parent_traversal(tmp_path: Path) -> None:
     write_file = _tools(tmp_path, FakeExecutionEnv(tmp_path / "s"))["write_file"]
-    with pytest.raises(ValueError, match=r"\.\."):
-        write_file("../secret.txt", "nope")  # type: ignore[operator]
+    out = write_file("../secret.txt", "nope")  # type: ignore[operator]
+    assert out.startswith("error:")
     assert not (tmp_path.parent / "secret.txt").exists()
 
 
-def test_write_file_rejects_absolute_path(tmp_path: Path) -> None:
+def test_write_file_allows_absolute_path_under_workspace(tmp_path: Path) -> None:
     write_file = _tools(tmp_path, FakeExecutionEnv(tmp_path / "s"))["write_file"]
-    with pytest.raises(ValueError, match="workspace-relative"):
-        write_file(str(tmp_path / "abs.py"), "nope")  # type: ignore[operator]
+    abs_path = str(tmp_path / "abs.py")
+    msg = write_file(abs_path, "ok\n")  # type: ignore[operator]
+    assert (tmp_path / "abs.py").read_text(encoding="utf-8") == "ok\n"
+    assert "abs.py" in msg
+
+
+def test_write_file_rejects_absolute_path_outside_workspace(tmp_path: Path) -> None:
+    write_file = _tools(tmp_path, FakeExecutionEnv(tmp_path / "s"))["write_file"]
+    outside = tmp_path.parent / "outside-escape.py"
+    out = write_file(str(outside), "nope")  # type: ignore[operator]
+    assert out.startswith("error:")
+    assert "escapes" in out
+    assert not outside.exists()
 
 
 def test_write_file_rejects_oversized_content(tmp_path: Path) -> None:
     write_file = _tools(tmp_path, FakeExecutionEnv(tmp_path / "s"))["write_file"]
     payload = "x" * (_MAX_WRITE_BYTES + 1)
-    with pytest.raises(ValueError, match="refusing to write"):
-        write_file("big.py", payload)  # type: ignore[operator]
+    out = write_file("big.py", payload)  # type: ignore[operator]
+    assert out.startswith("error:")
+    assert "refusing to write" in out
     assert not (tmp_path / "big.py").exists()
 
 
@@ -137,8 +147,8 @@ def test_execute_python_code_writes_scratch_and_runs(tmp_path: Path) -> None:
 
 def test_execute_python_rejects_path_escape(tmp_path: Path) -> None:
     execute_python = _tools(tmp_path, FakeExecutionEnv(tmp_path / "s"))["execute_python"]
-    with pytest.raises(ValueError, match=r"\.\."):
-        execute_python(path="../outside.py")  # type: ignore[operator]
+    out = execute_python(path="../outside.py")  # type: ignore[operator]
+    assert out.startswith("error:")
 
 
 def test_execute_python_requires_exactly_one_of_code_or_path(tmp_path: Path) -> None:

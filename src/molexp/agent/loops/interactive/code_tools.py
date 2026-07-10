@@ -72,16 +72,19 @@ def code_tools(
         Returns:
             A short confirmation with the relative path and byte size.
         """
-        raw = content.encode("utf-8")
-        if len(raw) > _MAX_WRITE_BYTES:
-            raise ValueError(
-                f"content is {len(raw)} bytes; refusing to write more than {_MAX_WRITE_BYTES}"
-            )
-        target = _safe_path(root, path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(raw)
-        rel = target.relative_to(root).as_posix()
-        return f"wrote {rel} ({len(raw)} bytes)"
+        try:
+            raw = content.encode("utf-8")
+            if len(raw) > _MAX_WRITE_BYTES:
+                raise ValueError(
+                    f"content is {len(raw)} bytes; refusing to write more than {_MAX_WRITE_BYTES}"
+                )
+            target = _safe_path(root, path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(raw)
+            rel = target.relative_to(root).as_posix()
+            return f"wrote {rel} ({len(raw)} bytes)"
+        except (ValueError, OSError) as exc:
+            return f"error: {type(exc).__name__}: {exc}"
 
     def execute_python(
         code: str | None = None,
@@ -113,19 +116,22 @@ def code_tools(
                 "(inline snippet vs workspace-relative script)"
             )
 
-        if path is not None:
-            script = _safe_path(root, path)
-            if not script.is_file():
-                return f"error: no such file in the workspace: {path!r}"
-        else:
-            assert code is not None
-            snippet = code.encode("utf-8")
-            if len(snippet) > _MAX_WRITE_BYTES:
-                return f"error: code is {len(snippet)} bytes; refusing more than {_MAX_WRITE_BYTES}"
-            script = env.scratch_dir / f"agent_exec_{uuid.uuid4().hex[:12]}.py"
-            script.write_bytes(snippet)
-
         try:
+            if path is not None:
+                script = _safe_path(root, path)
+                if not script.is_file():
+                    return f"error: no such file in the workspace: {path!r}"
+            else:
+                assert code is not None
+                snippet = code.encode("utf-8")
+                if len(snippet) > _MAX_WRITE_BYTES:
+                    return (
+                        f"error: code is {len(snippet)} bytes; refusing more than "
+                        f"{_MAX_WRITE_BYTES}"
+                    )
+                script = env.scratch_dir / f"agent_exec_{uuid.uuid4().hex[:12]}.py"
+                script.write_bytes(snippet)
+
             result = env.exec(
                 [sys.executable, str(script)],
                 cwd=root,
@@ -133,6 +139,8 @@ def code_tools(
             )
         except ExecutionError as exc:
             return f"error: {exc}"
+        except (ValueError, OSError) as exc:
+            return f"error: {type(exc).__name__}: {exc}"
 
         stdout = _truncate(result.stdout)
         stderr = _truncate(result.stderr)

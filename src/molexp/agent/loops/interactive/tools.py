@@ -55,21 +55,26 @@ def _safe_path(root: Path, path: str) -> Path:
 
     Args:
         root: The workspace root every tool is confined to.
-        path: A caller-supplied, workspace-relative path.
+        path: A workspace-relative path, or an absolute path that still
+            resolves under ``root`` (models often pass the absolute
+            workspace path shown in the system preamble).
 
     Returns:
         The resolved absolute path, guaranteed to be ``root`` itself or
         a descendant of it.
 
     Raises:
-        ValueError: If ``path`` is absolute, contains a ``..`` segment,
-            or resolves outside ``root``.
+        ValueError: If ``path`` contains a ``..`` segment or resolves
+            outside ``root``.
     """
     raw = Path(path)
-    if raw.is_absolute() or ".." in raw.parts:
-        raise ValueError(f"path {path!r} must be workspace-relative and may not contain '..'")
+    if ".." in raw.parts:
+        raise ValueError(f"path {path!r} may not contain '..'")
     root_resolved = root.resolve()
-    resolved = (root_resolved / raw).resolve()
+    if raw.is_absolute():
+        resolved = raw.resolve()
+    else:
+        resolved = (root_resolved / raw).resolve()
     if resolved != root_resolved and root_resolved not in resolved.parents:
         raise ValueError(f"path {path!r} escapes the workspace root {root_resolved}")
     return resolved
@@ -88,12 +93,18 @@ def _read_text(file_path: Path) -> str:
         raise ValueError(f"{file_path.name} is not a UTF-8 text file") from exc
 
 
+def _as_tool_error(exc: BaseException) -> str:
+    """Turn a tool failure into a model-visible string (never crash the loop)."""
+    return f"error: {type(exc).__name__}: {exc}"
+
+
 def readonly_tools(workspace_root: Path) -> tuple[Callable[..., str], ...]:
     """Build the read-only tool callables confined to ``workspace_root``.
 
     The returned callables close over the root, so pydantic-ai only ever
     introspects model-facing arguments (``path`` / ``pattern``) — never
-    the root itself.
+    the root itself. Failures return ``error: …`` strings so the agentic
+    loop can recover instead of aborting the turn.
 
     Args:
         workspace_root: Directory every tool is confined to.
@@ -111,10 +122,13 @@ def readonly_tools(workspace_root: Path) -> tuple[Callable[..., str], ...]:
             path: Workspace-relative path to the file, e.g.
                 ``"src/molexp/agent/runner.py"``.
         """
-        target = _safe_path(root, path)
-        if not target.is_file():
-            raise FileNotFoundError(f"no such file in the workspace: {path!r}")
-        return _read_text(target)
+        try:
+            target = _safe_path(root, path)
+            if not target.is_file():
+                raise FileNotFoundError(f"no such file in the workspace: {path!r}")
+            return _read_text(target)
+        except (ValueError, OSError, FileNotFoundError) as exc:
+            return _as_tool_error(exc)
 
     def list_directory(path: str = ".") -> str:
         """List the entries of a directory inside the workspace.
@@ -123,16 +137,19 @@ def readonly_tools(workspace_root: Path) -> tuple[Callable[..., str], ...]:
             path: Workspace-relative directory path; defaults to the
                 workspace root.
         """
-        target = _safe_path(root, path)
-        if not target.is_dir():
-            raise NotADirectoryError(f"no such directory in the workspace: {path!r}")
-        rows: list[str] = []
-        for entry in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name)):
-            if entry.name in _SKIP_DIRS:
-                continue
-            marker = "/" if entry.is_dir() else ""
-            rows.append(f"{entry.name}{marker}")
-        return "\n".join(rows) if rows else "(empty directory)"
+        try:
+            target = _safe_path(root, path)
+            if not target.is_dir():
+                raise NotADirectoryError(f"no such directory in the workspace: {path!r}")
+            rows: list[str] = []
+            for entry in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name)):
+                if entry.name in _SKIP_DIRS:
+                    continue
+                marker = "/" if entry.is_dir() else ""
+                rows.append(f"{entry.name}{marker}")
+            return "\n".join(rows) if rows else "(empty directory)"
+        except (ValueError, OSError, NotADirectoryError) as exc:
+            return _as_tool_error(exc)
 
     def search_code(pattern: str) -> str:
         """Search workspace text files for a regular-expression pattern.
@@ -147,29 +164,32 @@ def readonly_tools(workspace_root: Path) -> tuple[Callable[..., str], ...]:
         try:
             regex = re.compile(pattern)
         except re.error as exc:
-            raise ValueError(f"invalid search pattern {pattern!r}: {exc}") from exc
-        root_resolved = root.resolve()
-        hits: list[str] = []
-        for file_path in sorted(root_resolved.rglob("*")):
-            if len(hits) >= _MAX_SEARCH_HITS:
-                hits.append(f"... (truncated at {_MAX_SEARCH_HITS} matches)")
-                break
-            if not file_path.is_file():
-                continue
-            if any(part in _SKIP_DIRS for part in file_path.relative_to(root_resolved).parts):
-                continue
-            try:
-                if file_path.stat().st_size > _MAX_FILE_BYTES:
+            return _as_tool_error(ValueError(f"invalid search pattern {pattern!r}: {exc}"))
+        try:
+            root_resolved = root.resolve()
+            hits: list[str] = []
+            for file_path in sorted(root_resolved.rglob("*")):
+                if len(hits) >= _MAX_SEARCH_HITS:
+                    hits.append(f"... (truncated at {_MAX_SEARCH_HITS} matches)")
+                    break
+                if not file_path.is_file():
                     continue
-                text = file_path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            rel = file_path.relative_to(root_resolved).as_posix()
-            for lineno, line in enumerate(text.splitlines(), start=1):
-                if regex.search(line):
-                    hits.append(f"{rel}:{lineno}: {line.strip()}")
-                    if len(hits) >= _MAX_SEARCH_HITS:
-                        break
-        return "\n".join(hits) if hits else f"no matches for {pattern!r}"
+                if any(part in _SKIP_DIRS for part in file_path.relative_to(root_resolved).parts):
+                    continue
+                try:
+                    if file_path.stat().st_size > _MAX_FILE_BYTES:
+                        continue
+                    text = file_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                rel = file_path.relative_to(root_resolved).as_posix()
+                for lineno, line in enumerate(text.splitlines(), start=1):
+                    if regex.search(line):
+                        hits.append(f"{rel}:{lineno}: {line.strip()}")
+                        if len(hits) >= _MAX_SEARCH_HITS:
+                            break
+            return "\n".join(hits) if hits else f"no matches for {pattern!r}"
+        except (ValueError, OSError) as exc:
+            return _as_tool_error(exc)
 
     return (read_file, list_directory, search_code)
