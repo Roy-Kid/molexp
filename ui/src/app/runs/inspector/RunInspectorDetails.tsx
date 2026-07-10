@@ -90,9 +90,7 @@ export const RunInspectorDetails = ({
 
 const Section = ({ title, children }: { title: string; children: ReactNode }): JSX.Element => (
   <section className="border-b border-border/60 px-4 py-3">
-    <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-      {title}
-    </h3>
+    <h3 className="mb-2.5 text-xs font-medium text-muted-foreground">{title}</h3>
     <div className="space-y-1.5 text-xs">{children}</div>
   </section>
 );
@@ -134,11 +132,11 @@ const ExecutionRow = ({ execution, selected, onSelect }: ExecutionRowProps): JSX
       onClick={onSelect}
       className={
         selected
-          ? "flex w-full items-center justify-between gap-2 rounded border border-info/40 bg-info-soft px-2 py-1.5 text-left text-xs"
-          : "flex w-full items-center justify-between gap-2 rounded border border-border/60 bg-background px-2 py-1.5 text-left text-xs hover:bg-accent/40"
+          ? "flex w-full items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2 text-left text-xs"
+          : "flex w-full items-center justify-between gap-2 rounded-md border border-border/70 bg-background px-2.5 py-2 text-left text-xs transition-colors hover:bg-muted/40"
       }
     >
-      <span className="truncate font-mono text-muted-foreground">
+      <span className="truncate font-mono text-muted-foreground" title={execution.executionId}>
         {execution.executionId.slice(0, 14)}
       </span>
       <div className="flex items-center gap-2">

@@ -17,13 +17,9 @@ export function SettingsPage(): JSX.Element {
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
         <header className="space-y-1">
-          <h2 className="text-base font-semibold text-foreground">Workspace settings</h2>
-          <p className="text-sm text-muted-foreground">
-            Remote workspaces and compute targets are stored at{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">~/.molexp/</code> (remote-root
-            descriptors) and{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">workspace.json</code> (compute
-            targets) respectively.
+          <h2 className="text-base font-semibold text-foreground">Settings</h2>
+          <p className="text-xs text-muted-foreground">
+            LLM / keys → Agent Tasks → gear
           </p>
         </header>
         <Tabs defaultValue={TAB_REMOTE_WORKSPACES} className="space-y-4">

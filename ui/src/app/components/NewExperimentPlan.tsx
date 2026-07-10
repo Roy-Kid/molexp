@@ -51,7 +51,7 @@ export const NewExperimentPlan = ({
             }}
           >
             <SelectTrigger id="plan-project">
-              <SelectValue placeholder="Select a project" />
+              <SelectValue placeholder="Project" />
             </SelectTrigger>
             <SelectContent>
               {projects.map((p) => (
@@ -72,7 +72,7 @@ export const NewExperimentPlan = ({
             disabled={experiments.length === 0}
           >
             <SelectTrigger id="plan-experiment">
-              <SelectValue placeholder="Select an experiment" />
+              <SelectValue placeholder="Experiment" />
             </SelectTrigger>
             <SelectContent>
               {experiments.map((e) => (
@@ -97,10 +97,8 @@ export const NewExperimentPlan = ({
           }}
         />
       ) : (
-        <p className="text-sm italic text-muted-foreground">
-          {projects.length === 0
-            ? "Create a project and an experiment first, then come back to plan one."
-            : "Select an experiment to plan for."}
+        <p className="text-xs italic text-muted-foreground">
+          {projects.length === 0 ? "Create a project first." : "Pick an experiment."}
         </p>
       )}
     </div>

@@ -247,7 +247,7 @@ export interface WorkspaceSnapshot {
   consoleEntries: ConsoleEntry[];
 }
 
-export type ObjectView = "overview" | "logs" | "metrics" | "scheduler";
+export type ObjectView = "overview" | "executions" | "logs" | "metrics" | "scheduler";
 
 export interface ObjectSelection {
   objectType: BaseObjectType;

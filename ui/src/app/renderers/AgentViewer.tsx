@@ -62,6 +62,76 @@ const TEXTAREA_CLASS =
   "placeholder:text-muted-foreground focus:outline-none disabled:opacity-60";
 
 const getAgentTaskId = (session: ApiAgentSession): string => session.taskId ?? session.sessionId;
+const MESSAGE_HISTORY_KEY = "molexp.agent.messageHistory";
+const MESSAGE_HISTORY_LIMIT = 80;
+
+const readMessageHistory = (): string[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MESSAGE_HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeMessageHistory = (items: string[]): void => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(
+    MESSAGE_HISTORY_KEY,
+    JSON.stringify(items.slice(0, MESSAGE_HISTORY_LIMIT)),
+  );
+};
+
+const rememberMessage = (content: string): void => {
+  const trimmed = content.trim();
+  if (!trimmed) return;
+  writeMessageHistory([trimmed, ...readMessageHistory().filter((item) => item !== trimmed)]);
+};
+
+const useMessageHistory = (
+  value: string,
+  setValue: (value: string) => void,
+): ((e: React.KeyboardEvent<HTMLTextAreaElement>) => boolean) => {
+  const cursorRef = useRef<number | null>(null);
+  const draftRef = useRef("");
+
+  return useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return false;
+      const target = e.currentTarget;
+      const atEdge =
+        e.key === "ArrowUp"
+          ? target.selectionStart === 0 && target.selectionEnd === 0
+          : target.selectionStart === value.length && target.selectionEnd === value.length;
+      if (!atEdge || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return false;
+      const history = readMessageHistory();
+      if (history.length === 0) return false;
+      e.preventDefault();
+
+      if (cursorRef.current === null) {
+        draftRef.current = value;
+        cursorRef.current = e.key === "ArrowUp" ? 0 : null;
+      } else if (e.key === "ArrowUp") {
+        cursorRef.current = Math.min(cursorRef.current + 1, history.length - 1);
+      } else {
+        cursorRef.current -= 1;
+      }
+
+      if (cursorRef.current === null || cursorRef.current < 0) {
+        cursorRef.current = null;
+        setValue(draftRef.current);
+      } else {
+        setValue(history[cursorRef.current] ?? draftRef.current);
+      }
+      return true;
+    },
+    [setValue, value],
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Chat box (mid-session messages)
@@ -80,6 +150,7 @@ const ChatBox = ({
 }): JSX.Element => {
   const [content, setContent] = useState("");
   const [sending, setSending] = useState(false);
+  const handleHistoryKey = useMessageHistory(content, setContent);
 
   const handleSend = async (): Promise<void> => {
     const trimmed = content.trim();
@@ -87,13 +158,15 @@ const ChatBox = ({
     setSending(true);
     try {
       await onSubmit(trimmed, awaitingRequestId);
+      rememberMessage(trimmed);
       setContent("");
     } finally {
       setSending(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent): void => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (handleHistoryKey(e)) return;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       void handleSend();
@@ -201,6 +274,7 @@ const GoalInput = ({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const palette = useCommandPalette();
+  const handleHistoryKey = useMessageHistory(description, setDescription);
 
   // Keep the palette in sync with the textarea content.
   useEffect(() => {
@@ -231,6 +305,7 @@ const GoalInput = ({
       setInfo(null);
       try {
         await onSubmit(intent);
+        if (intent.kind === "goal") rememberMessage(intent.description);
         setDescription("");
         setOverrideText("");
       } catch (err) {
@@ -328,6 +403,7 @@ const GoalInput = ({
         }
         return;
       }
+      if (!palette.open && handleHistoryKey(e)) return;
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         handleSendButton();
@@ -341,7 +417,7 @@ const GoalInput = ({
         }
       }
     },
-    [description, handleSendButton, palette],
+    [description, handleHistoryKey, handleSendButton, palette],
   );
 
   const handlePaletteSelect = useCallback(
@@ -648,32 +724,58 @@ const AgentSessionViewer = ({
     if (session?.status !== "running") return;
     const es = agentApi.streamEvents(sessionId);
     esRef.current = es;
+    const closeStream = (): void => {
+      es.close();
+      if (esRef.current === es) esRef.current = null;
+    };
+    const refreshSession = (): void => {
+      agentApi
+        .getSession(sessionId)
+        .then((s) => {
+          setSession((prev) => {
+            if (!prev || getAgentTaskId(prev) !== sessionId) return s;
+            return { ...prev, status: s.status, stats: s.stats };
+          });
+          setEvents(s.events ?? []);
+        })
+        .catch(() => {});
+    };
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        if (data.type === "done") {
-          es.close();
-          agentApi.getSession(sessionId).then((s) => {
-            setSession((prev) => {
-              if (!prev || prev.sessionId !== sessionId) return s;
-              if (prev.status === s.status) return prev;
-              return { ...prev, status: s.status, stats: s.stats };
-            });
-          });
+        if (data.type === "done" || data.type === "error") {
+          closeStream();
+          refreshSession();
           return;
         }
         // Normalize live AgentEvent frames ({kind, timestamp, …}) into the UI's
         // {type, ts, payload} shape; `waiting` (and any control frame) → null.
         const normalized = normalizeStreamFrame(data);
         if (normalized) {
-          setEvents((prev) => [...prev, normalized]);
+          setEvents((prev) => {
+            const prevLast = prev[prev.length - 1];
+            if (
+              prevLast &&
+              prevLast.type === normalized.type &&
+              prevLast.ts === normalized.ts &&
+              JSON.stringify(prevLast.payload ?? null) ===
+                JSON.stringify(normalized.payload ?? null)
+            ) {
+              return prev;
+            }
+            return [...prev, normalized];
+          });
         }
       } catch {
         // ignore parse errors
       }
     };
+    es.onerror = () => {
+      closeStream();
+      refreshSession();
+    };
     return () => {
-      es.close();
+      closeStream();
     };
   }, [sessionId, session?.status]);
 
@@ -843,8 +945,9 @@ const AgentSessionViewer = ({
                   </div>
                   <h2 className="text-base font-semibold text-foreground">Start an agent task</h2>
                   <p className="max-w-md text-sm text-muted-foreground">
-                    Describe a goal. The agent plans the steps, calls molexp tools, and reports
-                    results with artifacts.
+                    Describe a goal. Interactive chat is read-only for now: it can search knowledge
+                    and read files in the workspace. To plan or execute experiments, use Plan Mode
+                    or the Run lifecycle buttons.
                   </p>
                   {mountScope && (
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">

@@ -118,7 +118,7 @@ export const RunsFacetPanel = ({
         <button
           type="button"
           onClick={() => onFiltersChange({})}
-          className="w-full rounded border border-border px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          className="w-full rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
         >
           Reset filters
         </button>
@@ -134,9 +134,7 @@ interface FacetGroupProps {
 
 const FacetGroup = ({ title, children }: FacetGroupProps): JSX.Element => (
   <div>
-    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-      {title}
-    </div>
+    <div className="mb-1.5 text-xs font-medium text-muted-foreground">{title}</div>
     {children}
   </div>
 );
@@ -239,7 +237,7 @@ const CheckboxFacetGroup = ({
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}
-            className="ml-1 mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground hover:text-foreground"
+            className="ml-1 mt-0.5 text-xs text-muted-foreground hover:text-foreground"
           >
             {expanded ? "Show fewer" : `Show ${merged.length - COLLAPSE_THRESHOLD} more`}
           </button>

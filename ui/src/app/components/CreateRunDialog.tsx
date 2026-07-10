@@ -39,7 +39,8 @@ interface CreateRunDialogProps {
   projectId: string;
   experimentId: string;
   workflowFile: string;
-  onRunCreated: () => void;
+  /** Called with the new run id so the parent can navigate into it. */
+  onRunCreated: (runId: string) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   trigger?: ReactNode;
@@ -97,7 +98,7 @@ export function CreateRunDialog({
     setError(null);
 
     try {
-      await workspaceApi.createRun(projectId, experimentId, {
+      const created = await workspaceApi.createRun(projectId, experimentId, {
         parameters,
         target: target === NO_TARGET_VALUE ? null : target,
       });
@@ -105,9 +106,9 @@ export function CreateRunDialog({
       setOpen(false);
       setParameters({});
       setTarget(NO_TARGET_VALUE);
-      onRunCreated();
+      onRunCreated(created.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to launch run");
+      setError(err instanceof Error ? err.message : "Failed to create");
     } finally {
       setIsLoading(false);
     }
@@ -128,10 +129,8 @@ export function CreateRunDialog({
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>New run</DialogTitle>
-          <DialogDescription>
-            Create a run for experiment {experimentId}. With a compute target it starts immediately;
-            without one it is created <span className="font-medium">pending</span> and started via{" "}
-            <code className="font-mono">molexp run</code> (or the run's Start action).
+          <DialogDescription className="sr-only">
+            Parameters and optional compute target.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
@@ -202,7 +201,7 @@ export function CreateRunDialog({
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? "Creating..." : "Create run"}
+              {isLoading ? "…" : "Create"}
             </Button>
           </DialogFooter>
         </form>

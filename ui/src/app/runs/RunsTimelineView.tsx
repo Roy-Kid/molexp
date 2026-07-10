@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 import { RunsGanttChart } from "./RunsGanttChart";
 import type { WorkspaceExecutionRow, WorkspaceRunRow } from "./types";
@@ -22,20 +23,26 @@ export const RunsTimelineView = ({
   onSelectRun,
   onSelectExecution,
 }: RunsTimelineViewProps): JSX.Element => (
-  <div className="flex h-full min-h-0 flex-col gap-2 rounded-md border border-border/60 bg-card p-3">
-    <div className="flex items-center justify-between gap-3">
-      <div>
-        <h3 className="text-sm font-semibold text-foreground">Run timeline</h3>
-        <p className="text-[11px] text-muted-foreground">
-          Click a bar to load the run in the inspector. Faded bars are queued / pending.
+  <div className="flex h-full min-h-0 flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-none">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0 space-y-0.5">
+        <h3 className="text-sm font-medium text-foreground">Run timeline</h3>
+        <p className="text-xs text-muted-foreground">
+          Click a bar to load it in the inspector. Faded bars are queued or pending.
         </p>
       </div>
       <Tabs value={mode} onValueChange={(next) => onModeChange(next as GanttMode)}>
-        <TabsList className="h-7 p-0.5">
-          <TabsTrigger value="runs" className="h-6 px-2 text-[11px] uppercase tracking-wide">
+        <TabsList className="h-8 p-0.5">
+          <TabsTrigger
+            value="runs"
+            className={cn("h-7 px-2.5 text-xs font-medium")}
+          >
             By runs
           </TabsTrigger>
-          <TabsTrigger value="executions" className="h-6 px-2 text-[11px] uppercase tracking-wide">
+          <TabsTrigger
+            value="executions"
+            className={cn("h-7 px-2.5 text-xs font-medium")}
+          >
             By executions
           </TabsTrigger>
         </TabsList>

@@ -1,13 +1,32 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Dashboard primitives — the card/chart vocabulary every entity Overview is
-// built from. The Overview tab is a *summary dashboard*: at-a-glance numbers,
-// status mix, and small charts. Prose and lower-level detail belong on the
-// later tabs, never here. Everything in this file is pure presentation: SVG
-// over chart libraries so it stays deterministic and cheap to render.
+// Dashboard primitives — the card / chart vocabulary every entity Overview is
+// built from. Built on shadcn Card so project / experiment / run / execution
+// surfaces share one premium, quiet look. Pure presentation only.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { JSX, ReactNode } from "react";
+
+import { STATUS_GROUPS } from "@/app/runs/statusGroups";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+
+/** Minimal status rollup shape (mirrors RunStatusCounts without importing it). */
+export interface StatusCountRollup {
+  total: number;
+  running: number;
+  pending: number;
+  succeeded: number;
+  failed: number;
+  cancelled: number;
+}
 
 export type StatTone = "neutral" | "success" | "error" | "running" | "warning";
 
@@ -27,6 +46,62 @@ const STAT_DOT_TONE: Record<StatTone, string> = {
   warning: "bg-warning",
 };
 
+// ── MetaField ────────────────────────────────────────────────────────────────
+
+interface MetaFieldProps {
+  label: string;
+  value: ReactNode;
+  /** Monospace value (ids, hashes, raw params). */
+  mono?: boolean;
+  className?: string;
+  title?: string;
+}
+
+/** One labeled field on a dashboard — sentence-case label, quiet hierarchy. */
+export const MetaField = ({
+  label,
+  value,
+  mono = false,
+  className,
+  title,
+}: MetaFieldProps): JSX.Element => (
+  <div className={cn("min-w-0", className)}>
+    <dt className="text-xs text-muted-foreground">{label}</dt>
+    <dd
+      className={cn(
+        "mt-1 min-w-0 truncate text-sm text-foreground",
+        mono && "font-mono text-xs",
+      )}
+      title={title}
+    >
+      {value}
+    </dd>
+  </div>
+);
+
+interface MetaGridProps {
+  children: ReactNode;
+  columns?: 2 | 3 | 4 | 5;
+  className?: string;
+}
+
+export const MetaGrid = ({ children, columns = 2, className }: MetaGridProps): JSX.Element => (
+  <dl
+    className={cn(
+      "grid gap-x-6 gap-y-4",
+      columns === 2 && "sm:grid-cols-2",
+      columns === 3 && "sm:grid-cols-2 lg:grid-cols-3",
+      columns === 4 && "sm:grid-cols-2 lg:grid-cols-4",
+      columns === 5 && "sm:grid-cols-2 lg:grid-cols-5",
+      className,
+    )}
+  >
+    {children}
+  </dl>
+);
+
+// ── StatCard ─────────────────────────────────────────────────────────────────
+
 interface StatCardProps {
   label: string;
   value: ReactNode;
@@ -38,7 +113,7 @@ interface StatCardProps {
   active?: boolean;
 }
 
-/** One headline number in a card. The atom of every dashboard. */
+/** One headline number. The atom of every dashboard. */
 export const StatCard = ({
   label,
   value,
@@ -50,44 +125,46 @@ export const StatCard = ({
 }: StatCardProps): JSX.Element => {
   const body = (
     <>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
         <span
           aria-hidden="true"
-          className={cn("inline-block h-1.5 w-1.5 rounded-full", STAT_DOT_TONE[tone])}
+          className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", STAT_DOT_TONE[tone])}
         />
-        <span className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </span>
+        <span className="truncate text-xs text-muted-foreground">{label}</span>
       </div>
       <div
         className={cn(
-          "mt-1.5 text-2xl font-semibold leading-none tabular-nums",
-          muted ? "text-muted-foreground/50" : STAT_VALUE_TONE[tone],
+          "mt-2 text-2xl font-semibold leading-none tracking-tight tabular-nums",
+          muted ? "text-muted-foreground/45" : STAT_VALUE_TONE[tone],
         )}
       >
         {value}
       </div>
-      {hint && <div className="mt-1 truncate text-[11px] text-muted-foreground">{hint}</div>}
+      {hint != null && hint !== "" && (
+        <div className="mt-1.5 truncate text-xs text-muted-foreground">{hint}</div>
+      )}
     </>
   );
 
-  const base = "flex flex-col rounded-lg border bg-card px-3 py-2.5 text-left transition-colors";
+  const shell =
+    "flex h-full flex-col rounded-lg border bg-card px-3.5 py-3 text-left shadow-none transition-colors";
+
   if (onClick) {
     return (
       <button
         type="button"
         onClick={onClick}
         className={cn(
-          base,
-          "hover:border-foreground/20 hover:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-ring",
-          active ? "border-foreground/30 ring-1 ring-inset ring-foreground/20" : "border-border/60",
+          shell,
+          "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          active ? "border-primary/40 ring-1 ring-inset ring-primary/25" : "border-border",
         )}
       >
         {body}
       </button>
     );
   }
-  return <div className={cn(base, "border-border/60")}>{body}</div>;
+  return <div className={cn(shell, "border-border")}>{body}</div>;
 };
 
 interface StatGridProps {
@@ -95,11 +172,11 @@ interface StatGridProps {
   className?: string;
 }
 
-/** Responsive grid for a row of :class:`StatCard`. */
+/** Responsive grid for a row of StatCard. */
 export const StatGrid = ({ children, className }: StatGridProps): JSX.Element => (
   <div
     className={cn(
-      "grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
+      "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
       className,
     )}
   >
@@ -107,37 +184,137 @@ export const StatGrid = ({ children, className }: StatGridProps): JSX.Element =>
   </div>
 );
 
+// ── DashboardCard ────────────────────────────────────────────────────────────
+
 interface DashboardCardProps {
   title?: ReactNode;
+  description?: ReactNode;
   /** Right-aligned header slot — a count, a control, a link. */
   action?: ReactNode;
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  /** Soft destructive surface for error banners. */
+  variant?: "default" | "destructive";
 }
 
-/** A titled surface that groups related content on a dashboard. */
+/** A titled surface that groups related content on a dashboard (shadcn Card). */
 export const DashboardCard = ({
   title,
+  description,
   action,
   children,
   className,
   bodyClassName,
+  variant = "default",
 }: DashboardCardProps): JSX.Element => (
-  <section className={cn("flex flex-col rounded-lg border border-border/60 bg-card", className)}>
-    {(title || action) && (
-      <header className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
-        {title && (
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {title}
-          </h3>
-        )}
-        {action && <div className="flex items-center gap-1">{action}</div>}
-      </header>
+  <Card
+    className={cn(
+      "gap-0 py-0 shadow-none",
+      variant === "destructive" && "border-destructive/30 bg-destructive/5",
+      className,
     )}
-    <div className={cn("min-h-0 flex-1 p-3", bodyClassName)}>{children}</div>
-  </section>
+  >
+    {(title != null || action != null || description != null) && (
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 border-b border-border/60 px-4 py-3">
+        <div className="min-w-0 space-y-0.5">
+          {title != null && (
+            <CardTitle className="text-sm font-medium leading-none text-foreground">
+              {title}
+            </CardTitle>
+          )}
+          {description != null && (
+            <CardDescription className="text-xs leading-relaxed">{description}</CardDescription>
+          )}
+        </div>
+        {action != null && (
+          <CardAction className="static col-auto row-auto self-center justify-self-auto">
+            {action}
+          </CardAction>
+        )}
+      </CardHeader>
+    )}
+    <CardContent className={cn("px-4 py-4", bodyClassName)}>{children}</CardContent>
+  </Card>
 );
+
+// ── Status distribution ──────────────────────────────────────────────────────
+
+interface StatusDistributionProps {
+  counts: StatusCountRollup;
+  /** Show the legend list under the bar. Default true. */
+  legend?: boolean;
+  className?: string;
+}
+
+/** Segmented status bar + optional legend — shared by project / experiment. */
+export const StatusDistribution = ({
+  counts,
+  legend = true,
+  className,
+}: StatusDistributionProps): JSX.Element => {
+  const empty = counts.total === 0;
+
+  return (
+    <div className={cn("space-y-3", className)}>
+      <div
+        className="flex h-2 overflow-hidden rounded-full bg-muted"
+        role="img"
+        aria-label={
+          empty
+            ? "No runs"
+            : `Status mix across ${counts.total} runs`
+        }
+      >
+        {!empty &&
+          STATUS_GROUPS.map((group) => {
+            const value = counts[group.id];
+            if (value === 0) return null;
+            return (
+              <div
+                key={group.id}
+                title={`${group.label}: ${value}`}
+                className="h-full min-w-[2px] transition-[width]"
+                style={{
+                  width: `${(value / counts.total) * 100}%`,
+                  backgroundColor: group.color,
+                }}
+              />
+            );
+          })}
+      </div>
+      {legend && (
+        <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+          {STATUS_GROUPS.map((group) => {
+            const value = counts[group.id];
+            return (
+              <li key={group.id} className="flex items-center justify-between gap-2 text-xs">
+                <span className="inline-flex min-w-0 items-center gap-2 text-muted-foreground">
+                  <span
+                    aria-hidden="true"
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: group.color }}
+                  />
+                  <span className="truncate">{group.label}</span>
+                </span>
+                <span
+                  className={cn(
+                    "font-medium tabular-nums text-foreground",
+                    value === 0 && "text-muted-foreground/50",
+                  )}
+                >
+                  {value}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+// ── Charts ───────────────────────────────────────────────────────────────────
 
 export interface DonutSegment {
   label: string;
@@ -156,7 +333,7 @@ interface StatusDonutProps {
 
 /**
  * A donut chart of categorical counts with a centered total and a legend.
- * Built from stroke-dashoffset arcs — no chart library, no layout thrash.
+ * Built from stroke-dashoffset arcs — no chart library.
  */
 export const StatusDonut = ({
   segments,
@@ -220,9 +397,7 @@ export const StatusDonut = ({
             {centerValue ?? total}
           </span>
           {centerLabel && (
-            <span className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-              {centerLabel}
-            </span>
+            <span className="mt-0.5 text-[10px] text-muted-foreground">{centerLabel}</span>
           )}
         </div>
       </div>
@@ -233,11 +408,11 @@ export const StatusDonut = ({
             <li key={seg.label} className="flex items-center gap-2 text-xs">
               <span
                 aria-hidden="true"
-                className="inline-block h-2.5 w-2.5 flex-none rounded-sm"
+                className="inline-block h-2 w-2 flex-none rounded-full"
                 style={{ backgroundColor: seg.color }}
               />
               <span className="min-w-0 flex-1 truncate text-muted-foreground">{seg.label}</span>
-              <span className="font-semibold tabular-nums text-foreground">{seg.value}</span>
+              <span className="font-medium tabular-nums text-foreground">{seg.value}</span>
               <span className="w-9 text-right tabular-nums text-muted-foreground">
                 {pct.toFixed(0)}%
               </span>
@@ -267,39 +442,39 @@ interface MiniBarsProps {
 /** A compact horizontal bar list — categorical magnitudes without an axis. */
 export const MiniBars = ({ data, max, emptyLabel = "No data." }: MiniBarsProps): JSX.Element => {
   if (data.length === 0) {
-    return <p className="text-xs italic text-muted-foreground">{emptyLabel}</p>;
+    return <p className="text-xs text-muted-foreground">{emptyLabel}</p>;
   }
   const ceiling = max ?? Math.max(1, ...data.map((d) => d.value));
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-2.5">
       {data.map((datum) => {
         const pct = Math.max(datum.value > 0 ? 4 : 0, (datum.value / ceiling) * 100);
         const row = (
           <>
             <div className="mb-1 flex items-baseline justify-between gap-2">
               <span className="min-w-0 truncate text-xs text-foreground">{datum.label}</span>
-              <span className="flex-none text-[11px] tabular-nums text-muted-foreground">
+              <span className="flex-none text-xs tabular-nums text-muted-foreground">
                 {datum.hint ?? datum.value}
               </span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full"
+                className="h-full rounded-full bg-foreground/70"
                 style={{
                   width: `${pct}%`,
-                  backgroundColor: datum.color ?? "currentColor",
+                  ...(datum.color ? { backgroundColor: datum.color } : undefined),
                 }}
               />
             </div>
           </>
         );
         return (
-          <li key={datum.label} className={datum.onClick ? undefined : "text-foreground/70"}>
+          <li key={datum.label}>
             {datum.onClick ? (
               <button
                 type="button"
                 onClick={datum.onClick}
-                className="block w-full text-left text-foreground/70 transition-opacity hover:opacity-80 focus:outline-none"
+                className="block w-full text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {row}
               </button>
@@ -313,14 +488,82 @@ export const MiniBars = ({ data, max, emptyLabel = "No data." }: MiniBarsProps):
   );
 };
 
+// ── Breadcrumb trail (inline entity path) ────────────────────────────────────
+
+interface EntityPathSegment {
+  label: string;
+  onClick?: () => void;
+}
+
+interface EntityPathProps {
+  segments: EntityPathSegment[];
+  trailing?: ReactNode;
+  className?: string;
+}
+
+/** Quiet project / experiment / workflow path under a summary card. */
+export const EntityPath = ({ segments, trailing, className }: EntityPathProps): JSX.Element => (
+  <div
+    className={cn(
+      "flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/60 pt-3 text-xs text-muted-foreground",
+      className,
+    )}
+  >
+    {segments.map((seg, i) => (
+      <span key={`${seg.label}-${i}`} className="inline-flex items-center gap-2">
+        {i > 0 && <span className="text-border">/</span>}
+        {seg.onClick ? (
+          <button
+            type="button"
+            className="truncate hover:text-foreground hover:underline"
+            onClick={seg.onClick}
+          >
+            {seg.label}
+          </button>
+        ) : (
+          <span className="truncate">{seg.label}</span>
+        )}
+      </span>
+    ))}
+    {trailing != null && <span className="ml-auto font-mono text-[11px]">{trailing}</span>}
+  </div>
+);
+
+// ── Chip / tag ───────────────────────────────────────────────────────────────
+
+interface ParamChipProps {
+  name: string;
+  value: string;
+  className?: string;
+}
+
+/** Compact key=value chip used in run tables and parameter previews. */
+export const ParamChip = ({ name, value, className }: ParamChipProps): JSX.Element => (
+  <Badge
+    variant="outline"
+    className={cn(
+      "max-w-[140px] gap-1 rounded-md border-border/70 bg-muted/30 px-1.5 py-0.5 font-normal",
+      className,
+    )}
+    title={`${name}=${value}`}
+  >
+    <span className="truncate text-muted-foreground">{name}</span>
+    <span className="truncate font-mono text-foreground">{value}</span>
+  </Badge>
+);
+
+// ── Layout ───────────────────────────────────────────────────────────────────
+
 interface DashboardGridProps {
   children: ReactNode;
   className?: string;
 }
 
-/** The scroll container + responsive 12-col grid the Overview lays cards onto. */
+/** Scroll container + responsive 12-col grid the Overview lays cards onto. */
 export const DashboardGrid = ({ children, className }: DashboardGridProps): JSX.Element => (
   <div className="flex-1 overflow-auto">
-    <div className={cn("grid grid-cols-1 gap-3 p-4 lg:grid-cols-12", className)}>{children}</div>
+    <div className={cn("grid grid-cols-1 gap-4 p-4 md:p-5 lg:grid-cols-12", className)}>
+      {children}
+    </div>
   </div>
 );

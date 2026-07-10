@@ -97,9 +97,9 @@ const WorkspaceApp = ({ pathname }: { pathname: string }): JSX.Element => {
         onActiveRefresh={handleActiveRefresh}
       />
       {status === "loading" && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/50">
-          <div className="rounded-md border border-border bg-background px-4 py-2 text-sm text-muted-foreground">
-            Syncing workspace state...
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/40">
+          <div className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground">
+            Syncing…
           </div>
         </div>
       )}

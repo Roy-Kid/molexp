@@ -9,8 +9,8 @@ export const RunInspectorPlaceholder = ({
   title,
   description,
 }: RunInspectorPlaceholderProps): JSX.Element => (
-  <div className="flex h-full flex-col items-start justify-start gap-1 px-4 py-4 text-xs text-muted-foreground">
-    <p className="text-foreground">{title}</p>
-    <p>{description}</p>
+  <div className="flex h-full flex-col items-start justify-start gap-1.5 px-4 py-4 text-sm">
+    <p className="font-medium text-foreground">{title}</p>
+    <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
   </div>
 );

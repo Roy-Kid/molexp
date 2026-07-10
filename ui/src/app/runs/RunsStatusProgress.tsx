@@ -36,33 +36,21 @@ export const RunsStatusProgress = ({
 
   if (total === 0) {
     return (
-      <div className="text-center text-xs italic text-muted-foreground">
-        No runs match the current filters.
-      </div>
+      <p className="text-sm text-muted-foreground">No runs match the current filters.</p>
     );
   }
 
   const visible = segments.filter((segment) => segment.count > 0);
 
   return (
-    <div>
-      <div className="mb-2 flex items-baseline justify-between">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Status mix
-        </div>
-        <div className="text-[10px] tabular-nums text-muted-foreground">
-          {total} run{total === 1 ? "" : "s"}
-        </div>
-      </div>
+    <div className="space-y-3">
       <div
         role="img"
         aria-label={`Status distribution across ${total} runs`}
-        className="flex h-3 w-full overflow-hidden rounded-full bg-muted"
+        className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
       >
-        {visible.map((segment, index) => {
+        {visible.map((segment) => {
           const widthPct = segment.ratio * 100;
-          const isFirst = index === 0;
-          const isLast = index === visible.length - 1;
           return (
             <button
               key={segment.spec.id}
@@ -70,10 +58,8 @@ export const RunsStatusProgress = ({
               onClick={onSelectStatus ? () => onSelectStatus(segment.spec.filterValue) : undefined}
               title={`${segment.spec.label}: ${segment.count} (${(segment.ratio * 100).toFixed(1)}%)`}
               className={cn(
-                "h-full transition-opacity hover:opacity-80",
+                "h-full min-w-[2px] transition-opacity hover:opacity-80",
                 onSelectStatus ? "cursor-pointer" : "cursor-default",
-                isFirst && "rounded-l-full",
-                isLast && "rounded-r-full",
               )}
               style={{ width: `${widthPct}%`, backgroundColor: segment.spec.color }}
               aria-label={`${segment.spec.label}: ${segment.count} runs`}
@@ -81,34 +67,43 @@ export const RunsStatusProgress = ({
           );
         })}
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+      <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
         {segments.map((segment) => {
           const dimmed = segment.count === 0;
           const clickable = onSelectStatus !== undefined && !dimmed;
           return (
-            <button
-              key={segment.spec.id}
-              type="button"
-              onClick={clickable ? () => onSelectStatus(segment.spec.filterValue) : undefined}
-              disabled={!clickable}
-              className={cn(
-                "flex items-center gap-1.5 transition-colors",
-                clickable ? "cursor-pointer text-foreground hover:text-primary" : "cursor-default",
-                dimmed && "opacity-40",
-              )}
-            >
-              <span
-                aria-hidden="true"
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ backgroundColor: segment.spec.color }}
-              />
-              <span className="text-muted-foreground">{segment.spec.label}</span>
-              <span className="font-semibold tabular-nums">{segment.count}</span>
-              <span className="text-muted-foreground">· {(segment.ratio * 100).toFixed(0)}%</span>
-            </button>
+            <li key={segment.spec.id}>
+              <button
+                type="button"
+                onClick={clickable ? () => onSelectStatus(segment.spec.filterValue) : undefined}
+                disabled={!clickable}
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 text-xs transition-colors",
+                  clickable
+                    ? "cursor-pointer text-foreground hover:text-primary"
+                    : "cursor-default",
+                  dimmed && "opacity-40",
+                )}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2 text-muted-foreground">
+                  <span
+                    aria-hidden="true"
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: segment.spec.color }}
+                  />
+                  <span className="truncate">{segment.spec.label}</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
+                  <span className="font-medium text-foreground">{segment.count}</span>
+                  <span className="w-8 text-right text-muted-foreground">
+                    {(segment.ratio * 100).toFixed(0)}%
+                  </span>
+                </span>
+              </button>
+            </li>
           );
         })}
-      </div>
+      </ul>
     </div>
   );
 };

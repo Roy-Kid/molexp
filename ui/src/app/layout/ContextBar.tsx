@@ -1,4 +1,5 @@
 import { Loader2, Menu, RefreshCw, Search } from "lucide-react";
+import { ApprovalsBell } from "@/app/components/ApprovalsBell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -46,17 +47,18 @@ export const ContextBar = ({
           <div className="relative w-full max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="h-8 pl-9 pr-16"
-              placeholder="Filter current list"
+              className="h-8 pl-9 pr-12"
+              placeholder="Filter"
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
+              aria-label="Filter list"
             />
-            {/* The box only filters the visible list. Cross-workspace jump is
-                ⌘K (GlobalCommandPalette), hinted here so the scopes are clear. */}
+            {/* List filter only; ⌘K jumps across the workspace. */}
             <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
               ⌘K
             </kbd>
           </div>
+          <ApprovalsBell />
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>

@@ -21,7 +21,7 @@ import {
   Server,
   Settings,
   Sparkles,
-  Terminal,
+  Trash2,
   Workflow,
 } from "lucide-react";
 import type { ComponentType, ReactNode, SVGProps } from "react";
@@ -38,9 +38,11 @@ import { TreeView } from "@/app/panels/TreeView";
 import { computeFacetCounts } from "@/app/runs/aggregates";
 import { parseFilterParams, writeFilterParams } from "@/app/runs/filterParams";
 import { RunsFacetPanel } from "@/app/runs/RunsFacetPanel";
+import { canCancel } from "@/app/runs/runLifecycle";
+import { buildRunListActions } from "@/app/runs/runListActions";
 import type { WorkspaceRunsFilters } from "@/app/runs/types";
 import { useWorkspaceRuns } from "@/app/runs/useWorkspaceRuns";
-import { workspaceApi } from "@/app/state/api";
+import { agentApi, workspaceApi } from "@/app/state/api";
 import type {
   AgentSessionSummary,
   AssetSummary,
@@ -61,6 +63,7 @@ import { usePrompt } from "@/components/PromptDialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 import { countLabel } from "@/lib/count-label";
@@ -162,13 +165,6 @@ const statusTextClass = (status: SemanticStatus): string => {
   }
 };
 
-const terminalRunStatuses = new Set<SemanticStatus>([
-  "succeeded",
-  "failed",
-  "cancelled",
-  "skipped",
-]);
-
 const joinWorkspacePath = (parent: string, child: string): string => {
   const trimmedChild = child.trim();
   if (!trimmedChild) return parent;
@@ -191,43 +187,30 @@ interface ProjectTreeActions {
   onDeleteProject: (projectId: string) => void;
   onDeleteExperiment: (experiment: ExperimentSummary) => void;
   onCancelRun: (run: RunSummary) => void;
+  onResumeRun: (run: RunSummary) => void;
+  onRerunRun: (run: RunSummary, fresh?: boolean) => void;
   onOpenRunView: (run: RunSummary, view?: ObjectView) => void;
   onCopyText: (text: string) => void;
   onRefresh: () => void;
 }
 
-const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNodeAction[] => [
-  {
-    id: "open",
-    label: "Open run",
-    icon: ExternalLink,
-    onSelect: () => actions.onOpenRunView(run),
-  },
-  {
-    id: "logs",
-    label: "View logs",
-    icon: Terminal,
-    onSelect: () => actions.onOpenRunView(run, "logs"),
-  },
-  {
-    id: "copy-id",
-    label: "Copy run ID",
-    icon: Copy,
-    onSelect: () => actions.onCopyText(run.id),
-  },
-  {
-    id: "cancel",
-    label: "Mark cancelled",
-    icon: Ban,
-    disabled: terminalRunStatuses.has(run.status),
-    destructive: true,
-    separatorBefore: true,
-    title: terminalRunStatuses.has(run.status)
-      ? "Terminal runs cannot be cancelled."
-      : "Updates workspace status only; it does not cancel a scheduler job.",
-    onSelect: () => actions.onCancelRun(run),
-  },
-];
+const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNodeAction[] =>
+  buildRunListActions(run, {
+    open: actions.onOpenRunView,
+    cancel: actions.onCancelRun,
+    resume: actions.onResumeRun,
+    rerun: actions.onRerunRun,
+    copyId: (r) => actions.onCopyText(r.id),
+  }).map((action) => ({
+    id: action.id,
+    label: action.label,
+    icon: action.icon,
+    disabled: action.disabled,
+    destructive: action.destructive,
+    separatorBefore: action.separatorBefore,
+    title: action.title,
+    onSelect: action.onSelect,
+  }));
 
 const CompactCount = ({ children }: { children: ReactNode }): JSX.Element => (
   <span className="font-mono text-[10px] text-muted-foreground">{children}</span>
@@ -783,6 +766,7 @@ const buildAgentNodes = (
   snapshot: WorkspaceSnapshot,
   onSelect: (selection: Selection) => void,
   onCopyText: (text: string) => void,
+  onDeleteAgent: (session: AgentSessionSummary) => void,
 ): TreeNode[] => {
   return snapshot.agentSessions.map((session) => {
     const isLive = session.status === "running";
@@ -816,6 +800,14 @@ const buildAgentNodes = (
           label: "Copy task ID",
           icon: Copy,
           onSelect: () => onCopyText(session.id),
+        },
+        {
+          id: "delete",
+          label: "Delete task",
+          icon: Trash2,
+          destructive: true,
+          separatorBefore: true,
+          onSelect: () => onDeleteAgent(session),
         },
       ],
     };
@@ -980,26 +972,54 @@ export const LeftPanel = ({
     onSelect({ objectType: "run", objectId: run.id, objectView });
   };
   const handleCancelRun = async (run: RunSummary): Promise<void> => {
-    if (terminalRunStatuses.has(run.status)) return;
+    if (!canCancel(run.status)) return;
     const confirmed = await confirm({
-      title: "Mark run as cancelled?",
+      title: "Cancel run?",
       description: (
         <>
-          Run <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code> will be marked
-          cancelled in the workspace. This does not stop any underlying scheduler job.
+          Stop <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code>?
         </>
       ),
-      confirmLabel: "Mark cancelled",
+      confirmLabel: "Cancel",
       destructive: true,
     });
     if (!confirmed) return;
     try {
-      await workspaceApi.updateRunStatus(run.projectId, run.experimentId, run.id, "cancelled");
+      await workspaceApi.killRun(run.projectId, run.experimentId, run.id);
+      toast.success("Cancelled");
       onRefresh();
     } catch (error) {
-      console.error("Failed to mark run cancelled:", error);
+      console.error("Failed to cancel run:", error);
       void alert({
-        title: "Failed to mark run cancelled",
+        title: "Cancel failed",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const handleResumeRun = async (run: RunSummary): Promise<void> => {
+    try {
+      await workspaceApi.resumeRun(run.projectId, run.experimentId, run.id);
+      toast.success("Resumed");
+      onRefresh();
+      onSelect({ objectType: "run", objectId: run.id, objectView: "executions" });
+    } catch (error) {
+      void alert({
+        title: "Resume failed",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const handleRerunRun = async (run: RunSummary, fresh = false): Promise<void> => {
+    try {
+      await workspaceApi.rerunRun(run.projectId, run.experimentId, run.id, fresh);
+      toast.success(fresh ? "Rerun fresh" : "Rerun");
+      onRefresh();
+      onSelect({ objectType: "run", objectId: run.id, objectView: "executions" });
+    } catch (error) {
+      void alert({
+        title: "Rerun failed",
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1052,6 +1072,33 @@ export const LeftPanel = ({
       });
     }
   };
+  const handleDeleteAgentTask = async (session: AgentSessionSummary): Promise<void> => {
+    const confirmed = await confirm({
+      title: "Delete agent task?",
+      description: (
+        <>
+          Agent task <code className="rounded bg-muted px-1 py-0.5 text-xs">{session.id}</code> will
+          be removed from the task list. If it is running, its current turn will be cancelled.
+        </>
+      ),
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    try {
+      await agentApi.deleteSession(session.id);
+      if (selection?.objectType === "agent" && selection.objectId === session.id) {
+        onSelect({ objectType: "agent", objectId: "new" });
+      }
+      onRefresh();
+    } catch (error) {
+      console.error("Failed to delete agent task:", error);
+      void alert({
+        title: "Failed to delete agent task",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
 
   const projectTreeActions: ProjectTreeActions = {
     onSelect,
@@ -1065,6 +1112,12 @@ export const LeftPanel = ({
     },
     onCancelRun: (run) => {
       void handleCancelRun(run);
+    },
+    onResumeRun: (run) => {
+      void handleResumeRun(run);
+    },
+    onRerunRun: (run, fresh) => {
+      void handleRerunRun(run, fresh);
     },
     onOpenRunView: handleOpenRunView,
     onCopyText: handleCopyText,
@@ -1104,7 +1157,9 @@ export const LeftPanel = ({
   const workspaceNodes = buildWorkspaceNodes(snapshot, workspaceTreeActions);
   const assetNodes = buildAssetNodes(snapshot, onSelect, handleCopyText, searchQuery);
   const workflowNodes = buildWorkflowNodes(snapshot, onSelect, handleCopyText, searchQuery);
-  const agentNodes = buildAgentNodes(snapshot, onSelect, handleCopyText);
+  const agentNodes = buildAgentNodes(snapshot, onSelect, handleCopyText, (session) => {
+    void handleDeleteAgentTask(session);
+  });
 
   const projectExpandPath = useMemo(
     () => buildProjectExpandPath(snapshot, activeId, searchQuery),
@@ -1139,14 +1194,7 @@ export const LeftPanel = ({
         onFiltersChange={handleRunsFiltersChange}
       />
     ),
-    asset: (
-      <TreeView
-        nodes={assetNodes}
-        activeId={activeId}
-        emptyTitle={EMPTY_COPY.assets.title}
-        emptyDescription={EMPTY_COPY.assets.description}
-      />
-    ),
+    asset: <TreeView nodes={assetNodes} activeId={activeId} emptyTitle={EMPTY_COPY.assets.title} />,
     workflow: (
       <TreeView nodes={workflowNodes} activeId={activeId} emptyTitle={EMPTY_COPY.entries.title} />
     ),
@@ -1329,7 +1377,11 @@ export const LeftPanel = ({
           onOpenChange={(nextOpen) => {
             if (!nextOpen) setCreateRunExperimentId(null);
           }}
-          onRunCreated={onRefresh}
+          onRunCreated={(runId) => {
+            onRefresh();
+            setCreateRunExperimentId(null);
+            onSelect({ objectType: "run", objectId: runId });
+          }}
         />
       )}
       {promptDialog}

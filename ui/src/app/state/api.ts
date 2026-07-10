@@ -652,7 +652,7 @@ export const workspaceApi = {
     ) as unknown as Promise<ExperimentComparisonResponse>;
   },
 
-  /** Best-effort cancel: marks the run as cancelled (canonical /cancel route). */
+  /** Canonical cancel verb: POST …/cancel (same as CLI `molexp runs cancel`). */
   killRun: async (
     projectId: string,
     experimentId: string,
@@ -683,11 +683,13 @@ export const workspaceApi = {
     projectId: string,
     experimentId: string,
     runId: string,
+    fresh: boolean = false,
   ): Promise<RunContinueResponse> => {
     return RunsService.rerunRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdRerunPost(
       projectId,
       experimentId,
       runId,
+      fresh,
     ) as unknown as Promise<RunContinueResponse>;
   },
 
@@ -1162,6 +1164,11 @@ export const agentApi = {
       body: JSON.stringify({ content, request_id: requestId }),
     });
     if (!response.ok) throw new Error(`Failed to post message: ${response.statusText}`);
+  },
+
+  deleteSession: async (sessionId: string): Promise<void> => {
+    const response = await fetch(`/api/agent-tasks/${sessionId}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(`Failed to delete agent task: ${response.statusText}`);
   },
 };
 
