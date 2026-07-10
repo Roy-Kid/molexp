@@ -1,0 +1,1 @@
+../../en/getting-started/start-from-ui.md

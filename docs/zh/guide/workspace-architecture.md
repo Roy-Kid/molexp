@@ -1,0 +1,1 @@
+../../en/guide/workspace-architecture.md

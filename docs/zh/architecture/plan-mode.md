@@ -1,0 +1,1 @@
+../../en/architecture/plan-mode.md

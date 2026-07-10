@@ -1,0 +1,1 @@
+../../en/architecture/index.md

@@ -1,0 +1,76 @@
+[project]
+site_name = "MolExp 文档"
+site_description = "面向 FAIR 研究的智能体辅助科学工作流平台"
+docs_dir = "docs/zh"
+site_dir = "site/zh"
+
+nav = [
+    { "首页" = "index.md" },
+    { "快速入门" = [
+        { "概览" = "getting-started/index.md" },
+        { "快速开始" = "getting-started/quick-start.md" },
+        { "从 UI 开始" = "getting-started/start-from-ui.md" },
+        { "第一个工作流" = "getting-started/first-workflow.md" },
+        { "追踪运行" = "getting-started/tracked-runs.md" },
+        { "CLI 与配置文件" = "getting-started/cli-and-profiles.md" }
+    ]},
+    { "核心概念" = [
+        { "概览" = "concept/index.md" },
+        { "工作流模型" = "concept/workflow.md" },
+        { "工作区模型" = "concept/workspace.md" },
+        { "智能体" = "concept/agent.md" },
+        { "资产与可复现性" = "concept/assets-and-reproducibility.md" },
+        { "插件" = "concept/plugins.md" }
+    ]},
+    { "指南" = [
+        { "概览" = "guide/index.md" },
+        { "工作流编写" = [
+            { "Task 与 Actor" = "guide/task-and-actor.md" },
+            { "TaskContext" = "guide/task-context.md" },
+            { "工作流运行时" = "guide/workflow-runtime.md" },
+            { "控制流" = "guide/control-flow.md" },
+            { "子工作流" = "guide/subworkflows.md" },
+            { "IR 导出" = "guide/ir-export.md" }
+        ]},
+        { "记录与资产" = [
+            { "工作区 API" = "guide/workspace-api.md" },
+            { "参数扫描" = "guide/sweeps.md" },
+            { "工作区架构" = "guide/workspace-architecture.md" },
+            { "资产" = "guide/assets.md" },
+            { "笔记与文献" = "guide/knowledge.md" },
+            { "工作流持久化" = "guide/workflow-persistence.md" },
+            { "运行配置" = "guide/run-profiles.md" }
+        ]},
+        { "运维" = [
+            { "用智能体 Harness 计划并运行" = "guide/plan-mode.md" },
+            { "服务生命周期" = "guide/server-lifecycle.md" },
+            { "Molq 插件" = "guide/molq.md" }
+        ]}
+    ]},
+    { "架构" = [
+        { "概览" = "architecture/index.md" },
+        { "智能体层" = "architecture/agent.md" },
+        { "Plan Mode" = "architecture/plan-mode.md" },
+        { "工作流层" = "architecture/workflow-layer.md" }
+    ]},
+    { "开发" = [
+        { "索引" = "development/index.md" },
+        { "编译器" = "development/compiler.md" },
+        { "任务协议" = "development/task-protocols.md" },
+        { "编写插件" = "plugins.md" }
+    ]}
+]
+
+[project.theme]
+name = "molcrafts"
+language = "zh"
+
+[project.extra.molcrafts]
+product = "molexp"
+accent = "#4f46e5"
+
+[project.extra]
+alternate = [
+    { name = "English", link = "/en/", lang = "en" },
+    { name = "中文", link = "/zh/", lang = "zh" }
+]
