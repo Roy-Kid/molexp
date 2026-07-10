@@ -24,6 +24,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from starlette.routing import Route
+
 from molexp.server import ServerManager
 from molexp.server.app import create_app
 
@@ -32,7 +34,7 @@ def main() -> None:
     # 1. Build the ASGI app ---------------------------------------------------
     app = create_app(serve_static=False)
     print(f"FastAPI app: {app.title} v{app.version}")
-    api_routes = [r.path for r in app.routes if r.path.startswith("/api")]
+    api_routes = [r.path for r in app.routes if isinstance(r, Route) and r.path.startswith("/api")]
     print(f"registered API routes ({len(api_routes)}):")
     for route in sorted(api_routes)[:10]:
         print(f"  {route}")

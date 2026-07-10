@@ -43,7 +43,9 @@ def _scripts(subdir: str) -> list[Path]:
 OFFLINE_LLM_SCRIPTS = [
     EXAMPLES / "agent" / "chat_loop.py",
     EXAMPLES / "agent" / "interactive_loop.py",
+    EXAMPLES / "agent" / "mcp_integration.py",
     EXAMPLES / "harness" / "experiment_pipeline.py",
+    EXAMPLES / "harness" / "stages_standalone.py",
 ]
 
 # Offline operations examples (no server, no molq, no network) — listed
@@ -51,12 +53,16 @@ OFFLINE_LLM_SCRIPTS = [
 # scripts that must not run in the smoke gate.
 OFFLINE_OPERATIONS_SCRIPTS = [
     EXAMPLES / "operations" / "curate.py",
+    EXAMPLES / "operations" / "remote_targets.py",
 ]
 
 STANDALONE_SCRIPTS = [
     *_scripts("getting_started"),
     *_scripts("workflow"),
     *_scripts("workspace"),
+    *_scripts("sweeps"),
+    *_scripts("knowledge"),
+    *_scripts("plugins"),
     *OFFLINE_LLM_SCRIPTS,
     *OFFLINE_OPERATIONS_SCRIPTS,
 ]
@@ -125,6 +131,7 @@ def test_example_script_runs_clean(script: Path, tmp_path: Path) -> None:
 CLI_PROFILE_EXAMPLES = [
     ("getting_started/04_cli_and_profiles", "smoke"),
     ("operations/run_profiles", "smoke"),
+    ("operations/run_profiles_advanced", "smoke"),
 ]
 
 

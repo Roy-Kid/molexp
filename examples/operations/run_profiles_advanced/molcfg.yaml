@@ -1,0 +1,30 @@
+version: 1
+
+defaults:
+  epochs: 100
+  optimizer:
+    lr: 0.001
+    weight_decay: 1e-5
+
+profiles:
+  # Inherits defaults — smallest footprint
+  base:
+    epochs: 10
+
+  # Inherits from base; adds a fast smoke-test shape
+  smoke:
+    extends: base
+    epochs: 3
+    skip_heavy_compute: true
+
+  # Longer run — overrides just the epoch count
+  production:
+    extends: base
+    epochs: 500
+    optimizer:
+      lr: 0.0005
+
+  # Dry run — all heavy work skipped
+  dry-run:
+    epochs: 1
+    skip_heavy_compute: true

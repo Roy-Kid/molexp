@@ -27,6 +27,7 @@ You can delete these freely; none of them touch `~/` or any system path.
 | [control-flow](../docs/guide/control-flow.md) | `workflow/control_flow.py` | Diamond fan-out, conditionals, build-time and `wf.parallel` fan-out |
 | [control-flow](../docs/guide/control-flow.md) | `workflow/branch_and_loop.py` | `wf.branch` routing and `wf.loop` repeat-until — `(value, Next(label))` values bind to the target's named parameters |
 | [subworkflows](../docs/guide/subworkflows.md) | `workflow/subworkflows.py` | Calling a sub-spec from inside a task |
+| [ir-export](../docs/guide/ir-export.md) | `workflow/ir_export.py` | Mermaid diagrams, JSON IR round-trip, full-graph IR for UIs |
 
 ## Records and Assets
 
@@ -36,6 +37,19 @@ You can delete these freely; none of them touch `~/` or any system path.
 | [workspace-architecture](../docs/guide/workspace-architecture.md) | `workspace/workspace_architecture.py` | What files actually land on disk |
 | [workflow-persistence](../docs/guide/workflow-persistence.md) | `workspace/workflow_persistence.py` | `run.json`, `execution_history`, `config_hash` |
 | [assets](../docs/guide/assets.md) | `workspace/assets.py` | Artifact, log, checkpoint, `find_asset` |
+| [assets](../docs/guide/assets.md) | `workspace/assets_extended.py` | Error traces, checkpoint chaining, content-hash lookup, import actions |
+
+## Sweeps
+
+| Guide | Example | What it shows |
+|---|---|---|
+| [sweeps](../docs/guide/sweeps.md) | `sweeps/grid_and_space.py` | GridSpace, UniformSpace, RunSet.execute, to_records, min_by, idempotent re-declaration |
+
+## Knowledge
+
+| Guide | Example | What it shows |
+|---|---|---|
+| [knowledge](../docs/guide/knowledge.md) | `knowledge/notes_and_references.py` | Bundle, Note, ReferenceConcept, cite, backlinks, search |
 
 ## Operations
 
@@ -44,6 +58,8 @@ You can delete these freely; none of them touch `~/` or any system path.
 | [run-profiles](../docs/guide/run-profiles.md) | `operations/run_profiles/` | `molcfg.yaml`, `--profile`, `--override` |
 | [server-lifecycle](../docs/guide/server-lifecycle.md) | `operations/server_lifecycle.py` | Programmatic `ServerManager.start()` / `stop()` |
 | [molq](../docs/guide/molq.md) | `operations/scheduler_molq.py` | How `--scheduler slurm` composes a `SubmitHandler` |
+| [run-profiles](../docs/guide/run-profiles.md) | `operations/run_profiles_advanced/` | Profile inheritance (`extends`), `--override` dot notation |
+| [workspace-architecture](../docs/guide/workspace-architecture.md) | `operations/remote_targets.py` | LocalTarget, RemoteTarget, ComputeTarget resolution |
 
 ## Agent Layer
 
@@ -58,6 +74,7 @@ key into the `API_KEY` constant to flip the *same* loop to the real model.
 |---|---|
 | `agent/chat_loop.py` | Minimum viable agent loop — `ChatLoop` + a named runtime `AgentSession` driven through `AgentRunner`. The offline run proves the persistence contract: two turns on one named session, then `result.messages` carries all four messages rebuilt from `entries.jsonl`. |
 | `agent/interactive_loop.py` | The emergent tool loop — `InteractiveLoop` driving `Router.stream_agentic`. The scripted stream yields a thinking delta, one full tool round, then the streamed answer; the demo asserts the chunk→`AgentEvent` translation (`ToolCallStartedEvent` / `ToolCallCompletedEvent`). The loop behind the `molexp agent` CLI REPL. |
+| `agent/mcp_integration.py` | Agent with MCP toolsets — offline ScriptedRouter simulates tool calls, MCPServerStdio construction pattern (commented), InteractiveLoop tool events. |
 
 > Note: "**Loop**" is the agent-layer LLM-conversation concept (`AgentLoop` → `ChatLoop` / `InteractiveLoop`). "**Mode**" is reserved for the harness orchestration concept below (`harness.Mode` → `PlanMode` / `RunMode`).
 >
@@ -76,6 +93,19 @@ subprocess on the real engine, and writes the final report + audit trail.
 | Example | What it shows |
 |---|---|
 | `harness/experiment_pipeline.py` | **The flagship**: a natural-language experiment goal → `PlanMode` (plan + validated workflow source) → `RunMode` (generated unit tests REALLY run under pytest, the workflow REALLY executes on the `molexp.workflow` engine in an executor subprocess) → extracted `FinalReport` + audit trail. Offline by default via an in-file `CannedGateway` implementing the public `AgentGateway` Protocol — only the LLM is canned; every validator, pytest, and the engine run for real (a seeded 1D random walk whose D = MSD/(2·d·t) ≈ 0.5). Paste a key into `API_KEY` to run the same pipeline against the real DeepSeek API through `RouterBackedAgentGateway`. |
+| `harness/stages_standalone.py` | Harness building blocks in isolation — ToolCapability, InMemoryCapabilityRegistry, CannedGateway pattern for offline stage testing. |
+
+## Plugins
+
+| Guide | Example | What it shows |
+|---|---|---|
+| [plugins](../docs/concept/plugins.md) | `plugins/custom_submit_handler.py` | CliPlugin construction, SubmitHandler Protocol, entry-point registration pattern |
+
+## CLI Commands
+
+| Guide | Example | What it shows |
+|---|---|---|
+| [workspace-architecture](../docs/guide/workspace-architecture.md) | `cli/commands.sh` | `molexp init`, `info`, `project`, `experiment`, `runs`, `asset` — full CLI tour |
 
 ## Driving a Run
 
