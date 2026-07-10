@@ -74,7 +74,7 @@ if TYPE_CHECKING:
 
 _LOG = get_logger(__name__)
 
-__all__ = ["InteractiveLoop", "InteractiveLoopConfig"]
+__all__ = ["DEFAULT_CODE_LOOP_PREAMBLE", "InteractiveLoop", "InteractiveLoopConfig"]
 
 
 def _session_messages_path(session: Session) -> Path | None:
@@ -108,26 +108,48 @@ def _save_model_history(session: Session, messages_json: bytes) -> None:
     path.write_bytes(messages_json)
 
 
+#: Default behavior contract for the code-loop (consult → write → exec).
+#: Always composed into ``system`` before user ``system_prompt`` and
+#: ``context_block``. Tests assert the marked substrings.
+DEFAULT_CODE_LOOP_PREAMBLE = """\
+You are molexp's interactive research agent. Work by consulting tools, \
+then writing and running Python — not by inventing parallel APIs.
+
+1. Prefer `molmcp` tools (`molmcp__*` / `molexp_*`) for discovery and \
+workspace scaffold (layout, materialize, add project/experiment). \
+MCP is not a batch science executor — do not use it to run large sweeps.
+2. Implement experiments, parameter sweeps, recovery, and analysis by \
+writing Python against molexp APIs (see examples/agent/code_loop_golden_path.py). \
+Use `write_file` then `execute_python` to run scripts under the workspace.
+3. Plot with `import molplot` in that Python — molexp has no built-in plot tool.
+4. A short plan before multi-step work is fine; planning never locks tools.
+"""
+
+
 class InteractiveLoopConfig(BaseModel):
     """Tunables for :class:`InteractiveLoop`.
 
     Attributes:
-        system_prompt: Extra system-prompt text appended to the
-            built-in interactive-assistant preamble.
+        system_prompt: Extra system-prompt text composed **after**
+            :data:`DEFAULT_CODE_LOOP_PREAMBLE` (or ``behavior_preamble``).
         workspace_root: Directory file/knowledge/code tools are confined
             to. ``None`` falls back to the current working directory at
             run time.
         context_block: Mount-point context (vision-loop-11) — a rendered
             snapshot of the entity this session is attached to, composed
-            after ``system_prompt``. The loop renders whatever it is
-            handed; the block is built by ``services.agent_context``.
+            after the preamble and ``system_prompt``. The block is built
+            by ``services.agent_context``.
         compaction: Context-compaction policy; pass
             ``CompactionSettings(enabled=False)`` to opt out.
-        operation_mode: Behavior label. ``write_file`` / ``execute_python``
-            are always mounted. ``lifecycle`` additionally adds
-            cancel/harvest tools (no harness ApprovalGate — use Plan/Curate
-            for gated execute/resume/rerun). Legacy ``readonly`` does **not**
+        operation_mode: **Behavior label only**, not a capability mask.
+            ``write_file`` / ``execute_python`` are always mounted.
+            ``lifecycle`` additionally adds cancel/harvest tools (no
+            harness ApprovalGate — use Plan/Curate for gated
+            execute/resume/rerun). Legacy ``readonly`` does **not**
             strip code tools.
+        behavior_preamble: Override the default code-loop preamble.
+            Empty string keeps :data:`DEFAULT_CODE_LOOP_PREAMBLE`.
+            Set a custom string to replace it entirely.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -137,6 +159,7 @@ class InteractiveLoopConfig(BaseModel):
     context_block: str = ""
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
     operation_mode: str = "readonly"
+    behavior_preamble: str = ""
 
 
 class InteractiveLoop(AgentLoop):
@@ -181,11 +204,14 @@ class InteractiveLoop(AgentLoop):
         if self.config.operation_mode == "lifecycle":
             tools = tools + tuple(lifecycle_tools(workspace_root=workspace))
 
-        system = self.config.system_prompt
-        if self.config.context_block:
-            system = (
-                f"{system}\n\n{self.config.context_block}" if system else self.config.context_block
-            )
+        # Composition order: behavior preamble → user system_prompt → context_block.
+        preamble = self.config.behavior_preamble or DEFAULT_CODE_LOOP_PREAMBLE
+        parts = [preamble.strip()]
+        if self.config.system_prompt.strip():
+            parts.append(self.config.system_prompt.strip())
+        if self.config.context_block.strip():
+            parts.append(self.config.context_block.strip())
+        system = "\n\n".join(parts)
 
         history = _load_model_history(runtime.session)
         # MCP toolsets: best-effort open; Agent.iter owns enter/exit lifecycle.

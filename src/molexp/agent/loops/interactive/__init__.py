@@ -7,6 +7,10 @@ knowledge) → observes → loops. Drives
 output pipeline (those live in ``molexp.harness``).
 """
 
-from molexp.agent.loops.interactive.loop import InteractiveLoop, InteractiveLoopConfig
+from molexp.agent.loops.interactive.loop import (
+    DEFAULT_CODE_LOOP_PREAMBLE,
+    InteractiveLoop,
+    InteractiveLoopConfig,
+)
 
-__all__ = ["InteractiveLoop", "InteractiveLoopConfig"]
+__all__ = ["DEFAULT_CODE_LOOP_PREAMBLE", "InteractiveLoop", "InteractiveLoopConfig"]
