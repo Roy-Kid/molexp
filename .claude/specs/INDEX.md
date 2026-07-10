@@ -1,6 +1,14 @@
 # Specs Index
 One line per **live** spec. `/mol:spec` adds entries; `/mol:impl` ticks the spec's tasks and prunes the entry (with the spec file) on completion.
-- [execution-semantics](execution-semantics.md) — Workspace↔workflow execution: `ctx.workdir` (first-class, not `inputs["workdir"]`, content-addressed incl. params), persisted binding via `Experiment.run(workflow, params=)` (seam → `workflow.json` + `source/` copy + entrypoint), workflow-layer batch `Runner`; surface `ws.project(p).experiment(e).run(wf, params=)`. [draft] — supersedes the workdir-in-`inputs` parts of 01/03.
-- [pure-task-context-01-cache-contract](pure-task-context-01-cache-contract.md) — Solidify + test + document the cache-identity contract (code+config+inputs hash). [code-complete]
-- [pure-task-context-03-build-flow-rewrite](pure-task-context-03-build-flow-rewrite.md) — Rewrite polymer_electrolyte/build_flow.py to the pure {inputs, config} contract. [approved] — workdir-via-inputs part superseded by execution-semantics.
-- [workspace-event-03-emit](workspace-event-03-emit.md) — emit run.* milestones (opt-in, non-fatal) from run_lifecycle + add_run; asset.added/knowledge.created deferred. P0.3 chain 3/3. [done]
+
+## agent-code-loop chain (implement in order)
+
+- [agent-code-loop-02-code-tools](agent-code-loop-02-code-tools.md) — write_file + execute_python 始终挂载 [approved]
+- [agent-code-loop-03-mcp-wire](agent-code-loop-03-mcp-wire.md) — stream_agentic toolsets + McpStore 接线 [approved]
+- [agent-code-loop-04-molmcp-scaffold](agent-code-loop-04-molmcp-scaffold.md) — molmcp MolexpProvider 脚手架工具 [approved]
+- [agent-code-loop-05-behavior](agent-code-loop-05-behavior.md) — 咨询→写码→执行 行为规范 [approved]
+
+_Closed: agent-code-loop-01-golden (Python 金路径 example + pytest)._
+_Closed product-gap remediation (2026-07) and agent-record-export 01–08._
+Closed without external work: `execution-semantics` (implemented in-tree: `ctx.workdir`, `Experiment.run`/`sweep`, `execute_run`/`RunSet.execute`, materialization store).
+Closed as blocked: `pure-task-context-03-build-flow-rewrite` — target `/Users/roykid/work/molcrafts/polymer_electrolyte/build_flow.py` is absent; workdir contract is `ctx.workdir` (not `ctx.inputs`) per current engine.
