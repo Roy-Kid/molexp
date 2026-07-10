@@ -10,6 +10,7 @@ repository. Its contents outlive any single feature or spec.
 | `harness-goal.md` | North-star spec for the provenance-first scientific-workflow harness (internals). |
 | `integration.md` | Layer-integration & AI-assisted operation spec — how Workspace / Workflow / Experiment / Run / Artifact / Knowledge / Agent cooperate. Companion to `harness-goal.md`. |
 | `open-questions.md` | Uncertainties recorded over time; resolved as answers become clear. |
+| `vision-gap-2026-07.md` | Snapshot of vision ↔ code gaps (July 2026); passive reference, not a live spec. |
 
 ## What does *not* belong here
 

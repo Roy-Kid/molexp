@@ -133,3 +133,12 @@ Decide whether to:
 
 The retired agent definitions can be recovered from git history if
 needed (commit `d05fe29` and earlier).
+
+## pure-task-context-03 / polymer_electrolyte (closed 2026-07-10)
+
+`pure-task-context-03-build-flow-rewrite` was closed as **blocked**: the target
+script `/Users/roykid/work/molcrafts/polymer_electrolyte/build_flow.py` is not
+present in this environment. molexp-side contract is already `ctx.workdir`
+(first-class) + named task params, not `ctx.inputs["workdir"]`. If/when that
+script returns, rewrite against current TaskContext (`ctx.workdir` + named
+parameters), not the older inputs-workdir draft.
