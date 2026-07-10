@@ -52,9 +52,11 @@ class _ScriptedRouter:
         prompt: str,
         system: str = "",
         tools: tuple[object, ...] = (),
+        toolsets: tuple[object, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[object, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
+        del tools, toolsets
         yield TextDeltaChunk(text="hello")
         yield FinalChunk(text="hello")
 

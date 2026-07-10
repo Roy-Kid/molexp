@@ -45,6 +45,7 @@ class _ScriptedRouter:
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
@@ -81,6 +82,7 @@ class _BlockingRouter(_ScriptedRouter):
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:

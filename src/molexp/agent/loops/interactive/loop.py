@@ -17,8 +17,13 @@ code tools (:func:`~molexp.agent.loops.interactive.code_tools.code_tools`
 — ``write_file`` / ``execute_python``). Optional lifecycle tools
 (cancel/harvest) append when ``operation_mode == "lifecycle"``.
 ``operation_mode`` does **not** strip write/exec — it only gates the
-extra lifecycle pair. Tools are passed to ``stream_agentic`` as the
-``tools=`` kwarg; the loop body itself is pydantic-ai's native
+extra lifecycle pair.
+
+MCP toolsets from :class:`~molexp.agent.mcp.store.McpStore` are opened
+best-effort via :func:`~molexp.agent.loops.interactive.mcp_toolsets.open_mcp_toolsets`
+and passed as ``stream_agentic(toolsets=...)``. A single server build
+failure is logged and skipped; the turn still completes. Bare tools go
+to ``tools=``; the loop body itself is pydantic-ai's native
 ``Agent.iter()``, reached through the Router Protocol — this module
 imports nothing from pydantic-ai directly.
 
@@ -51,6 +56,7 @@ from molexp.agent.loops._compact import maybe_compact
 from molexp.agent.loops.interactive.code_tools import code_tools
 from molexp.agent.loops.interactive.knowledge_tools import knowledge_tools
 from molexp.agent.loops.interactive.lifecycle_tools import lifecycle_tools
+from molexp.agent.loops.interactive.mcp_toolsets import open_mcp_toolsets
 from molexp.agent.loops.interactive.tools import readonly_tools
 from molexp.agent.router import (
     FinalChunk,
@@ -182,11 +188,14 @@ class InteractiveLoop(AgentLoop):
             )
 
         history = _load_model_history(runtime.session)
+        # MCP toolsets: best-effort open; Agent.iter owns enter/exit lifecycle.
+        toolsets = open_mcp_toolsets(workspace)
         final_text = ""
         async for chunk in runtime.router.stream_agentic(
             prompt=user_input,
             system=system,
             tools=tools,
+            toolsets=toolsets,
             message_history=history,
         ):
             if isinstance(chunk, ThinkingDeltaChunk):

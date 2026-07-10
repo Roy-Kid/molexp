@@ -232,18 +232,28 @@ class PydanticAIRouter:
             ru = run_result.usage
         except Exception:  # pragma: no cover — defensive, RunUsage shape may evolve
             ru = None
+        if ru is None:
+            input_tokens = output_tokens = cache_read_tokens = cache_write_tokens = total_tokens = 0
+            requests = 0
+        else:
+            input_tokens = int(ru.input_tokens or 0)
+            output_tokens = int(ru.output_tokens or 0)
+            cache_read_tokens = int(ru.cache_read_tokens or 0)
+            cache_write_tokens = int(ru.cache_write_tokens or 0)
+            total_tokens = int(ru.total_tokens or 0)
+            requests = int(ru.requests or 1)
         record = CallUsage(
             node_id=node_id,
             tier=tier.value,
             schema_name=schema_name,
             duration_seconds=duration_seconds,
             attempt=attempt,
-            input_tokens=int(getattr(ru, "input_tokens", 0) or 0),
-            output_tokens=int(getattr(ru, "output_tokens", 0) or 0),
-            cache_read_tokens=int(getattr(ru, "cache_read_tokens", 0) or 0),
-            cache_write_tokens=int(getattr(ru, "cache_write_tokens", 0) or 0),
-            total_tokens=int(getattr(ru, "total_tokens", 0) or 0),
-            requests=int(getattr(ru, "requests", 1) or 1),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            total_tokens=total_tokens,
+            requests=requests,
         )
         self._usage_log.append(record)
         return record
@@ -296,7 +306,7 @@ class PydanticAIRouter:
                 prompt,
                 message_history=list(message_history) if message_history else None,
             )
-            text = str(getattr(run_result, "output", "") or "")
+            text = str(run_result.output or "") if run_result.output is not None else ""
             elapsed = time.monotonic() - t0
             record = self._record_usage(
                 run_result=run_result,
@@ -473,7 +483,7 @@ class PydanticAIRouter:
             )
             t0 = time.monotonic()
             result = await agent.run(user)
-            output = getattr(result, "output", None)
+            output = result.output
             if not isinstance(output, schema):
                 raise TypeError(
                     f"Router expected {schema.__name__} from tier={tier.value}; "
@@ -541,17 +551,19 @@ class PydanticAIRouter:
         prompt: str,
         system: str = "",
         tools: tuple[PydanticAiTool, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
         """Drive pydantic-ai's native agentic loop, translated to chunks.
 
-        Builds a fresh ``Agent(tools=...)`` for this call — construction
-        is cheap and side-effect-free, so per-call ``system`` / ``tools``
-        need no cache key — then iterates ``Agent.iter()`` node by node.
-        The agentic loop itself (tool dispatch, retries, message
-        history) stays entirely inside pydantic-ai; this method only
-        *translates* its event stream into SDK-free
+        Builds a fresh ``Agent(tools=..., toolsets=...)`` for this call —
+        construction is cheap and side-effect-free, so per-call ``system``
+        / ``tools`` / ``toolsets`` need no cache key — then iterates
+        ``Agent.iter()`` node by node. The agentic loop itself (tool
+        dispatch, retries, message history, MCP toolset enter/exit)
+        stays entirely inside pydantic-ai; this method only *translates*
+        its event stream into SDK-free
         :data:`~molexp.agent.router.AgenticChunk`\\ s. The terminal
         yield is always a :class:`~molexp.agent.router.FinalChunk`.
         """
@@ -562,14 +574,19 @@ class PydanticAIRouter:
             agent_kwargs["system_prompt"] = preamble
         if tools:
             agent_kwargs["tools"] = list(tools)
+        if toolsets:
+            agent_kwargs["toolsets"] = list(toolsets)
         agent: Agent[None, str] = Agent(**agent_kwargs)
 
         _LOG.debug(
             f"[router] agentic tier={tier.value} model={model} "
-            f"tools={len(tools)} prompt_chars={len(prompt)} history={len(message_history)}"
+            f"tools={len(tools)} toolsets={len(toolsets)} "
+            f"prompt_chars={len(prompt)} history={len(message_history)}"
         )
         t0 = time.monotonic()
         history = list(message_history) if message_history else None
+        final_text = ""
+        messages_json: bytes | None = None
         try:
             async with agent.iter(prompt, message_history=history) as run:
                 async for node in run:
@@ -585,7 +602,10 @@ class PydanticAIRouter:
                                 tool_chunk = _tool_chunk(event)
                                 if tool_chunk is not None:
                                     yield tool_chunk
-                final_text = str(getattr(run.result, "output", "") or "")
+                final_text = str(run.result.output or "") if run.result.output is not None else ""
+                # Full conversation (prior history + this turn) for lossless
+                # AgentSession persistence (agent-record-export-04).
+                messages_json = run.result.all_messages_json() if run.result is not None else None
                 self._record_usage(
                     run_result=run.result,
                     node_id="interactive",
@@ -603,7 +623,7 @@ class PydanticAIRouter:
             f"[router] agentic tier={tier.value} ok {time.monotonic() - t0:.2f}s "
             f"final_chars={len(final_text)}"
         )
-        yield FinalChunk(text=final_text)
+        yield FinalChunk(text=final_text, model_messages_json=messages_json)
 
 
 # ── Agentic-event → chunk translation ──────────────────────────────────────
@@ -682,8 +702,8 @@ def _tool_chunk(event: Any) -> ToolCallChunk | ToolResultChunk | None:  # noqa: 
     if isinstance(event, FunctionToolResultEvent):
         part = event.part
         return ToolResultChunk(
-            tool_name=getattr(part, "tool_name", ""),
-            result_summary=_truncate(str(getattr(part, "content", ""))),
+            tool_name=part.tool_name,
+            result_summary=_truncate(str(part.content)),
             ok=not isinstance(part, RetryPromptPart),
         )
     return None

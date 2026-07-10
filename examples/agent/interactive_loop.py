@@ -60,10 +60,11 @@ class ScriptedRouter:
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
-        del prompt, system, tools, tier, message_history  # scripted
+        del prompt, system, tools, toolsets, tier, message_history  # scripted
         yield ThinkingDeltaChunk(text="The user asks about notes.txt — read it first.")
         yield ToolCallChunk(tool_name="read_file", args_summary="notes.txt")
         yield ToolResultChunk(tool_name="read_file", result_summary=_NOTE, ok=True)

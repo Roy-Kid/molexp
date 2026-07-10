@@ -102,8 +102,8 @@ class TestReadKnowledge:
 
 class TestLoopBinding:
     @pytest.mark.asyncio
-    async def test_interactive_loop_hands_five_tools_to_router(self, tmp_path: Path) -> None:
-        """InteractiveLoop binds file tools + knowledge tools (5 total)."""
+    async def test_interactive_loop_hands_tools_to_router(self, tmp_path: Path) -> None:
+        """InteractiveLoop binds file + knowledge + code tools (7 total)."""
         from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
         from molexp.agent.router import FinalChunk
         from molexp.agent.runner import AgentRunner
@@ -150,4 +150,6 @@ class TestLoopBinding:
             "search_code",
             "search_knowledge",
             "read_knowledge",
+            "write_file",
+            "execute_python",
         ]

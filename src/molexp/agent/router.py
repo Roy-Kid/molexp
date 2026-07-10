@@ -150,12 +150,19 @@ class ToolResultChunk(BaseModel):
 
 
 class FinalChunk(BaseModel):
-    """The terminal chunk — carries the agentic loop's final assistant text."""
+    """The terminal chunk — final assistant text + optional lossless history.
+
+    ``model_messages_json`` is the pydantic-ai ``ModelMessage`` list as
+    canonical JSON bytes (produced only inside ``_pydanticai``). Stubs omit
+    it; production routers set it so :class:`~molexp.agent.loops.InteractiveLoop`
+    can persist multiturn context without importing pydantic-ai.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     kind: Literal["final"] = "final"
     text: str
+    model_messages_json: bytes | None = None
 
 
 AgenticChunk = TextDeltaChunk | ThinkingDeltaChunk | ToolCallChunk | ToolResultChunk | FinalChunk
@@ -260,6 +267,7 @@ class Router(Protocol):
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
@@ -281,6 +289,10 @@ class Router(Protocol):
             tools: Tools the model may call — opaque pydantic-ai
                 ``Tool`` instances or bare callables, forwarded
                 verbatim. The protocol stays SDK-free, hence ``Any``.
+            toolsets: Opaque pydantic-ai toolset objects (typically from
+                :func:`molexp.agent._pydanticai.mcp.build_mcp_server`).
+                Empty means no MCP/toolset attachment. May be combined
+                with ``tools``.
             tier: Which tier's model to use. Defaults to ``DEFAULT``.
             message_history: Opaque prior-turn history (or empty),
                 forwarded verbatim to the underlying agent.

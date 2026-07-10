@@ -60,9 +60,11 @@ class _ScriptedRouter:
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
+        del toolsets  # optional MCP toolsets; scripted path ignores them
         self.stream_agentic_calls += 1
         self.last_tools = tools
         yield TextDeltaChunk(text="Looking ")
@@ -157,9 +159,11 @@ class _ThinkingRouter(_ScriptedRouter):
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
+        del tools, toolsets
         self.stream_agentic_calls += 1
         yield ThinkingDeltaChunk(text="weighing the options")
         yield TextDeltaChunk(text="The answer.")
@@ -179,6 +183,7 @@ async def test_interactive_loop_persists_model_messages_json(tmp_path: Path) -> 
             prompt: str,
             system: str = "",
             tools: tuple[Any, ...] = (),
+            toolsets: tuple[Any, ...] = (),
             tier: ModelTier = ModelTier.DEFAULT,
             message_history: tuple[Any, ...] = (),
         ) -> AsyncIterator[AgenticChunk]:

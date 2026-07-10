@@ -39,6 +39,7 @@ class _ScriptedRouter:
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
@@ -98,6 +99,19 @@ def test_create_session_returns_200_and_is_listed(agent_client: TestClient) -> N
 
 def test_unknown_task_returns_404(agent_client: TestClient) -> None:
     assert agent_client.get("/api/agent-tasks/task-does-not-exist").status_code == 404
+
+
+def test_delete_task_removes_it_from_task_surface(agent_client: TestClient) -> None:
+    created = agent_client.post("/api/agent-tasks", json={"description": "temporary task"})
+    assert created.status_code == 200, created.text
+    task_id = created.json()["taskId"]
+
+    deleted = agent_client.delete(f"/api/agent-tasks/{task_id}")
+    assert deleted.status_code == 200, deleted.text
+
+    listed = agent_client.get("/api/agent-tasks").json()
+    assert all(t["taskId"] != task_id for t in listed["tasks"])
+    assert agent_client.get(f"/api/agent-tasks/{task_id}").status_code == 404
 
 
 def test_missing_model_config_yields_503(

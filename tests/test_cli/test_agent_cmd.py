@@ -36,9 +36,11 @@ class _ScriptedRouter:
         prompt: str,
         system: str = "",
         tools: tuple[object, ...] = (),
+        toolsets: tuple[object, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[object, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
+        del tools, toolsets
         yield TextDeltaChunk(text="Hello from ")
         yield TextDeltaChunk(text="the agent.")
         yield FinalChunk(text="Hello from the agent.")
@@ -97,6 +99,55 @@ def test_agent_repl_runs_a_turn_and_persists_session(
     # the conversation persisted to the named session
     jsonl = list(tmp_path.rglob("entries.jsonl"))
     assert jsonl, "expected the session's entries.jsonl to be written"
+
+
+def test_agent_harvest_and_export_cli(runner: CliRunner, tmp_path: Path) -> None:
+    """``molexp agent harvest|export`` hit library cores (record-export-06)."""
+    from molexp.agent.folders import Agent
+    from molexp.workspace import Workspace
+
+    ws = Workspace(root=tmp_path / "ws")
+    ws.materialize()
+    agent = Agent(name="interactive", root_path=ws.root)
+    agent.materialize()
+    sess = agent.add_session("s1")
+    sess.materialize()
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "harvest",
+            "Session looked productive.",
+            "--workspace",
+            str(ws.root),
+            "--session",
+            "s1",
+            "--agent-name",
+            "interactive",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Harvested" in result.output
+
+    out_zip = tmp_path / "out.zip"
+    result2 = runner.invoke(
+        app,
+        [
+            "agent",
+            "export",
+            "--workspace",
+            str(ws.root),
+            "--session",
+            "s1",
+            "--agent-name",
+            "interactive",
+            "-o",
+            str(out_zip),
+        ],
+    )
+    assert result2.exit_code == 0, result2.output
+    assert out_zip.is_file() and out_zip.stat().st_size > 0
 
 
 @pytest.mark.integration
