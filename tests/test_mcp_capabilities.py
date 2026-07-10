@@ -17,11 +17,33 @@ import pytest
 from molexp.harness.errors import CapabilityCallValidationError
 from molexp.harness.registry import InMemoryCapabilityRegistry
 from molexp.mcp_capabilities import (
+    DEFAULT_CAPABILITY_QUERIES,
+    _rank_discovery_tools,
     capabilities_from_payloads,
     capability_from_node,
     parse_signature_params,
     synthesize_input_schema,
 )
+
+
+def test_default_capability_queries_is_empty_auto_discovery() -> None:
+    """No compiled-in polymer/LAMMPS menu — queries come from task/runtime."""
+    assert DEFAULT_CAPABILITY_QUERIES == ()
+
+
+def test_rank_discovery_tools_orders_by_role_not_package() -> None:
+    names = [
+        "molmcp_outline",
+        "other_search",
+        "svc_find_capability",
+        "molcrafts_explore",
+        "unrelated_list",
+    ]
+    ranked = _rank_discovery_tools(names)
+    assert ranked[0] == "svc_find_capability"
+    assert "molcrafts_explore" in ranked
+    assert "other_search" in ranked
+    assert "unrelated_list" not in ranked
 
 
 class TestParseSignatureParams:

@@ -128,7 +128,10 @@ class PlanTask:
             if self.ground:
                 from molexp.mcp_capabilities import aresolve_capability_registry
 
-                capability_registry = await aresolve_capability_registry(self.workspace_root)
+                capability_registry = await aresolve_capability_registry(
+                    self.workspace_root,
+                    task=self.draft,
+                )
             # drive_plan_mode wraps the pipeline in the run lifecycle so the
             # plan Run's status is honest (running -> succeeded | failed) —
             # the same shared path `molexp plan` uses.

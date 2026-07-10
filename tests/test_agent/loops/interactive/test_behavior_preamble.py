@@ -57,10 +57,20 @@ class _CaptureSystemRouter:
 
 
 @pytest.mark.asyncio
-async def test_default_preamble_mentions_consult_write_exec_molplot(
+async def test_default_preamble_mentions_stable_ops_not_hardcoded_mcp(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC-001: system includes molmcp + write/exec + molplot markers."""
+    """AC-001: system has stable ops tools; static preamble never hard-codes MCP names.
+
+    Runtime MCP catalogs *may* inject live tool names into the system
+    appendix (auto-discovery). Isolation: stub open_mcp_toolsets so this
+    unit test does not depend on the operator's ~/.molexp MCP config.
+    """
+    monkeypatch.setattr(
+        "molexp.agent.loops.interactive.loop.open_mcp_toolsets",
+        lambda _root: (),
+    )
     router = _CaptureSystemRouter()
     loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
     runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
@@ -71,9 +81,10 @@ async def test_default_preamble_mentions_consult_write_exec_molplot(
     assert "code_run" in system
     assert "code_write" in system
     assert "discover" in system
-    # ops preamble — no hard-coded MCP tool names
+    # Static ops preamble — no hard-coded third-party MCP tool names
     assert "code_run" in DEFAULT_CODE_LOOP_PREAMBLE
-    assert "molexp_add_project" not in system
+    assert "molexp_add_project" not in DEFAULT_CODE_LOOP_PREAMBLE
+    assert "molexp_add_project" not in system  # isolated: no live MCP catalog
 
 
 @pytest.mark.asyncio

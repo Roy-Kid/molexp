@@ -159,11 +159,18 @@ def _configured_model() -> str | None:
     return agent_configured_model()
 
 
-def _resolve_grounding(workspace_root: Path, *, ground: bool) -> CapabilityRegistry | None:
+def _resolve_grounding(
+    workspace_root: Path,
+    *,
+    ground: bool,
+    task: str | None = None,
+) -> CapabilityRegistry | None:
     """Build a molmcp-backed ``CapabilityRegistry`` when ``--ground`` is set.
 
     Returns ``None`` when grounding is off or molmcp is unavailable (the helper
     prints a visible notice in the latter case — never a silent downgrade).
+    ``task`` is the experiment draft so discovery follows the user request
+    (auto-discovery — no fixed polymer query table).
     """
     if not ground:
         return None
@@ -171,7 +178,9 @@ def _resolve_grounding(workspace_root: Path, *, ground: bool) -> CapabilityRegis
     from molexp.mcp_capabilities import resolve_capability_registry
 
     return resolve_capability_registry(
-        workspace_root, notify=lambda message: rprint(f"[dim]{message}[/dim]")
+        workspace_root,
+        task=task,
+        notify=lambda message: rprint(f"[dim]{message}[/dim]"),
     )
 
 
@@ -377,7 +386,7 @@ def plan(
             rprint(f"    {label} {group.title:<24} {chain}")
 
     gateway = PlanRuntime.build_gateway(model=resolved_model, run=run, router=router)
-    capability_registry = _resolve_grounding(workspace_root, ground=ground)
+    capability_registry = _resolve_grounding(workspace_root, ground=ground, task=draft_text)
     from molexp.services.plan_runtime import drive_plan_mode
 
     try:

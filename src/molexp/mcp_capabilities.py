@@ -23,11 +23,11 @@ explicit — never a silent fallback. Two resolvers share the mapping + notice
 logic: :func:`resolve_capability_registry` (sync, for the CLI) and
 :func:`aresolve_capability_registry` (async, for the server's async route).
 
-The catalog is built from a fixed set of domain-spanning ``find_capability``
-queries (the union, deduped by symbol id). Phase 1b feeds the *same* catalog to
-the ``bound_workflow_binder`` agent, so the binder only ever names symbols that
-are in the catalog — keeping the binder's choices and the validator's
-existence/shape checks self-consistent by construction.
+The catalog is built by opening molmcp, **listing tools at runtime**, ranking
+discovery-shaped tools by name substring, and querying them with the experiment
+``task`` draft (or an explicit ``queries`` list). No compiled-in polymer/LAMMPS
+query menu — auto-discovery law. Phase 1b feeds the same catalog to the
+``bound_workflow_binder`` agent so binder and validator stay self-consistent.
 """
 
 from __future__ import annotations
@@ -48,21 +48,12 @@ _LOG = get_logger(__name__)
 
 DEFAULT_SERVER_NAME = "molmcp"
 
-#: Domain-spanning capability queries. molmcp ranks symbols against each; the
-#: deduped union becomes the grounded catalog.
-DEFAULT_CAPABILITY_QUERIES: tuple[str, ...] = (
-    "build a coarse-grained molecule from beads",
-    "create a coarse-grained bead with a charge",
-    "bond two coarse-grained beads together",
-    "build a polymer chain from monomers",
-    "replicate or tile a molecular structure",
-    "convert a coarse-grained structure to a frame",
-    "define a periodic simulation box",
-    "pack molecules into a simulation box",
-    "write a LAMMPS data file",
-    "write a complete LAMMPS system with a force field",
-    "export a structure to a GROMACS topology",
-)
+#: Legacy alias kept for call-site imports. **Empty by design** — plan grounding
+#: no longer ships a domain-specific polymer/LAMMPS query table. Pass
+#: ``task=`` (the experiment draft) or an explicit ``queries=`` sequence;
+#: discovery tool **names** are chosen from the live MCP ``list_tools``
+#: catalog (auto-discovery law).
+DEFAULT_CAPABILITY_QUERIES: tuple[str, ...] = ()
 
 _SKIP_PARAMS = frozenset({"self", "cls"})
 
@@ -251,11 +242,13 @@ def capabilities_from_payloads(
 
 def _payload_from_result(result: object) -> Mapping[str, object] | None:
     """Extract the JSON dict from an MCP ``CallToolResult``'s text content."""
-    content = getattr(result, "content", None)
+    if not hasattr(result, "content"):
+        return None
+    content = result.content
     if not content:
         return None
     for block in content:
-        text = getattr(block, "text", None)
+        text = block.text if hasattr(block, "text") else None
         if isinstance(text, str):
             try:
                 data = json.loads(text)
@@ -266,18 +259,54 @@ def _payload_from_result(result: object) -> Mapping[str, object] | None:
     return None
 
 
+def _rank_discovery_tools(tool_names: Sequence[str]) -> list[str]:
+    """Order live MCP tool names by discovery usefulness (no fixed package list).
+
+    Matching is by **substring** on whatever the server advertises today —
+    ``find_capability``, ``explore``, ``search``, ``outline``, … — so molmcp
+    renames still work without a molexp source edit when the role is clear.
+    """
+    scored: list[tuple[int, str]] = []
+    for name in tool_names:
+        lower = name.lower()
+        if "find_capability" in lower:
+            scored.append((0, name))
+        elif "explore" in lower:
+            scored.append((1, name))
+        elif "search_symbols" in lower or lower.endswith("_search") or "search" in lower:
+            scored.append((2, name))
+        elif "outline" in lower:
+            scored.append((3, name))
+    scored.sort(key=lambda item: (item[0], item[1]))
+    return [name for _, name in scored]
+
+
+def _call_args_for_discovery_tool(
+    tool_name: str, query: str, *, max_results: int
+) -> dict[str, object]:
+    """Build best-effort kwargs for a discovery tool (schema varies by server)."""
+    lower = tool_name.lower()
+    if "find_capability" in lower or "explore" in lower:
+        return {"task": query, "budget_chars": 16000, "max_results": max_results}
+    if "outline" in lower:
+        return {"source": query} if query and not query.startswith("public") else {}
+    return {"query": query, "limit": max_results}
+
+
 async def fetch_molmcp_capabilities(
     workspace_root: str | Path,
     *,
     server_name: str = DEFAULT_SERVER_NAME,
-    queries: Sequence[str] = DEFAULT_CAPABILITY_QUERIES,
+    task: str | None = None,
+    queries: Sequence[str] | None = None,
     max_results: int = 12,
 ) -> list[ToolCapability]:
     """Open a stdio session to molmcp and prefetch a deduped capability catalog.
 
-    Resolves the ``server_name`` entry from molexp's MCP config store, spawns its
-    stdio server, runs each query through ``molmcp_find_capability``, and maps the
-    returned nodes to capabilities.
+    **Auto-discovery law:** discovery tool names are taken from the live
+    MCP ``list_tools`` catalog; query text comes from ``task`` (experiment
+    draft) or an explicit ``queries`` sequence — never from a compiled-in
+    polymer/LAMMPS table.
 
     Raises:
         LookupError: if ``server_name`` is not configured or is not a stdio
@@ -302,6 +331,14 @@ async def fetch_molmcp_capabilities(
     if spec.transport != "stdio" or not spec.command:
         raise LookupError(f"MCP server {server_name!r} is not a stdio server")
 
+    if queries:
+        query_list = [q.strip() for q in queries if q and str(q).strip()]
+    elif task and task.strip():
+        query_list = [task.strip()]
+    else:
+        # Single domain-agnostic probe — not a hand-maintained science menu.
+        query_list = ["public package APIs and executable capabilities"]
+
     params = StdioServerParameters(
         command=spec.command,
         args=list(spec.args),
@@ -316,14 +353,29 @@ async def fetch_molmcp_capabilities(
             ClientSession(read, write) as session,
         ):
             await session.initialize()
-            for query in queries:
-                result = await session.call_tool(
-                    "molmcp_find_capability",
-                    {"task": query, "max_results": max_results},
+            listed = await session.list_tools()
+            tool_names = [t.name for t in listed.tools] if hasattr(listed, "tools") else []
+            if not tool_names and isinstance(listed, list):
+                tool_names = [
+                    t.name for t in listed if hasattr(t, "name") and isinstance(t.name, str)
+                ]
+            candidates = _rank_discovery_tools(tool_names)
+            if not candidates:
+                _LOG.warning(
+                    "[mcp_capabilities] no discovery-shaped tools in MCP catalog; "
+                    f"tools={tool_names[:20]!r}"
                 )
-                payload = _payload_from_result(result)
-                if payload is not None:
-                    payloads.append(payload)
+            for tool_name in candidates[:4]:
+                for query in query_list:
+                    args = _call_args_for_discovery_tool(tool_name, query, max_results=max_results)
+                    try:
+                        result = await session.call_tool(tool_name, args)
+                    except Exception as exc:
+                        _LOG.debug(f"[mcp_capabilities] {tool_name!r} query failed: {exc!r}")
+                        continue
+                    payload = _payload_from_result(result)
+                    if payload is not None:
+                        payloads.append(payload)
     return capabilities_from_payloads(payloads)
 
 
@@ -356,22 +408,28 @@ def resolve_capability_registry(
     workspace_root: str | Path,
     *,
     server_name: str = DEFAULT_SERVER_NAME,
-    queries: Sequence[str] = DEFAULT_CAPABILITY_QUERIES,
+    task: str | None = None,
+    queries: Sequence[str] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> CapabilityRegistry | None:
     """Build a grounded ``CapabilityRegistry`` from molmcp, or ``None`` (loud).
 
-    Synchronous entry (for the CLI). Runs the async prefetch; on any miss (molmcp
-    unconfigured / unreachable / empty) it emits a visible notice via ``notify``
-    (default: a logger warning) and returns ``None`` so the caller proceeds
-    ungrounded — an explicit, never-silent downgrade.
+    Synchronous entry (for the CLI). Prefer ``task=`` (experiment draft) so
+    grounding follows the user request instead of a fixed query menu. On any
+    miss (molmcp unconfigured / unreachable / empty) emits a visible notice
+    via ``notify`` and returns ``None`` — never a silent downgrade.
     """
     import asyncio
 
     say = notify if notify is not None else _log_notice
     try:
         caps = asyncio.run(
-            fetch_molmcp_capabilities(workspace_root, server_name=server_name, queries=queries)
+            fetch_molmcp_capabilities(
+                workspace_root,
+                server_name=server_name,
+                task=task,
+                queries=queries,
+            )
         )
     except Exception as exc:  # prefetch is best-effort: report and proceed ungrounded
         _notice_for_prefetch_error(exc, say)
@@ -383,7 +441,8 @@ async def aresolve_capability_registry(
     workspace_root: str | Path,
     *,
     server_name: str = DEFAULT_SERVER_NAME,
-    queries: Sequence[str] = DEFAULT_CAPABILITY_QUERIES,
+    task: str | None = None,
+    queries: Sequence[str] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> CapabilityRegistry | None:
     """Async sibling of :func:`resolve_capability_registry` for an async caller.
@@ -395,7 +454,10 @@ async def aresolve_capability_registry(
     say = notify if notify is not None else _log_notice
     try:
         caps = await fetch_molmcp_capabilities(
-            workspace_root, server_name=server_name, queries=queries
+            workspace_root,
+            server_name=server_name,
+            task=task,
+            queries=queries,
         )
     except Exception as exc:  # prefetch is best-effort: report and proceed ungrounded
         _notice_for_prefetch_error(exc, say)
@@ -429,7 +491,8 @@ def resolve_curation_capability_registry(
     workspace_root: str | Path,
     *,
     server_name: str = DEFAULT_SERVER_NAME,
-    queries: Sequence[str] = DEFAULT_CAPABILITY_QUERIES,
+    task: str | None = None,
+    queries: Sequence[str] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> CapabilityRegistry:
     """Merge the built-in curation catalog onto the molmcp-grounded science registry.
@@ -441,7 +504,11 @@ def resolve_curation_capability_registry(
     always present even with science grounding off.
     """
     science = resolve_capability_registry(
-        workspace_root, server_name=server_name, queries=queries, notify=notify
+        workspace_root,
+        server_name=server_name,
+        task=task,
+        queries=queries,
+        notify=notify,
     )
     return _merge_curation_built_ins(science)
 
@@ -450,7 +517,8 @@ async def aresolve_curation_capability_registry(
     workspace_root: str | Path,
     *,
     server_name: str = DEFAULT_SERVER_NAME,
-    queries: Sequence[str] = DEFAULT_CAPABILITY_QUERIES,
+    task: str | None = None,
+    queries: Sequence[str] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> CapabilityRegistry:
     """Async sibling of :func:`resolve_curation_capability_registry`.
@@ -460,6 +528,10 @@ async def aresolve_curation_capability_registry(
     built-ins. Never returns ``None``.
     """
     science = await aresolve_capability_registry(
-        workspace_root, server_name=server_name, queries=queries, notify=notify
+        workspace_root,
+        server_name=server_name,
+        task=task,
+        queries=queries,
+        notify=notify,
     )
     return _merge_curation_built_ins(science)

@@ -46,7 +46,10 @@ from molexp.agent.events import (
 from molexp.agent.loop import AgentLoop, AgentRunResult
 from molexp.agent.loops._compact import maybe_compact
 from molexp.agent.loops.interactive.lifecycle_tools import lifecycle_tools
-from molexp.agent.loops.interactive.mcp_toolsets import open_mcp_toolsets
+from molexp.agent.loops.interactive.mcp_toolsets import (
+    list_mcp_tool_specs,
+    open_mcp_toolsets,
+)
 from molexp.agent.ops import (
     DEFAULT_OPS_PREAMBLE,
     build_ops_tools,
@@ -169,12 +172,19 @@ class InteractiveLoop(AgentLoop):
         )
 
         workspace = self.config.workspace_root or Path.cwd()
-        # MCP toolsets first (runtime catalog); names never hard-coded in molexp.
+        # MCP toolsets + runtime list_tools catalog (auto-discovery law).
         toolsets = open_mcp_toolsets(workspace)
+        try:
+            mcp_specs = await list_mcp_tool_specs(toolsets)
+        except Exception as exc:
+            # Catalog is best-effort; missing/broken MCP must not abort the turn.
+            _LOG.warning(f"[interactive] MCP catalog list failed: {exc!r}")
+            mcp_specs = ()
         ctx = build_session_context(
             workspace_root=workspace,
             execution_env=runtime.execution_env,
             mcp_toolsets=toolsets,
+            mcp_tool_specs=mcp_specs,
         )
         tools = tuple(build_ops_tools(ctx))
         if self.config.operation_mode == "lifecycle":

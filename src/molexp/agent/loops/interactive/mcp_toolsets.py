@@ -1,25 +1,26 @@
-"""Open MCP toolsets for :class:`InteractiveLoop` from :class:`McpStore`.
+"""Open MCP toolsets for InteractiveLoop from McpStore + list live tool specs.
 
 Best-effort: invalid / shadowed / unresolved-secret entries are skipped;
-a single ``build_mcp_server`` failure is logged and does not abort the
-turn. Callers pass the returned opaque toolset objects into
-``Router.stream_agentic(toolsets=...)`` — pydantic-ai's ``Agent.iter``
-enters/exits MCP transports for the duration of the run.
+a single build or list failure is logged and does not abort the turn.
+
+Tool **names** are never hard-coded — they come from the live MCP
+``list_tools`` catalog after the toolset is opened.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from mollog import get_logger
 
-__all__ = ["open_mcp_toolsets"]
+from molexp.agent.ops.protocols import ToolSpec
+
+__all__ = ["list_mcp_tool_specs", "open_mcp_toolsets"]
 
 _LOG = get_logger(__name__)
 
 
-def open_mcp_toolsets(workspace_root: Path) -> tuple[Any, ...]:
+def open_mcp_toolsets(workspace_root: Path) -> tuple[object, ...]:
     """Build pydantic-ai MCP toolsets for valid, unshadowed store entries.
 
     Args:
@@ -42,14 +43,12 @@ def open_mcp_toolsets(workspace_root: Path) -> tuple[Any, ...]:
         _LOG.warning(f"[interactive.mcp] could not open McpStore at {root}: {exc!r}")
         return ()
 
-    toolsets: list[Any] = []
+    toolsets: list[object] = []
     for entry in entries:
         if not entry.valid or entry.shadowed or entry.unresolved_secrets:
             continue
         try:
             resolved = store.resolve(entry)
-            # Point molexp (and similar) providers at this session workspace
-            # so tools without an explicit path still target the right root.
             env = dict(resolved.env) if resolved.env else {}
             if resolved.transport == "stdio":
                 env.setdefault("MOLEXP_WORKSPACE", str(root.resolve()))
@@ -69,3 +68,52 @@ def open_mcp_toolsets(workspace_root: Path) -> tuple[Any, ...]:
             continue
         toolsets.append(toolset)
     return tuple(toolsets)
+
+
+def _unwrap_mcp_listable(toolset: object) -> tuple[object | None, str]:
+    """Return ``(object_with_list_tools, name_prefix)`` for a toolset."""
+    prefix = str(getattr(toolset, "prefix", "") or "")
+    current: object | None = toolset
+    # Walk WrapperToolset.wrapped until we find list_tools (MCPToolset).
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if callable(getattr(current, "list_tools", None)):
+            return current, prefix
+        current = getattr(current, "wrapped", None)
+    return None, prefix
+
+
+async def list_mcp_tool_specs(toolsets: tuple[object, ...]) -> tuple[ToolSpec, ...]:
+    """Enumerate tools from openable MCP toolsets (runtime catalog only).
+
+    Each toolset is entered briefly via its own ``list_tools`` (which
+    typically does ``async with self``). Prefixed toolsets get
+    ``{prefix}_{name}`` so names match what the agent sees at call time.
+    """
+    specs: list[ToolSpec] = []
+    for toolset in toolsets:
+        listable, prefix = _unwrap_mcp_listable(toolset)
+        if listable is None:
+            _LOG.debug(f"[interactive.mcp] no list_tools on toolset {type(toolset).__name__}")
+            continue
+        source = prefix or str(getattr(toolset, "id", "") or type(toolset).__name__)
+        try:
+            tools = await listable.list_tools()
+        except Exception as exc:
+            _LOG.warning(f"[interactive.mcp] list_tools failed for {source!r}: {exc!r}")
+            continue
+        for tool in tools:
+            raw_name = getattr(tool, "name", None)
+            if not isinstance(raw_name, str) or not raw_name:
+                continue
+            name = f"{prefix}_{raw_name}" if prefix else raw_name
+            desc = getattr(tool, "description", None)
+            specs.append(
+                ToolSpec(
+                    name=name,
+                    description=desc if isinstance(desc, str) else "",
+                    source=source,
+                )
+            )
+    return tuple(specs)
