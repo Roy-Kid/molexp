@@ -13,9 +13,12 @@ from pathlib import Path
 import pytest
 
 # Building the sidecar dataset shares the test_preview helper; molpy is only
-# needed for the reader machinery, not for the existence-only flag, but the
-# helper imports nothing — guard defensively to match test_preview.
-pytest.importorskip("molpy")
+# needed for the reader machinery, not for the existence-only flag. Match
+# test_preview's broad skip so a broken local molpy never aborts collection.
+try:
+    import molpy  # noqa: F401
+except ImportError:
+    pytest.skip("molpy unavailable or version-mismatched", allow_module_level=True)
 
 from tests.test_server.test_preview import _make_sidecar_dataset
 

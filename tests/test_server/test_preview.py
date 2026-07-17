@@ -22,9 +22,14 @@ from pathlib import Path
 import pytest
 
 # The synthetic fixture and the QM9-shaped readers all build molpy.Frames.
-molpy = pytest.importorskip("molpy")
+# Use a broad skip: a broken/mismatched local molpy (e.g. molrs pin) must not
+# abort the whole suite at collection time the way a bare importorskip can.
+try:
+    import molpy  # noqa: F401
+except ImportError:
+    pytest.skip("molpy unavailable or version-mismatched", allow_module_level=True)
 
-from molexp.server.preview import (  # noqa: E402
+from molexp.server.preview import (
     AmbiguousReaderError,
     NoReaderInSidecarError,
     PreviewReaderError,
