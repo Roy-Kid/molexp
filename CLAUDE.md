@@ -5,7 +5,8 @@ mol_project:
   build:
     install: 'pip install -e ".[dev]"'
     check: "ruff format --check src/ tests/ && ruff check src/ tests/ && ty check src/"
-    test: "pytest tests/"
+    # Mirrors ci.yml `test` + pre-push pytest hook (quiet + coverage xml).
+    test: "pytest tests/ -q --cov=src/molexp --cov-report=xml"
     test_single: "pytest {path} -v"
     coverage: "pytest tests/ --cov=src/molexp --cov-report=term-missing"
   arch:
