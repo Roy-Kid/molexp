@@ -73,6 +73,7 @@ def materialize_plan_records(
     draft: str,
     model: str,
     failure: PlanFailure | None = None,
+    turn_id: str | None = None,
 ) -> PlanRecordOutcome:
     """Write the UI-facing records a finished (or failed) plan run produces.
 
@@ -130,6 +131,7 @@ def materialize_plan_records(
             workspace_root=workspace_root,
             task_id=task_id,
             draft=draft,
+            turn_id=turn_id,
         ),
     )
     if failure is None:

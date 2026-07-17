@@ -66,6 +66,8 @@ def write_plan_task_status(
     draft: str,
     created_at: str,
     status: str,
+    active_plan_task_id: str | None = None,
+    turn_id: str | None = None,
 ) -> None:
     """Sync an IN-FLIGHT plan task's coarse status into the agent-task store.
 
@@ -78,22 +80,32 @@ def write_plan_task_status(
     """
     from molexp.services.agent_task_store import (
         PersistedAgentTask,
+        read_agent_task_metadata,
         write_agent_task_metadata,
     )
 
     title = draft.strip().splitlines()[0][:80] if draft.strip() else task_id
     try:
+        current = read_agent_task_metadata(workspace_root, task_id)
         write_agent_task_metadata(
             workspace_root,
             PersistedAgentTask(
                 task_id=task_id,
-                session_id=task_id,
-                title=title,
-                goal=draft,
+                session_id=current.session_id if current is not None else task_id,
+                title=current.title if current is not None else title,
+                goal=current.goal if current is not None else draft,
                 status=status,
-                created_at=created_at,
+                created_at=current.created_at if current is not None else created_at,
                 updated_at=datetime.now(UTC).isoformat(),
                 plan_mode=True,
+                active_mode="plan",
+                active_turn_id=turn_id,
+                active_plan_task_id=active_plan_task_id,
+                pending_plan_draft=current.pending_plan_draft if current is not None else None,
+                skill_id=current.skill_id if current is not None else None,
+                project_id=current.project_id if current is not None else None,
+                experiment_id=current.experiment_id if current is not None else None,
+                run_id=current.run_id if current is not None else None,
             ),
         )
     except Exception as exc:  # the record is a convenience view, never load-bearing
@@ -107,6 +119,7 @@ def write_session_events_record(
     workspace_root: str,
     task_id: str,
     draft: str,
+    turn_id: str | None = None,
 ) -> None:
     """Write the synthesized session transcript the Agents session view renders."""
     report = _read_artifact_json(run, "experiment_report")
@@ -117,6 +130,7 @@ def write_session_events_record(
         experiment=experiment,
         draft=draft,
         report=report,
+        turn_id=turn_id,
     )
 
 
@@ -134,10 +148,17 @@ def _write_agent_task(
 ) -> None:
     from molexp.services.agent_task_store import (
         PersistedAgentTask,
+        read_agent_task_metadata,
         write_agent_task_metadata,
     )
 
     created = _created_at(run)
+    current = read_agent_task_metadata(workspace_root, task_id)
+    is_parent_chat_task = (
+        current is not None
+        and current.active_plan_task_id is not None
+        and current.task_id != current.active_plan_task_id
+    )
     if failed:
         status = "failed"
     else:
@@ -146,13 +167,21 @@ def _write_agent_task(
         workspace_root,
         PersistedAgentTask(
             task_id=task_id,
-            session_id=task_id,
-            title=title,
-            goal=draft,
+            session_id=current.session_id if current is not None else task_id,
+            title=current.title if is_parent_chat_task else title,
+            goal=current.goal if is_parent_chat_task else draft,
             status=status,
-            created_at=created,
+            created_at=current.created_at if current is not None else created,
             updated_at=datetime.now(UTC).isoformat(),
             plan_mode=True,
+            active_mode="plan",
+            active_turn_id=current.active_turn_id if current is not None else None,
+            active_plan_task_id=(current.active_plan_task_id if current is not None else None),
+            pending_plan_draft=None,
+            skill_id=current.skill_id if current is not None else None,
+            project_id=current.project_id if current is not None else None,
+            experiment_id=current.experiment_id if current is not None else None,
+            run_id=run.id,
         ),
     )
 
@@ -188,6 +217,7 @@ def _write_session_events(
     experiment: Experiment,
     draft: str,
     report: dict[str, Any] | None,
+    turn_id: str | None = None,
 ) -> None:
     """Write a synthesized session transcript for the Agents *session view*.
 
@@ -198,18 +228,38 @@ def _write_session_events(
     ``loop_completed`` carries a ``plan`` locator so the panel knows which plan to
     open.
     """
-    from molexp.services.agent_task_store import write_agent_task_events
+    from molexp.services.agent_task_store import append_agent_task_events, read_agent_task_events
 
     ts = _created_at(run)
     kinds = set(_artifact_kinds(run))
+    event_context = {"turn_id": turn_id, "mode": "plan"}
+    existing = read_agent_task_events(workspace_root, task_id)
+    has_started = any(
+        event.get("type") == "loop_started"
+        and isinstance(event.get("payload"), dict)
+        and event["payload"].get("turn_id") == turn_id
+        for event in existing
+    )
     events: list[dict[str, Any]] = []
+    if not has_started:
+        events.append(
+            {
+                "type": "loop_started",
+                "ts": ts,
+                "payload": {"user_input": draft, **event_context},
+            }
+        )
     for kind, label in _STAGE_LABELS:
         if kind in kinds:
             events.append(
                 {
                     "type": "tool_call_completed",
                     "ts": ts,
-                    "payload": {"tool_name": label, "result": {"artifact": kind}},
+                    "payload": {
+                        "tool_name": label,
+                        "result": {"artifact": kind},
+                        **event_context,
+                    },
                 }
             )
     if report is not None:
@@ -233,10 +283,14 @@ def _write_session_events(
             {
                 "type": "loop_completed",
                 "ts": ts,
-                "payload": {"text": _summary(title, tasks, source), "plan": plan_ref},
+                "payload": {
+                    "text": _summary(title, tasks, source),
+                    "plan": plan_ref,
+                    **event_context,
+                },
             }
         )
-    write_agent_task_events(workspace_root, task_id, events)
+    append_agent_task_events(workspace_root, task_id, events)
 
 
 def _summary(title: str, tasks: list[str], source: str | None) -> str:

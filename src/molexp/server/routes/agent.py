@@ -117,6 +117,20 @@ def _configured_model() -> str | None:
     return model if isinstance(model, str) and model else None
 
 
+def _configured_models() -> dict[str, str] | None:
+    """Return a complete cheap/default/heavy map when one is configured."""
+    import molexp
+    from molexp.services.operator_config import AGENT_MODELS_KEY
+
+    value = molexp.config.get(AGENT_MODELS_KEY)
+    if value is None or not callable(getattr(value, "get", None)):
+        return None
+    models = {tier: value.get(tier) for tier in ("cheap", "default", "heavy")}
+    if not all(isinstance(model, str) and model for model in models.values()):
+        return None
+    return {tier: str(model) for tier, model in models.items()}
+
+
 def _workspace_root(workspace: Workspace) -> str:
     root = getattr(workspace, "root", None)
     return str(root) if root is not None else ""
@@ -166,8 +180,9 @@ def _build_runner(
     if _runner_factory is not None:
         return _runner_factory(workspace)
 
+    models = _configured_models()
     model = _configured_model()
-    if not model:
+    if models is None and not model:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
@@ -183,10 +198,15 @@ def _build_runner(
     root = getattr(workspace, "root", None)
     workspace_root = Path(str(root)) if root is not None else None
     loop = InteractiveLoop(
-        config=InteractiveLoopConfig(workspace_root=workspace_root, context_block=context_block)
+        config=InteractiveLoopConfig(
+            workspace_root=workspace_root,
+            context_block=context_block,
+            operation_mode="lifecycle",
+        )
     )
+    runner_config = {"models": models} if models is not None else {"model": model}
     return AgentRunner(
-        loop=loop, model=model, workspace=workspace_root, session_anchor=session_anchor
+        loop=loop, workspace=workspace_root, session_anchor=session_anchor, **runner_config
     )
 
 
@@ -333,8 +353,40 @@ async def post_user_message(
     return MessageResponse(message="accepted")
 
 
+async def cancel_session(session_id: str, *, workspace: Workspace) -> MessageResponse:
+    """Cancel the in-flight turn for ``session_id`` (idempotent).
+
+    404 when the session is not registered. When no turn is running the call
+    is a no-op success so the UI can always offer Stop without racing the
+    terminal frame.
+    """
+    runtime = get_agent_runtime().get(_workspace_root(workspace), session_id)
+    if runtime is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"agent session {session_id!r} not found",
+        )
+    runtime.cancel()
+    await runtime.await_finished()
+    return MessageResponse(message="cancelled")
+
+
+async def delete_session(session_id: str, *, workspace: Workspace) -> MessageResponse:
+    """Cancel any in-flight turn and drop the runtime from the registry."""
+    registry = get_agent_runtime()
+    root = _workspace_root(workspace)
+    runtime = registry.get(root, session_id)
+    if runtime is not None:
+        runtime.cancel()
+        await runtime.await_finished()
+        registry.remove(root, session_id)
+    return MessageResponse(message="deleted")
+
+
 __all__ = [
+    "cancel_session",
     "create_session",
+    "delete_session",
     "get_session",
     "list_sessions",
     "post_user_message",

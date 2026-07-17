@@ -1048,6 +1048,7 @@ export class AgentNotConfiguredError extends Error {
  * with :class:`molexp.server.schemas.requests.GoalCreateRequest`.
  */
 export interface SessionLaunchOptions {
+  mode?: "chat" | "plan";
   planMode?: boolean;
   instructionsOverride?: string;
   skillId?: string;
@@ -1068,6 +1069,9 @@ interface ApiAgentTask {
   events?: ApiAgentSession["events"];
   stats?: ApiAgentSession["stats"];
   planMode?: boolean;
+  activeMode?: "chat" | "plan";
+  activeTurnId?: string | null;
+  activePlanTaskId?: string | null;
   skillId?: string | null;
 }
 
@@ -1082,6 +1086,10 @@ const normalizeAgentTask = (task: ApiAgentTask): ApiAgentSession => ({
   events: task.events ?? [],
   stats: task.stats,
   planMode: task.planMode ?? false,
+  activeMode: (task.activeMode ??
+    (task.planMode ? "plan" : "chat")) as ApiAgentSession["activeMode"],
+  activeTurnId: task.activeTurnId ?? null,
+  activePlanTaskId: task.activePlanTaskId ?? null,
   skillId: task.skillId ?? null,
 });
 
@@ -1113,6 +1121,7 @@ export const agentApi = {
       success_criteria: successCriteria,
     };
     if (options.planMode !== undefined) body.plan_mode = options.planMode;
+    if (options.mode !== undefined) body.mode = options.mode;
     if (options.instructionsOverride !== undefined)
       body.instructions_override = options.instructionsOverride;
     if (options.skillId !== undefined) body.skill_id = options.skillId;
@@ -1155,13 +1164,30 @@ export const agentApi = {
     sessionId: string,
     content: string,
     requestId: string | null = null,
+    mode: "chat" | "plan" = "chat",
   ): Promise<void> => {
     const response = await fetch(`/api/agent-tasks/${sessionId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, request_id: requestId }),
+      body: JSON.stringify({ content, request_id: requestId, mode }),
     });
     if (!response.ok) throw new Error(`Failed to post message: ${response.statusText}`);
+  },
+
+  /** Stop the in-flight turn for a task (idempotent when already idle). */
+  cancelSession: async (sessionId: string): Promise<void> => {
+    const response = await fetch(`/api/agent-tasks/${encodeURIComponent(sessionId)}/cancel`, {
+      method: "POST",
+    });
+    if (!response.ok) throw new Error(`Failed to cancel agent task: ${response.statusText}`);
+  },
+
+  /** Drop a task (cancels live turn + removes on-disk metadata). */
+  deleteSession: async (sessionId: string): Promise<void> => {
+    const response = await fetch(`/api/agent-tasks/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) throw new Error(`Failed to delete agent task: ${response.statusText}`);
   },
 };
 
@@ -1283,14 +1309,9 @@ export interface ApiAgentToolList {
   mcpGroups: ApiMcpToolGroup[];
 }
 
-// Tool ``source`` is either ``"native"`` for built-in tools or
-// ``"mcp:<server-name>"`` for tools discovered through an MCP server.
-// Helpers below keep the prefix in one place.
-export const NATIVE_SOURCE = "native";
-
+// Every tool belongs to an MCP server. Keep its wire-format source prefix
+// centralized so the MCP list can attach tools to their owning server.
 export const mcpSource = (server: string): string => `mcp:${server}`;
-
-export const isMcpSource = (source: string): boolean => source.startsWith("mcp:");
 
 export interface ApiSkill {
   id: string;
@@ -1381,11 +1402,24 @@ export interface ApiAgentProvider {
   apiKeySet: boolean;
   instructions: string;
   supportedProviders: ApiProviderName[];
+  configurations: ApiProviderConfiguration[];
+}
+
+export type ApiModelTier = "cheap" | "default" | "heavy";
+export type ApiTierModels = Record<ApiModelTier, string>;
+
+export interface ApiProviderConfiguration {
+  provider: ApiProviderName;
+  models: ApiTierModels;
+  baseUrl: string;
+  apiKeyPreview: string;
+  apiKeySet: boolean;
 }
 
 export interface ProviderUpdateInput {
   provider?: ApiProviderName;
   model?: string;
+  models?: ApiTierModels;
   apiKey?: string;
   baseUrl?: string;
   instructions?: string;
@@ -1404,6 +1438,7 @@ const _toProviderBody = (input: ProviderUpdateInput): Record<string, unknown> =>
   const body: Record<string, unknown> = {};
   if (input.provider !== undefined) body.provider = input.provider;
   if (input.model !== undefined) body.model = input.model;
+  if (input.models !== undefined) body.models = input.models;
   if (input.apiKey !== undefined) body.api_key = input.apiKey;
   if (input.baseUrl !== undefined) body.base_url = input.baseUrl;
   if (input.instructions !== undefined) body.instructions = input.instructions;
@@ -1450,11 +1485,13 @@ export const agentAdminApi = {
     return response.json();
   },
 
-  listMcpServers: async (): Promise<ApiMcpServerList> => {
-    const response = await fetch("/api/agent/mcp/servers");
-    if (!response.ok) throw new Error(`Failed to fetch MCP servers: ${response.statusText}`);
-    return response.json();
-  },
+  listMcpServers: (): Promise<ApiMcpServerList> =>
+    probeOnce("agent-mcp-servers", async () => {
+      const response = await fetch("/api/agent/mcp/servers");
+      if (response.status === 503) throw new AgentUnavailableError("/api/agent/mcp/servers");
+      if (!response.ok) throw new Error(`Failed to fetch MCP servers: ${response.statusText}`);
+      return response.json();
+    }),
 
   createMcpServer: async (input: McpServerUpsertInput): Promise<ApiMcpServer> => {
     const response = await fetch("/api/agent/mcp/servers", {
@@ -1579,26 +1616,41 @@ export const agentAdminApi = {
     }
   },
 
-  listTools: async (): Promise<ApiAgentTool[]> => {
-    const response = await fetch("/api/agent/tools");
-    if (!response.ok) throw new Error(`Failed to fetch tools: ${response.statusText}`);
-    const data = await response.json();
-    return data.tools ?? [];
-  },
+  listTools: (): Promise<ApiAgentTool[]> =>
+    probeOnce("agent-tools-list", async () => {
+      const response = await fetch("/api/agent/tools");
+      if (response.status === 503) throw new AgentUnavailableError("/api/agent/tools");
+      if (!response.ok) throw new Error(`Failed to fetch tools: ${response.statusText}`);
+      const data = await response.json();
+      return data.tools ?? [];
+    }).catch((error: unknown) => {
+      if (error instanceof AgentUnavailableError) return [];
+      throw error;
+    }),
 
-  listToolsAndGroups: async (): Promise<ApiAgentToolList> => {
-    const response = await fetch("/api/agent/tools");
-    if (!response.ok) throw new Error(`Failed to fetch tools: ${response.statusText}`);
-    const data = await response.json();
-    return { tools: data.tools ?? [], mcpGroups: data.mcpGroups ?? [] };
-  },
+  listToolsAndGroups: (): Promise<ApiAgentToolList> =>
+    probeOnce("agent-tools-groups", async () => {
+      const response = await fetch("/api/agent/tools");
+      if (response.status === 503) throw new AgentUnavailableError("/api/agent/tools");
+      if (!response.ok) throw new Error(`Failed to fetch tools: ${response.statusText}`);
+      const data = await response.json();
+      return { tools: data.tools ?? [], mcpGroups: data.mcpGroups ?? [] };
+    }).catch((error: unknown) => {
+      if (error instanceof AgentUnavailableError) return { tools: [], mcpGroups: [] };
+      throw error;
+    }),
 
-  listSkills: async (): Promise<ApiSkill[]> => {
-    const response = await fetch("/api/agent/skills");
-    if (!response.ok) throw new Error(`Failed to fetch skills: ${response.statusText}`);
-    const data = await response.json();
-    return data.skills ?? [];
-  },
+  listSkills: (): Promise<ApiSkill[]> =>
+    probeOnce("agent-skills", async () => {
+      const response = await fetch("/api/agent/skills");
+      if (response.status === 503) throw new AgentUnavailableError("/api/agent/skills");
+      if (!response.ok) throw new Error(`Failed to fetch skills: ${response.statusText}`);
+      const data = await response.json();
+      return data.skills ?? [];
+    }).catch((error: unknown) => {
+      if (error instanceof AgentUnavailableError) return [];
+      throw error;
+    }),
 
   createSkill: async (input: SkillUpsertInput): Promise<ApiSkill> => {
     const response = await fetch("/api/agent/skills", {

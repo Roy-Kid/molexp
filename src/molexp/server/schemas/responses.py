@@ -443,6 +443,9 @@ class AgentTaskResponse(BaseModel):
     events: list[SessionEventResponse] = Field(default_factory=list)
     stats: SessionStatsResponse = Field(default_factory=SessionStatsResponse)
     planMode: bool = False
+    activeMode: Literal["chat", "plan"] = "chat"
+    activeTurnId: str | None = None
+    activePlanTaskId: str | None = None
     skillId: str | None = None
 
 
@@ -829,21 +832,21 @@ class ToolParameterResponse(BaseModel):
 
 
 class AgentToolResponse(BaseModel):
-    """One tool exposed to the agent — native or MCP-discovered.
+    """One tool exposed by an MCP server.
 
-    For MCP tools, ``source`` is ``"mcp:<server-name>"`` so the UI can
-    group by server. Native tools keep ``source = "native"``.
+    ``source`` is ``"mcp:<server-name>"`` so the UI can attach the tool to
+    its owning server's expanded row.
     """
 
     name: str
     description: str = ""
     parameters: list[ToolParameterResponse] = Field(default_factory=list)
     requiresApproval: bool = False
-    source: str = "native"
+    source: str
 
 
 class McpToolGroupResponse(BaseModel):
-    """Per-server status surface for the Tools panel.
+    """Per-server discovery status for the MCP server list.
 
     Even when a server is offline / misconfigured / unauthorized we want
     the UI to render *something* under that server's heading — a row with
@@ -851,7 +854,7 @@ class McpToolGroupResponse(BaseModel):
     """
 
     server: str
-    scope: Literal["native", "user", "workspace"]
+    scope: Literal["user", "workspace"]
     ok: bool
     toolCount: int = 0
     error: str | None = None

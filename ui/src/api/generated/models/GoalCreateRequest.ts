@@ -14,7 +14,11 @@ export type GoalCreateRequest = {
      */
     instructions_override?: (string | null);
     /**
-     * When true, the runtime registers only read-only tools and asks the agent to emit a structured plan instead of executing.
+     * Agent used for the first conversational turn. 'chat' runs the interactive agent; 'plan' runs the auditable nine-stage PlanMode pipeline.
+     */
+    mode?: GoalCreateRequest.mode;
+    /**
+     * Deprecated compatibility alias for mode='plan'. AgentTask routes run the auditable nine-stage Planning Agent when true.
      */
     plan_mode?: boolean;
     projectId?: (string | null);
@@ -25,4 +29,12 @@ export type GoalCreateRequest = {
     skill_id?: (string | null);
     success_criteria?: Array<string>;
 };
-
+export namespace GoalCreateRequest {
+    /**
+     * Agent used for the first conversational turn. 'chat' runs the interactive agent; 'plan' runs the auditable nine-stage PlanMode pipeline.
+     */
+    export enum mode {
+        CHAT = 'chat',
+        PLAN = 'plan',
+    }
+}

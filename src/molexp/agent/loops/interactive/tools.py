@@ -33,7 +33,8 @@ _SKIP_DIRS = frozenset(
         "node_modules",
         ".venv",
         "venv",
-        ".agent-scratch",
+        ".scratch",  # agent/.scratch
+        "_tasks",  # agent/_tasks (UI task index)
         ".mypy_cache",
         ".ruff_cache",
         ".pytest_cache",

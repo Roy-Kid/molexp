@@ -55,8 +55,12 @@ already gate the plan — red tests block the review gate.) Tests and the
 workflow both run in **executor subprocesses**, so a generation bug can
 never crash the planning process.
 
-The same tail is reachable from the server/UI: `POST .../plan-tasks` with
-`execute: true` (the PlanComposer's "Execute after approvals" opt-in).
+The web UI reaches the nine-step pipeline by switching the shared AgentTask
+composer to **Plan** (click the mode pill or press `Shift+Tab`). Plan is a turn
+mode inside the same conversation, not a separate task type. The web Plan turn
+always stops after the auditable nine steps; real execution is requested
+explicitly in a later Chat turn. The legacy `POST .../plan-tasks` route remains
+available as a compatibility surface.
 Server-side execution runs on the **serving host** — the compute target is
 descriptive (it feeds the step-9 execution report) and nothing schedules
 to molq — and every gate, including `approve_execution`, suspends into the

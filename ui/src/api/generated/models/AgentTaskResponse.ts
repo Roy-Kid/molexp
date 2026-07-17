@@ -11,6 +11,9 @@ import type { SessionStatsResponse } from './SessionStatsResponse';
  * is the lower-level runtime handle used to continue the active execution.
  */
 export type AgentTaskResponse = {
+    activeMode?: AgentTaskResponse.activeMode;
+    activePlanTaskId?: (string | null);
+    activeTurnId?: (string | null);
     createdAt: string;
     events?: Array<SessionEventResponse>;
     goal: string;
@@ -23,4 +26,9 @@ export type AgentTaskResponse = {
     title: string;
     updatedAt?: (string | null);
 };
-
+export namespace AgentTaskResponse {
+    export enum activeMode {
+        CHAT = 'chat',
+        PLAN = 'plan',
+    }
+}

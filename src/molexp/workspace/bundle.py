@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from .assets.base import Asset
     from .concepts import Note, ReferenceConcept
     from .doc_embed import EntitySummary
+    from .gitignore import GitIgnoreMatcher
 
 __all__ = ["Backlink", "Bundle"]
 
@@ -97,7 +98,11 @@ def _utcnow() -> datetime:
 
 def _is_concept_dir(path: PathArg, fs: FileSystem) -> bool:
     """Return ``True`` iff *path* is a dir that directly holds ``meta.yaml``."""
-    return fs.is_dir(path) and fs.exists(fs.join(path, META_YAML_FILENAME))
+    try:
+        return fs.is_dir(path) and fs.exists(fs.join(path, META_YAML_FILENAME))
+    except OSError:
+        # Broken / cycle symlinks or path-too-long entries are not concepts.
+        return False
 
 
 class Bundle:
@@ -112,6 +117,8 @@ class Bundle:
         """
         self._root = _StdPath(os.fspath(root))
         self._fs: FileSystem = fs if fs is not None else LocalFileSystem()
+        # Built lazily on first walk — keeps construction free of I/O.
+        self._ignore: GitIgnoreMatcher | None = None
 
     @property
     def root(self) -> _StdPath:
@@ -256,27 +263,68 @@ class Bundle:
 
     # ── walk / get / put / link ──────────────────────────────────────────
 
+    def _ignore_matcher(self) -> GitIgnoreMatcher:
+        """Lazy :class:`~molexp.workspace.gitignore.GitIgnoreMatcher` for this root."""
+        if self._ignore is None:
+            from .gitignore import load_gitignore_matcher
+
+            self._ignore = load_gitignore_matcher(self._root, fs=self._fs)
+        return self._ignore
+
     def walk(self) -> Iterator[Folder]:
         """Yield every Concept under the root, depth-first (preorder).
 
         A dir is yielded iff it holds ``meta.yaml``. The ``_ops/`` sidecar (and
-        everything beneath it) is skipped; non-Concept organizational dirs are
-        descended into but not yielded; loose files are inherently skipped.
+        everything beneath it) is skipped; paths matching the workspace
+        ``.gitignore`` cascade (plus a safety-floor denylist for
+        ``node_modules`` / ``.git`` / venvs) are skipped entirely; symlink
+        cycles are cut by tracking resolved paths. Non-Concept organizational
+        dirs are descended into but not yielded; loose files are inherently
+        skipped.
         """
         yield from self._walk_dir(str(self._root))
 
-    def _walk_dir(self, directory: str) -> Iterator[Folder]:
-        if not self._fs.is_dir(directory):
+    def _walk_dir(self, directory: str, *, _visited: set[str] | None = None) -> Iterator[Folder]:
+        visited = _visited if _visited is not None else set()
+        try:
+            if not self._fs.is_dir(directory):
+                return
+            real = self._fs.resolve(directory)
+        except OSError:
             return
-        for name in sorted(self._fs.listdir(directory)):
+        if real in visited:
+            return
+        visited.add(real)
+
+        try:
+            names = self._fs.listdir(directory)
+        except OSError:
+            return
+
+        ignore = self._ignore_matcher()
+        root_resolved = self._fs.resolve(str(self._root))
+
+        for name in sorted(names):
             if name == OPS_DIR:
                 continue
             entry = self._fs.join(directory, name)
-            if not self._fs.is_dir(entry):
+            try:
+                if not self._fs.is_dir(entry):
+                    continue
+                entry_real = self._fs.resolve(entry)
+            except OSError:
+                continue
+            # Workspace-relative path for gitignore matching.
+            try:
+                rel_s = _StdPath(entry_real).relative_to(root_resolved).as_posix()
+            except ValueError:
+                # Outside root (symlink escape) — skip rather than walk forever.
+                continue
+            if ignore.is_ignored(rel_s, is_dir=True):
                 continue
             if _is_concept_dir(entry, self._fs):
                 yield self._folder_for(entry)
-            yield from self._walk_dir(entry)
+            yield from self._walk_dir(entry, _visited=visited)
 
     def get(self, rel_path: PathArg) -> Folder:
         """Resolve a bundle-relative path to its :class:`Folder`.

@@ -69,7 +69,7 @@ def reset_plan_gateway_factory() -> None:
     _gateway_factory = None
 
 
-def preflight_plan_router(*, model: str) -> Router:
+def preflight_plan_router(*, model: str, models: dict[str, str] | None = None) -> Router:
     """Import, construct, and credential-prime the production router.
 
     No disk writes and no network traffic — safe to call before the Run is
@@ -102,7 +102,12 @@ def preflight_plan_router(*, model: str) -> Router:
             'install it with: pip install "molexp[agent]"'
         ) from exc
     try:
-        router = PydanticAIRouter(models=dict.fromkeys(ModelTier, model))
+        tier_models = (
+            {tier: models[tier.value] for tier in ModelTier}
+            if models is not None
+            else dict.fromkeys(ModelTier, model)
+        )
+        router = PydanticAIRouter(models=tier_models)
         _prime_credentials(router)
     except Exception as exc:
         message = f"model {model!r} failed its preflight check: {exc}"
@@ -180,7 +185,9 @@ def _prime_credentials(router: object) -> None:
         )
 
 
-def build_plan_gateway(*, model: str, run: Run, router: Router | None = None) -> AgentGateway:
+def build_plan_gateway(
+    *, model: str, run: Run, router: Router | None = None, models: dict[str, str] | None = None
+) -> AgentGateway:
     """Build the production ``RouterBackedAgentGateway`` (or the test stub).
 
     The gateway's artifact store shares the run's ``artifacts`` directory with
@@ -201,7 +208,7 @@ def build_plan_gateway(*, model: str, run: Run, router: Router | None = None) ->
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
     if router is None:
-        router = preflight_plan_router(model=model)
+        router = preflight_plan_router(model=model, models=models)
     store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
     return RouterBackedAgentGateway(
         router=router,

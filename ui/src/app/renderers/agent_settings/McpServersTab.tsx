@@ -14,27 +14,34 @@
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronRight,
   Edit3,
   KeyRound,
   Lock,
   Plus,
   Server,
   Trash2,
+  Wrench,
   Zap,
 } from "lucide-react";
 import type { JSX } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AgentUnavailableError, resetAgentProbes } from "@/app/state/agentProbe";
 import {
+  type ApiAgentTool,
+  type ApiAgentToolList,
   type ApiMcpOAuthStatus,
   type ApiMcpScope,
   type ApiMcpSecretList,
   type ApiMcpServer,
   type ApiMcpServerList,
   type ApiMcpServerTestResult,
+  type ApiMcpToolGroup,
   agentAdminApi,
   type McpOAuth2AuthInput,
   type McpServerSpecInput,
   type McpServerUpsertInput,
+  mcpSource,
 } from "@/app/state/api";
 import { emitMcpConfigChanged } from "@/app/state/mcpEvents";
 import {
@@ -71,6 +78,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { UnavailableCapability } from "./UnavailableCapability";
 
 const SECRET_REF_RE = /\$\{SECRET:([A-Za-z_]\w*)\}/g;
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -174,8 +182,10 @@ const IconButton = ({
 
 export const McpServersTab = (): JSX.Element => {
   const [data, setData] = useState<ApiMcpServerList | null>(null);
+  const [toolData, setToolData] = useState<ApiAgentToolList>({ tools: [], mcpGroups: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
   const [editing, setEditing] = useState<EditState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ApiMcpServer | null>(null);
@@ -185,10 +195,14 @@ export const McpServersTab = (): JSX.Element => {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setUnavailable(false);
     try {
-      setData(await agentAdminApi.listMcpServers());
+      const servers = await agentAdminApi.listMcpServers();
+      setData(servers);
+      setToolData(await agentAdminApi.listToolsAndGroups());
     } catch (err) {
-      setError(String(err));
+      if (err instanceof AgentUnavailableError) setUnavailable(true);
+      else setError(String(err));
     } finally {
       setLoading(false);
     }
@@ -230,6 +244,7 @@ export const McpServersTab = (): JSX.Element => {
     try {
       const result = await agentAdminApi.testMcpServer(server.name, server.scope);
       setTestResults((r) => ({ ...r, [key]: result }));
+      if (result.ok) setToolData(await agentAdminApi.listToolsAndGroups());
     } catch (err) {
       setTestResults((r) => ({
         ...r,
@@ -267,6 +282,7 @@ export const McpServersTab = (): JSX.Element => {
         </Tabs>
         <Button
           size="sm"
+          disabled={unavailable}
           onClick={() =>
             setEditing({
               mode: "create",
@@ -290,6 +306,16 @@ export const McpServersTab = (): JSX.Element => {
         </p>
       )}
       {error && <ErrorBanner>{error}</ErrorBanner>}
+      {unavailable && (
+        <UnavailableCapability
+          title="MCP configuration unavailable"
+          description="This server does not expose MCP administration. Existing server-side MCP configuration is unaffected; install the optional agent backend to manage it here."
+          onRetry={() => {
+            resetAgentProbes();
+            void refresh();
+          }}
+        />
+      )}
 
       <ScrollArea className="flex-1">
         <div className="flex flex-col gap-2 pr-2">
@@ -300,7 +326,7 @@ export const McpServersTab = (): JSX.Element => {
               <Skeleton className="h-24 w-full" />
             </>
           )}
-          {!loading && filtered.length === 0 && (
+          {!loading && !unavailable && filtered.length === 0 && (
             <div className="flex flex-col items-center gap-2 py-6 text-center">
               <Server className="size-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">No servers at this scope.</p>
@@ -321,14 +347,20 @@ export const McpServersTab = (): JSX.Element => {
             </div>
           )}
           {!loading &&
+            !unavailable &&
             filtered.map((server) => {
               const key = `${server.scope}:${server.name}`;
+              const source = mcpSource(server.name);
               return (
                 <ServerCard
                   key={key}
                   server={server}
                   test={testResults[key] ?? null}
                   busy={busy[key] ?? false}
+                  tools={toolData.tools.filter((tool) => tool.source === source)}
+                  toolGroup={
+                    toolData.mcpGroups.find((group) => group.server === server.name) ?? null
+                  }
                   onEdit={() =>
                     setEditing({
                       mode: "edit",
@@ -395,6 +427,8 @@ interface ServerCardProps {
   server: ApiMcpServer;
   test: ApiMcpServerTestResult | null;
   busy: boolean;
+  tools: ApiAgentTool[];
+  toolGroup: ApiMcpToolGroup | null;
   onEdit: () => void;
   onDelete: () => void;
   onTest: () => void;
@@ -404,15 +438,32 @@ const ServerCard = ({
   server,
   test,
   busy,
+  tools,
+  toolGroup,
   onEdit,
   onDelete,
   onTest,
 }: ServerCardProps): JSX.Element => {
   const hasUnresolved = server.unresolvedSecrets.length > 0;
+  const [expanded, setExpanded] = useState(false);
+  const reportedToolCount = toolGroup?.toolCount ?? test?.toolCount ?? tools.length;
   return (
     <Card className={server.shadowed ? "border-dashed bg-muted/30" : ""}>
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="size-7 p-0"
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${server.name}`}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <ChevronRight
+              className={`size-4 transition-transform ${expanded ? "rotate-90" : ""}`}
+            />
+          </Button>
           <Server className="size-4 text-muted-foreground" />
           <CardTitle className="font-mono text-sm">{server.name}</CardTitle>
           <Badge variant="outline" className="text-xs">
@@ -465,98 +516,169 @@ const ServerCard = ({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-1 pt-0 text-xs">
-        {!server.valid && server.invalidReason && (
-          <p className="text-destructive">{server.invalidReason}</p>
-        )}
-        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-          {server.transport === "stdio" ? (
-            <>
-              <dt className="text-muted-foreground">command</dt>
-              <dd>
-                <code className="break-all">{server.command ?? "—"}</code>
-              </dd>
-              {server.args.length > 0 && (
-                <>
-                  <dt className="text-muted-foreground">args</dt>
-                  <dd className="break-all">
-                    <code>{server.args.join(" ")}</code>
-                  </dd>
-                </>
-              )}
-              {server.envKeys.length > 0 && (
-                <>
-                  <dt className="text-muted-foreground">env</dt>
-                  <dd>
-                    <code>{server.envKeys.join(", ")}</code>
-                  </dd>
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <dt className="text-muted-foreground">url</dt>
-              <dd className="break-all">
-                <code>{server.url ?? "—"}</code>
-              </dd>
-              {server.headerKeys.length > 0 && (
-                <>
-                  <dt className="text-muted-foreground">headers</dt>
-                  <dd>
-                    <code>{server.headerKeys.join(", ")}</code>
-                  </dd>
-                </>
-              )}
-            </>
+      {expanded && (
+        <CardContent className="space-y-3 pt-0 text-xs">
+          {!server.valid && server.invalidReason && (
+            <p className="text-destructive">{server.invalidReason}</p>
           )}
-        </dl>
-        {server.secretRefs.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1 pt-1">
-            <KeyRound className="size-3 text-muted-foreground" />
-            <span className="text-muted-foreground">secrets:</span>
-            {server.secretRefs.map((key) => {
-              const missing = server.unresolvedSecrets.includes(key);
-              return (
-                <StatusBadge
-                  key={key}
-                  tone={missing ? "destructive" : "success"}
-                  title={missing ? "Set this secret in the editor or User scope." : "Resolved"}
-                >
-                  {key}
-                </StatusBadge>
-              );
-            })}
-          </div>
-        )}
-        {hasUnresolved && (
-          <p className="flex items-center gap-1 text-xs text-destructive">
-            <AlertCircle className="size-3" />
-            Runtime will skip this server until missing secrets are set.
-          </p>
-        )}
-        {test && (
-          <div
-            className={
-              "mt-1 rounded border px-2 py-1 text-xs " +
-              (test.ok
-                ? "border-success/40 bg-success-soft text-success-foreground"
-                : "border-destructive/40 bg-destructive/10 text-destructive")
-            }
-          >
-            {test.ok ? (
-              <span className="flex items-center gap-1">
-                <CheckCircle2 className="size-3" />
-                connected · {test.toolCount} tools · {test.latencyMs} ms
-              </span>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+            {server.transport === "stdio" ? (
+              <>
+                <dt className="text-muted-foreground">command</dt>
+                <dd>
+                  <code className="break-all">{server.command ?? "—"}</code>
+                </dd>
+                {server.args.length > 0 && (
+                  <>
+                    <dt className="text-muted-foreground">args</dt>
+                    <dd className="break-all">
+                      <code>{server.args.join(" ")}</code>
+                    </dd>
+                  </>
+                )}
+                {server.envKeys.length > 0 && (
+                  <>
+                    <dt className="text-muted-foreground">env</dt>
+                    <dd>
+                      <code>{server.envKeys.join(", ")}</code>
+                    </dd>
+                  </>
+                )}
+              </>
             ) : (
-              <span className="flex items-center gap-1">
-                <AlertCircle className="size-3" />
-                {test.error ?? "Test failed"}
-              </span>
+              <>
+                <dt className="text-muted-foreground">url</dt>
+                <dd className="break-all">
+                  <code>{server.url ?? "—"}</code>
+                </dd>
+                {server.headerKeys.length > 0 && (
+                  <>
+                    <dt className="text-muted-foreground">headers</dt>
+                    <dd>
+                      <code>{server.headerKeys.join(", ")}</code>
+                    </dd>
+                  </>
+                )}
+              </>
+            )}
+          </dl>
+          {server.secretRefs.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 pt-1">
+              <KeyRound className="size-3 text-muted-foreground" />
+              <span className="text-muted-foreground">secrets:</span>
+              {server.secretRefs.map((key) => {
+                const missing = server.unresolvedSecrets.includes(key);
+                return (
+                  <StatusBadge
+                    key={key}
+                    tone={missing ? "destructive" : "success"}
+                    title={missing ? "Set this secret in the editor or User scope." : "Resolved"}
+                  >
+                    {key}
+                  </StatusBadge>
+                );
+              })}
+            </div>
+          )}
+          {hasUnresolved && (
+            <p className="flex items-center gap-1 text-xs text-destructive">
+              <AlertCircle className="size-3" />
+              Runtime will skip this server until missing secrets are set.
+            </p>
+          )}
+          {test && (
+            <div
+              className={
+                "mt-1 rounded border px-2 py-1 text-xs " +
+                (test.ok
+                  ? "border-success/40 bg-success-soft text-success-foreground"
+                  : "border-destructive/40 bg-destructive/10 text-destructive")
+              }
+            >
+              {test.ok ? (
+                <span className="flex items-center gap-1">
+                  <CheckCircle2 className="size-3" />
+                  connected · {test.toolCount} tools · {test.latencyMs} ms
+                </span>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <AlertCircle className="size-3" />
+                  {test.error ?? "Test failed"}
+                </span>
+              )}
+            </div>
+          )}
+          <div className="space-y-2 border-t border-border pt-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Capabilities
+              </h4>
+              <Badge variant="outline" className="gap-1 text-xs">
+                <Wrench className="size-3" /> Tools · {reportedToolCount}
+              </Badge>
+              {server.auth?.type === "oauth2" && (
+                <Badge variant="outline" className="text-xs">
+                  OAuth 2.0
+                </Badge>
+              )}
+            </div>
+            {toolGroup && !toolGroup.ok && (
+              <ErrorBanner>{toolGroup.error ?? "Tool discovery failed."}</ErrorBanner>
             )}
           </div>
-        )}
-      </CardContent>
+          <div className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Tools
+            </h4>
+            {tools.length === 0 ? (
+              <p className="rounded border border-dashed px-3 py-2 text-muted-foreground">
+                {test?.ok
+                  ? "This server reported no tools."
+                  : "No tools discovered. Test the connection to refresh this server's capabilities."}
+              </p>
+            ) : (
+              <div className="divide-y rounded border bg-background">
+                {tools.map((tool) => (
+                  <details key={tool.name} className="group px-3 py-2">
+                    <summary className="flex cursor-pointer list-none items-center gap-2">
+                      <code className="font-mono text-xs">{tool.name}</code>
+                      {tool.parameters.length > 0 && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {tool.parameters.length} parameter
+                          {tool.parameters.length === 1 ? "" : "s"}
+                        </span>
+                      )}
+                      {tool.requiresApproval && (
+                        <Badge variant="destructive" className="ml-auto text-[10px]">
+                          approval
+                        </Badge>
+                      )}
+                    </summary>
+                    <div className="space-y-2 pt-2 text-muted-foreground">
+                      {tool.description && (
+                        <p className="whitespace-pre-line">{tool.description}</p>
+                      )}
+                      {tool.parameters.length > 0 && (
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 rounded bg-muted/40 p-2">
+                          {tool.parameters.map((parameter) => (
+                            <div key={parameter.name} className="contents">
+                              <dt className="font-mono text-foreground">{parameter.name}</dt>
+                              <dd>
+                                {parameter.annotation}
+                                {!parameter.required && " · optional"}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 };

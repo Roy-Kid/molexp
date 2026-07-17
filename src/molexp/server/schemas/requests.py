@@ -211,11 +211,18 @@ class GoalCreateRequest(BaseModel):
     project_id: str | None = Field(None, alias="projectId")
     experiment_id: str | None = Field(None, alias="experimentId")
     run_id: str | None = Field(None, alias="runId")
+    mode: Literal["chat", "plan"] = Field(
+        "chat",
+        description=(
+            "Agent used for the first conversational turn. 'chat' runs the "
+            "interactive agent; 'plan' runs the auditable nine-stage PlanMode pipeline."
+        ),
+    )
     plan_mode: bool = Field(
         False,
         description=(
-            "When true, the runtime registers only read-only tools and asks "
-            "the agent to emit a structured plan instead of executing."
+            "Deprecated compatibility alias for mode='plan'. AgentTask routes "
+            "run the auditable nine-stage Planning Agent when true."
         ),
     )
     instructions_override: str | None = Field(
@@ -240,6 +247,10 @@ class UserMessageCreateRequest(BaseModel):
     """Mid-session chat message from the user to the agent."""
 
     content: str = Field(..., description="User's message")
+    mode: Literal["chat", "plan"] = Field(
+        "chat",
+        description="Agent used for this turn; replies to a pending request keep its agent.",
+    )
     request_id: str | None = Field(
         None,
         description=(

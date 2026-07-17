@@ -28,6 +28,7 @@ from molexp.agent.types import UsageBreakdown
 from molexp.server.app import create_app
 from molexp.server.dependencies import get_workspace
 from molexp.server.routes import agent as agent_routes
+from molexp.server.routes import agent_tasks as agent_task_routes
 
 
 class _ScriptedRouter:
@@ -112,6 +113,134 @@ def test_delete_task_removes_it_from_task_surface(agent_client: TestClient) -> N
     listed = agent_client.get("/api/agent-tasks").json()
     assert all(t["taskId"] != task_id for t in listed["tasks"])
     assert agent_client.get(f"/api/agent-tasks/{task_id}").status_code == 404
+
+
+def test_cancel_task_is_idempotent_when_idle(agent_client: TestClient) -> None:
+    """POST …/cancel succeeds even after the turn has already finished."""
+    created = agent_client.post("/api/agent-tasks", json={"description": "quick"})
+    assert created.status_code == 200, created.text
+    task_id = created.json()["taskId"]
+
+    # Scripted router finishes almost immediately; cancel must still 200.
+    cancelled = agent_client.post(f"/api/agent-tasks/{task_id}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    again = agent_client.post(f"/api/agent-tasks/{task_id}/cancel")
+    assert again.status_code == 200, again.text
+
+
+def test_followup_message_stays_on_same_task(agent_client: TestClient) -> None:
+    """POST …/messages continues the same session — does not mint a new taskId."""
+    created = agent_client.post("/api/agent-tasks", json={"description": "first turn"})
+    assert created.status_code == 200, created.text
+    body = created.json()
+    task_id = body["taskId"]
+    session_id = body["sessionId"]
+
+    # Wait for the first turn to settle so 409 doesn't fire.
+    import time
+
+    for _ in range(50):
+        status = agent_client.get(f"/api/agent-tasks/{task_id}").json()["status"]
+        if status != "running":
+            break
+        time.sleep(0.05)
+
+    msg = agent_client.post(
+        f"/api/agent-tasks/{task_id}/messages",
+        json={"content": "follow-up on the same session"},
+    )
+    assert msg.status_code == 200, msg.text
+
+    listed = agent_client.get("/api/agent-tasks").json()["tasks"]
+    # Still one product task for this session — no duplicate task id.
+    same = [t for t in listed if t["sessionId"] == session_id]
+    assert len(same) == 1
+    assert same[0]["taskId"] == task_id
+
+
+def test_task_metadata_lives_under_interactive_home(
+    agent_client: TestClient, workspace: object
+) -> None:
+    """Task metadata is colocated under agent/_tasks/."""
+    created = agent_client.post("/api/agent-tasks", json={"description": "where on disk?"})
+    assert created.status_code == 200, created.text
+    task_id = created.json()["taskId"]
+    root = Path(str(workspace.root))  # type: ignore[attr-defined]
+    meta = root / "agent" / "_tasks" / task_id / "metadata.json"
+    assert meta.is_file(), f"expected {meta}"
+
+
+def test_plan_mode_is_same_task_and_asks_for_missing_experiment(
+    agent_client: TestClient,
+) -> None:
+    created = agent_client.post(
+        "/api/agent-tasks",
+        json={"description": "plan a conductivity study", "mode": "plan"},
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["activeMode"] == "plan"
+    assert body["status"] == "awaiting_user"
+    assert any(event["type"] == "clarification_required" for event in body["events"])
+
+    listed = agent_client.get("/api/agent-tasks").json()["tasks"]
+    assert [task["taskId"] for task in listed] == [body["taskId"]]
+
+
+def test_plan_context_reply_starts_plan_turn_on_same_task(
+    agent_client: TestClient,
+    workspace: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = workspace.add_project("Battery Project")  # type: ignore[attr-defined]
+    experiment = project.add_experiment("Conductivity")
+    launched: list[tuple[str, str, str]] = []
+
+    def _capture_launch(*, workspace, task, draft, turn_id):
+        launched.append((task.task_id, draft, turn_id))
+
+    monkeypatch.setattr(agent_task_routes, "_launch_plan_turn", _capture_launch)
+    created = agent_client.post(
+        "/api/agent-tasks",
+        json={"description": "plan a conductivity study", "mode": "plan"},
+    ).json()
+
+    replied = agent_client.post(
+        f"/api/agent-tasks/{created['taskId']}/messages",
+        json={"content": f"{project.id} / {experiment.id}", "mode": "chat"},
+    )
+    assert replied.status_code == 200, replied.text
+    assert launched and launched[0][0] == created["taskId"]
+
+    current = agent_client.get(f"/api/agent-tasks/{created['taskId']}").json()
+    assert current["taskId"] == created["taskId"]
+    assert current["activeMode"] == "plan"
+    assert current["status"] == "running"
+
+
+def test_chat_task_can_switch_to_plan_and_ask_for_context(agent_client: TestClient) -> None:
+    created = agent_client.post(
+        "/api/agent-tasks", json={"description": "inspect the workspace", "mode": "chat"}
+    ).json()
+
+    import time
+
+    for _ in range(50):
+        current = agent_client.get(f"/api/agent-tasks/{created['taskId']}").json()
+        if current["status"] != "running":
+            break
+        time.sleep(0.05)
+
+    switched = agent_client.post(
+        f"/api/agent-tasks/{created['taskId']}/messages",
+        json={"content": "now build the nine-step plan", "mode": "plan"},
+    )
+    assert switched.status_code == 200, switched.text
+    current = agent_client.get(f"/api/agent-tasks/{created['taskId']}").json()
+    assert current["taskId"] == created["taskId"]
+    assert current["activeMode"] == "plan"
+    assert current["status"] == "awaiting_user"
+    assert any(event["type"] == "clarification_required" for event in current["events"])
 
 
 def test_missing_model_config_yields_503(

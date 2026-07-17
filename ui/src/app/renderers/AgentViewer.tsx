@@ -8,12 +8,12 @@ import {
   Send,
   Settings,
   ShieldAlert,
+  Square,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommandPalette, useCommandPalette } from "@/app/components/CommandPalette";
 import { EntityHeader, StatusBadge } from "@/app/components/entity";
-import { NewExperimentPlan } from "@/app/components/NewExperimentPlan";
 import {
   AgentNotConfiguredError,
   type ApiAgentHealth,
@@ -32,6 +32,7 @@ import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 import { buildEntityLinkIndex } from "@/lib/entity-linkify";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
 import { ApprovalsInbox } from "./agent/ApprovalsInbox";
+import { type AgentMode, nextAgentMode } from "./agent/agentMode";
 import { ConversationTurnView } from "./agent/conversation";
 import { DeliverablesPanel, hasDeliverables } from "./agent/DeliverablesPanel";
 import { PlanProgressRail } from "./agent/PlanProgressRail";
@@ -63,46 +64,104 @@ const TEXTAREA_CLASS =
 
 const getAgentTaskId = (session: ApiAgentSession): string => session.taskId ?? session.sessionId;
 
+const ModeToggle = ({
+  mode,
+  onChange,
+}: {
+  mode: AgentMode;
+  onChange: (mode: AgentMode) => void;
+}) => (
+  <button
+    type="button"
+    onClick={() => onChange(nextAgentMode(mode))}
+    className={
+      "rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors " +
+      (mode === "plan"
+        ? "bg-primary/10 text-primary hover:bg-primary/15"
+        : "hover:bg-muted hover:text-foreground")
+    }
+    title="Switch agent mode (Shift+Tab)"
+    aria-label={`Agent mode: ${mode}`}
+  >
+    {mode === "chat" ? "Chat" : "Plan"}
+  </button>
+);
+
 // ---------------------------------------------------------------------------
-// Chat box (mid-session messages)
+// Chat box (mid-session messages + stop while running)
 // ---------------------------------------------------------------------------
 
 const ChatBox = ({
   awaitingRequestId,
   awaitingPrompt,
   disabled,
+  isRunning,
+  mode,
+  onModeChange,
   onSubmit,
+  onStop,
 }: {
   awaitingRequestId: string | null;
   awaitingPrompt: string | null;
   disabled: boolean;
-  onSubmit: (content: string, requestId: string | null) => Promise<void>;
+  /** True while a turn is in flight — primary action becomes Stop. */
+  isRunning: boolean;
+  mode: AgentMode;
+  onModeChange: (mode: AgentMode) => void;
+  onSubmit: (content: string, requestId: string | null, mode: AgentMode) => Promise<void>;
+  onStop: () => Promise<void>;
 }): JSX.Element => {
   const [content, setContent] = useState("");
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
+
+  // While a turn is running the composer is for stop (not a second message).
+  // Exception: the agent asked a clarifying question — then send a reply.
+  const showStop = isRunning && !awaitingRequestId;
 
   const handleSend = async (): Promise<void> => {
     const trimmed = content.trim();
-    if (!trimmed || sending || disabled) return;
+    if (!trimmed || sending || disabled || showStop) return;
     setSending(true);
     try {
-      await onSubmit(trimmed, awaitingRequestId);
+      await onSubmit(trimmed, awaitingRequestId, mode);
       setContent("");
     } finally {
       setSending(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      void handleSend();
+  const handleStop = async (): Promise<void> => {
+    if (stopping || !showStop) return;
+    setStopping(true);
+    try {
+      await onStop();
+    } finally {
+      setStopping(false);
     }
   };
 
-  const placeholder = awaitingRequestId
-    ? "Reply to the agent's question…"
-    : "Message the agent… (⌘+Enter to send)";
+  const handleKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === "Tab" && e.shiftKey) {
+      e.preventDefault();
+      onModeChange(nextAgentMode(mode));
+      return;
+    }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      if (showStop) {
+        void handleStop();
+      } else {
+        void handleSend();
+      }
+    }
+  };
+
+  const placeholder = showStop
+    ? "Agent is running… (⌘+Enter to stop)"
+    : awaitingRequestId
+      ? "Reply to the agent's question…"
+      : "Message the agent… (⌘+Enter to send)";
 
   return (
     <div className={COMPOSER_BAR}>
@@ -125,23 +184,47 @@ const ChatBox = ({
           value={content}
           onChange={(e) => setContent(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={disabled}
+          disabled={disabled || showStop}
         />
-        <Button
-          size="icon"
-          onClick={() => {
-            void handleSend();
-          }}
-          disabled={disabled || sending || !content.trim()}
-          className="h-8 w-8 flex-none rounded-md"
-          aria-label="Send message"
-        >
-          {sending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Send className="h-3.5 w-3.5" />
-          )}
-        </Button>
+        {showStop ? (
+          <Button
+            size="icon"
+            variant="destructive"
+            onClick={() => {
+              void handleStop();
+            }}
+            disabled={stopping}
+            className="h-8 w-8 flex-none rounded-md"
+            aria-label="Stop agent"
+            title="Stop this turn"
+          >
+            {stopping ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Square className="h-3 w-3 fill-current" />
+            )}
+          </Button>
+        ) : (
+          <Button
+            size="icon"
+            onClick={() => {
+              void handleSend();
+            }}
+            disabled={disabled || sending || !content.trim()}
+            className="h-8 w-8 flex-none rounded-md"
+            aria-label="Send message"
+          >
+            {sending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Send className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        )}
+      </div>
+      <div className={`${COLUMN} mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground`}>
+        <ModeToggle mode={mode} onChange={onModeChange} />
+        <span className="ml-auto">Shift+Tab to switch · ⌘+Enter to send</span>
       </div>
     </div>
   );
@@ -161,19 +244,19 @@ export type LaunchIntent =
       kind: "goal";
       description: string;
       criteria: string[];
-      planMode: boolean;
+      mode: AgentMode;
       instructionsOverride?: string;
     }
   | {
       kind: "skill";
       skillId: string;
       parameters: Record<string, string>;
-      planMode: boolean;
+      mode: AgentMode;
     };
 
 const HELP_TEXT_LINES = [
   "Available commands:",
-  "  /plan      — toggle plan mode (read-only inspection) for the next launch",
+  "  /plan      — toggle the auditable nine-step Plan agent for the next turn",
   "  /clear     — clear the input",
   "  /model     — open Provider settings to change the active model",
   "  /help      — show this list",
@@ -193,7 +276,7 @@ const GoalInput = ({
 }): JSX.Element => {
   const [description, setDescription] = useState("");
   const [overrideText, setOverrideText] = useState("");
-  const [planMode, setPlanMode] = useState(false);
+  const [mode, setMode] = useState<AgentMode>("chat");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -244,14 +327,14 @@ const GoalInput = ({
     (name: string): void => {
       switch (name) {
         case "plan":
-          setPlanMode((v) => !v);
+          setMode(nextAgentMode);
           setDescription("");
           setInfo("Plan mode toggled for the next launch.");
           return;
         case "clear":
           setDescription("");
           setOverrideText("");
-          setPlanMode(false);
+          setMode("chat");
           setShowAdvanced(false);
           setInfo("Input cleared.");
           return;
@@ -279,10 +362,10 @@ const GoalInput = ({
       kind: "goal",
       description: trimmed,
       criteria: [],
-      planMode,
+      mode,
       instructionsOverride: override,
     });
-  }, [description, dispatchIntent, overrideText, planMode]);
+  }, [description, dispatchIntent, overrideText, mode]);
 
   const submitSlash = useCallback(async (): Promise<void> => {
     const raw = description.trim();
@@ -301,9 +384,9 @@ const GoalInput = ({
       kind: "skill",
       skillId: parsed.skillId,
       parameters: parsed.parameters,
-      planMode: parsed.planMode || planMode,
+      mode: parsed.planMode || mode === "plan" ? "plan" : "chat",
     });
-  }, [description, dispatchIntent, handleBuiltin, planMode]);
+  }, [description, dispatchIntent, handleBuiltin, mode]);
 
   const handleSendButton = useCallback((): void => {
     const trimmed = description.trim();
@@ -317,6 +400,12 @@ const GoalInput = ({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+      if (e.key === "Tab" && e.shiftKey) {
+        e.preventDefault();
+        palette.close();
+        setMode(nextAgentMode);
+        return;
+      }
       // Palette keyboard nav takes precedence — Tab/Esc/arrows.
       if (palette.handleKeyDown(e)) {
         if (e.key === "Tab") {
@@ -429,24 +518,7 @@ const GoalInput = ({
             <span>{providerLabel}</span>
           </button>
         ) : null}
-        <button
-          type="button"
-          onClick={() => setPlanMode((v) => !v)}
-          className={
-            "rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors " +
-            (planMode
-              ? "bg-primary/10 text-primary hover:bg-primary/15"
-              : "hover:bg-muted hover:text-foreground")
-          }
-          title={
-            planMode
-              ? "Plan mode on: agent inspects and emits a plan; no writes"
-              : "Toggle plan mode for the next launch"
-          }
-          aria-pressed={planMode}
-        >
-          Plan {planMode ? "on" : "off"}
-        </button>
+        <ModeToggle mode={mode} onChange={setMode} />
         <button
           type="button"
           onClick={() => setShowAdvanced((v) => !v)}
@@ -461,7 +533,7 @@ const GoalInput = ({
           )}
           <span>Advanced</span>
         </button>
-        <span className="ml-auto">⌘+Enter to send · / to browse commands</span>
+        <span className="ml-auto">Shift+Tab to switch · ⌘+Enter to send · / for commands</span>
       </div>
     </div>
   );
@@ -588,8 +660,7 @@ const AgentSessionViewer = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<ApiAgentHealth | null>(null);
-  // New-task surface: a plain chat goal, or an experiment plan (PlanMode).
-  const [newMode, setNewMode] = useState<"chat" | "plan">("chat");
+  const [composerMode, setComposerMode] = useState<AgentMode>("chat");
   // Which PlanMode stage the progress rail has selected; drives the right panel.
   const [selectedStage, setSelectedStage] = useState<string>(DEFAULT_PLAN_STAGE);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -633,6 +704,7 @@ const AgentSessionViewer = ({
       .then((s) => {
         setSession(s);
         setEvents(s.events ?? []);
+        setComposerMode(s.activeMode ?? "chat");
         onRefresh();
       })
       .catch((err) => setError(String(err)))
@@ -666,7 +738,15 @@ const AgentSessionViewer = ({
         // {type, ts, payload} shape; `waiting` (and any control frame) → null.
         const normalized = normalizeStreamFrame(data);
         if (normalized) {
-          setEvents((prev) => [...prev, normalized]);
+          setEvents((prev) => {
+            const duplicate = prev.some(
+              (event) =>
+                event.type === normalized.type &&
+                event.ts === normalized.ts &&
+                JSON.stringify(event.payload) === JSON.stringify(normalized.payload),
+            );
+            return duplicate ? prev : [...prev, normalized];
+          });
         }
       } catch {
         // ignore parse errors
@@ -714,6 +794,9 @@ const AgentSessionViewer = ({
       try {
         const fresh = await agentApi.getSession(sessionId);
         if (cancelled) return;
+        setEvents((current) =>
+          (fresh.events?.length ?? 0) >= current.length ? (fresh.events ?? current) : current,
+        );
         setSession((prev) => {
           if (!prev || prev.sessionId !== sessionId) return prev;
           if (
@@ -722,7 +805,14 @@ const AgentSessionViewer = ({
           ) {
             return prev;
           }
-          return { ...prev, status: fresh.status, stats: fresh.stats };
+          return {
+            ...prev,
+            status: fresh.status,
+            stats: fresh.stats,
+            activeMode: fresh.activeMode,
+            activeTurnId: fresh.activeTurnId,
+            activePlanTaskId: fresh.activePlanTaskId,
+          };
         });
       } catch {
         // ignore transient polling errors
@@ -743,14 +833,14 @@ const AgentSessionViewer = ({
         const created: ApiAgentSession =
           intent.kind === "goal"
             ? await agentApi.createSession(intent.description, intent.criteria, {
-                planMode: intent.planMode || undefined,
+                mode: intent.mode,
                 instructionsOverride: intent.instructionsOverride,
                 projectId: mountScope?.projectId,
                 experimentId: mountScope?.experimentId,
                 runId: mountScope?.runId,
               })
             : await agentAdminApi.launchSkill(intent.skillId, intent.parameters, {
-                planMode: intent.planMode,
+                planMode: intent.mode === "plan",
               });
         setSession(created);
         setEvents(created.events ?? []);
@@ -775,16 +865,49 @@ const AgentSessionViewer = ({
   );
 
   const handleChatSubmit = useCallback(
-    async (content: string, requestId: string | null) => {
+    async (content: string, requestId: string | null, mode: AgentMode) => {
       if (!session) return;
+      const taskId = getAgentTaskId(session);
       try {
-        await agentApi.postMessage(getAgentTaskId(session), content, requestId);
+        // Optimistically show the user's message and flip status so the SSE
+        // stream re-subscribes for the new turn (postMessage continues the
+        // same session — it does NOT create a new task).
+        const now = new Date().toISOString();
+        setEvents((prev) => [
+          ...prev,
+          {
+            type: "loop_started",
+            ts: now,
+            payload: { user_input: content, kind: "loop_started", mode },
+          },
+        ]);
+        setSession((prev) => (prev ? { ...prev, status: "running" } : prev));
+        await agentApi.postMessage(taskId, content, requestId, mode);
+        onRefresh();
       } catch (err) {
+        setSession((prev) => (prev ? { ...prev, status: session.status } : prev));
         setError(String(err));
       }
     },
-    [session],
+    [session, onRefresh],
   );
+
+  const handleStop = useCallback(async () => {
+    if (!session) return;
+    const taskId = getAgentTaskId(session);
+    try {
+      await agentApi.cancelSession(taskId);
+      // Keep the accumulated transcript — getSession only returns the current
+      // turn's events, so merging status/stats preserves the full conversation.
+      setSession((prev) => {
+        if (!prev) return prev;
+        return { ...prev, status: "cancelled" };
+      });
+      onRefresh();
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [session, onRefresh]);
 
   // Detect whether the agent is currently waiting on the user's reply.
   const pendingUserRequest = useMemo(() => derivePendingUserRequest(events), [events]);
@@ -814,80 +937,53 @@ const AgentSessionViewer = ({
 
             <ApprovalsInbox onDecided={onRefresh} />
 
-            <div className="flex justify-center">
-              <div className="inline-flex rounded-md border border-border/60 bg-card p-0.5 text-xs font-medium">
-                {(["chat", "plan"] as const).map((mode) => (
+            <div className="flex flex-col items-center gap-2 pt-4 text-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border/60 bg-card">
+                <Bot className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <h2 className="text-base font-semibold text-foreground">Start an agent task</h2>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Describe a goal, then switch between Chat and the auditable nine-step Plan agent for
+                each turn.
+              </p>
+              {mountScope && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                  Mounted on{" "}
+                  <span className="font-medium text-foreground">
+                    {mountScope.runId
+                      ? `run ${mountScope.runId}`
+                      : mountScope.experimentId
+                        ? `experiment ${mountScope.experimentId}`
+                        : `project ${mountScope.projectId}`}
+                  </span>
+                </span>
+              )}
+            </div>
+
+            {recent.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="px-1 text-xs font-medium text-muted-foreground">Recent tasks</p>
+                {recent.map((s) => (
                   <button
-                    key={mode}
+                    key={s.id}
                     type="button"
-                    onClick={() => setNewMode(mode)}
-                    className={`rounded px-3 py-1 transition-colors ${
-                      newMode === mode
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    onClick={() => nav.setSelection({ objectType: "agent", objectId: s.id })}
+                    className="flex w-full items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2 text-left transition-colors hover:bg-muted/40"
                   >
-                    {mode === "chat" ? "Chat task" : "Experiment plan"}
+                    <Bot className="h-4 w-4 flex-none text-muted-foreground" />
+                    <p className="flex-1 truncate text-sm">{s.goal}</p>
+                    <StatusBadge status={s.status} size="sm" />
                   </button>
                 ))}
               </div>
-            </div>
-
-            {newMode === "plan" ? (
-              <NewExperimentPlan snapshot={snapshot} onRefresh={onRefresh} />
-            ) : (
-              <>
-                <div className="flex flex-col items-center gap-2 pt-4 text-center">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border/60 bg-card">
-                    <Bot className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <h2 className="text-base font-semibold text-foreground">Start an agent task</h2>
-                  <p className="max-w-md text-sm text-muted-foreground">
-                    Describe a goal. The agent plans the steps, calls molexp tools, and reports
-                    results with artifacts.
-                  </p>
-                  {mountScope && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
-                      Mounted on{" "}
-                      <span className="font-medium text-foreground">
-                        {mountScope.runId
-                          ? `run ${mountScope.runId}`
-                          : mountScope.experimentId
-                            ? `experiment ${mountScope.experimentId}`
-                            : `project ${mountScope.projectId}`}
-                      </span>
-                    </span>
-                  )}
-                </div>
-
-                {recent.length > 0 && (
-                  <div className="space-y-1.5">
-                    <p className="px-1 text-xs font-medium text-muted-foreground">Recent tasks</p>
-                    {recent.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => nav.setSelection({ objectType: "agent", objectId: s.id })}
-                        className="flex w-full items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2 text-left transition-colors hover:bg-muted/40"
-                      >
-                        <Bot className="h-4 w-4 flex-none text-muted-foreground" />
-                        <p className="flex-1 truncate text-sm">{s.goal}</p>
-                        <StatusBadge status={s.status} size="sm" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
             )}
           </div>
         </div>
-        {newMode === "chat" && (
-          <GoalInput
-            onSubmit={handleLaunchIntent}
-            disabled={submitting || notReady}
-            onOpenSettings={openSettings}
-          />
-        )}
+        <GoalInput
+          onSubmit={handleLaunchIntent}
+          disabled={submitting || notReady}
+          onOpenSettings={openSettings}
+        />
       </div>
     );
   }
@@ -933,21 +1029,26 @@ const AgentSessionViewer = ({
         </div>
       </ScrollArea>
 
-      {isRunning ? (
-        <ChatBox
-          awaitingRequestId={pendingUserRequest?.requestId ?? null}
-          awaitingPrompt={pendingUserRequest?.prompt ?? null}
-          disabled={false}
-          onSubmit={handleChatSubmit}
-        />
-      ) : (
-        <GoalInput
-          onSubmit={handleLaunchIntent}
-          disabled={submitting}
-          onOpenSettings={openSettings}
-          placeholder="Send a follow-up message..."
-        />
+      {session.status === "waiting_approval" && (
+        <div className={`${COLUMN} px-4 pb-2 md:px-6`}>
+          <ApprovalsInbox
+            taskId={session.activePlanTaskId ?? getAgentTaskId(session)}
+            onDecided={onRefresh}
+          />
+        </div>
       )}
+
+      {/* Always continue the same session — GoalInput (create) is only for /new. */}
+      <ChatBox
+        awaitingRequestId={pendingUserRequest?.requestId ?? null}
+        awaitingPrompt={pendingUserRequest?.prompt ?? null}
+        disabled={false}
+        isRunning={isRunning}
+        mode={composerMode}
+        onModeChange={setComposerMode}
+        onSubmit={handleChatSubmit}
+        onStop={handleStop}
+      />
     </div>
   );
 

@@ -42,6 +42,8 @@ class PlanTaskRegistry:
         ground: bool = True,
         execute: bool = False,
         compute_target: ComputeTarget | None = None,
+        record_task_id: str | None = None,
+        turn_id: str | None = None,
     ) -> PlanTask:
         """Build, start, and register a background plan task."""
         from molexp.services.plan_runtime.task import PlanTask
@@ -58,6 +60,8 @@ class PlanTaskRegistry:
             execute=execute,
             compute_target=compute_target,
             workspace_root=workspace_root,
+            record_task_id=record_task_id,
+            turn_id=turn_id,
         )
         self._by_workspace.setdefault(workspace_root, {})[task_id] = task
         return task

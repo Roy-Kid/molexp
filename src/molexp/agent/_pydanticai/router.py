@@ -608,7 +608,7 @@ class PydanticAIRouter:
                 messages_json = run.result.all_messages_json() if run.result is not None else None
                 self._record_usage(
                     run_result=run.result,
-                    node_id="interactive",
+                    node_id="agent",
                     tier=tier,
                     schema_name="",
                     attempt=1,

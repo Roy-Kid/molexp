@@ -63,6 +63,21 @@ class AgentSessionRegistry:
         """Return every live runtime under ``workspace_root`` (empty if none)."""
         return list(self._by_workspace.get(workspace_root, {}).values())
 
+    def remove(self, workspace_root: str, session_id: str) -> AgentSessionRuntime | None:
+        """Drop a runtime from the registry (does not cancel it).
+
+        Returns the removed runtime, or ``None`` when it was not registered.
+        Callers that need a clean teardown should :meth:`cancel` +
+        :meth:`~AgentSessionRuntime.await_finished` first.
+        """
+        sessions = self._by_workspace.get(workspace_root)
+        if not sessions:
+            return None
+        runtime = sessions.pop(session_id, None)
+        if not sessions:
+            self._by_workspace.pop(workspace_root, None)
+        return runtime
+
     def cancel_all(self) -> None:
         """Request cancellation of every in-flight turn across all workspaces."""
         for sessions in self._by_workspace.values():

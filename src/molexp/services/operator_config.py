@@ -36,6 +36,9 @@ OPERATOR_CONFIG_PATH = Path.home() / ".molexp" / "config.json"
 #: spelling as the CLI key (``molexp config set agent.model <id>``).
 AGENT_MODEL_KEY = "agent.model"
 
+#: Per-tier model mapping consumed by ``AgentRunner(models=...)``.
+AGENT_MODELS_KEY = "agent.models"
+
 #: Legacy flat in-code key, still honoured for backward compatibility.
 LEGACY_AGENT_MODEL_KEY = "agent_model"
 
@@ -65,6 +68,30 @@ def configured_agent_model(config: dict[str, Any]) -> str | None:
         if isinstance(model, str) and model:
             return model
     return None
+
+
+def configured_agent_models(config: dict[str, Any]) -> dict[str, str] | None:
+    """Extract the active provider's complete cheap/default/heavy mapping."""
+    agent = config.get("agent")
+    if not isinstance(agent, dict):
+        return None
+    provider = agent.get("provider")
+    providers = agent.get("providers")
+    if not isinstance(provider, str) or not isinstance(providers, dict):
+        return None
+    section = providers.get(provider)
+    if not isinstance(section, dict):
+        return None
+    raw = section.get("models")
+    if not isinstance(raw, dict):
+        return None
+    tiers = {tier: raw.get(tier) for tier in ("cheap", "default", "heavy")}
+    if not all(isinstance(value, str) and value for value in tiers.values()):
+        return None
+    return {
+        tier: (str(value) if ":" in str(value) else f"{provider}:{value}")
+        for tier, value in tiers.items()
+    }
 
 
 def configured_api_keys(config: dict[str, Any]) -> dict[str, str]:
@@ -161,17 +188,24 @@ def bridge_operator_config(path: Path | None = None) -> None:
         if model is not None:
             molexp.config[AGENT_MODEL_KEY] = model
 
+    if molexp.config.get(AGENT_MODELS_KEY) is None:
+        models = configured_agent_models(config)
+        if models is not None:
+            molexp.config[AGENT_MODELS_KEY] = models
+
     for name, value in configured_api_keys(config).items():
         if not molexp.config.get(name):
             molexp.config[name] = value
 
 
 __all__ = [
+    "AGENT_MODELS_KEY",
     "AGENT_MODEL_KEY",
     "LEGACY_AGENT_MODEL_KEY",
     "OPERATOR_CONFIG_PATH",
     "bridge_operator_config",
     "configured_agent_model",
+    "configured_agent_models",
     "configured_api_keys",
     "load_operator_config",
     "save_operator_config",

@@ -94,7 +94,7 @@ def test_agent_repl_runs_a_turn_and_persists_session(
     # /help is a REPL-meta command handled in-process
     assert "Commands" in result.output
     # the turn rendered the ModeStarted header + the streamed answer
-    assert "interactive" in result.output
+    assert "agent" in result.output
     assert "Hello from the agent." in result.output
     # the conversation persisted to the named session
     jsonl = list(tmp_path.rglob("entries.jsonl"))
@@ -108,7 +108,7 @@ def test_agent_harvest_and_export_cli(runner: CliRunner, tmp_path: Path) -> None
 
     ws = Workspace(root=tmp_path / "ws")
     ws.materialize()
-    agent = Agent(name="interactive", root_path=ws.root)
+    agent = Agent(name="agent", root_path=ws.root)
     agent.materialize()
     sess = agent.add_session("s1")
     sess.materialize()
@@ -124,7 +124,7 @@ def test_agent_harvest_and_export_cli(runner: CliRunner, tmp_path: Path) -> None
             "--session",
             "s1",
             "--agent-name",
-            "interactive",
+            "agent",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -141,7 +141,7 @@ def test_agent_harvest_and_export_cli(runner: CliRunner, tmp_path: Path) -> None
             "--session",
             "s1",
             "--agent-name",
-            "interactive",
+            "agent",
             "-o",
             str(out_zip),
         ],

@@ -107,6 +107,30 @@ class TestCredentialGuidance:
 
 
 class TestPreflightSuccess:
+    def test_preflight_preserves_distinct_models_for_each_tier(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import molexp
+        from molexp.agent.router import ModelTier
+
+        monkeypatch.setitem(molexp.config, "deepseek_api_key", "test-key")
+        router = preflight_plan_router(
+            model="deepseek:deepseek-chat",
+            models={
+                "cheap": "deepseek:deepseek-v4-flash",
+                "default": "deepseek:deepseek-chat",
+                "heavy": "deepseek:deepseek-reasoner",
+            },
+        )
+        resolved = {  # type: ignore[attr-defined]
+            tier: configured.model_name for tier, configured in router._tier_models.items()
+        }
+        assert resolved == {
+            ModelTier.CHEAP: "deepseek-v4-flash",
+            ModelTier.DEFAULT: "deepseek-chat",
+            ModelTier.HEAVY: "deepseek-reasoner",
+        }
+
     def test_configured_deepseek_model_passes_and_returns_the_router(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

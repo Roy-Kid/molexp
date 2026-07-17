@@ -90,6 +90,65 @@ def test_walk_skips_ops_or_nonconcept(bundle: Path) -> None:
     assert "loose.txt" not in rels
 
 
+def test_walk_skips_node_modules_and_vcs_trees(tmp_path: Path) -> None:
+    """Safety-floor gitignore patterns skip dependency / VCS trees."""
+    root = tmp_path / "bundle"
+    root.mkdir()
+    _concept("alpha", root)
+
+    junk = root / "node_modules" / "pkg"
+    junk.mkdir(parents=True)
+    (junk / "meta.yaml").write_text("type: bundle.concept\nid: pkg\n")
+
+    git_fake = root / ".git" / "objects"
+    git_fake.mkdir(parents=True)
+    (git_fake / "meta.yaml").write_text("type: bundle.concept\nid: gitobj\n")
+
+    rels = {Bundle(root).rel_path(f) for f in Bundle(root).walk()}
+    assert rels == {"alpha"}
+    assert "node_modules/pkg" not in rels
+
+
+def test_walk_respects_workspace_gitignore(tmp_path: Path) -> None:
+    """User ``.gitignore`` hides concept dirs under ignored paths."""
+    root = tmp_path / "bundle"
+    root.mkdir()
+    _concept("alpha", root)
+    (root / ".gitignore").write_text("drafts/\n*.bak\n")
+
+    drafts = root / "drafts"
+    drafts.mkdir()
+    _concept("hidden", drafts)
+
+    visible = root / "group"
+    visible.mkdir()
+    _concept("gamma", visible)
+
+    rels = {Bundle(root).rel_path(f) for f in Bundle(root).walk()}
+    assert "alpha" in rels
+    assert "group/gamma" in rels
+    assert "drafts/hidden" not in rels
+
+
+def test_walk_tolerates_symlink_cycles(tmp_path: Path) -> None:
+    """Self-referential package symlinks (npm style) must not explode walk()."""
+    root = tmp_path / "bundle"
+    root.mkdir()
+    _concept("alpha", root)
+
+    pkg = root / "node_modules" / "@scope" / "pkg"
+    pkg.mkdir(parents=True)
+    # Even without the node_modules name skip, a cycle under a plain dir
+    # must terminate; plant one outside the safety floor too.
+    cyc = root / "group" / "loop"
+    cyc.mkdir(parents=True)
+    (cyc / "link").symlink_to(cyc)
+
+    # walk must finish and still see real concepts
+    rels = [Bundle(root).rel_path(f) for f in Bundle(root).walk()]
+    assert rels == ["alpha"]
+
+
 # ── get() path-as-identity (ac-004) ──────────────────────────────────────────
 
 

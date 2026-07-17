@@ -308,7 +308,7 @@ def agent_harvest(
     session: Annotated[str, typer.Option("--session", help="Session id.")] = "default",
     agent_name: Annotated[
         str, typer.Option("--agent-name", help="Agent folder name (loop name).")
-    ] = "interactive",
+    ] = "agent",
     workspace: Annotated[Path | None, typer.Option("--workspace")] = None,
     kind: Annotated[str, typer.Option("--kind")] = "Observation",
     created_by: Annotated[str, typer.Option("--created-by")] = "cli",
@@ -340,7 +340,7 @@ def agent_harvest(
 @agent_app.command("export")
 def agent_export(
     session: Annotated[str, typer.Option("--session")] = "default",
-    agent_name: Annotated[str, typer.Option("--agent-name")] = "interactive",
+    agent_name: Annotated[str, typer.Option("--agent-name")] = "agent",
     workspace: Annotated[Path | None, typer.Option("--workspace")] = None,
     output: Annotated[
         Path | None,

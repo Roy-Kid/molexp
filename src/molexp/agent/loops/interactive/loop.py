@@ -148,7 +148,8 @@ class InteractiveLoopConfig(BaseModel):
 class InteractiveLoop(AgentLoop):
     """The emergent tool-using loop — the CLI's default interactive loop."""
 
-    name = "interactive"
+    # On-disk Agent folder name under the workspace root (also loop_name on events).
+    name = "agent"
 
     def __init__(self, *, config: InteractiveLoopConfig | None = None) -> None:
         self.config = config or InteractiveLoopConfig()

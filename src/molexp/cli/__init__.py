@@ -5,8 +5,9 @@ Top-level verbs (``run`` / ``serve`` / ``monitor`` / ``explore`` / ``context`` /
 ``agent`` / ``plan``) and noun groups (``project`` / ``experiment`` / ``runs`` /
 ``asset`` / ``target`` / ``session`` / ``config`` / ``mcp`` / ``curate`` /
 ``git`` / ``knowledge``) register directly on the app. Each workspace-bound
-command takes a ``-t/--target`` option (default: cwd) via
-:mod:`molexp.cli._target`. There is no ``workspace`` god-group.
+commands resolve their execution target via :mod:`molexp.cli._target`;
+``serve`` deliberately accepts only local ``-ws/--workspace`` paths. There is
+no ``workspace`` god-group.
 """
 
 from __future__ import annotations

@@ -23,17 +23,17 @@ The UI presents the same hierarchy the workspace stores on disk:
 | **Run** | One immutable execution request: concrete parameters, a status (`pending → running → succeeded / failed / cancelled`). |
 | **Execution** | One physical attempt of a run (`exec-<run_id>[-N]`). A run accumulates attempts when it is resumed or rerun. |
 
-## 1. Initialize a workspace and start the server
+## 1. Start the server
 
 ```bash
 pip install molexp
-molexp init ./lab
-molexp serve --workspace ./lab --port 8000
+molexp serve -ws ./lab --port 8000
 ```
 
 Open <http://localhost:8000>. The wheel ships the production UI build,
 so this one process serves both the REST API and the interface — no
-Node.js required.
+Node.js required. If `./lab` does not exist or has no `workspace.json`,
+`serve` initializes it automatically.
 
 > **Editable installs:** if you installed from a source checkout with
 > `pip install -e .`, the UI bundle may be absent and the server falls
@@ -41,7 +41,7 @@ Node.js required.
 > build`, or run the dev server (`npm run dev`, port 5173) alongside the
 > backend. See [Server Lifecycle](../guide/server-lifecycle.md).
 
-You can serve several workspaces at once by repeating `--workspace`;
+You can serve several workspaces at once by repeating `-ws`;
 the UI shows each one in the left panel and you switch by clicking into
 its tree.
 

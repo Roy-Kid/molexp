@@ -82,21 +82,24 @@ _cache_instance: Caching | None = None
 def _get_cache() -> Caching:
     global _cache_instance
     if _cache_instance is None:
+        # Process-local FileCacheStore under ~/.molexp/cache (not workspace-rooted).
+        # Caching no longer exposes initialize() / _store_dir — storage is the
+        # pluggable CacheStore and stats() is the public entry-count path.
         store_dir = Path.home() / ".molexp" / "cache"
+        store_dir.mkdir(parents=True, exist_ok=True)
         _cache_instance = Caching(store_dir=store_dir)
-        _cache_instance.initialize()  # ty: ignore[unresolved-attribute]
     return _cache_instance
 
 
 @router.get("/cache/stats", response_model=CacheStatsResponse)
 def get_cache_stats() -> CacheStatsResponse:
     cache = _get_cache()
-    entry_count = 0
-    if cache._store_dir.exists():  # ty: ignore[unresolved-attribute]
-        entry_count = len(list(cache._store_dir.glob("*.json")))  # ty: ignore[unresolved-attribute]
+    stats = cache.stats
+    store = cache.store
+    store_dir = getattr(store, "store_dir", None)
     return CacheStatsResponse(
-        storeDir=str(cache._store_dir),  # ty: ignore[unresolved-attribute]
-        entryCount=entry_count,
+        storeDir=str(store_dir) if store_dir is not None else "",
+        entryCount=int(stats["entry_count"]),
     )
 
 

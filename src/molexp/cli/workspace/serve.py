@@ -1,16 +1,15 @@
 """``molexp serve`` — start FastAPI server + bundled UI.
 
-Serves one *or more* workspaces (local or remote). The first ``--workspace`` is
+Serves one or more local workspaces. The first ``--workspace`` is
 the active one at startup; the full set is exposed at ``GET /api/workspaces`` so
-the UI can switch between them (``POST /api/workspace/open``). With a single
-local workspace the behaviour is unchanged (cwd-based).
+the UI can switch between them (``POST /api/workspace/open``). Missing workspace
+directories are initialized automatically.
 """
 
 from __future__ import annotations
 
-import os
 import re
-from pathlib import PurePosixPath
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -18,8 +17,7 @@ import uvicorn
 
 from molexp.cli._app import app
 from molexp.cli._common import rprint
-from molexp.cli._target import resolve_workspace_target
-from molexp.workspace.target import RemoteTarget
+from molexp.workspace import Workspace
 
 
 def _slug(text: str) -> str:
@@ -37,39 +35,19 @@ def _unique_key(base: str, used: set[str]) -> str:
     return key
 
 
-def _resolve_served(spec: str, used_keys: set[str]):
+def _resolve_served(spec: Path, used_keys: set[str]):
     """Resolve one ``--workspace`` spec into a ``ServedWorkspace``.
 
-    Remote targets are registered (idempotently) so the active-switch path can
-    resolve them by key; local targets get the existing ``workspace.json``
-    auto-detection.
+    The path is expanded and resolved with :mod:`pathlib`. If it is not already
+    a MolExp workspace, constructing :class:`Workspace` creates the directory
+    and ``workspace.json`` in place.
     """
-    from molexp.server.dependencies import ServedWorkspace, get_workspace_target_registry
-    from molexp.server.workspace_targets import WorkspaceTarget
+    from molexp.server.dependencies import ServedWorkspace
 
-    target, _transport, _fs = resolve_workspace_target(spec)
-
-    if isinstance(target, RemoteTarget):
-        host_str = f"{target.user}@{target.host}" if target.user else target.host
-        key = _unique_key(
-            _slug(f"{target.host}-{PurePosixPath(target.path).name or 'ws'}"), used_keys
-        )
-        registry = get_workspace_target_registry()
-        if not registry.has(key):
-            registry.add(WorkspaceTarget(name=key, host=host_str, root_path=target.path))
-        return ServedWorkspace(key=key, label=str(target), is_remote=True, target_name=key)
-
-    resolved = target.path.resolve()
+    resolved = spec.expanduser().resolve()
     if not (resolved / "workspace.json").exists():
-        candidate = resolved / "workspace"
-        if (candidate / "workspace.json").exists():
-            resolved = candidate
-            rprint(f"[dim]Auto-detected workspace at {resolved}[/dim]")
-        else:
-            rprint(
-                f"[yellow]Warning:[/yellow] No workspace.json found in {resolved}. "
-                "Run [bold]molexp init[/bold] first."
-            )
+        Workspace(root=resolved, name=resolved.name or "workspace").materialize()
+        rprint(f"[dim]Created workspace at {resolved}[/dim]")
     key = _unique_key(_slug(f"local-{resolved.name or 'ws'}"), used_keys)
     return ServedWorkspace(key=key, label=str(resolved), is_remote=False, path=str(resolved))
 
@@ -77,15 +55,13 @@ def _resolve_served(spec: str, used_keys: set[str]):
 @app.command()
 def serve(
     workspaces: Annotated[
-        list[str] | None,
+        list[Path] | None,
         typer.Option(
             "--workspace",
             "-ws",
-            "--target",
-            "-t",
             help=(
-                "Workspace to serve: a path, user@host:path, or @target-name. "
-                "Repeat to serve several (the first is active at startup). "
+                "Local workspace path. Repeat to serve several (the first is active at startup). "
+                "Missing workspaces are created automatically. "
                 "Default: cwd."
             ),
         ),
@@ -96,21 +72,18 @@ def serve(
     """Start the MolExp server (API + bundled web UI)."""
     from molexp.server.dependencies import (
         ServedWorkspace,
-        set_active_workspace_descriptor,
         set_served_workspaces,
+        set_workspace_path_override,
     )
 
-    specs = workspaces or ["."]
+    specs = workspaces or [Path.cwd()]
     used_keys: set[str] = set()
     served: list[ServedWorkspace] = [_resolve_served(s, used_keys) for s in specs]
 
-    # Activate the first workspace. A local primary stays the cwd (unchanged
-    # single-workspace behaviour); a remote primary activates by descriptor.
+    # Activate the first workspace without changing the process cwd.
     primary = served[0]
-    if primary.is_remote:
-        set_active_workspace_descriptor(primary.target_name)
-    else:
-        os.chdir(primary.path)  # ty: ignore[invalid-argument-type]  (path is set for local)
+    assert primary.path is not None
+    set_workspace_path_override(Path(primary.path))
     set_served_workspaces(served)
 
     if len(served) == 1:
@@ -119,8 +92,7 @@ def serve(
         rprint(f"[bold]Serving {len(served)} workspaces[/bold] (switch in the UI):")
         for w in served:
             mark = "[green]*[/green]" if w is primary else " "
-            kind = "remote" if w.is_remote else "local"
-            rprint(f"  {mark} [cyan]{w.key}[/cyan] [dim]({kind})[/dim] {w.label}")
+            rprint(f"  {mark} [cyan]{w.key}[/cyan] [dim](local)[/dim] {w.label}")
 
     from molexp.server.app import _find_bundled_webapp, create_app
 

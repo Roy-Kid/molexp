@@ -45,7 +45,7 @@ def _render(events: list[AgentEvent]) -> str:
 def test_renders_every_event_kind_without_crashing() -> None:
     """Each of the 16 AgentEvent kinds has a render path and produces output."""
     samples: list[AgentEvent] = [
-        LoopStartedEvent(loop_name="interactive", user_input="hi"),
+        LoopStartedEvent(loop_name="agent", user_input="hi"),
         StageStartedEvent(stage_name="agentic-loop"),
         TokenDeltaEvent(text="hello "),
         ToolCallStartedEvent(tool_name="read_file", args_summary="path=a.py"),
@@ -65,7 +65,7 @@ def test_renders_every_event_kind_without_crashing() -> None:
     out = _render(samples)
     assert out.strip()
     # spot-check a few kind-specific substrings survived rendering
-    for needle in ("interactive", "read_file", "plan-1", "preflight", "boom", "which solvent?"):
+    for needle in ("agent", "read_file", "plan-1", "preflight", "boom", "which solvent?"):
         assert needle in out
 
 
@@ -84,7 +84,7 @@ def test_streamed_answer_renders_as_markdown() -> None:
 def test_loop_completed_after_token_deltas_does_not_double_print() -> None:
     out = _render(
         [
-            LoopStartedEvent(loop_name="interactive", user_input="q"),
+            LoopStartedEvent(loop_name="agent", user_input="q"),
             TokenDeltaEvent(text="the answer"),
             LoopCompletedEvent(text="the answer"),
         ]
@@ -96,7 +96,7 @@ def test_loop_completed_without_token_deltas_prints_text() -> None:
     """The /plan path streams no token deltas — the final text must print."""
     out = _render(
         [
-            LoopStartedEvent(loop_name="interactive", user_input="/plan x"),
+            LoopStartedEvent(loop_name="agent", user_input="/plan x"),
             LoopCompletedEvent(text="Planning paused — clarification required."),
         ]
     )
@@ -106,7 +106,7 @@ def test_loop_completed_without_token_deltas_prints_text() -> None:
 def test_turn_footer_shows_duration_and_usage() -> None:
     out = _render(
         [
-            LoopStartedEvent(loop_name="interactive", user_input="q", timestamp=_T0),
+            LoopStartedEvent(loop_name="agent", user_input="q", timestamp=_T0),
             LoopCompletedEvent(
                 text="hi",
                 timestamp=_T0 + timedelta(seconds=3.4),
@@ -146,7 +146,7 @@ def test_thinking_does_not_suppress_final_text() -> None:
     """Thinking deltas are not answer tokens — final text must still print."""
     out = _render(
         [
-            LoopStartedEvent(loop_name="interactive", user_input="q"),
+            LoopStartedEvent(loop_name="agent", user_input="q"),
             ThinkingDeltaEvent(text="hmm"),
             LoopCompletedEvent(text="the answer"),
         ]

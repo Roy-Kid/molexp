@@ -18,7 +18,7 @@ from molexp.workspace.workspace import Workspace
 def agent_session(tmp_path: Path) -> tuple[Workspace, Agent, AgentSession]:
     ws = Workspace(root=tmp_path / "ws")
     ws.materialize()
-    agent = Agent(name="interactive", root_path=ws.root)
+    agent = Agent(name="agent", root_path=ws.root)
     agent.materialize()
     session = agent.add_session("s1")
     session.materialize()

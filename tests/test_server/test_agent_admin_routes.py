@@ -31,7 +31,11 @@ from molexp.agent.mcp import store as mcp_store
 from molexp.server.app import create_app
 from molexp.server.dependencies import get_workspace
 from molexp.services import operator_config
-from molexp.services.operator_config import AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY
+from molexp.services.operator_config import (
+    AGENT_MODEL_KEY,
+    AGENT_MODELS_KEY,
+    LEGACY_AGENT_MODEL_KEY,
+)
 from molexp.workspace import Workspace
 
 _MODEL = "deepseek:deepseek-v4-flash"
@@ -41,6 +45,7 @@ _MASKED_PREVIEW = "sk…9876"  # first-2 + "…" + last-4
 #: Every in-code key the operator-config bridge (or a PUT re-bridge) may touch.
 _BRIDGED_KEYS = (
     AGENT_MODEL_KEY,
+    AGENT_MODELS_KEY,
     LEGACY_AGENT_MODEL_KEY,
     "deepseek_api_key",
     "anthropic_api_key",
@@ -138,6 +143,46 @@ class TestProviderGet:
 
 
 class TestProviderPut:
+    def test_put_persists_provider_local_tier_models_and_bridges_runtime(
+        self, client: TestClient, operator_config_path: Path
+    ) -> None:
+        response = client.put(
+            "/api/agent/provider",
+            json={
+                "provider": "anthropic",
+                "models": {
+                    "cheap": "claude-haiku-4-5",
+                    "default": "claude-sonnet-4-6",
+                    "heavy": "claude-opus-4-6",
+                },
+            },
+        )
+        assert response.status_code == 200
+        saved = json.loads(operator_config_path.read_text())
+        assert saved["agent"]["providers"]["anthropic"]["models"] == {
+            "cheap": "claude-haiku-4-5",
+            "default": "claude-sonnet-4-6",
+            "heavy": "claude-opus-4-6",
+        }
+        assert saved["agent"]["model"] == "anthropic:claude-sonnet-4-6"
+        runtime_models = molexp.config[AGENT_MODELS_KEY]
+        assert {tier: runtime_models.get(tier) for tier in ("cheap", "default", "heavy")} == {
+            "cheap": "anthropic:claude-haiku-4-5",
+            "default": "anthropic:claude-sonnet-4-6",
+            "heavy": "anthropic:claude-opus-4-6",
+        }
+        from molexp.server.routes.agent import _configured_models
+
+        assert _configured_models() == {
+            "cheap": "anthropic:claude-haiku-4-5",
+            "default": "anthropic:claude-sonnet-4-6",
+            "heavy": "anthropic:claude-opus-4-6",
+        }
+        anthropic = next(
+            item for item in response.json()["configurations"] if item["provider"] == "anthropic"
+        )
+        assert anthropic["models"]["heavy"] == "claude-opus-4-6"
+
     def test_put_persists_model_and_key_to_config_file(
         self, client: TestClient, operator_config_path: Path
     ) -> None:
@@ -231,6 +276,16 @@ class TestProviderTest:
 
 
 class TestRoutePrecedence:
+    def test_unconfigured_skills_are_an_empty_list(self, client: TestClient) -> None:
+        response = client.get("/api/agent/skills")
+        assert response.status_code == 200
+        assert response.json() == {"skills": []}
+
+    def test_undiscovered_tools_are_an_empty_list(self, client: TestClient) -> None:
+        response = client.get("/api/agent/tools")
+        assert response.status_code == 200
+        assert response.json() == {"tools": [], "mcpGroups": []}
+
     def test_retired_session_path_still_503s(self, client: TestClient) -> None:
         """Genuinely-retired session paths keep the honest 503 catch-all."""
         response = client.get("/api/agent/sessions")

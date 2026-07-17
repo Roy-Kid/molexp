@@ -1288,7 +1288,7 @@ export const LeftPanel = ({
                   className="h-7 w-7"
                   onClick={() => onSelect({ objectType: "agent", objectId: "settings" })}
                   aria-label="Agent settings"
-                  title="Skills, tools, MCP"
+                  title="Agents, model, skills, tools, and MCP"
                 >
                   <Settings className="h-4 w-4" />
                 </Button>

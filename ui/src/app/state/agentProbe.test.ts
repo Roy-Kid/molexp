@@ -120,6 +120,22 @@ describe("api.ts probe wiring (503 requested at most once per endpoint)", () => 
     expect(calls).toEqual(["/api/agent/health"]);
   });
 
+  it("empty skill and tool catalogs tolerate a legacy server 503", async () => {
+    const { calls } = install503Fetch();
+    await expect(agentAdminApi.listSkills()).resolves.toEqual([]);
+    await expect(agentAdminApi.listSkills()).resolves.toEqual([]);
+    await expect(agentAdminApi.listToolsAndGroups()).resolves.toEqual({ tools: [], mcpGroups: [] });
+    await expect(agentAdminApi.listToolsAndGroups()).resolves.toEqual({ tools: [], mcpGroups: [] });
+    expect(calls).toEqual(["/api/agent/skills", "/api/agent/tools"]);
+  });
+
+  it("an unavailable MCP service remains distinguishable from an empty catalog", async () => {
+    const { calls } = install503Fetch();
+    await expect(agentAdminApi.listMcpServers()).rejects.toBeInstanceOf(AgentUnavailableError);
+    await expect(agentAdminApi.listMcpServers()).rejects.toBeInstanceOf(AgentUnavailableError);
+    expect(calls).toEqual(["/api/agent/mcp/servers"]);
+  });
+
   it("a successful updateProvider resets the probe cache", async () => {
     const { calls } = install503Fetch();
     await expect(agentApi.getHealth()).rejects.toBeInstanceOf(AgentUnavailableError);

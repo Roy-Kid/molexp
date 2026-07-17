@@ -143,3 +143,20 @@ async def test_message_mid_turn_409(tmp_path: Path, registry: AgentSessionRegist
         )
     assert exc.value.status_code == 409
     await registry.aclose()
+
+
+async def test_cancel_stops_running_turn(tmp_path: Path, registry: AgentSessionRegistry) -> None:
+    rt = registry.create(
+        workspace_root=str(tmp_path),
+        runner=_runner(tmp_path, router=_BlockingRouter()),
+        session=_new_session("s1"),
+        goal="work",
+        user_input="work",
+    )
+    await asyncio.sleep(0.01)
+    assert rt.status() == "running"
+
+    resp = await agent_routes.cancel_session("s1", workspace=_ws(tmp_path))
+    assert resp.message == "cancelled"
+    assert rt.status() == "cancelled"
+    await registry.aclose()

@@ -300,12 +300,13 @@ class AgentRunner:
     def _build_execution_env(self) -> LocalExecutionEnv:
         """Construct the :class:`LocalExecutionEnv` for the harness.
 
-        The scratch dir lives under the workspace when one is configured
-        (``<workspace>/.agent-scratch``), otherwise under a process-temp
-        directory.
+        Scratch is colocated with the loop's on-disk Agent folder when a
+        workspace is configured (``<workspace>/<loop.name>/.scratch``),
+        otherwise under a process-temp directory.
         """
         if self.workspace is not None:
-            scratch = Path(self.workspace) / ".agent-scratch"
+            agent_name = getattr(self.loop, "name", "") or "agent"
+            scratch = Path(self.workspace) / agent_name / ".scratch"
         else:
             import tempfile
 

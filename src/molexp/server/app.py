@@ -102,10 +102,17 @@ def _mount_webapp(app: FastAPI, webapp_dir: Path) -> None:
     # SPA fallback — serves index.html for every non-API, non-static path.
     # ``index.html`` is the only un-hashed asset, so it MUST never be cached
     # by the browser; otherwise a fresh build's new JS hashes won't be loaded.
+    # Unmatched ``/api/*`` must NOT fall through to index.html (200 HTML) —
+    # the SPA client then tries ``response.json()`` and floods the console
+    # with "Unexpected token '<'" parse errors.
+    from fastapi import HTTPException
+
     no_cache_headers = {"Cache-Control": "no-store, must-revalidate"}
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def _spa_fallback(full_path: str) -> FileResponse:
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
         candidate = webapp_dir / full_path
         if full_path and candidate.is_file():
             return FileResponse(str(candidate))

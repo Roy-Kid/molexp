@@ -64,6 +64,27 @@ export class AgentTasksService {
         });
     }
     /**
+     * Delete Agent Task Route
+     * Cancel any live turn, drop the runtime, and remove task metadata.
+     * @param taskId
+     * @returns MessageResponse Successful Response
+     * @throws ApiError
+     */
+    public static deleteAgentTaskRouteApiAgentTasksTaskIdDelete(
+        taskId: string,
+    ): CancelablePromise<MessageResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/agent-tasks/{task_id}',
+            path: {
+                'task_id': taskId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Get Agent Task
      * Get a single agent task by task id.
      * @param taskId
@@ -76,6 +97,27 @@ export class AgentTasksService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent-tasks/{task_id}',
+            path: {
+                'task_id': taskId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Cancel Agent Task
+     * Stop the in-flight turn for this task (idempotent when already idle).
+     * @param taskId
+     * @returns MessageResponse Successful Response
+     * @throws ApiError
+     */
+    public static cancelAgentTaskApiAgentTasksTaskIdCancelPost(
+        taskId: string,
+    ): CancelablePromise<MessageResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agent-tasks/{task_id}/cancel',
             path: {
                 'task_id': taskId,
             },
@@ -110,7 +152,10 @@ export class AgentTasksService {
     }
     /**
      * Post Agent Task Message
-     * Send a user message to a running agent task.
+     * Send a follow-up user message on an existing agent task.
+     *
+     * Continues the *same* runtime session (does not create a new task). A turn
+     * already in flight is rejected with 409 by the session layer.
      * @param taskId
      * @param requestBody
      * @returns MessageResponse Successful Response

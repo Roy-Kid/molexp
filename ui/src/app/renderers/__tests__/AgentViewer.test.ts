@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@rstest/core";
 
 import type { ApiSessionEvent } from "@/app/types";
+import { nextAgentMode } from "../agent/agentMode";
 import { DEFAULT_PLAN_STAGE, PLAN_STAGES, planStage } from "../agent/planStages";
 import {
   collectArtifacts,
@@ -37,6 +38,13 @@ const KINDS = [
   "thinking_delta",
   "token_delta",
 ];
+
+describe("agent mode switching", () => {
+  it("cycles the single task composer between Chat and Plan", () => {
+    expect(nextAgentMode("chat")).toBe("plan");
+    expect(nextAgentMode("plan")).toBe("chat");
+  });
+});
 
 describe("EVENT_META", () => {
   it("defines an entry for every snake_case AgentEvent kind", () => {

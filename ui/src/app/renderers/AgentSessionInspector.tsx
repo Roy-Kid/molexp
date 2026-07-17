@@ -189,16 +189,16 @@ export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
 };
 
 const ModeSection = ({ session }: { session: ApiAgentSession }): JSX.Element | null => {
-  if (!session.planMode && !session.skillId) return null;
+  if (session.activeMode !== "plan" && !session.skillId) return null;
   return (
     <div className="border-b border-border/40">
       <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         Mode
       </p>
       <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
-        {session.planMode ? (
+        {session.activeMode === "plan" ? (
           <Badge variant="outline" className="text-[10px] gap-1">
-            <FileText className="h-3 w-3" /> plan mode
+            <FileText className="h-3 w-3" /> planning agent
           </Badge>
         ) : null}
         {session.skillId ? (

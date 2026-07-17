@@ -247,8 +247,8 @@ const _str = (value: unknown): string => (typeof value === "string" ? value : ""
 /**
  * Locator for a structured PlanMode deliverable, lifted off the terminal
  * `loop_completed` event's open payload (`payload.plan`, written by the server's
- * plan-record synthesizer). Present only on PlanMode sessions; chat sessions
- * return null. Drives the Deliverables panel, which fetches the full plan via
+ * plan-record synthesizer). Present on Plan turns inside a mixed chat task;
+ * tasks without a completed Plan turn return null. Drives the Deliverables panel, which fetches the full plan via
  * `GET /projects/{projectId}/experiments/{experimentId}/plans/{runId}`.
  */
 export interface PlanRef {
@@ -288,9 +288,9 @@ export const derivePlanRef = (events: ApiSessionEvent[]): PlanRef | null => {
 };
 
 /**
- * Gather every inline artifact (plot/table/text) a chat session emitted via
+ * Gather every inline artifact (plot/table/text) a task emitted via
  * `tool_call_completed` payloads, in stream order. Used by the Deliverables
- * panel for non-plan sessions; plan sessions surface structured deliverables
+ * panel when no Plan turn is selected; Plan turns surface structured deliverables
  * through {@link derivePlanRef} instead.
  */
 export const collectArtifacts = (events: ApiSessionEvent[]): Record<string, unknown>[] => {
@@ -308,10 +308,10 @@ export const collectArtifacts = (events: ApiSessionEvent[]): Record<string, unkn
 };
 
 /**
- * The set of PlanMode artifact kinds a session has completed, read off the
+ * The set of PlanMode artifact kinds a task has completed, read off the
  * synthesized stage steps (each `tool_call_completed` carries the produced kind
  * at `payload.result.artifact`). Drives the vertical progress rail's per-stage
- * state. Empty for chat sessions.
+ * state. Empty when the task has no completed Plan turn.
  */
 export const completedStageKinds = (events: ApiSessionEvent[]): Set<string> => {
   const kinds = new Set<string>();

@@ -52,6 +52,8 @@ class PlanTask:
         workspace_root: str = "",
         execute: bool = False,
         compute_target: ComputeTarget | None = None,
+        record_task_id: str | None = None,
+        turn_id: str | None = None,
     ) -> None:
         self.task_id = task_id
         self.run = run
@@ -63,6 +65,8 @@ class PlanTask:
         self.workspace_root = workspace_root
         self.execute = execute
         self.compute_target = compute_target
+        self.record_task_id = record_task_id or task_id
+        self.turn_id = turn_id
         self.status: PlanTaskStatus = "running"
         self.error: BaseException | None = None
         self.workflow_persisted = False
@@ -87,6 +91,8 @@ class PlanTask:
         workspace_root: str = "",
         execute: bool = False,
         compute_target: ComputeTarget | None = None,
+        record_task_id: str | None = None,
+        turn_id: str | None = None,
     ) -> PlanTask:
         """Build a task and spawn its background PlanMode run.
 
@@ -109,6 +115,8 @@ class PlanTask:
             workspace_root=workspace_root,
             execute=execute,
             compute_target=compute_target,
+            record_task_id=record_task_id,
+            turn_id=turn_id,
         )
         task._gateway = gateway
         task._sync_status()  # visible in the Agents hub from launch, not completion
@@ -150,9 +158,10 @@ class PlanTask:
                     run=self.run,
                     experiment=self.experiment,
                     workspace_root=self.workspace_root,
-                    task_id=self.task_id,
+                    task_id=self.record_task_id,
                     draft=self.draft,
                     model=self.model,
+                    turn_id=self.turn_id,
                 )
             )
             self.record_outcome = outcome
@@ -192,9 +201,10 @@ class PlanTask:
                         run=self.run,
                         experiment=self.experiment,
                         workspace_root=self.workspace_root,
-                        task_id=self.task_id,
+                        task_id=self.record_task_id,
                         draft=self.draft,
                         model=self.model,
+                        turn_id=self.turn_id,
                         failure=failure,
                     )
                 )
@@ -250,10 +260,12 @@ class PlanTask:
 
         write_plan_task_status(
             self.workspace_root,
-            task_id=self.task_id,
+            task_id=self.record_task_id,
             draft=self.draft,
             created_at=self.created_at,
             status=self.status,
+            active_plan_task_id=self.task_id,
+            turn_id=self.turn_id,
         )
 
     @staticmethod

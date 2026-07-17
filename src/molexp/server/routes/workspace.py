@@ -269,11 +269,19 @@ def list_workspace_files(
     With ``include=catalog``, file nodes that match a registered asset
     are enriched with ``assetId``, ``assetKind``, ``producerRunId`` and
     ``producerTaskId`` so the UI can render lineage chips inline.
+
+    Children matching the workspace ``.gitignore`` cascade (plus a safety
+    floor for ``node_modules`` / ``.git`` / venvs) are omitted so git-managed
+    workspaces do not dump dependency trees into the UI.
     """
+    from molexp.workspace.gitignore import load_gitignore_matcher
+
     root = Path(workspace.root).resolve()
     requested = resolve_workspace_path(root, path.lstrip("/"))
     if not requested.exists():
         raise HTTPException(status_code=404, detail="Path not found")
+
+    ignore = load_gitignore_matcher(root, fs=getattr(workspace, "_fs", None))
 
     include_set = {part.strip() for part in (include or "").split(",") if part.strip()}
     asset_index_by_abs: dict[Path, dict] = {}
@@ -298,28 +306,75 @@ def list_workspace_files(
                 "hasPreviewSidecar": resolve_sidecar(abs_path) is not None,
             }
 
-    def build_node(node_path: Path, depth: int) -> dict[str, Any]:
-        is_file = node_path.is_file()
+    def _rel_for(node_path: Path) -> str | None:
+        try:
+            return node_path.resolve().relative_to(root).as_posix()
+        except (OSError, ValueError):
+            return None
+
+    def build_node(
+        node_path: Path, depth: int, *, _visited: set[Path] | None = None
+    ) -> dict[str, Any]:
+        visited = _visited if _visited is not None else set()
+        try:
+            real = node_path.resolve()
+        except OSError:
+            real = node_path
+        if real in visited:
+            return {
+                "id": str(node_path),
+                "name": node_path.name or str(node_path),
+                "path": str(node_path),
+                "type": "folder",
+                "size": None,
+                "modified": None,
+                "children": [],
+            }
+        visited.add(real)
+
+        try:
+            is_file = node_path.is_file()
+            st = node_path.stat()
+        except OSError:
+            return {
+                "id": str(node_path),
+                "name": node_path.name or str(node_path),
+                "path": str(node_path),
+                "type": "folder",
+                "size": None,
+                "modified": None,
+                "children": [],
+            }
+
         node: dict[str, Any] = {
             "id": str(node_path),
             "name": node_path.name or str(node_path),
             "path": str(node_path),
             "type": "file" if is_file else "folder",
-            "size": node_path.stat().st_size if is_file else None,
-            "modified": node_path.stat().st_mtime,
+            "size": st.st_size if is_file else None,
+            "modified": st.st_mtime,
         }
         if asset_index_by_abs:
-            try:
-                resolved = node_path.resolve()
-            except OSError:
-                resolved = node_path
-            enrich = asset_index_by_abs.get(resolved)
+            enrich = asset_index_by_abs.get(real)
             if enrich is not None:
                 node.update(enrich)
         if not is_file and depth < max_depth:
             children = []
-            for child in sorted(node_path.iterdir(), key=lambda p: (p.is_file(), p.name)):
-                children.append(build_node(child, depth + 1))
+            try:
+                kids = sorted(node_path.iterdir(), key=lambda p: (p.is_file(), p.name))
+            except OSError:
+                kids = []
+            for child in kids:
+                rel = _rel_for(child)
+                if rel is None:
+                    continue
+                try:
+                    child_is_dir = child.is_dir()
+                except OSError:
+                    continue
+                if ignore.is_ignored(rel, is_dir=child_is_dir):
+                    continue
+                children.append(build_node(child, depth + 1, _visited=visited))
             node["children"] = children
         else:
             node["children"] = []

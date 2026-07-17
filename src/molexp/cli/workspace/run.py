@@ -734,7 +734,7 @@ def _run_dry_run(
     )
     if runs:
         watch_arg = _watch_path_for(target_path, runs)
-        rprint(f"[dim]Preview with: molexp serve -t {watch_arg}[/dim]")
+        rprint(f"[dim]Preview with: molexp serve -ws {watch_arg}[/dim]")
     elif n == 0:
         rprint("[dim]No runnable bound experiments found.[/dim]")
 

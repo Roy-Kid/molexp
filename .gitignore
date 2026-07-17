@@ -16,8 +16,8 @@ examples/agent/smoke_runs/
 /projects/
 /cache/
 # Accidental agent/session materialisation at repo root (never commit)
-/agent_tasks/
-/interactive/
+# Agent home: agent/ (sessions + _tasks + .scratch).
+/agent/
 /meta.yaml
 # SQLite WAL/SHM sidecars (transient — never commit)
 *.sqlite-shm

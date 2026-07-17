@@ -98,6 +98,13 @@ def _configured_model() -> str | None:
     return model if isinstance(model, str) and model else None
 
 
+def _configured_models() -> dict[str, str] | None:
+    """Return the configured tier map through the shared agent resolver."""
+    from molexp.server.routes.agent import _configured_models as configured_models
+
+    return configured_models()
+
+
 def _to_response(task: PlanTask, *, project_id: str, experiment_id: str) -> PlanTaskResponse:
     preview = ""
     stripped = task.draft.strip()
@@ -135,6 +142,25 @@ async def create_plan_task(
     to the app event loop; the handler itself does no awaiting and returns the
     initial ``running`` status immediately.
     """
+    return start_plan_task(
+        project_id=project_id,
+        experiment_id=experiment_id,
+        request=request,
+        workspace=workspace,
+    )
+
+
+def start_plan_task(
+    *,
+    project_id: str,
+    experiment_id: str,
+    request: PlanTaskCreateRequest,
+    workspace: Workspace,
+    record_task_id: str | None = None,
+    turn_id: str | None = None,
+    supersedes_run_id: str | None = None,
+) -> PlanTaskResponse:
+    """Shared starter used by the legacy route and AgentTask plan turns."""
     from molexp._typing import JSONValue
     from molexp.ids import generate_id
     from molexp.server.deps.plan_runtime import get_plan_runtime
@@ -147,7 +173,8 @@ async def create_plan_task(
     if not draft:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "draft is empty")
 
-    model = request.model or _configured_model()
+    models = None if request.model else _configured_models()
+    model = request.model or (models.get("default") if models is not None else _configured_model())
     if not model:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -158,6 +185,8 @@ async def create_plan_task(
     experiment = workspace.get_project(project_id).get_experiment(experiment_id)
 
     params: dict[str, JSONValue] = {"mode": "plan", "draft": draft}
+    if supersedes_run_id:
+        params["supersedes"] = supersedes_run_id
     run_id = derive_run_id(params)
     try:
         run = experiment.get_run(run_id)
@@ -171,7 +200,7 @@ async def create_plan_task(
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
-    gateway = build_plan_gateway(model=model, run=run)
+    gateway = build_plan_gateway(model=model, models=models, run=run)
     task = get_plan_runtime().create(
         workspace_root=str(workspace.root),
         task_id=f"plan-{generate_id()}",
@@ -184,6 +213,8 @@ async def create_plan_task(
         ground=request.ground,
         execute=request.execute,
         compute_target=compute_target,
+        record_task_id=record_task_id,
+        turn_id=turn_id,
     )
     return _to_response(task, project_id=project_id, experiment_id=experiment_id)
 
