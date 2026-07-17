@@ -1,0 +1,1 @@
+../../en/guide/server-lifecycle.md

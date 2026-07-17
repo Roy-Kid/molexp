@@ -1,6 +1,8 @@
 [project]
 site_name = "MolExp Documentation"
 site_description = "Agent-assisted scientific-workflow platform for FAIR research"
+docs_dir = "docs/en"
+site_dir = "site/en"
 
 nav = [
     { "Home" = "index.md" },
@@ -60,4 +62,15 @@ nav = [
 ]
 
 [project.theme]
-name = "material"
+name = "molcrafts"
+language = "en"
+
+[project.extra.molcrafts]
+product = "molexp"
+accent = "#4f46e5"
+
+[project.extra]
+alternate = [
+    { name = "English", link = "/en/", lang = "en" },
+    { name = "中文", link = "/zh/", lang = "zh" }
+]
