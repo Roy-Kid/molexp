@@ -65,3 +65,17 @@ def test_list_and_delete(tmp_path: Path) -> None:
     assert read_agent_task_metadata(tmp_path, "task-a") is None
     assert not (tmp_path / AGENT_HOME_NAME / TASKS_SUBDIR / "task-a").exists()
     assert {t.task_id for t in list_agent_task_metadata(tmp_path)} == {"task-b"}
+
+
+def test_task_id_rejects_path_escape(tmp_path: Path) -> None:
+    """Traversal-shaped ids must not resolve outside agent/_tasks/."""
+    write_agent_task_metadata(tmp_path, _task("task-ok"))
+    victim = tmp_path / "outside"
+    victim.mkdir()
+    (victim / "keep.txt").write_text("safe")
+
+    assert read_agent_task_metadata(tmp_path, "../outside") is None
+    assert delete_agent_task(tmp_path, "../outside") is False
+    assert delete_agent_task(tmp_path, "task-ok/../../outside") is False
+    assert victim.is_dir()
+    assert (victim / "keep.txt").read_text() == "safe"

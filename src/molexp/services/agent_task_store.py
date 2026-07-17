@@ -59,8 +59,31 @@ def agent_tasks_dir(workspace_root: str | Path) -> Path:
     return path
 
 
+def _validate_task_id(task_id: str) -> str:
+    """Reject path segments that could escape ``agent/_tasks/``.
+
+    Task ids are opaque client-facing tokens (often ``task-`` + hex). Allow a
+    conservative character set and forbid ``..`` / separators so
+    :func:`delete_agent_task` cannot ``rmtree`` outside the tasks root.
+    """
+    if not task_id or len(task_id) > 128:
+        raise ValueError(f"invalid agent task id: {task_id!r}")
+    if task_id in {".", ".."} or "/" in task_id or "\\" in task_id:
+        raise ValueError(f"invalid agent task id: {task_id!r}")
+    # Keep alnum + common separators; reject anything else (incl. null bytes).
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+    if any(ch not in allowed for ch in task_id):
+        raise ValueError(f"invalid agent task id: {task_id!r}")
+    return task_id
+
+
 def _task_dir(workspace_root: str | Path, task_id: str) -> Path:
-    return agent_tasks_dir(workspace_root) / task_id
+    safe_id = _validate_task_id(task_id)
+    path = (agent_tasks_dir(workspace_root) / safe_id).resolve()
+    root = agent_tasks_dir(workspace_root).resolve()
+    if path != root and root not in path.parents:
+        raise ValueError(f"agent task path escapes tasks root: {task_id!r}")
+    return path
 
 
 def _read_meta_file(meta_path: Path, task_id: str) -> PersistedAgentTask | None:
@@ -125,7 +148,10 @@ def read_agent_task_metadata(
     workspace_root: str | Path,
     task_id: str,
 ) -> PersistedAgentTask | None:
-    return _read_meta_file(_task_dir(workspace_root, task_id) / METADATA_FILE, task_id)
+    try:
+        return _read_meta_file(_task_dir(workspace_root, task_id) / METADATA_FILE, task_id)
+    except ValueError:
+        return None
 
 
 def write_agent_task_metadata(
@@ -181,7 +207,10 @@ def read_agent_task_events(
     task_id: str,
 ) -> list[dict[str, Any]]:
     """Read a task's persisted session events, or ``[]`` when none."""
-    path = _task_dir(workspace_root, task_id) / EVENTS_FILE
+    try:
+        path = _task_dir(workspace_root, task_id) / EVENTS_FILE
+    except ValueError:
+        return []
     if not path.exists():
         return []
     try:
@@ -206,7 +235,10 @@ def delete_agent_task(workspace_root: str | Path, task_id: str) -> bool:
 
     Returns ``True`` if the task directory was removed.
     """
-    path = _task_dir(workspace_root, task_id)
+    try:
+        path = _task_dir(workspace_root, task_id)
+    except ValueError:
+        return False
     if path.is_dir():
         shutil.rmtree(path, ignore_errors=True)
         return True

@@ -713,7 +713,6 @@ const AgentSettingsViewerWrapper = ({ snapshot }: RendererProps): JSX.Element =>
   const nav = useNavigationState(snapshot);
   return (
     <AgentSettingsViewer
-      snapshot={snapshot}
       onLaunchSession={(sessionId) =>
         nav.setSelection({ objectType: "agent", objectId: sessionId })
       }

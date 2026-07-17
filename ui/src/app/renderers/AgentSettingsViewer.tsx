@@ -56,7 +56,6 @@ import {
   type SkillUpsertInput,
   SLASH_NAME_PATTERN,
 } from "@/app/state/api";
-import type { WorkspaceSnapshot } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -137,8 +136,6 @@ const validateSlashName = (name: string): string | null => {
 };
 
 interface AgentSettingsViewerProps {
-  /** Workspace snapshot — required for shared header navigation. */
-  snapshot: WorkspaceSnapshot;
   onLaunchSession?: (sessionId: string) => void;
 }
 

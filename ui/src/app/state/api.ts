@@ -32,7 +32,6 @@ import type {
   ApiProjectResponse,
   ApiRunResponse,
   AssetSummary,
-  ConsoleEntry,
   ExperimentCreateRequest,
   ExperimentSummary,
   ProjectCreateRequest,
@@ -967,8 +966,6 @@ export const mapWorkflows = (
     };
   });
 };
-
-export const emptyConsoleEntries = (): ConsoleEntry[] => [];
 
 const mapWorkspaceNode = (node: WorkspaceFileNode): WorkspaceTreeNode => {
   const isFile = node.type === "file";

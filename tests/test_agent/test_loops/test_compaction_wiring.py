@@ -74,9 +74,11 @@ class _FakeRouter:
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
+        del toolsets  # accepted for InteractiveLoop parity; unused in this fake
         final_text = self._final_text
 
         async def _gen() -> AsyncIterator[AgenticChunk]:
