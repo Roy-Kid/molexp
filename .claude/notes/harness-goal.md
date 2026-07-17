@@ -973,9 +973,19 @@ class StageRunner:
 
 ### 8.4 标准 Stage 列表
 
+> **Code-synced 2026-07-10.** The *shipped* pipeline is
+> `PlanMode.step_groups()` (9 visible steps + opt-in `--execute` tail) —
+> including `AssembleKnowledgeContext` after `SaveUserPlan`, RepairLoops on
+> every generate→validate pair, and three named `ApprovalGate`s
+> (`approve_experiment_spec` / `approve_plan` / `approve_execution`). Live
+> public surface is **21 symbols** (`tests/test_harness/test_public_surface.py`).
+> This list remains a **north-star inventory**, not a 1:1 dump of the current
+> stage table — see `.claude/notes/architecture.md` Layer 4 for the blueprint.
+
 ```text
 CreateRun
 SaveUserPlan
+AssembleKnowledgeContext
 GenerateExperimentReport
 ReviewExperimentReport
 ExtractWorkflowIR
@@ -1742,6 +1752,7 @@ bound = bind_tasks(ir)
 
 ```python
 await runner.run_stage(SaveUserPlan())
+await runner.run_stage(AssembleKnowledgeContext())
 await runner.run_stage(GenerateExperimentReport())
 await runner.run_stage(ExtractWorkflowIR())
 await runner.run_stage(BindMolcraftsTasks())
