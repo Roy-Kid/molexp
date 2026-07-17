@@ -113,17 +113,9 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
       <div className="lg:col-span-12">
         <StatGrid>
           <StatCard label="Duration" value={duration ?? "—"} muted={!duration} />
-          <StatCard
-            label="Attempts"
-            value={attemptCount || 0}
-            muted={!attemptCount}
-          />
+          <StatCard label="Attempts" value={attemptCount || 0} muted={!attemptCount} />
           <StatCard label="Backend" value={backend} />
-          <StatCard
-            label="Assets"
-            value={runAssets.length}
-            muted={runAssets.length === 0}
-          />
+          <StatCard label="Assets" value={runAssets.length} muted={runAssets.length === 0} />
           <StatCard
             label="Results"
             value={resultEntries.length}
@@ -162,8 +154,7 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
             },
             {
               label: experiment?.name ?? run.experimentId,
-              onClick: () =>
-                setSelection({ objectType: "experiment", objectId: run.experimentId }),
+              onClick: () => setSelection({ objectType: "experiment", objectId: run.experimentId }),
             },
             ...(workflow
               ? [

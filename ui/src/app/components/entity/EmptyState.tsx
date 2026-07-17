@@ -32,9 +32,7 @@ export const EmptyState = ({
           {icon}
         </div>
       )}
-      {icon && density === "inline" && (
-        <div className="mb-1 text-muted-foreground/40">{icon}</div>
-      )}
+      {icon && density === "inline" && <div className="mb-1 text-muted-foreground/40">{icon}</div>}
       <div className={cn(density === "inline" ? "space-y-0.5" : "max-w-sm space-y-1")}>
         <p
           className={cn(

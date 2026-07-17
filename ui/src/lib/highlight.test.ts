@@ -17,7 +17,7 @@ describe("highlightCode python", () => {
   const src = [
     "# build the workflow",
     "@wf.task(depends_on=['grid'])",
-    'def compute(ctx, sigma: float = 1.0) -> dict:',
+    "def compute(ctx, sigma: float = 1.0) -> dict:",
     '    """Return the LJ minimum."""',
     "    label = 'lj'  # inline note",
     "    return {'r_min': 2 ** (1 / 6) * sigma, 'tol': 1e-3}",
@@ -106,7 +106,7 @@ describe("highlightCode yaml", () => {
 
 describe("highlightCode fallback", () => {
   it("returns one plain token for unknown languages", () => {
-    expect(highlightCode("{\"a\": 1}", "json")).toEqual([{ text: "{\"a\": 1}", kind: "plain" }]);
+    expect(highlightCode('{"a": 1}', "json")).toEqual([{ text: '{"a": 1}', kind: "plain" }]);
     expect(highlightCode("text")).toEqual([{ text: "text", kind: "plain" }]);
   });
 

@@ -5,9 +5,8 @@ import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-
-import type { RunLogsPayload } from "../useRunInspectorLogs";
 import type { WorkspaceRunRow } from "../types";
+import type { RunLogsPayload } from "../useRunInspectorLogs";
 
 interface RunInspectorLogsProps {
   run: WorkspaceRunRow;
@@ -34,14 +33,18 @@ export const RunInspectorLogs = ({
   const history = run.executions;
   const effectiveId =
     selectedExecutionId ?? logs?.executionId ?? history[history.length - 1]?.executionId ?? null;
-  const effectiveIndex = effectiveId
-    ? history.findIndex((e) => e.executionId === effectiveId)
-    : -1;
+  const effectiveIndex = effectiveId ? history.findIndex((e) => e.executionId === effectiveId) : -1;
   const attemptLabel =
-    effectiveIndex >= 0 ? `#${effectiveIndex + 1}` : effectiveId ? effectiveId.slice(0, 12) : "latest";
+    effectiveIndex >= 0
+      ? `#${effectiveIndex + 1}`
+      : effectiveId
+        ? effectiveId.slice(0, 12)
+        : "latest";
 
   // Keep the viewport pinned to the bottom while the operator is "following"
   // the live tail (scroll near bottom). Manual scroll-up freezes follow.
+  // Re-run when log text changes — deps are triggers, not read in the body.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on log updates
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !followRef.current) return;

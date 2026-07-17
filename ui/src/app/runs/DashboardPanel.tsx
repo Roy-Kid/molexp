@@ -139,9 +139,7 @@ export const DashboardPanel = ({
                 {title}
               </CardTitle>
             )}
-            {description && (
-              <p className="text-xs text-muted-foreground">{description}</p>
-            )}
+            {description && <p className="text-xs text-muted-foreground">{description}</p>}
           </div>
           <CardAction className="static col-auto row-auto self-center justify-self-auto">
             {controls}

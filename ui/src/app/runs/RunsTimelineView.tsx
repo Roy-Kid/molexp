@@ -33,16 +33,10 @@ export const RunsTimelineView = ({
       </div>
       <Tabs value={mode} onValueChange={(next) => onModeChange(next as GanttMode)}>
         <TabsList className="h-8 p-0.5">
-          <TabsTrigger
-            value="runs"
-            className={cn("h-7 px-2.5 text-xs font-medium")}
-          >
+          <TabsTrigger value="runs" className={cn("h-7 px-2.5 text-xs font-medium")}>
             By runs
           </TabsTrigger>
-          <TabsTrigger
-            value="executions"
-            className={cn("h-7 px-2.5 text-xs font-medium")}
-          >
+          <TabsTrigger value="executions" className={cn("h-7 px-2.5 text-xs font-medium")}>
             By executions
           </TabsTrigger>
         </TabsList>

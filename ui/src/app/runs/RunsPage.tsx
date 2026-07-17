@@ -32,9 +32,6 @@ import {
 import { DashboardPanel } from "./DashboardPanel";
 import { parseFilterParams, toggleArrayFilter, writeFilterParams } from "./filterParams";
 import { RunInspector } from "./inspector/RunInspector";
-import { RunsActivityChart } from "./RunsActivityChart";
-import { RunsAggregateRow } from "./RunsAggregateRow";
-import { RunsGanttChart } from "./RunsGanttChart";
 import {
   DEFAULT_JOBS_SORT,
   DEFAULT_PAGE_SIZE,
@@ -44,6 +41,9 @@ import {
   parsePage,
   parsePageSize,
 } from "./jobsTable";
+import { RunsActivityChart } from "./RunsActivityChart";
+import { RunsAggregateRow } from "./RunsAggregateRow";
+import { RunsGanttChart } from "./RunsGanttChart";
 import { RunsJobsTable } from "./RunsJobsTable";
 import { RunsKpiStrip } from "./RunsKpiStrip";
 import { RunsStatusProgress } from "./RunsStatusProgress";
@@ -157,10 +157,7 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
   const selectedExecutionId = searchParams.get("executionId");
   const jobsSort = useMemo(() => parseJobsSort(searchParams.get("sort")), [searchParams]);
   const jobsPage = useMemo(() => parsePage(searchParams.get("page")), [searchParams]);
-  const jobsPageSize = useMemo(
-    () => parsePageSize(searchParams.get("pageSize")),
-    [searchParams],
-  );
+  const jobsPageSize = useMemo(() => parsePageSize(searchParams.get("pageSize")), [searchParams]);
 
   const layout = useDashboardLayout<DashboardPanelId>(
     DASHBOARD_LAYOUT_STORAGE_KEY,

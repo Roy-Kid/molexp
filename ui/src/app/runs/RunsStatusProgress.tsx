@@ -35,9 +35,7 @@ export const RunsStatusProgress = ({
   }, [runs]);
 
   if (total === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">No runs match the current filters.</p>
-    );
+    return <p className="text-sm text-muted-foreground">No runs match the current filters.</p>;
   }
 
   const visible = segments.filter((segment) => segment.count > 0);

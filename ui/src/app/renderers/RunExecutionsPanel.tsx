@@ -231,9 +231,7 @@ export const RunExecutionsPanel = ({
             />
             <MetaField
               label="Backend"
-              value={
-                effectiveExecution.schedulerJobId ?? run.executorInfo.backend ?? "local"
-              }
+              value={effectiveExecution.schedulerJobId ?? run.executorInfo.backend ?? "local"}
               mono
             />
           </MetaGrid>

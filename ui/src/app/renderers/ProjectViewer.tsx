@@ -1,4 +1,12 @@
-import { Archive, Copy, ExternalLink, FlaskConical, FolderKanban, Play, Workflow } from "lucide-react";
+import {
+  Archive,
+  Copy,
+  ExternalLink,
+  FlaskConical,
+  FolderKanban,
+  Play,
+  Workflow,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
@@ -425,11 +433,7 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                 getRowKey={(asset) => asset.id}
                 onRowClick={(asset) => setSelection({ objectType: "asset", objectId: asset.id })}
                 rowActions={assetRowActions}
-                empty={
-                  <EmptyState
-                    title={EMPTY_COPY.assets.title}
-                  />
-                }
+                empty={<EmptyState title={EMPTY_COPY.assets.title} />}
               />
             ),
           },

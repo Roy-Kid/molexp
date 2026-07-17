@@ -439,12 +439,7 @@ export const ExperimentViewer = ({
             tone="running"
             muted={counts.running === 0}
           />
-          <StatCard
-            label="Failed"
-            value={counts.failed}
-            tone="error"
-            muted={counts.failed === 0}
-          />
+          <StatCard label="Failed" value={counts.failed} tone="error" muted={counts.failed === 0} />
           <StatCard
             label="Pending"
             value={counts.pending}
@@ -454,11 +449,7 @@ export const ExperimentViewer = ({
         </StatGrid>
       </div>
 
-      <DashboardCard
-        title="Identity"
-        description="Experiment metadata"
-        className="lg:col-span-5"
-      >
+      <DashboardCard title="Identity" description="Experiment metadata" className="lg:col-span-5">
         <MetaGrid columns={2}>
           <MetaField label="Experiment ID" value={experiment.id} mono title={experiment.id} />
           <MetaField label="Project" value={project?.name ?? projectId} />
@@ -469,9 +460,7 @@ export const ExperimentViewer = ({
           />
           <MetaField
             label="Workflow tasks"
-            value={
-              workbench.workflowSummary.exists ? workbench.workflowSummary.taskCount : "—"
-            }
+            value={workbench.workflowSummary.exists ? workbench.workflowSummary.taskCount : "—"}
           />
         </MetaGrid>
       </DashboardCard>

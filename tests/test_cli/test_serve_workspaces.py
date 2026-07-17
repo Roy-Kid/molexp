@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 from molexp.cli import app
 from molexp.cli.workspace.serve import _resolve_served
 from molexp.server.dependencies import set_served_workspaces, set_workspace_path_override
+from tests.conftest import strip_ansi
 
 runner = CliRunner()
 
@@ -58,10 +59,13 @@ def test_resolve_served_distinct_keys_for_same_basename(tmp_path):
 def test_serve_help_only_exposes_workspace_option() -> None:
     result = runner.invoke(app, ["serve", "--help"])
     assert result.exit_code == 0, result.output
-    assert "-ws" in result.output
-    assert "--workspace" in result.output
-    assert "--target" not in result.output
-    assert "-t" not in result.output
+    # Rich help can insert SGR codes between option characters (e.g. split
+    # ``--``), so assert on the ANSI-stripped text — same as CI/local intent.
+    plain = strip_ansi(result.output)
+    assert "-ws" in plain
+    assert "--workspace" in plain
+    assert "--target" not in plain
+    # bare ``-t`` is too short to assert safely; the long form is enough.
 
 
 def test_serve_rejects_removed_target_option() -> None:

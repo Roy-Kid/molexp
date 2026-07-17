@@ -2,8 +2,8 @@ import { describe, expect, it } from "@rstest/core";
 import {
   canCancel,
   canHarvest,
-  canResume,
   canRerun,
+  canResume,
   canStart,
   isTerminalStatus,
   runPhase,

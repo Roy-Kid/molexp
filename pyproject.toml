@@ -45,6 +45,10 @@ dev = [
     "pytest-mock>=3.10",
     "httpx>=0.24",
     "psutil>=5.9.0",
+    # Match .pre-commit-config.yaml ruff-pre-commit rev (v0.15.12) so
+    # META.build.check / bare `ruff` on PATH agrees with the commit hooks.
+    "ruff==0.15.12",
+    "ty==0.0.60",
 ]
 docs = [
     "zensical>=0.0.45",

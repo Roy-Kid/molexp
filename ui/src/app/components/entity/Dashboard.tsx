@@ -68,10 +68,7 @@ export const MetaField = ({
   <div className={cn("min-w-0", className)}>
     <dt className="text-xs text-muted-foreground">{label}</dt>
     <dd
-      className={cn(
-        "mt-1 min-w-0 truncate text-sm text-foreground",
-        mono && "font-mono text-xs",
-      )}
+      className={cn("mt-1 min-w-0 truncate text-sm text-foreground", mono && "font-mono text-xs")}
       title={title}
     >
       {value}
@@ -175,10 +172,7 @@ interface StatGridProps {
 /** Responsive grid for a row of StatCard. */
 export const StatGrid = ({ children, className }: StatGridProps): JSX.Element => (
   <div
-    className={cn(
-      "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
-      className,
-    )}
+    className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5", className)}
   >
     {children}
   </div>
@@ -260,11 +254,7 @@ export const StatusDistribution = ({
       <div
         className="flex h-2 overflow-hidden rounded-full bg-muted"
         role="img"
-        aria-label={
-          empty
-            ? "No runs"
-            : `Status mix across ${counts.total} runs`
-        }
+        aria-label={empty ? "No runs" : `Status mix across ${counts.total} runs`}
       >
         {!empty &&
           STATUS_GROUPS.map((group) => {
@@ -509,22 +499,29 @@ export const EntityPath = ({ segments, trailing, className }: EntityPathProps): 
       className,
     )}
   >
-    {segments.map((seg, i) => (
-      <span key={`${seg.label}-${i}`} className="inline-flex items-center gap-2">
-        {i > 0 && <span className="text-border">/</span>}
-        {seg.onClick ? (
-          <button
-            type="button"
-            className="truncate hover:text-foreground hover:underline"
-            onClick={seg.onClick}
-          >
-            {seg.label}
-          </button>
-        ) : (
-          <span className="truncate">{seg.label}</span>
-        )}
-      </span>
-    ))}
+    {segments.map((seg, i) => {
+      // Stable path key from the prefix labels (unique within a breadcrumb).
+      const pathKey = segments
+        .slice(0, i + 1)
+        .map((s) => s.label)
+        .join("/");
+      return (
+        <span key={pathKey} className="inline-flex items-center gap-2">
+          {i > 0 && <span className="text-border">/</span>}
+          {seg.onClick ? (
+            <button
+              type="button"
+              className="truncate hover:text-foreground hover:underline"
+              onClick={seg.onClick}
+            >
+              {seg.label}
+            </button>
+          ) : (
+            <span className="truncate">{seg.label}</span>
+          )}
+        </span>
+      );
+    })}
     {trailing != null && <span className="ml-auto font-mono text-[11px]">{trailing}</span>}
   </div>
 );

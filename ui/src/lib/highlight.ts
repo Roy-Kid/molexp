@@ -15,14 +15,7 @@
  * reordered) — the renderer can map tokens 1:1 to styled spans.
  */
 
-export type TokenKind =
-  | "plain"
-  | "comment"
-  | "string"
-  | "keyword"
-  | "number"
-  | "decorator"
-  | "key";
+export type TokenKind = "plain" | "comment" | "string" | "keyword" | "number" | "decorator" | "key";
 
 export interface HighlightToken {
   text: string;
@@ -116,7 +109,7 @@ const YAML_KEY_RE = /^(\s*(?:-\s+)?)([^\s#'"{[][^:#\n]*):(?=\s|$)/;
 const YAML_REST_RE = new RegExp(
   [
     String.raw`"(?:\\.|[^"\\])*"`,
-    String.raw`'(?:''|[^'])*'`,
+    `'(?:''|[^'])*'`,
     String.raw`(?:^|(?<=\s))#[^\n]*`,
     String.raw`\b(?:true|false|null|True|False|Null|~)\b`,
     String.raw`(?<![\w.-])[+-]?\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?(?![\w.-])`,

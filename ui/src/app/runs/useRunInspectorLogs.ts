@@ -53,6 +53,8 @@ export const useRunInspectorLogs = (
       (selectedExecutionId === null &&
         run.executions.some((e) => e.status === "running" || e.finishedAt === null)));
 
+  // `tick` is a manual refresh counter bumped by `refresh()` — required dep.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tick forces re-fetch
   useEffect(() => {
     if (!enabled || !runId || !projectId || !experimentId) {
       setLogs(null);
@@ -96,15 +98,7 @@ export const useRunInspectorLogs = (
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-  }, [
-    enabled,
-    runId,
-    projectId,
-    experimentId,
-    selectedExecutionId,
-    shouldPoll,
-    tick,
-  ]);
+  }, [enabled, runId, projectId, experimentId, selectedExecutionId, shouldPoll, tick]);
 
   return {
     logs,

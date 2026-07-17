@@ -1,15 +1,17 @@
-# Mirrors every check in .github/workflows/*.yml. Any divergence is a bug —
+# Mirrors every check in .github/workflows/ci.yml. Any divergence is a bug —
 # when you add/modify a CI step, update this file in the same commit.
 #
 # CI mapping (.github/workflows/ci.yml):
-#   job `lint`  → runs `pre-commit run --all-files` (= every default-stage hook
-#                 below: pre-commit-hooks + ruff-format + ruff-check + ty)
-#   job `test`  → `pytest tests/ -q --cov=src/molexp --cov-report=xml`
-#                 (mirrored by the local `pytest` hook at stage pre-push, so a
-#                 push that passes hooks cannot fail CI. `uv run` pins the
-#                 PROJECT venv — immune to whatever venv the shell has active.)
+#   job `lint`  → pre-commit run --all-files  (default stage only:
+#                 pre-commit-hooks + ruff-format + ruff-check + ty)
+#   job `test`  → pytest tests/ -q --cov=src/molexp --cov-report=xml
+#                 (mirrored by the local `pytest` hook at stage pre-push;
+#                 entry prefers `uv run` then falls back to bare `pytest`)
+#   job `ui`    → npm run lint && typecheck && test:ui  (pre-push mirror)
+#
+# Install both stages once:
+#   pre-commit install --hook-types pre-commit --hook-types pre-push
 
-# Install both stages: pre-commit run --hook-stage pre-push runs everything.
 default_install_hook_types: [pre-commit, pre-push]
 
 # Generated codegen output (OpenAPI client) is not hand-edited — skip all hooks.
@@ -33,6 +35,7 @@ repos:
         # comments (JSONC), which the check-json hook cannot parse.
         exclude: '(^|/)(tsconfig(\..+)?\.json|devcontainer\.json)$'
 
+  # Pin is the single source of truth for ruff; CI lint uses this via pre-commit.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.12
     hooks:
@@ -43,19 +46,36 @@ repos:
   - repo: local
     hooks:
       - id: ty
+        # Advisory until the tree is ty-clean (same as CI lint — pre-commit
+        # never fails the job on ty). META.build.check may still run strict
+        # `ty check src/` for local ship gates.
         name: ty (type check, advisory — mirrors CI; codebase not yet ty-clean)
-        entry: bash -c 'ty check || true'
+        entry: bash -c 'command -v ty >/dev/null && ty check || true'
         language: system
         types: [python]
         pass_filenames: false
 
-      # Mirrors CI's `test` job 1:1 so GitHub can never fail on a pushed
-      # commit that passed hooks. pre-push only (slow); `uv run` resolves the
-      # project .venv deterministically.
+      # Mirrors CI `test` job 1:1 (flags + paths). pre-push only (slow).
+      # `uv run` pins the project .venv when present; bare pytest otherwise
+      # (matches CI after `pip install -e ".[dev]"`).
       - id: pytest
         name: pytest (CI test suite — mirrors ci.yml `test` job)
-        entry: uv run pytest tests/ -q --cov=src/molexp --cov-report=xml
+        entry: >-
+          bash -c 'if command -v uv >/dev/null 2>&1; then
+            uv run pytest tests/ -q --cov=src/molexp --cov-report=xml;
+          else
+            pytest tests/ -q --cov=src/molexp --cov-report=xml;
+          fi'
         language: system
-        always_run: true  # CI tests every push — so does the mirror (a YAML-only push must not skip it)
+        always_run: true
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Mirrors CI `ui` job. Needs Node + workspace deps (`npm install` at root).
+      - id: ui
+        name: UI lint + typecheck + test (mirrors ci.yml `ui` job)
+        entry: bash -c 'npm run lint && npm run typecheck && npm run test:ui'
+        language: system
+        always_run: true
         pass_filenames: false
         stages: [pre-push]

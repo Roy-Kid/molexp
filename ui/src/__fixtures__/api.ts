@@ -112,7 +112,7 @@ export const fixtureExperimentSummary: ExperimentSummary = {
   projectId: "proj-alpha",
   parameterSpace: {},
   workflowSource: "workflow.py",
-      planRunId: null,
+  planRunId: null,
 };
 
 export const fixtureRunSummary: RunSummary = {

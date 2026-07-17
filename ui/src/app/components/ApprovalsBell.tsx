@@ -52,9 +52,7 @@ export function ApprovalsBell(): JSX.Element {
               size="icon"
               className="relative h-8 w-8 flex-none"
               onClick={() => setOpen(true)}
-              aria-label={
-                count > 0 ? `${count} pending approvals` : "Approvals inbox"
-              }
+              aria-label={count > 0 ? `${count} pending approvals` : "Approvals inbox"}
             >
               <Bell className="h-4 w-4" />
               {count > 0 && (

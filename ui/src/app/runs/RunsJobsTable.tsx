@@ -259,9 +259,7 @@ const SortableTh = ({
       >
         {column.label}
         <Icon className="h-3 w-3 opacity-70" aria-hidden="true" />
-        <span className="sr-only">
-          {active ? `sorted ${dir}` : "sort"}
-        </span>
+        <span className="sr-only">{active ? `sorted ${dir}` : "sort"}</span>
       </button>
     </th>
   );
