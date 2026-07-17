@@ -73,8 +73,33 @@ def _scripted_factory(workspace: object) -> AgentRunner:
     return AgentRunner(loop=InteractiveLoop(config=config), router=_ScriptedRouter())  # type: ignore[arg-type]
 
 
+def _wait_until_idle(client: TestClient, task_id: str, *, timeout_s: float = 5.0) -> str:
+    """Poll until the task is not mid-turn (or timeout). Returns final status."""
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    status = "running"
+    while time.monotonic() < deadline:
+        status = client.get(f"/api/agent-tasks/{task_id}").json()["status"]
+        if status not in {"running", "waiting_approval"}:
+            return status
+        time.sleep(0.02)
+    return status
+
+
 @pytest.fixture
-def agent_client(workspace: object) -> Iterator[TestClient]:
+def agent_client(workspace: object, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    # InteractiveLoop opens MCP toolsets before streaming; stub so scripted
+    # turns finish immediately (no live molmcp stdio in unit tests).
+    import molexp.agent.loops.interactive.loop as loop_mod
+
+    monkeypatch.setattr(loop_mod, "open_mcp_toolsets", lambda _root: ())
+
+    async def _no_specs(_toolsets: object) -> tuple:
+        return ()
+
+    monkeypatch.setattr(loop_mod, "list_mcp_tool_specs", _no_specs)
+
     app = create_app()
     app.dependency_overrides[get_workspace] = lambda: workspace
     agent_routes.set_runner_factory(_scripted_factory)
@@ -137,13 +162,7 @@ def test_followup_message_stays_on_same_task(agent_client: TestClient) -> None:
     session_id = body["sessionId"]
 
     # Wait for the first turn to settle so 409 doesn't fire.
-    import time
-
-    for _ in range(50):
-        status = agent_client.get(f"/api/agent-tasks/{task_id}").json()["status"]
-        if status != "running":
-            break
-        time.sleep(0.05)
+    assert _wait_until_idle(agent_client, task_id) != "running"
 
     msg = agent_client.post(
         f"/api/agent-tasks/{task_id}/messages",
@@ -223,13 +242,7 @@ def test_chat_task_can_switch_to_plan_and_ask_for_context(agent_client: TestClie
         "/api/agent-tasks", json={"description": "inspect the workspace", "mode": "chat"}
     ).json()
 
-    import time
-
-    for _ in range(50):
-        current = agent_client.get(f"/api/agent-tasks/{created['taskId']}").json()
-        if current["status"] != "running":
-            break
-        time.sleep(0.05)
+    assert _wait_until_idle(agent_client, created["taskId"]) != "running"
 
     switched = agent_client.post(
         f"/api/agent-tasks/{created['taskId']}/messages",
