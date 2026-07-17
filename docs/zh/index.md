@@ -5,6 +5,7 @@ hide:
   - navigation
   - toc
 hero:
+  kicker: 手册
   title: MolExp
   description: 用 Python 构建可复现的科学工作流。将任务定义为普通函数，让引擎处理依赖图，并将每次运行持久化到磁盘——可选配 LLM 智能体来规划、生成和驱动实验。
   actions:
@@ -17,7 +18,9 @@ hero:
       href: "guide/"
   install:
     label: 安装
-    command: pip install molexp
+    methods:
+      - { label: pip, command: pip install molexp }
+      - { label: uv, command: uv add molexp }
   badges:
     - img: https://img.shields.io/pypi/v/molexp
       href: https://pypi.org/project/molexp/
@@ -207,6 +210,82 @@ molexp run train.py --rerun --fresh     # 从头重新执行
     <dd>YAML 中的运行变体。一个脚本，多种形态——smoke、production、dry-run——通过 CLI 标志切换。</dd>
   </div>
 </dl>
+
+</section>
+
+<section id="ecosystem" class="molcrafts-manual-section molcrafts-manual-section--stack" markdown>
+
+<div class="molcrafts-manual-section__header" markdown>
+
+<span class="molcrafts-manual-eyebrow">生态</span>
+
+## 向外扩展，保持轻量
+
+`import molexp` 保持轻量——重依赖只在真正用到时加载。核心通过可选 extras
+（`molexp[agent]`、`molexp[tensorboard]`）连接 molcrafts 栈，并通过两条独立
+插件通道接入你自己的代码。
+
+</div>
+
+<div class="molcrafts-manual-grid molcrafts-manual-grid--cols-3">
+  <a href="guide/molq/">
+    <strong>molq · 调度桥</strong>
+    <em>让 <code>molexp run</code> 上集群：同一运行可提交到 Slurm、PBS 或 LSF。换的是传输，工作流与记录不变。</em>
+  </a>
+  <a href="getting-started/cli-and-profiles/">
+    <strong>molcfg · 运行配置</strong>
+    <em>支撑 profile 系统。<code>molcfg.yaml</code> 保存执行变体，一个 <code>--profile</code> 切换。</em>
+  </a>
+  <a href="architecture/plan-mode/">
+    <strong>molmcp · 能力发现</strong>
+    <em>为智能体 Harness 落地能力。PlanMode 经 molmcp 发现完整工具链，再绑定实验所需的最小子集。</em>
+  </a>
+  <a href="concept/plugins/">
+    <strong>molvis · 可视化</strong>
+    <em>内置 UI 插件在浏览器中渲染分子结构——与 <code>core</code>、<code>metrics</code> 同属树内包。</em>
+  </a>
+  <a href="plugins/">
+    <strong>CLI 插件</strong>
+    <em>任意 pip 包通过 <code>molexp.cli_plugins</code> 入口点注册 <code>molexp &lt;yourcmd&gt;</code> 子命令。</em>
+  </a>
+  <a href="plugins/">
+    <strong>UI 插件</strong>
+    <em>通过独立的 <code>molexp.ui_plugins</code> 通道向 SPA 注入动态加载的 React 包。</em>
+  </a>
+</div>
+
+</section>
+
+<section id="doc-map" class="molcrafts-manual-section" markdown>
+
+<div class="molcrafts-manual-section__header" markdown>
+
+<span class="molcrafts-manual-eyebrow">地图</span>
+
+## 文档地图
+
+下列分区与导航树对应，方便回头查阅。
+
+</div>
+
+<div class="molcrafts-doc-map">
+  <section>
+    <h3><a href="getting-started/">快速入门</a></h3>
+    <p>快速开始、第一个工作流、追踪运行、CLI 与配置文件，以及基于浏览器的 UI 导览。</p>
+  </section>
+  <section>
+    <h3><a href="concept/">核心概念</a></h3>
+    <p>工作流与工作区模型、智能体层、资产可复现性，以及插件架构。</p>
+  </section>
+  <section>
+    <h3><a href="guide/">指南</a></h3>
+    <p>任务编写、控制流、参数扫描、工作区 API、持久化、配置文件、Plan Mode、服务生命周期与调度桥。</p>
+  </section>
+  <section>
+    <h3><a href="architecture/">架构</a></h3>
+    <p>层级边界、导入规则、智能体防火墙、Plan Mode 流水线，以及工作流引擎设计。</p>
+  </section>
+</div>
 
 </section>
 

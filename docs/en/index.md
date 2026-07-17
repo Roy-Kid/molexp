@@ -5,6 +5,7 @@ hide:
   - navigation
   - toc
 hero:
+  kicker: Manual
   title: MolExp
   description: Build reproducible scientific workflows in Python. Define tasks as plain functions, let the engine handle the graph, and keep every run tracked on disk — with an optional LLM agent that plans, generates, and drives experiments.
   actions:
@@ -17,7 +18,9 @@ hero:
       href: "guide/"
   install:
     label: Install
-    command: pip install molexp
+    methods:
+      - { label: pip, command: pip install molexp }
+      - { label: uv, command: uv add molexp }
   badges:
     - img: https://img.shields.io/pypi/v/molexp
       href: https://pypi.org/project/molexp/

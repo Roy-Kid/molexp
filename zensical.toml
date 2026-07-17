@@ -67,7 +67,9 @@ language = "en"
 
 [project.extra.molcrafts]
 product = "molexp"
+# Indigo product accent (主) + soft companion (副) for hover/selection chips.
 accent = "#4f46e5"
+accent_soft = "rgba(79, 70, 229, 0.14)"
 
 [project.extra]
 alternate = [

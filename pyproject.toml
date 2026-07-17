@@ -47,8 +47,8 @@ dev = [
     "psutil>=5.9.0",
 ]
 docs = [
-    "zensical",
-    "molcrafts-zensical-theme>=0.1.1",
+    "zensical>=0.0.45",
+    "molcrafts-zensical-theme>=0.2.2",
 ]
 
 [tool.uv.sources]
