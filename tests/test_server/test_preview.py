@@ -21,13 +21,9 @@ from pathlib import Path
 
 import pytest
 
-# The synthetic fixture and the QM9-shaped readers all build molpy.Frames.
-# Use a broad skip: a broken/mismatched local molpy (e.g. molrs pin) must not
-# abort the whole suite at collection time the way a bare importorskip can.
-try:
-    import molpy  # noqa: F401
-except ImportError:
-    pytest.skip("molpy unavailable or version-mismatched", allow_module_level=True)
+# molpy 0.8 + matching molrs required (Frame lives in molrs).
+pytest.importorskip("molpy")
+pytest.importorskip("molrs")
 
 from molexp.server.preview import (
     AmbiguousReaderError,
@@ -46,13 +42,13 @@ _ZERO_READER_SRC = "VALUE = 42\n"
 
 # A sidecar that defines two concrete BaseTrajectoryReader subclasses.
 _TWO_READER_SRC = """
-import molpy
 from molpy.io import BaseTrajectoryReader
+from molrs import Frame
 
 
 class ReaderA(BaseTrajectoryReader):
     def read_frame(self, i):
-        return molpy.Frame()
+        return Frame()
 
     @property
     def n_frames(self):
@@ -61,13 +57,12 @@ class ReaderA(BaseTrajectoryReader):
 
 class ReaderB(BaseTrajectoryReader):
     def read_frame(self, i):
-        return molpy.Frame()
+        return Frame()
 
     @property
     def n_frames(self):
         return 1
 """
-
 # A sidecar that raises while its module body executes.
 _BROKEN_SRC = "raise RuntimeError('sidecar boom')\n"
 
