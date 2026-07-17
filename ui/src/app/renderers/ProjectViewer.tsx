@@ -1,12 +1,4 @@
-import {
-  Archive,
-  Copy,
-  ExternalLink,
-  FlaskConical,
-  FolderKanban,
-  Play,
-  Workflow,
-} from "lucide-react";
+import { Archive, Copy, ExternalLink, FlaskConical, FolderKanban, Play, Workflow } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
@@ -18,66 +10,19 @@ import {
   EMPTY_COPY,
   EmptyState,
   EntityPage,
+  MetaField,
+  MetaGrid,
+  MiniBars,
+  StatCard,
+  StatGrid,
+  StatusDistribution,
 } from "@/app/components/entity";
-import {
-  buildProjectWorkbenchData,
-  type ExperimentRollup,
-} from "@/app/renderers/entityWorkbenchData";
-import { STATUS_GROUPS } from "@/app/runs/statusGroups";
+import { buildProjectWorkbenchData } from "@/app/renderers/entityWorkbenchData";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
-import type {
-  ApiAssetResponse,
-  ExperimentSummary,
-  RendererProps,
-  SemanticStatus,
-} from "@/app/types";
+import type { ApiAssetResponse, ExperimentSummary, RendererProps } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/datetime";
-
-const StatusDistributionBar = ({ counts }: { counts: ExperimentRollup["counts"] }): JSX.Element => {
-  if (counts.total === 0) {
-    return <div className="h-1.5 rounded-full bg-muted" />;
-  }
-  return (
-    <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
-      {STATUS_GROUPS.map((group) => {
-        const value = counts[group.id];
-        if (value === 0) return null;
-        return (
-          <div
-            key={group.id}
-            title={`${group.label}: ${value}`}
-            style={{ width: `${(value / counts.total) * 100}%`, backgroundColor: group.color }}
-          />
-        );
-      })}
-    </div>
-  );
-};
-
-const statusTextClass = (status: SemanticStatus): string => {
-  switch (status) {
-    case "active":
-    case "approved":
-    case "succeeded":
-      return "font-medium text-success";
-    case "failed":
-    case "rejected":
-      return "font-medium text-destructive";
-    case "running":
-      return "font-medium text-info";
-    case "draft":
-    case "expired":
-    case "waiting_for_review":
-      return "font-medium text-warning";
-    case "archived":
-    case "cancelled":
-    case "skipped":
-    case "pending":
-      return "text-muted-foreground";
-  }
-};
 
 const countAssetsByKind = (assets: ApiAssetResponse[]): Array<[string, number]> => {
   const counts = new Map<string, number>();
@@ -225,22 +170,19 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
   const experimentColumns: DataTableColumn<ExperimentSummary>[] = [
     {
       key: "name",
-      header: "Experiment Name",
+      header: "Experiment",
       cell: (exp) => (
-        <div className="flex items-center gap-3">
-          <div className="rounded-md bg-purple-500/10 p-1.5 text-purple-600 transition-colors group-hover:bg-purple-500/20">
-            <FlaskConical className="h-4 w-4" />
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md border border-border/70 bg-muted/40 text-muted-foreground">
+            <FlaskConical className="h-3.5 w-3.5" />
           </div>
-          <span className={`font-medium ${statusTextClass(exp.status)}`}>{exp.name}</span>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-foreground">{exp.name}</div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground">
+              {exp.id.substring(0, 8)}
+            </div>
+          </div>
         </div>
-      ),
-    },
-    {
-      key: "id",
-      header: "ID",
-      width: "w-[120px]",
-      cell: (exp) => (
-        <span className="font-mono text-xs text-muted-foreground">{exp.id.substring(0, 8)}</span>
       ),
     },
     {
@@ -253,12 +195,12 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
           return <span className="text-xs text-muted-foreground">No runs</span>;
         }
         return (
-          <div className="flex items-center gap-2">
-            <span className="w-8 font-semibold tabular-nums text-foreground">
+          <div className="flex items-center gap-2.5">
+            <span className="w-7 font-medium tabular-nums text-foreground">
               {rollup.counts.total}
             </span>
             <div className="min-w-[120px] flex-1">
-              <StatusDistributionBar counts={rollup.counts} />
+              <StatusDistribution counts={rollup.counts} legend={false} />
             </div>
           </div>
         );
@@ -266,14 +208,14 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     },
     {
       key: "workflow",
-      header: "Workflow",
-      width: "w-[110px]",
+      header: "Tasks",
+      width: "w-[90px]",
       cell: (exp) => {
         const rollup = workbench.experiments.find((item) => item.experiment.id === exp.id);
         return (
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
             <Workflow className="h-3.5 w-3.5" />
-            {rollup?.workflowSummary.exists ? `${rollup.workflowSummary.taskCount}` : "-"}
+            {rollup?.workflowSummary.exists ? rollup.workflowSummary.taskCount : "—"}
           </span>
         );
       },
@@ -283,21 +225,22 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
       header: "Updated",
       width: "w-[160px]",
       cell: (exp) => (
-        <span className="text-muted-foreground" title={exp.updatedAt}>
+        <span className="text-xs text-muted-foreground" title={exp.updatedAt}>
           {formatDateTime(exp.updatedAt)}
         </span>
       ),
     },
     {
       key: "action",
-      header: "Action",
-      width: "w-[60px]",
+      header: "",
+      width: "w-[52px]",
       align: "right",
       cell: (exp) => (
         <Button
           size="icon"
           variant="ghost"
           className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+          aria-label="New run"
           onClick={(event) => {
             event.stopPropagation();
             setCreateRunExperimentId(exp.id);
@@ -314,8 +257,8 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
       key: "name",
       header: "Name",
       cell: (asset) => (
-        <div className="flex items-center gap-2 font-medium">
-          <Archive className="h-4 w-4 text-amber-500" />
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Archive className="h-4 w-4 text-muted-foreground" />
           {asset.name}
         </div>
       ),
@@ -366,109 +309,77 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
 
   const overviewContent = (
     <DashboardGrid>
-      <DashboardCard title="Project details" className="lg:col-span-8">
-        <dl className="grid gap-x-6 gap-y-3 md:grid-cols-2">
-          <div className="min-w-0">
-            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Project ID
-            </dt>
-            <dd className="mt-0.5 truncate font-mono text-xs text-foreground">{project.id}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Updated
-            </dt>
-            <dd className="mt-0.5 truncate text-sm text-foreground" title={project.updatedAt}>
-              {formatDateTime(project.updatedAt)}
-            </dd>
-          </div>
-          {project.summary && (
-            <div className="min-w-0 md:col-span-2">
-              <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Summary
-              </dt>
-              <dd className="mt-0.5 text-sm leading-6 text-foreground">{project.summary}</dd>
-            </div>
-          )}
-        </dl>
-      </DashboardCard>
+      <div className="lg:col-span-12">
+        <StatGrid>
+          <StatCard label="Experiments" value={projectExperiments.length} />
+          <StatCard label="Runs" value={projectRuns.length} muted={projectRuns.length === 0} />
+          <StatCard
+            label="Running"
+            value={workbench.counts.running}
+            tone="running"
+            muted={workbench.counts.running === 0}
+          />
+          <StatCard
+            label="Failed"
+            value={workbench.counts.failed}
+            tone="error"
+            muted={workbench.counts.failed === 0}
+          />
+          <StatCard
+            label="Assets"
+            value={projectAssets.length}
+            muted={projectAssets.length === 0}
+          />
+        </StatGrid>
+      </div>
 
-      <DashboardCard title="Summary" className="lg:col-span-4" bodyClassName="space-y-3">
-        <div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Experiments
-          </div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-            {projectExperiments.length}
-          </div>
-        </div>
-        <StatusDistributionBar counts={workbench.counts} />
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-          <div>
-            <dt className="text-muted-foreground">Runs</dt>
-            <dd className="font-semibold tabular-nums text-foreground">{projectRuns.length}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Assets</dt>
-            <dd className="font-semibold tabular-nums text-foreground">{projectAssets.length}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Running</dt>
-            <dd className="font-semibold tabular-nums text-info">{workbench.counts.running}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Failed</dt>
-            <dd className="font-semibold tabular-nums text-destructive">
-              {workbench.counts.failed}
-            </dd>
-          </div>
-        </dl>
-      </DashboardCard>
-
-      <DashboardCard title="Run state" className="lg:col-span-6">
-        {workbench.counts.total === 0 ? (
-          <p className="text-xs italic text-muted-foreground">No runs recorded.</p>
-        ) : (
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-            <div>
-              <dt className="text-muted-foreground">Succeeded</dt>
-              <dd className="font-semibold tabular-nums text-success">
-                {workbench.counts.succeeded}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Running</dt>
-              <dd className="font-semibold tabular-nums text-info">{workbench.counts.running}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Pending</dt>
-              <dd className="font-semibold tabular-nums text-warning">
-                {workbench.counts.pending}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Failed</dt>
-              <dd className="font-semibold tabular-nums text-destructive">
-                {workbench.counts.failed}
-              </dd>
-            </div>
-          </dl>
+      <DashboardCard
+        title="Identity"
+        description="Project metadata"
+        className="lg:col-span-5"
+        bodyClassName="space-y-4"
+      >
+        <MetaGrid columns={2}>
+          <MetaField label="Project ID" value={project.id} mono title={project.id} />
+          <MetaField
+            label="Updated"
+            value={formatDateTime(project.updatedAt)}
+            title={project.updatedAt}
+          />
+        </MetaGrid>
+        {project.summary && (
+          <p className="text-sm leading-relaxed text-muted-foreground">{project.summary}</p>
         )}
       </DashboardCard>
 
-      <DashboardCard title="Assets" className="lg:col-span-6">
-        {projectAssetsByKind.length === 0 ? (
-          <p className="text-xs italic text-muted-foreground">No assets registered.</p>
-        ) : (
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-            {projectAssetsByKind.slice(0, 6).map(([kind, count]) => (
-              <div key={kind} className="min-w-0">
-                <dt className="truncate text-muted-foreground">{kind}</dt>
-                <dd className="font-semibold tabular-nums text-foreground">{count}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
+      <DashboardCard
+        title="Run status"
+        description={
+          workbench.counts.total === 0
+            ? "No runs yet"
+            : `${workbench.counts.total} run${workbench.counts.total === 1 ? "" : "s"} across experiments`
+        }
+        className="lg:col-span-7"
+      >
+        <StatusDistribution counts={workbench.counts} />
+      </DashboardCard>
+
+      <DashboardCard
+        title="Assets by kind"
+        description={
+          projectAssets.length === 0
+            ? "Nothing registered"
+            : `${projectAssets.length} registered asset${projectAssets.length === 1 ? "" : "s"}`
+        }
+        className="lg:col-span-12"
+      >
+        <MiniBars
+          data={projectAssetsByKind.slice(0, 8).map(([kind, count]) => ({
+            label: kind,
+            value: count,
+          }))}
+          emptyLabel="No assets registered under this project."
+        />
       </DashboardCard>
     </DashboardGrid>
   );
@@ -517,7 +428,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                 empty={
                   <EmptyState
                     title={EMPTY_COPY.assets.title}
-                    description={EMPTY_COPY.assets.description}
                   />
                 }
               />
@@ -527,21 +437,17 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
             value: "settings",
             label: "Settings",
             content: (
-              <div className="overflow-auto p-6">
-                <div className="max-w-2xl space-y-5">
-                  <div className="border-b border-border/70 pb-4">
-                    <h3 className="text-sm font-semibold uppercase text-muted-foreground">
-                      Danger Zone
-                    </h3>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Deleting a project removes access to its experiment and run hierarchy from
-                      this workspace view.
-                    </p>
-                  </div>
+              <div className="overflow-auto p-5 md:p-6">
+                <DashboardCard
+                  title="Delete project"
+                  description="Removes this project and its experiment / run hierarchy from the workspace view."
+                  variant="destructive"
+                  className="max-w-xl"
+                >
                   <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
-                    Delete Project
+                    {isDeleting ? "Deleting…" : "Delete project"}
                   </Button>
-                </div>
+                </DashboardCard>
               </div>
             ),
           },
@@ -557,7 +463,11 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
           onOpenChange={(nextOpen) => {
             if (!nextOpen) setCreateRunExperimentId(null);
           }}
-          onRunCreated={onRefresh}
+          onRunCreated={(runId) => {
+            onRefresh();
+            setCreateRunExperimentId(null);
+            setSelection({ objectType: "run", objectId: runId });
+          }}
         />
       )}
     </>

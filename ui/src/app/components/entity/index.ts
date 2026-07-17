@@ -1,10 +1,15 @@
-export type { DonutSegment, MiniBarDatum, StatTone } from "./Dashboard";
+export type { DonutSegment, MiniBarDatum, StatTone, StatusCountRollup } from "./Dashboard";
 export {
   DashboardCard,
   DashboardGrid,
+  EntityPath,
+  MetaField,
+  MetaGrid,
   MiniBars,
+  ParamChip,
   StatCard,
   StatGrid,
+  StatusDistribution,
   StatusDonut,
 } from "./Dashboard";
 export type { DataTableColumn, DataTableProps, DataTableRowAction } from "./DataTable";

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import type { EntityBacklinkRow } from "@/api/generated/models/EntityBacklinkRow";
 import { KnowledgeService } from "@/api/generated/services/KnowledgeService";
 import { DashboardCard } from "@/app/components/entity/Dashboard";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface KnowledgeBacklinksCardProps {
   kind: "run" | "experiment";
@@ -48,17 +49,23 @@ export const KnowledgeBacklinksCard = ({
     };
   }, [kind, projectId, experimentId, runId]);
 
-  const noun = kind === "run" ? "run" : "experiment";
   return (
-    <DashboardCard title="Knowledge" className={className}>
+    <DashboardCard
+      title="Knowledge"
+      description={kind === "run" ? "Notes that cite this run" : "Notes that cite this experiment"}
+      className={className}
+    >
       {rows === null ? (
-        <p className="text-xs text-muted-foreground">Loading…</p>
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-full" />
+          <Skeleton className="h-7 w-[80%]" />
+        </div>
       ) : rows.length === 0 ? (
-        <p className="text-xs italic text-muted-foreground">
-          No knowledge documents cite this {noun} yet.
+        <p className="text-sm text-muted-foreground">
+          {kind === "run" ? "Harvest this run to link notes." : "No linked notes yet."}
         </p>
       ) : (
-        <ul className="space-y-1">
+        <ul className="space-y-0.5">
           {rows.map((row) => (
             <li key={row.path}>
               <button
@@ -66,12 +73,12 @@ export const KnowledgeBacklinksCard = ({
                 onClick={() =>
                   navigate(`/knowledge/${row.path.split("/").map(encodeURIComponent).join("/")}`)
                 }
-                className="flex w-full items-center gap-2 truncate rounded-sm px-2 py-1 text-left text-sm text-info transition-colors hover:bg-muted/40 hover:underline"
+                className="flex w-full items-center gap-2 truncate rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 title={row.path}
               >
                 <BookOpen className="h-3.5 w-3.5 flex-none text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{row.title}</span>
-                <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+                <span className="min-w-0 flex-1 truncate text-foreground">{row.title}</span>
+                <span className="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
                   <Link2 className="h-3 w-3" />
                   {row.role}
                 </span>

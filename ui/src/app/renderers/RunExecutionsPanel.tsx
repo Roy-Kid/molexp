@@ -1,13 +1,24 @@
 import { AlertTriangle, ArrowRight, GitBranch } from "lucide-react";
 import { type JSX, useEffect, useMemo, useState } from "react";
-import { DashboardCard, EmptyState, StatusIcon, statusKey } from "@/app/components/entity";
+import {
+  DashboardCard,
+  EmptyState,
+  MetaField,
+  MetaGrid,
+  StatusBadge,
+  StatusIcon,
+  statusKey,
+} from "@/app/components/entity";
 import { formatDuration } from "@/app/renderers/dashboardData";
 import { workspaceApi } from "@/app/state/api";
 import type { RunSummary, WorkflowSummary } from "@/app/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { normalizeTaskGraph } from "@/components/workflow/flowgram-document";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
 import { formatDateTime } from "@/lib/datetime";
+import { cn } from "@/lib/utils";
 
 const formatTimeOfDay = (iso: string | null): string => {
   if (!iso) return "—";
@@ -115,139 +126,154 @@ export const RunExecutionsPanel = ({
 
   if (history.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full items-center justify-center p-6">
         <EmptyState
-          icon={<GitBranch className="h-6 w-6" />}
-          title="No executions yet"
-          description="An execution is recorded each time this run is attempted."
+          icon={<GitBranch className="h-5 w-5" />}
+          title="No executions"
+          description={
+            run.status === "pending"
+              ? "Start the run to open the first execution attempt."
+              : "This run has no recorded attempts."
+          }
         />
       </div>
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4">
-      <ol className="overflow-hidden rounded-lg border border-border/60 bg-card">
-        {history.map((rec, index) => {
-          const active = rec.executionId === effectiveExecutionId;
-          const d = formatDuration(rec.startedAt, rec.finishedAt);
-          return (
-            <li key={rec.executionId} className="border-b border-border/50 last:border-b-0">
-              <button
-                type="button"
-                onClick={() => onSelectExecution(rec.executionId)}
-                className={`grid w-full grid-cols-[auto_70px_minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-left text-xs transition-colors ${
-                  active ? "bg-muted/50 ring-1 ring-inset ring-foreground/20" : "hover:bg-muted/30"
-                }`}
-                title={rec.executionId}
-              >
-                <StatusIcon status={rec.status} />
-                <span className="font-mono text-muted-foreground">#{index + 1}</span>
-                <span className="truncate font-mono text-[11px] text-foreground">
-                  {rec.executionId}
-                </span>
-                <span className="hidden text-[11px] text-muted-foreground sm:inline">
-                  {formatTimeOfDay(rec.startedAt)}
-                  {d ? ` · ${d}` : ""}
-                </span>
-                <span className="max-w-[150px] truncate font-mono text-[11px] text-muted-foreground">
-                  {rec.schedulerJobId ?? run.executorInfo.backend ?? "local"}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4 md:p-5">
+      <DashboardCard
+        title="Attempts"
+        description={`${history.length} execution${history.length === 1 ? "" : "s"}`}
+        bodyClassName="p-0"
+      >
+        <ol className="divide-y divide-border/60">
+          {history.map((rec, index) => {
+            const active = rec.executionId === effectiveExecutionId;
+            const d = formatDuration(rec.startedAt, rec.finishedAt);
+            return (
+              <li key={rec.executionId}>
+                <button
+                  type="button"
+                  onClick={() => onSelectExecution(rec.executionId)}
+                  className={cn(
+                    "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 text-left transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                    active ? "bg-muted/50" : "hover:bg-muted/30",
+                  )}
+                  title={rec.executionId}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <StatusIcon status={rec.status} />
+                    <span className="font-mono text-xs text-muted-foreground">#{index + 1}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate font-mono text-xs text-foreground">
+                      {rec.executionId}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                      <span>
+                        {formatTimeOfDay(rec.startedAt)}
+                        {d ? ` · ${d}` : ""}
+                      </span>
+                      <span className="truncate font-mono">
+                        {rec.schedulerJobId ?? run.executorInfo.backend ?? "local"}
+                      </span>
+                    </div>
+                  </div>
+                  <StatusBadge status={rec.status} size="sm" />
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </DashboardCard>
 
       <DashboardCard
         title={effectiveExecution ? `Execution #${effectiveIndex + 1}` : "Execution details"}
-        bodyClassName="p-3"
+        description={effectiveExecution?.executionId}
         action={
           onViewLogs && effectiveExecution ? (
-            <button
+            <Button
               type="button"
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs text-muted-foreground"
               onClick={onViewLogs}
             >
               Logs <ArrowRight className="h-3 w-3" />
-            </button>
+            </Button>
           ) : undefined
         }
       >
         {effectiveExecution ? (
-          <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-5">
-            <div className="min-w-0">
-              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">State</dt>
-              <dd className="mt-0.5">
-                <StatusIcon status={effectiveExecution.status} />
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Start</dt>
-              <dd
-                className="mt-0.5 truncate text-foreground"
-                title={effectiveExecution.startedAt ?? undefined}
-              >
-                {formatDateTime(effectiveExecution.startedAt)}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">End</dt>
-              <dd
-                className="mt-0.5 truncate text-foreground"
-                title={effectiveExecution.finishedAt ?? undefined}
-              >
-                {formatDateTime(effectiveExecution.finishedAt)}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                Duration
-              </dt>
-              <dd className="mt-0.5 font-mono text-foreground">
-                {formatDuration(effectiveExecution.startedAt, effectiveExecution.finishedAt) ?? "-"}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Backend</dt>
-              <dd className="mt-0.5 truncate font-mono text-foreground">
-                {effectiveExecution.schedulerJobId ?? run.executorInfo.backend ?? "local"}
-              </dd>
-            </div>
-          </dl>
+          <MetaGrid columns={5}>
+            <MetaField
+              label="State"
+              value={<StatusBadge status={effectiveExecution.status} size="sm" dot />}
+            />
+            <MetaField
+              label="Start"
+              value={formatDateTime(effectiveExecution.startedAt)}
+              title={effectiveExecution.startedAt ?? undefined}
+            />
+            <MetaField
+              label="End"
+              value={formatDateTime(effectiveExecution.finishedAt)}
+              title={effectiveExecution.finishedAt ?? undefined}
+            />
+            <MetaField
+              label="Duration"
+              value={
+                formatDuration(effectiveExecution.startedAt, effectiveExecution.finishedAt) ?? "—"
+              }
+              mono
+            />
+            <MetaField
+              label="Backend"
+              value={
+                effectiveExecution.schedulerJobId ?? run.executorInfo.backend ?? "local"
+              }
+              mono
+            />
+          </MetaGrid>
         ) : (
-          <p className="text-xs italic text-muted-foreground">Select an execution to inspect it.</p>
+          <p className="text-sm text-muted-foreground">Select an execution to inspect it.</p>
         )}
       </DashboardCard>
 
       <DashboardCard
-        title={`Attempt workflow${effectiveExecution ? ` · ${effectiveExecution.executionId}` : ""}`}
+        title="Attempt workflow"
+        description={
+          workflowIr
+            ? `${workflowIr.task_configs.length} tasks · ${workflowIr.links.length} deps`
+            : "No snapshot"
+        }
         className="min-h-0 flex-1"
-        bodyClassName="flex min-h-0 flex-1 flex-col gap-2 p-3"
+        bodyClassName="flex min-h-0 flex-1 flex-col gap-3"
         action={
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-            {workflowIr && (
-              <span>
-                {workflowIr.task_configs.length} tasks · {workflowIr.links.length} deps
-              </span>
-            )}
+          <div className="flex items-center gap-1">
             {onViewLogs && (
-              <button
+              <Button
                 type="button"
-                className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs text-muted-foreground"
                 onClick={onViewLogs}
               >
                 Logs <ArrowRight className="h-3 w-3" />
-              </button>
+              </Button>
             )}
             {workflow && onOpenWorkflow && (
-              <button
+              <Button
                 type="button"
-                className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs text-muted-foreground"
                 onClick={onOpenWorkflow}
               >
                 Definition <ArrowRight className="h-3 w-3" />
-              </button>
+              </Button>
             )}
           </div>
         }
@@ -255,8 +281,8 @@ export const RunExecutionsPanel = ({
         {workflowIr ? (
           <>
             {failedTasks.length > 0 ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs">
-                <div className="flex items-center gap-1.5 font-medium text-destructive">
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs">
+                <div className="flex flex-wrap items-center gap-1.5 font-medium text-destructive">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   Failed at{" "}
                   {failedTasks.map((t, i) => (
@@ -276,7 +302,7 @@ export const RunExecutionsPanel = ({
                   t.error ? (
                     <pre
                       key={t.id}
-                      className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-tight text-destructive/90"
+                      className="mt-1.5 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-destructive/90"
                     >
                       {t.error}
                     </pre>
@@ -284,13 +310,13 @@ export const RunExecutionsPanel = ({
                 )}
               </div>
             ) : attemptFailed && !executionGraph ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs">
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs">
                 <div className="flex items-center gap-1.5 font-medium text-destructive">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   This attempt failed before any task ran — no per-node state was recorded.
                 </div>
                 {run.errorMessage && (
-                  <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-tight text-destructive/90">
+                  <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-destructive/90">
                     {run.errorMessage}
                   </pre>
                 )}
@@ -302,11 +328,15 @@ export const RunExecutionsPanel = ({
               onNodeClick={(taskId) => onInspectTask(taskId, run.id)}
             />
             {Object.keys(edgeStatusSummary).length > 0 && (
-              <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap gap-1.5">
                 {Object.entries(edgeStatusSummary).map(([status, count]) => (
-                  <span key={status} className="rounded border border-border/60 px-1.5 py-0.5">
+                  <Badge
+                    key={status}
+                    variant="outline"
+                    className="rounded-md font-normal text-[11px] text-muted-foreground"
+                  >
                     {status}: {count}
-                  </span>
+                  </Badge>
                 ))}
               </div>
             )}
@@ -315,7 +345,7 @@ export const RunExecutionsPanel = ({
             )}
           </>
         ) : (
-          <p className="text-xs italic text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             No workflow snapshot recorded for this run.
           </p>
         )}

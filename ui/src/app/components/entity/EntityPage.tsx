@@ -49,37 +49,38 @@ export const EntityHeader = ({
   metrics,
 }: EntityHeaderProps): JSX.Element => {
   return (
-    <section className="border-b border-border/70 bg-background">
-      <div className="px-4 pt-2">
+    <section className="border-b border-border/60 bg-background">
+      <div className="px-4 py-3 md:px-5">
         {/* min-h locks the header height regardless of whether actions/metrics
-            slots are populated, so different viewers (some with buttons, some
-            without) line up vertically in the same way. */}
-        <div className="mt-1.5 flex min-h-9 items-center justify-between gap-4 pb-2.5">
-          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-muted">
-              <Icon className="h-4 w-4 text-foreground" />
+            slots are populated, so different viewers line up the same way. */}
+        <div className="flex min-h-9 items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-border/70 bg-card text-muted-foreground shadow-none">
+              <Icon className="h-4 w-4" />
             </div>
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <h2 className="truncate text-base font-semibold text-foreground" title={titleTooltip}>
-                {title}
-              </h2>
-              {status && <StatusBadge status={status} />}
-              {titleAccessory}
-              {subtitle && (
-                <span
-                  className="hidden min-w-0 truncate text-xs text-muted-foreground md:inline"
-                  title={subtitle}
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <h2
+                  className="truncate text-base font-semibold tracking-tight text-foreground"
+                  title={titleTooltip}
                 >
-                  · {subtitle}
-                </span>
+                  {title}
+                </h2>
+                {status && <StatusBadge status={status} size="sm" dot />}
+                {titleAccessory}
+              </div>
+              {subtitle && (
+                <p className="truncate text-xs text-muted-foreground" title={subtitle}>
+                  {subtitle}
+                </p>
               )}
             </div>
           </div>
 
           {(actions || metrics) && (
-            <div className="flex flex-none items-center gap-4">
+            <div className="flex flex-none items-center gap-3">
               {metrics && (
-                <div className="flex flex-wrap items-baseline justify-end gap-x-3 gap-y-0.5">
+                <div className="hidden flex-wrap items-baseline justify-end gap-x-3 gap-y-0.5 sm:flex">
                   {metrics}
                 </div>
               )}
@@ -103,13 +104,11 @@ interface KeyValueGridProps {
 
 export const KeyValueGrid = ({ items }: KeyValueGridProps): JSX.Element => {
   return (
-    <dl className="grid gap-x-6 gap-y-2 md:grid-cols-2">
+    <dl className="grid gap-x-6 gap-y-3 md:grid-cols-2">
       {items.map((item) => (
         <div key={item.label} className="flex min-w-0 flex-col">
-          <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {item.label}
-          </dt>
-          <dd className="mt-0.5 min-w-0 truncate text-sm text-foreground">{item.value}</dd>
+          <dt className="text-xs text-muted-foreground">{item.label}</dt>
+          <dd className="mt-1 min-w-0 truncate text-sm text-foreground">{item.value}</dd>
         </div>
       ))}
     </dl>

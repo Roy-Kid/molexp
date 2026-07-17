@@ -77,7 +77,6 @@ describe("resolveEventRef", () => {
 
 describe("empty state", () => {
   it("states when events will appear, not just that none exist", () => {
-    expect(FEED_EMPTY_TEXT).toContain("No workspace events yet");
-    expect(FEED_EMPTY_TEXT).toContain("runs execute");
+    expect(FEED_EMPTY_TEXT).toBe("No events yet.");
   });
 });

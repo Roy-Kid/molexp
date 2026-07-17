@@ -91,5 +91,4 @@ export const resolveEventRef = (
   return { kind: "plain", text: ref };
 };
 
-export const FEED_EMPTY_TEXT =
-  "No workspace events yet — they appear when runs execute, assets land, and knowledge is written.";
+export const FEED_EMPTY_TEXT = "No events yet.";

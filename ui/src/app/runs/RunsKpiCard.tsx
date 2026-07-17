@@ -50,6 +50,8 @@ export interface RunsKpiCardProps {
   invertDelta?: boolean;
   sparkline?: number[];
   tone?: KpiTone;
+  /** Soften the value when the metric is zero / empty. */
+  muted?: boolean;
 }
 
 const formatDelta = (delta: number): string => {
@@ -75,23 +77,27 @@ export const RunsKpiCard = ({
   invertDelta = false,
   sparkline,
   tone = "neutral",
+  muted = false,
 }: RunsKpiCardProps): JSX.Element => {
   const hasSpark = sparkline && sparkline.length > 0 && sparkline.some((v) => v > 0);
   const showDelta = typeof delta === "number" && Number.isFinite(delta);
 
   return (
-    <div className="flex h-full flex-col gap-2 rounded-md border border-border/60 bg-card p-3">
-      <div className="flex items-center gap-1.5">
+    <div className="flex h-full flex-col gap-2 rounded-lg border border-border bg-card p-3.5 shadow-none">
+      <div className="flex items-center gap-2">
         <span
           aria-hidden="true"
-          className={cn("inline-block h-1.5 w-1.5 rounded-full", DOT_CLASS[tone])}
+          className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", DOT_CLASS[tone])}
         />
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </span>
+        <span className="text-xs text-muted-foreground">{label}</span>
       </div>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 break-words text-2xl font-semibold leading-none tabular-nums text-foreground">
+        <span
+          className={cn(
+            "min-w-0 break-words text-2xl font-semibold leading-none tracking-tight tabular-nums",
+            muted ? "text-muted-foreground/45" : "text-foreground",
+          )}
+        >
           {value}
         </span>
         {hasSpark && (

@@ -23,10 +23,8 @@ interface WorkspaceActivityFeedProps {
 
 /**
  * The workspace-wide "what just happened" feed (vision-loop-12): a poll over
- * `GET /api/events` — the event spine's global read — rendered with the
- * row idiom of `RunsRecentEvents`, plus entity links resolved against the
- * snapshot (run refs → run inspector, knowledge paths → Knowledge section;
- * unresolvable refs stay plain text).
+ * `GET /api/events` — the event spine's global read — rendered with entity
+ * links resolved against the snapshot.
  */
 export const WorkspaceActivityFeed = ({
   knownRunIds,
@@ -63,23 +61,26 @@ export const WorkspaceActivityFeed = ({
   }, [max]);
 
   if (error && events.length === 0) {
-    return <p className="text-xs italic text-muted-foreground">{error}</p>;
+    return <p className="text-sm text-muted-foreground">{error}</p>;
   }
   if (events.length === 0) {
-    return <p className="text-xs italic text-muted-foreground">{FEED_EMPTY_TEXT}</p>;
+    return <p className="text-sm text-muted-foreground">{FEED_EMPTY_TEXT}</p>;
   }
 
   return (
-    <ol className="space-y-2">
+    <ol className="space-y-0.5">
       {events.map((event) => {
         const visual = eventVisualFor(event.type);
         const Icon = visual.icon;
         return (
-          <li key={event.id} className="flex items-start gap-2 text-xs">
+          <li
+            key={event.id}
+            className="flex items-start gap-2.5 rounded-md px-1.5 py-1.5 text-xs transition-colors hover:bg-muted/40"
+          >
             <span
               aria-hidden="true"
               className={cn(
-                "mt-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full",
+                "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
                 visual.dotClass,
               )}
             >
@@ -92,13 +93,13 @@ export const WorkspaceActivityFeed = ({
                   <span className="ml-1.5 font-normal text-muted-foreground">· {event.actor}</span>
                 </span>
                 <span
-                  className="shrink-0 text-[10px] tabular-nums text-muted-foreground"
+                  className="shrink-0 tabular-nums text-[11px] text-muted-foreground"
                   title={formatTimestamp(event.created_at)}
                 >
                   {formatRelative(event.created_at)}
                 </span>
               </div>
-              <span className="flex flex-wrap gap-x-2 font-mono text-[10px] text-muted-foreground">
+              <span className="mt-0.5 flex flex-wrap gap-x-2 font-mono text-[11px] text-muted-foreground">
                 {event.refs.map((ref) => {
                   const resolved = resolveEventRef(ref, event.type, knownRunIds, event.payload);
                   if (resolved.kind === "run") {
@@ -126,7 +127,7 @@ export const WorkspaceActivityFeed = ({
                     );
                   }
                   return (
-                    <span key={ref} className="truncate" title={ref}>
+                    <span key={ref} className="truncate">
                       {resolved.text}
                     </span>
                   );

@@ -93,17 +93,12 @@ export const RunsActivityChart = ({ buckets }: RunsActivityChartProps): JSX.Elem
   );
 
   return (
-    <div className="rounded border border-border bg-background p-3">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Activity · last 24h
-        </div>
-        <div className="flex flex-wrap gap-x-3 text-[10px] text-muted-foreground">
-          <LegendDot color={SERIES_COLORS.started} label={`Started ${totals.started}`} />
-          <LegendDot color={SERIES_COLORS.succeeded} label={`Succeeded ${totals.succeeded}`} />
-          <LegendDot color={SERIES_COLORS.failed} label={`Failed ${totals.failed}`} />
-          <LegendDot color={SERIES_COLORS.cancelled} label={`Cancelled ${totals.cancelled}`} />
-        </div>
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <LegendDot color={SERIES_COLORS.started} label={`Started ${totals.started}`} />
+        <LegendDot color={SERIES_COLORS.succeeded} label={`Succeeded ${totals.succeeded}`} />
+        <LegendDot color={SERIES_COLORS.failed} label={`Failed ${totals.failed}`} />
+        <LegendDot color={SERIES_COLORS.cancelled} label={`Cancelled ${totals.cancelled}`} />
       </div>
       <MolplotBarChart config={config} style={{ width: "100%", height: "200px" }} />
     </div>
@@ -116,10 +111,10 @@ interface LegendDotProps {
 }
 
 const LegendDot = ({ color, label }: LegendDotProps): JSX.Element => (
-  <span className="inline-flex items-center gap-1">
+  <span className="inline-flex items-center gap-1.5">
     <span
       aria-hidden="true"
-      className="inline-block h-2 w-2 rounded-full"
+      className="inline-block h-1.5 w-1.5 rounded-full"
       style={{ backgroundColor: color }}
     />
     {label}

@@ -4,6 +4,7 @@ import "reflect-metadata";
 import ReactDOM from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { RouteErrorBoundary } from "@/app/layout/RouteErrorBoundary";
+import { ToastProvider } from "@/components/ui/toast";
 import { bootPlugins } from "@/plugins/runtime";
 import App from "./App";
 import "./styles/tailwind.css";
@@ -50,5 +51,9 @@ enableMocking().then(() => {
   // every workflow-graph surface. Production builds never double-mount, so
   // this changes dev behavior only. Re-enable if flowgram becomes
   // StrictMode-safe upstream.
-  root.render(<RouterProvider router={router} />);
+  root.render(
+    <ToastProvider>
+      <RouterProvider router={router} />
+    </ToastProvider>,
+  );
 });

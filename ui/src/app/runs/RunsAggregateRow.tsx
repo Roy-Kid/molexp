@@ -1,5 +1,6 @@
 import type { JSX } from "react";
 import { useMemo } from "react";
+
 import { cn } from "@/lib/utils";
 import { MolplotBarChart } from "@/plugins/molplot";
 
@@ -79,14 +80,14 @@ const BackendDistributionChart = ({
 
   if (distribution.length === 0) {
     return (
-      <PanelShell title="Backend / cluster distribution">
+      <Section title="Backends">
         <EmptyMessage>No active runs to break down.</EmptyMessage>
-      </PanelShell>
+      </Section>
     );
   }
 
   return (
-    <PanelShell title="Backend / cluster distribution">
+    <Section title="Backends">
       <MolplotBarChart
         config={config}
         onBarClick={(event) => {
@@ -95,7 +96,7 @@ const BackendDistributionChart = ({
         }}
         style={{ width: "100%", height: "160px" }}
       />
-    </PanelShell>
+    </Section>
   );
 };
 
@@ -107,15 +108,15 @@ interface TopFailingListProps {
 const TopFailingList = ({ entries, onSelect }: TopFailingListProps): JSX.Element => {
   if (entries.length === 0) {
     return (
-      <PanelShell title="Top failing experiments">
+      <Section title="Top failing">
         <EmptyMessage>No failed runs in the current view.</EmptyMessage>
-      </PanelShell>
+      </Section>
     );
   }
   const maxFailed = entries[0]?.failedCount ?? 1;
   return (
-    <PanelShell title="Top failing experiments">
-      <ul className="divide-y divide-border/40">
+    <Section title="Top failing">
+      <ul className="space-y-0.5">
         {entries.map((entry) => {
           const failedRatio = entry.failedCount / Math.max(entry.totalCount, 1);
           return (
@@ -123,23 +124,22 @@ const TopFailingList = ({ entries, onSelect }: TopFailingListProps): JSX.Element
               <button
                 type="button"
                 onClick={() => onSelect(entry)}
-                className="group flex w-full items-center gap-2 px-1 py-1.5 text-left transition-colors hover:bg-muted/40"
+                className="group flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-medium text-foreground">
+                  <div className="truncate text-sm font-medium text-foreground">
                     {entry.experimentName}
                   </div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {entry.projectName}
-                  </div>
+                  <div className="truncate text-xs text-muted-foreground">{entry.projectName}</div>
                 </div>
-                <div className="flex w-16 flex-col items-end">
-                  <div className="text-xs font-semibold text-destructive">
-                    {entry.failedCount}/{entry.totalCount}
+                <div className="flex w-20 flex-col items-end gap-1">
+                  <div className="text-xs font-medium tabular-nums text-destructive">
+                    {entry.failedCount}
+                    <span className="text-muted-foreground">/{entry.totalCount}</span>
                   </div>
-                  <div className="mt-0.5 h-1 w-full overflow-hidden rounded bg-muted">
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
                     <div
-                      className={cn("h-full bg-destructive/70")}
+                      className={cn("h-full rounded-full bg-destructive/70")}
                       style={{ width: `${(entry.failedCount / maxFailed) * 100}%` }}
                     />
                     <span className="sr-only">{Math.round(failedRatio * 100)}% failure</span>
@@ -150,24 +150,22 @@ const TopFailingList = ({ entries, onSelect }: TopFailingListProps): JSX.Element
           );
         })}
       </ul>
-    </PanelShell>
+    </Section>
   );
 };
 
-interface PanelShellProps {
+interface SectionProps {
   title: string;
   children: JSX.Element | JSX.Element[];
 }
 
-const PanelShell = ({ title, children }: PanelShellProps): JSX.Element => (
-  <div className="rounded border border-border bg-background p-3">
-    <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-      {title}
-    </div>
+const Section = ({ title, children }: SectionProps): JSX.Element => (
+  <div className="min-w-0 space-y-2.5">
+    <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
     {children}
   </div>
 );
 
 const EmptyMessage = ({ children }: { children: string }): JSX.Element => (
-  <div className="py-6 text-center text-xs italic text-muted-foreground">{children}</div>
+  <p className="py-6 text-center text-sm text-muted-foreground">{children}</p>
 );

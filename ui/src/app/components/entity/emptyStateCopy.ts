@@ -1,34 +1,32 @@
 export const EMPTY_COPY = {
   experiments: {
-    title: "No experiments yet.",
-    description: 'Click "Create Experiment" to start.',
+    title: "No experiments",
+    description: "Create one to begin.",
   },
   runs: {
-    title: "No runs yet.",
-    description: 'Click "Start Run" to begin.',
+    title: "No runs",
+    description: "New run or Sweep above.",
   },
   projectRuns: {
-    title: "No runs yet.",
-    description: "No runs have been created for this project.",
+    title: "No runs",
   },
   assets: {
-    title: "No assets yet.",
-    description: "No assets have been recorded here.",
+    title: "No assets",
   },
   entries: {
-    title: "No entries available.",
+    title: "Empty",
   },
   projectsFilter: {
-    title: "No projects match the current filter.",
+    title: "No matches",
   },
   workspace: {
-    title: "No workspace files loaded.",
+    title: "No files",
   },
   emptyFolder: {
-    title: "Empty folder",
+    title: "Empty",
   },
   agentSessions: {
-    title: "No agent tasks yet.",
-    description: "Start a task goal to create one.",
+    title: "No tasks",
+    description: "Describe a goal below.",
   },
 } as const;

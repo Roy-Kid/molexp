@@ -2,7 +2,7 @@ import { LayoutGrid, ListChecks, RefreshCw } from "lucide-react";
 import type { JSX, ReactNode } from "react";
 import { Fragment, useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { EntityHeader } from "@/app/components/entity";
+import { DashboardCard, EmptyState, EntityHeader } from "@/app/components/entity";
 import { runPath } from "@/app/entities/paths";
 import type { WorkspaceSnapshot } from "@/app/types";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,15 @@ import { RunInspector } from "./inspector/RunInspector";
 import { RunsActivityChart } from "./RunsActivityChart";
 import { RunsAggregateRow } from "./RunsAggregateRow";
 import { RunsGanttChart } from "./RunsGanttChart";
+import {
+  DEFAULT_JOBS_SORT,
+  DEFAULT_PAGE_SIZE,
+  formatJobsSort,
+  type JobsSort,
+  parseJobsSort,
+  parsePage,
+  parsePageSize,
+} from "./jobsTable";
 import { RunsJobsTable } from "./RunsJobsTable";
 import { RunsKpiStrip } from "./RunsKpiStrip";
 import { RunsStatusProgress } from "./RunsStatusProgress";
@@ -61,12 +70,20 @@ const DASHBOARD_PANEL_IDS: DashboardPanelId[] = [
 ];
 
 const DASHBOARD_PANEL_LABELS: Record<DashboardPanelId, string> = {
-  kpi: "KPI strip",
+  kpi: "Key metrics",
   status: "Status mix",
-  aggregate: "Backends & failing experiments",
-  activity: "Activity chart",
+  aggregate: "Backends & failures",
+  activity: "Activity",
   feed: "Workspace activity",
-  gantt: "Gantt chart",
+  gantt: "Gantt",
+};
+
+const DASHBOARD_PANEL_DESCRIPTIONS: Partial<Record<DashboardPanelId, string>> = {
+  status: "Click a segment to filter",
+  aggregate: "Backend load and experiments with the most failures",
+  activity: "Last 24 hours",
+  feed: "Recent workspace events",
+  gantt: "Click a bar to inspect",
 };
 
 const DASHBOARD_LAYOUT_STORAGE_KEY = "molexp.runs.dashboard.layout.v2";
@@ -78,7 +95,15 @@ const parseGanttMode = (raw: string | null): GanttMode =>
 
 const writeRunsParams = (
   prev: URLSearchParams,
-  patch: { tab?: RunsTab; runId?: string | null; executionId?: string | null; mode?: GanttMode },
+  patch: {
+    tab?: RunsTab;
+    runId?: string | null;
+    executionId?: string | null;
+    mode?: GanttMode;
+    sort?: JobsSort | null;
+    page?: number | null;
+    pageSize?: number | null;
+  },
 ): URLSearchParams => {
   const next = new URLSearchParams(prev);
   if (patch.tab !== undefined) {
@@ -97,6 +122,24 @@ const writeRunsParams = (
     if (patch.mode === "runs") next.delete("mode");
     else next.set("mode", patch.mode);
   }
+  if (patch.sort !== undefined) {
+    if (
+      patch.sort === null ||
+      (patch.sort.key === DEFAULT_JOBS_SORT.key && patch.sort.dir === DEFAULT_JOBS_SORT.dir)
+    ) {
+      next.delete("sort");
+    } else {
+      next.set("sort", formatJobsSort(patch.sort));
+    }
+  }
+  if (patch.page !== undefined) {
+    if (patch.page === null || patch.page <= 1) next.delete("page");
+    else next.set("page", String(patch.page));
+  }
+  if (patch.pageSize !== undefined) {
+    if (patch.pageSize === null || patch.pageSize === DEFAULT_PAGE_SIZE) next.delete("pageSize");
+    else next.set("pageSize", String(patch.pageSize));
+  }
   return next;
 };
 
@@ -112,6 +155,12 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
   const ganttMode = parseGanttMode(searchParams.get("mode"));
   const selectedRunId = searchParams.get("runId");
   const selectedExecutionId = searchParams.get("executionId");
+  const jobsSort = useMemo(() => parseJobsSort(searchParams.get("sort")), [searchParams]);
+  const jobsPage = useMemo(() => parsePage(searchParams.get("page")), [searchParams]);
+  const jobsPageSize = useMemo(
+    () => parsePageSize(searchParams.get("pageSize")),
+    [searchParams],
+  );
 
   const layout = useDashboardLayout<DashboardPanelId>(
     DASHBOARD_LAYOUT_STORAGE_KEY,
@@ -153,6 +202,29 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
   const setGanttMode = useCallback(
     (next: GanttMode): void => {
       setSearchParams((prev) => writeRunsParams(prev, { mode: next }), { replace: true });
+    },
+    [setSearchParams],
+  );
+
+  const setJobsSort = useCallback(
+    (next: JobsSort): void => {
+      setSearchParams((prev) => writeRunsParams(prev, { sort: next, page: 1 }), { replace: true });
+    },
+    [setSearchParams],
+  );
+
+  const setJobsPage = useCallback(
+    (next: number): void => {
+      setSearchParams((prev) => writeRunsParams(prev, { page: next }), { replace: true });
+    },
+    [setSearchParams],
+  );
+
+  const setJobsPageSize = useCallback(
+    (next: number): void => {
+      setSearchParams((prev) => writeRunsParams(prev, { pageSize: next, page: 1 }), {
+        replace: true,
+      });
     },
     [setSearchParams],
   );
@@ -262,24 +334,19 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
         );
       case "gantt":
         return (
-          <>
-            <RunsGanttChart
-              rows={filteredRuns}
-              mode={ganttMode}
-              onSelectRun={selectRun}
-              onSelectExecution={selectExecution}
-            />
-            <p className="mt-2 text-[11px] italic text-muted-foreground">
-              Click a bar to load it in the inspector. Faded bars are queued / pending.
-            </p>
-          </>
+          <RunsGanttChart
+            rows={filteredRuns}
+            mode={ganttMode}
+            onSelectRun={selectRun}
+            onSelectExecution={selectExecution}
+          />
         );
     }
   };
 
   const headerSummary = truncated
     ? `Showing first ${rows.length} runs (truncated). Narrow filters or raise the limit.`
-    : `${filteredRuns.length} of ${rows.length} runs match current filters.`;
+    : `${filteredRuns.length} of ${rows.length} runs match current filters`;
 
   return (
     <div className="flex h-full min-h-0 flex-1">
@@ -298,8 +365,8 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
                   onReset={layout.reset}
                 />
               )}
-              <span className="text-xs text-muted-foreground">
-                Last synced {lastSyncedAt ? formatRelative(lastSyncedAt.toISOString()) : "—"}
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                Synced {lastSyncedAt ? formatRelative(lastSyncedAt.toISOString()) : "—"}
               </span>
               <Button
                 type="button"
@@ -309,22 +376,22 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
                 disabled={loading}
                 aria-label={loading ? "Refreshing" : "Refresh"}
                 title={loading ? "Refreshing…" : "Refresh"}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
               >
                 <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
               </Button>
             </>
           }
         />
-        <div className="border-b border-border bg-background px-4 md:px-6">
+        <div className="shrink-0 border-b border-border/60 bg-background px-4 md:px-5">
           <RunsTabBar value={tab} onChange={setTab} />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
           {error && (
-            <div className="mb-4 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {error}
-            </div>
+            <DashboardCard title="Could not load runs" variant="destructive" className="mb-4">
+              <p className="text-sm text-destructive">{error}</p>
+            </DashboardCard>
           )}
 
           {tab === "overview" && (
@@ -336,13 +403,19 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
                   panels={row.panels}
                   renderPanel={renderPanel}
                   labels={DASHBOARD_PANEL_LABELS}
+                  descriptions={DASHBOARD_PANEL_DESCRIPTIONS}
                   onReorder={layout.reorder}
                   onRemove={layout.hide}
                 />
               ))}
               {layout.rows.length === 0 && (
-                <div className="rounded border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-                  All panels hidden. Use the layout menu above to restore them.
+                <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-dashed border-border bg-card">
+                  <EmptyState
+                    density="compact"
+                    icon={<LayoutGrid className="h-5 w-5" />}
+                    title="All panels hidden"
+                    description="Use Layout in the header to restore the dashboard panels."
+                  />
                 </div>
               )}
             </div>
@@ -353,6 +426,12 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
               rows={filteredRuns}
               selectedRunId={selectedRunId}
               onSelectRun={selectRun}
+              sort={jobsSort}
+              onSortChange={setJobsSort}
+              page={jobsPage}
+              pageSize={jobsPageSize}
+              onPageChange={setJobsPage}
+              onPageSizeChange={setJobsPageSize}
             />
           )}
 
@@ -391,11 +470,11 @@ const PanelManager = ({ allIds, hiddenIds, onToggle, onReset }: PanelManagerProp
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="outline" title="Layout">
-          <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
+        <Button size="sm" variant="outline" className="h-8 gap-1.5" title="Layout">
+          <LayoutGrid className="h-3.5 w-3.5" />
           Layout
           {hiddenIds.length > 0 && (
-            <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+            <span className="rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground">
               {hiddenIds.length}
             </span>
           )}
@@ -425,6 +504,7 @@ interface DashboardRowViewProps {
   panels: DashboardPanelId[];
   renderPanel: (id: DashboardPanelId) => ReactNode;
   labels: Record<DashboardPanelId, string>;
+  descriptions: Partial<Record<DashboardPanelId, string>>;
   onReorder: ReturnType<typeof useDashboardLayout<DashboardPanelId>>["reorder"];
   onRemove: ReturnType<typeof useDashboardLayout<DashboardPanelId>>["hide"];
 }
@@ -434,6 +514,7 @@ const DashboardRowView = ({
   panels,
   renderPanel,
   labels,
+  descriptions,
   onReorder,
   onRemove,
 }: DashboardRowViewProps): JSX.Element => {
@@ -443,6 +524,8 @@ const DashboardRowView = ({
       <DashboardPanel
         id={panelId}
         title={labels[panelId]}
+        description={descriptions[panelId]}
+        bare={panelId === "kpi"}
         onReorder={onReorder}
         onRemove={onRemove}
       >
@@ -466,6 +549,8 @@ const DashboardRowView = ({
             <DashboardPanel
               id={panelId}
               title={labels[panelId]}
+              description={descriptions[panelId]}
+              bare={panelId === "kpi"}
               onReorder={onReorder}
               onRemove={onRemove}
             >

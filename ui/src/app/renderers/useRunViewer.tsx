@@ -4,7 +4,7 @@
  * `RunViewer` (the default run renderer) and `MolqRunViewer` (the molq-backend
  * override) draw very different chrome but drive it from identical state: run
  * resolution off the snapshot, the active-tab sync, lazy stdout/stderr fetching
- * per execution, and the "mark cancelled" + copy-id handlers. That logic lives
+ * per execution, and the cancel + copy-id handlers. That logic lives
  * here once; each component keeps only its own layout. Run-asset counts and the
  * file-type discovery tabs are RunViewer-only and stay in that component.
  *
@@ -15,6 +15,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { listEntityTabs } from "@/app/registry";
 import { formatDuration } from "@/app/renderers/dashboardData";
+import { canCancel, canHarvest, isTerminalStatus } from "@/app/runs/runLifecycle";
 import { workspaceApi } from "@/app/state/api";
 import { useInspectedTask } from "@/app/state/inspectedTask";
 import { useNavigationState } from "@/app/state/useNavigationState";
@@ -23,8 +24,6 @@ import { useAlert, useConfirm } from "@/components/ConfirmDialog";
 
 type RunRow = WorkspaceSnapshot["runs"][number];
 type RunLogs = { stdout?: string | null; stderr?: string | null } | null;
-
-const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "skipped"]);
 
 export interface UseRunViewer {
   run: RunRow | null;
@@ -42,7 +41,10 @@ export interface UseRunViewer {
   attemptCount: number;
   parameterEntries: [string, unknown][];
   resultEntries: [string, unknown][];
+  /** True for succeeded/failed/cancelled/skipped. */
   isTerminal: boolean;
+  /** Backend-accepted harvest statuses (not skipped). */
+  isHarvestable: boolean;
   runTabContributions: ReturnType<typeof listEntityTabs>;
   inspectTask: ReturnType<typeof useInspectedTask>["inspectTask"];
   setSelection: ReturnType<typeof useNavigationState>["setSelection"];
@@ -132,7 +134,8 @@ export const useRunViewer = (props: RendererProps): UseRunViewer => {
   const attemptCount = run?.executionHistory.length ?? 0;
   const parameterEntries = Object.entries(run?.parameters ?? {});
   const resultEntries = Object.entries(run?.results ?? {});
-  const isTerminal = run ? terminalRunStatuses.has(run.status) : true;
+  const isTerminal = run ? isTerminalStatus(run.status) : true;
+  const isHarvestable = run ? canHarvest(run.status) : false;
 
   const handleCopyRunId = (): void => {
     if (!run) return;
@@ -140,26 +143,25 @@ export const useRunViewer = (props: RendererProps): UseRunViewer => {
   };
 
   const handleCancelRun = async (): Promise<void> => {
-    if (!run || terminalRunStatuses.has(run.status)) return;
+    if (!run || !canCancel(run.status)) return;
     const confirmed = await confirm({
-      title: "Mark run as cancelled?",
+      title: "Cancel run?",
       description: (
         <>
-          Run <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code> will be marked
-          cancelled in the workspace. This does not stop any underlying scheduler job.
+          Stop <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code>?
         </>
       ),
-      confirmLabel: "Mark cancelled",
+      confirmLabel: "Cancel",
       destructive: true,
     });
     if (!confirmed) return;
     try {
-      await workspaceApi.updateRunStatus(run.projectId, run.experimentId, run.id, "cancelled");
+      await workspaceApi.killRun(run.projectId, run.experimentId, run.id);
       onRefresh();
     } catch (error) {
-      console.error("Failed to mark run cancelled:", error);
+      console.error("Failed to cancel run:", error);
       void alert({
-        title: "Failed to mark run cancelled",
+        title: "Cancel failed",
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -182,6 +184,7 @@ export const useRunViewer = (props: RendererProps): UseRunViewer => {
     parameterEntries,
     resultEntries,
     isTerminal,
+    isHarvestable,
     runTabContributions,
     inspectTask,
     setSelection,

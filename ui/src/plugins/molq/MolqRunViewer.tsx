@@ -1,4 +1,4 @@
-import { Ban, Boxes, Copy, FileQuestion, ServerCog } from "lucide-react";
+import { Boxes, FileQuestion, ServerCog } from "lucide-react";
 import {
   DashboardCard,
   DashboardGrid,
@@ -17,6 +17,7 @@ import { RunLogsPanel } from "@/app/renderers/RunLogsPanel";
 import { RunViewer } from "@/app/renderers/RunViewer";
 import { useRunViewer } from "@/app/renderers/useRunViewer";
 import { RunMetricsView } from "@/app/runs/metrics/RunMetricsView";
+import { POST_DISPATCH_TAB, RunToolbar } from "@/app/runs/RunToolbar";
 import type { RendererProps } from "@/app/types";
 import { Button } from "@/components/ui/button";
 
@@ -54,11 +55,9 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
     attemptCount,
     parameterEntries,
     resultEntries,
-    isTerminal,
     runTabContributions,
     inspectTask,
     setSelection,
-    handleCopyRunId,
     handleCancelRun,
     confirmDialog,
     alertDialog,
@@ -67,11 +66,7 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
   if (!run) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
-        <EmptyState
-          icon={<FileQuestion className="h-6 w-6" />}
-          title="Run not found"
-          description="It may have been deleted or not yet synced."
-        />
+        <EmptyState icon={<FileQuestion className="h-6 w-6" />} title="Not found" />
       </div>
     );
   }
@@ -118,23 +113,33 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
           </>
         }
         actions={
-          <>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopyRunId}>
-              <Copy className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-              disabled={isTerminal}
-              title="Updates workspace status only; it does not cancel a scheduler job."
-              onClick={() => {
-                void handleCancelRun();
-              }}
-            >
-              <Ban className="h-4 w-4" />
-            </Button>
-          </>
+          <RunToolbar
+            projectId={run.projectId}
+            experimentId={run.experimentId}
+            runId={run.id}
+            status={run.status}
+            params={run.parameters ?? {}}
+            onRefresh={props.onRefresh}
+            onCancel={handleCancelRun}
+            onDispatched={() => setActiveTab(POST_DISPATCH_TAB)}
+            onOpenAgent={() =>
+              setSelection({
+                objectType: "agent",
+                objectId: "new",
+                scope: {
+                  projectId: run.projectId,
+                  experimentId: run.experimentId,
+                  runId: run.id,
+                },
+              })
+            }
+            onHarvested={(path) => {
+              props.onRefresh();
+              if (path) {
+                setSelection({ objectType: "knowledge", objectId: path });
+              }
+            }}
+          />
         }
       />
 
@@ -238,19 +243,6 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
                 </div>
               </DashboardCard>
 
-              <DashboardCard title="Parameters" className="lg:col-span-6">
-                {fieldGrid(parameterEntries, "No parameters recorded.")}
-              </DashboardCard>
-
-              <DashboardCard title="Results" className="lg:col-span-6">
-                {fieldGrid(
-                  resultEntries,
-                  run.status === "succeeded"
-                    ? "Finished without setting any result."
-                    : "Results appear after the run finishes.",
-                )}
-              </DashboardCard>
-
               {run.errorMessage && (
                 <DashboardCard title="Error" className="border-destructive/30 lg:col-span-12">
                   <pre className="whitespace-pre-wrap break-words font-mono text-xs text-destructive">
@@ -258,6 +250,14 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
                   </pre>
                 </DashboardCard>
               )}
+
+              <DashboardCard title="Parameters" className="lg:col-span-6">
+                {fieldGrid(parameterEntries, "—")}
+              </DashboardCard>
+
+              <DashboardCard title="Results" className="lg:col-span-6">
+                {fieldGrid(resultEntries, "—")}
+              </DashboardCard>
             </DashboardGrid>
           </EntityTabContent>
 

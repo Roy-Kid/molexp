@@ -3,8 +3,8 @@
  *
  * Hosts the token/usage statistics that previously lived in the center
  * panel as a stats strip, plus session metadata (status, goal, timing).
- * Polls the session while it is running so figures stay live without
- * cluttering the main workspace.
+ * The main agent view owns live SSE/stat refresh; the inspector fetches the
+ * selected task snapshot without starting a second poller for the same task.
  */
 
 import { Bot, ChevronRight, FileText, Lock, Slash } from "lucide-react";
@@ -120,13 +120,8 @@ export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
       }
     };
     void load();
-    const id = setInterval(() => {
-      if (cancelled) return;
-      void load();
-    }, 2000);
     return () => {
       cancelled = true;
-      clearInterval(id);
     };
   }, [sessionId]);
 
