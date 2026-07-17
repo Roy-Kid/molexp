@@ -44,6 +44,7 @@ OFFLINE_LLM_SCRIPTS = [
     EXAMPLES / "agent" / "chat_loop.py",
     EXAMPLES / "agent" / "interactive_loop.py",
     EXAMPLES / "agent" / "mcp_integration.py",
+    EXAMPLES / "agent" / "code_loop_golden_path.py",
     EXAMPLES / "harness" / "experiment_pipeline.py",
     EXAMPLES / "harness" / "stages_standalone.py",
 ]

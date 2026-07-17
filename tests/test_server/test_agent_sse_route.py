@@ -89,8 +89,27 @@ class _GatedRouter(_ScriptedRouter):
 
 
 def _runner(tmp: Path, router: object | None = None) -> AgentRunner:
+    # Empty workspace root is fine; pin MCP open/list to no-ops so tests never
+    # wait on a live molmcp stdio process during stream_agentic setup.
     loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp))
     return AgentRunner(loop=loop, router=router or _ScriptedRouter())  # type: ignore[arg-type]
+
+
+@pytest.fixture(autouse=True)
+def _stub_mcp_toolsets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """InteractiveLoop opens MCP toolsets before streaming; stub for speed.
+
+    Patch the names bound in ``loop`` (not the source module) so the turn
+    never waits on a live molmcp stdio process.
+    """
+    import molexp.agent.loops.interactive.loop as loop_mod
+
+    monkeypatch.setattr(loop_mod, "open_mcp_toolsets", lambda _root: ())
+
+    async def _no_specs(_toolsets: object) -> tuple:
+        return ()
+
+    monkeypatch.setattr(loop_mod, "list_mcp_tool_specs", _no_specs)
 
 
 def _ws(tmp: Path) -> SimpleNamespace:
