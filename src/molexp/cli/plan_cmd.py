@@ -83,8 +83,14 @@ class InteractiveApprover:
 
     async def __call__(self, request: ApprovalRequest) -> ApprovalDecision:
         from datetime import UTC, datetime
+        from pathlib import Path
 
-        from molexp.harness.schemas import ApprovalDecision
+        from molexp.harness.schemas import ApprovalDecision, ReviewDecision
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+        from molexp.services.plan_runtime.preview import (
+            build_review_pack,
+            render_review_pack,
+        )
 
         if not self._interactive():
             # Only reachable via --yes: the command constructs this approver
@@ -98,38 +104,51 @@ class InteractiveApprover:
                 reason="auto-granted (--yes)",
             )
 
-        if request.intent == "experiment_spec":
-            self._print_spec()
-            prompt = "Approve this spec and compile the workflow?"
+        pack = build_review_pack(self._run, request.intent)
+        from molexp.cli._common import rprint
+
+        rprint("\n[bold]Review pack:[/bold]")
+        for line in render_review_pack(pack).splitlines():
+            rprint(f"  {line}")
+        prompt = (
+            "Approve this spec and compile the workflow?"
+            if request.intent == "experiment_spec"
+            else "Approve this plan as final?"
+        )
+        answer = (
+            input(f"{prompt} [{request.intent}] [a]pprove / [r]eject / [v]revise: ").strip().lower()
+        )
+        if answer in ("a", "approve", "y", "yes"):
+            action = "approve"
+            granted = True
+        elif answer in ("v", "revise"):
+            action = "revise"
+            granted = False
         else:
-            self._print_final_summary()
-            prompt = "Approve this plan as final?"
-        answer = input(f"{prompt} [{request.intent}] [y/N] ").strip().lower()
-        return ApprovalDecision(
-            request_id=request.id,
-            granted=answer in ("y", "yes"),
+            # fail-closed: unknown / empty / r / reject → reject
+            action = "reject"
+            granted = False
+
+        decision = ReviewDecision(
+            pack_id=pack.pack_id,
+            action=action,  # type: ignore[arg-type]
             decided_by="cli-interactive",
             decided_at=datetime.now(tz=UTC),
             reason=f"operator answered {answer!r}",
         )
-
-    def _print_spec(self) -> None:
-        """Print the concrete experiment_spec the operator approves pre-compile."""
-        from molexp.cli._common import rprint
-        from molexp.services.plan_runtime.preview import render_approval_preview
-
-        rprint("\n[bold]Review the concrete spec before compiling the workflow:[/bold]")
-        for line in render_approval_preview(self._run, "experiment_spec").splitlines():
-            rprint(f"  {line}")
-
-    def _print_final_summary(self) -> None:
-        """Print the whole-plan review (same preview the UI inbox shows)."""
-        from molexp.cli._common import rprint
-        from molexp.services.plan_runtime.preview import render_approval_preview
-
-        rprint("\n[bold]Review the full verified plan:[/bold]")
-        for line in render_approval_preview(self._run, "final_report").splitlines():
-            rprint(f"  {line}")
+        FileArtifactStore(root=Path(str(self._run.run_dir)) / "artifacts").put_json(
+            kind="review_decision",
+            obj=decision.model_dump(mode="json"),
+            created_by="cli.InteractiveApprover",
+            parent_ids=[],
+        )
+        return ApprovalDecision(
+            request_id=request.id,
+            granted=granted,
+            decided_by="cli-interactive",
+            decided_at=decision.decided_at,
+            reason=decision.reason,
+        )
 
 
 def _print_record_errors(outcome: PlanRecordOutcome) -> None:

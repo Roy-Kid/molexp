@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from molexp.harness.store.file_artifact_store import FileArtifactStore
-from molexp.services.plan_runtime.preview import render_approval_preview
+from molexp.services.plan_runtime.preview import (
+    build_review_pack,
+    render_approval_preview,
+    render_review_pack,
+)
 from molexp.workspace import Workspace
 
 
@@ -53,3 +57,24 @@ def test_plan_preview_includes_source_and_verdicts(tmp_path: Path) -> None:
     assert "def build_workflow():" in text
     assert "generated tests    : passed" in text
     assert "compiled / dry-ran : False" in text
+
+
+def test_build_review_pack_validates(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    _store(run).put_json(
+        kind="experiment_spec",
+        obj={"title": "T", "objective": "O"},
+        created_by="test",
+        parent_ids=[],
+    )
+    pack = build_review_pack(run, "experiment_spec")
+    assert pack.step_id == "draft_spec"
+    assert "approve" in pack.decision_options
+    assert render_approval_preview(run, "experiment_spec") == render_review_pack(pack)
+
+
+def test_missing_artifacts_still_render(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    text = render_approval_preview(run, "experiment_spec")
+    assert text
+    assert "no experiment_spec" in text or "empty" in text.lower() or "spec" in text.lower()
