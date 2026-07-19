@@ -21,15 +21,14 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from molexp.server.dependencies import get_workspace
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from pathlib import Path
 
-    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
+    from molexp.harness.schemas import ApprovalRequest
     from molexp.workspace import Workspace
 
 __all__ = ["router"]
@@ -40,6 +39,7 @@ router = APIRouter(prefix="/approvals", tags=["approvals"])
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 TaskKind = Literal["plan", "curate"]
+ReviewActionWire = Literal["approve", "reject", "revise"]
 
 
 class PendingApprovalItem(BaseModel):
@@ -58,6 +58,10 @@ class PendingApprovalItem(BaseModel):
     #: Text of the gated content (spec fields / generated source) so the
     #: operator reviews the actual artifact, not just the reason line.
     preview: str = ""
+    #: Latest review_pack artifact id when StepAuditLoop has written one.
+    packId: str | None = None
+    #: Structured form for UI ReviewSurface (FormDocument JSON shape).
+    formDocument: dict[str, Any] | None = None
 
 
 class PendingApprovalsResponse(BaseModel):
@@ -68,11 +72,34 @@ class PendingApprovalsResponse(BaseModel):
 
 
 class ApprovalDecisionRequest(BaseModel):
-    """Operator decision on one pending request."""
+    """Operator decision — ReviewDecision-shaped wire body.
+
+    Preferred field is ``action`` (approve|reject|revise). ``granted`` remains
+    as a **deprecated** boolean alias for approve/reject only (migration for
+    older UI clients that only knew grant/deny).
+    """
 
     requestId: str
-    granted: bool
+    action: ReviewActionWire | None = None
+    fieldValues: dict[str, Any] = Field(default_factory=dict)
     reason: str | None = None
+    edits: dict[str, Any] | None = None
+    granted: bool | None = None
+
+    @model_validator(mode="after")
+    def _normalize_action(self) -> ApprovalDecisionRequest:
+        if self.action is None and self.granted is None:
+            raise ValueError("either action or granted is required")
+        if self.action is None and self.granted is not None:
+            object.__setattr__(self, "action", "approve" if self.granted else "reject")
+            return self
+        if self.action is not None and self.granted is not None:
+            if self.action == "revise":
+                raise ValueError("action=revise cannot be combined with granted")
+            mapped = "approve" if self.granted else "reject"
+            if self.action != mapped:
+                raise ValueError(f"action={self.action!r} conflicts with granted={self.granted!r}")
+        return self
 
 
 class ApprovalDecisionResponse(BaseModel):
@@ -100,10 +127,28 @@ def _preview_for(kind: TaskKind, task: Any, intent: str) -> str:  # noqa: ANN401
         return ""
 
 
+def _pack_fields(
+    kind: TaskKind,
+    task: Any,  # noqa: ANN401 — plan/curate task duck-type
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Best-effort packId + formDocument from the run's review_pack artifact."""
+    if kind != "plan":
+        return None, None
+    try:
+        from molexp.services.plan_runtime.preview import build_review_pack
+
+        pack = build_review_pack(task.run, "final_report")
+        form = pack.form.model_dump(mode="json")
+        return pack.pack_id, form
+    except Exception:
+        return None, None
+
+
 def _items_for(kind: TaskKind, tasks: list[Any]) -> list[PendingApprovalItem]:
     items: list[PendingApprovalItem] = []
     for task in tasks:
         project_id, experiment_id = _experiment_ids(task)
+        pack_id, form_doc = _pack_fields(kind, task)
         for request in task.pending_requests:
             items.append(
                 PendingApprovalItem(
@@ -118,6 +163,8 @@ def _items_for(kind: TaskKind, tasks: list[Any]) -> list[PendingApprovalItem]:
                     metadata=dict(request.metadata),
                     requestedAt=request.created_at.isoformat(),
                     preview=_preview_for(kind, task, request.intent),
+                    packId=pack_id,
+                    formDocument=form_doc,
                 )
             )
     return items
@@ -158,20 +205,6 @@ def _pending_request(task: Any, request_id: str) -> ApprovalRequest:  # noqa: AN
     )
 
 
-def _record_decision(
-    run_dir: Path, run_id: str, request: ApprovalRequest, decision: ApprovalDecision
-) -> None:
-    """Persist the decision (store) and record it (event log) for *run_id*."""
-    from molexp.harness import SQLiteApprovalStore, SQLiteEventLog
-    from molexp.harness.policy.event_log import ApprovalEventRecorder
-
-    db_path = run_dir / "harness.sqlite"
-    approval_store = SQLiteApprovalStore(path=db_path)
-    approval_store.record_pending(run_id, request)
-    approval_store.record_decision(decision)
-    ApprovalEventRecorder.record_decision(SQLiteEventLog(path=db_path), run_id, request, decision)
-
-
 @router.post("/{task_kind}/{task_id}/decisions", response_model=ApprovalDecisionResponse)
 async def decide_approval(
     task_kind: TaskKind,
@@ -179,8 +212,12 @@ async def decide_approval(
     request: ApprovalDecisionRequest,
     workspace: Workspace = Depends(get_workspace),
 ) -> ApprovalDecisionResponse:
-    """Grant or reject one pending request, then resume (or fail) the task."""
-    from molexp.harness.schemas import ApprovalDecision
+    """Record a ReviewDecision-shaped answer and resume/reject the task.
+
+    Plan tasks delegate to :func:`molexp.services.plan_runtime.decide_plan_review`.
+    Curate tasks keep the binary store path (no ReviewPack yet).
+    """
+    from molexp.harness.schemas import ApprovalDecision, ReviewDecision
     from molexp.services.approval_notify import notify_approvals_changed
 
     task = _find_task(task_kind, task_id, str(workspace.root))
@@ -190,18 +227,50 @@ async def decide_approval(
             f"{task_kind} task {task_id!r} is {task.status!r}, not waiting_approval",
         )
     pending = _pending_request(task, request.requestId)
+    assert request.action is not None  # normalized by model_validator
 
+    if task_kind == "plan":
+        from molexp.services.plan_runtime.decide import decide_plan_review
+        from molexp.services.plan_runtime.preview import build_review_pack
+
+        try:
+            pack = build_review_pack(task.run, pending.intent)
+            pack_id = pack.pack_id
+        except Exception:
+            pack_id = f"pack-{pending.id}"
+        review = ReviewDecision(
+            pack_id=pack_id,
+            action=request.action,
+            decided_by="ui-operator",
+            decided_at=datetime.now(tz=UTC),
+            reason=request.reason,
+            field_values=dict(request.fieldValues),
+            edits=request.edits,
+        )
+        decide_plan_review(run=task.run, request=pending, decision=review, task=task)
+        return ApprovalDecisionResponse(taskKind=task_kind, taskId=task_id, status=task.status)
+
+    # Curate: binary grant/reject only (revise maps to reject for now).
+    from molexp.harness import SQLiteApprovalStore, SQLiteEventLog
+    from molexp.harness.policy.event_log import ApprovalEventRecorder
+
+    granted = request.action == "approve"
     decision = ApprovalDecision(
         request_id=pending.id,
-        granted=request.granted,
+        granted=granted,
         decided_by="ui-operator",
         decided_at=datetime.now(tz=UTC),
         reason=request.reason,
     )
     run_dir = task.run.run_dir
-    _record_decision(run_dir, task.run_id, pending, decision)
-
-    if request.granted:
+    db_path = run_dir / "harness.sqlite"
+    store = SQLiteApprovalStore(path=db_path)
+    store.record_pending(task.run_id, pending)
+    store.record_decision(decision)
+    ApprovalEventRecorder.record_decision(
+        SQLiteEventLog(path=db_path), task.run_id, pending, decision
+    )
+    if granted:
         task.resume()
     else:
         task.mark_rejected(request.reason or "rejected by operator")

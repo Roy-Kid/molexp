@@ -419,3 +419,20 @@ async def test_sse_route_emits_a_changed_event_per_notification() -> None:
     frame = await asyncio.wait_for(ping, timeout=1.0)
     assert "changed" in _text(frame)
     await iterator.aclose()
+
+
+def test_decision_request_action_migration_validation() -> None:
+    from pydantic import ValidationError
+
+    from molexp.server.routes.approvals import ApprovalDecisionRequest
+
+    ok = ApprovalDecisionRequest(requestId="r", granted=True)
+    assert ok.action == "approve"
+    ok2 = ApprovalDecisionRequest(requestId="r", action="revise", fieldValues={"a": 1})
+    assert ok2.action == "revise"
+    with pytest.raises(ValidationError):
+        ApprovalDecisionRequest(requestId="r")
+    with pytest.raises(ValidationError):
+        ApprovalDecisionRequest(requestId="r", action="approve", granted=False)
+    with pytest.raises(ValidationError):
+        ApprovalDecisionRequest(requestId="r", action="revise", granted=True)
