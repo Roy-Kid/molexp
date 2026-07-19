@@ -10,6 +10,7 @@ export type ProviderUpdateRequest = {
     base_url?: (string | null);
     instructions?: (string | null);
     model?: (string | null);
+    models?: (Record<string, string> | null);
     provider?: (string | null);
 };
 

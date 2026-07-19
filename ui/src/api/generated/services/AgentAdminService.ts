@@ -2,12 +2,14 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AgentToolListResponse } from '../models/AgentToolListResponse';
 import type { McpServerListResponse } from '../models/McpServerListResponse';
 import type { McpServerResponse } from '../models/McpServerResponse';
 import type { McpServerUpsertRequest } from '../models/McpServerUpsertRequest';
 import type { ProviderResponse } from '../models/ProviderResponse';
 import type { ProviderTestResponse } from '../models/ProviderTestResponse';
 import type { ProviderUpdateRequest } from '../models/ProviderUpdateRequest';
+import type { SkillListResponse } from '../models/SkillListResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -103,6 +105,37 @@ export class AgentAdminService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * List Skills
+     * Return the configured skill catalog.
+     *
+     * Skill persistence is not wired into this admin service yet.  An empty
+     * catalog is a valid state, so the read surface must not fall through to
+     * the legacy agent 503 catch-all.
+     * @returns SkillListResponse Successful Response
+     * @throws ApiError
+     */
+    public static listSkillsApiAgentSkillsGet(): CancelablePromise<SkillListResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/skills',
+        });
+    }
+    /**
+     * List Tools
+     * Return tools grouped by their owning MCP server.
+     *
+     * Until runtime discovery is connected, expose the honest empty catalog
+     * expected by Settings instead of reporting an unavailable service.
+     * @returns AgentToolListResponse Successful Response
+     * @throws ApiError
+     */
+    public static listToolsApiAgentToolsGet(): CancelablePromise<AgentToolListResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/tools',
         });
     }
 }

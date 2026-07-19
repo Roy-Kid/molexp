@@ -9,6 +9,7 @@ import type { RunCreateRequest } from '../models/RunCreateRequest';
 import type { RunExecutionResponse } from '../models/RunExecutionResponse';
 import type { RunFilesResponse } from '../models/RunFilesResponse';
 import type { RunFileTextResponse } from '../models/RunFileTextResponse';
+import type { RunHarvestRequest } from '../models/RunHarvestRequest';
 import type { RunLogsResponse } from '../models/RunLogsResponse';
 import type { RunMetricsResponse } from '../models/RunMetricsResponse';
 import type { RunResponse } from '../models/RunResponse';
@@ -317,6 +318,37 @@ export class RunsService {
                 'experiment_id': experimentId,
                 'run_id': runId,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Harvest Run Route
+     * Harvest a terminal run into a sourced KnowledgeItem under its experiment.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param requestBody
+     * @returns string Successful Response
+     * @throws ApiError
+     */
+    public static harvestRunRouteApiProjectsProjectIdExperimentsExperimentIdRunsRunIdHarvestPost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        requestBody: RunHarvestRequest,
+    ): CancelablePromise<Record<string, string>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/harvest',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },
@@ -926,6 +958,40 @@ export class RunsService {
                 'run_id': runId,
                 'ws': ws,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Harvest Run Route
+     * Harvest a terminal run into a sourced KnowledgeItem under its experiment.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param ws
+     * @param requestBody
+     * @returns string Successful Response
+     * @throws ApiError
+     */
+    public static harvestRunRouteApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdHarvestPost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        ws: string,
+        requestBody: RunHarvestRequest,
+    ): CancelablePromise<Record<string, string>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/harvest',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+                'ws': ws,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

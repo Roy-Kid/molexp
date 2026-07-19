@@ -35,7 +35,10 @@ export class ApprovalsService {
     }
     /**
      * Decide Approval
-     * Grant or reject one pending request, then resume (or fail) the task.
+     * Record a ReviewDecision-shaped answer and resume/reject the task.
+     *
+     * Plan tasks delegate to :func:`molexp.services.plan_runtime.decide_plan_review`.
+     * Curate tasks keep the binary store path (no ReviewPack yet).
      * @param taskKind
      * @param taskId
      * @param requestBody

@@ -7,8 +7,10 @@
  */
 export type PendingApprovalItem = {
     experimentId: string;
+    formDocument?: (Record<string, any> | null);
     intent: string;
     metadata?: Record<string, any>;
+    packId?: (string | null);
     preview?: string;
     projectId: string;
     reason: string;

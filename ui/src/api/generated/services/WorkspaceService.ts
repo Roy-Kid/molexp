@@ -253,6 +253,10 @@ export class WorkspaceService {
      * With ``include=catalog``, file nodes that match a registered asset
      * are enriched with ``assetId``, ``assetKind``, ``producerRunId`` and
      * ``producerTaskId`` so the UI can render lineage chips inline.
+     *
+     * Children matching the workspace ``.gitignore`` cascade (plus a safety
+     * floor for ``node_modules`` / ``.git`` / venvs) are omitted so git-managed
+     * workspaces do not dump dependency trees into the UI.
      * @param path Workspace-relative path to list
      * @param maxDepth Maximum recursion depth
      * @param include Comma-separated optional enrichments (e.g. 'catalog')

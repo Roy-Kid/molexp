@@ -44,8 +44,8 @@ export class AgentTasksService {
      * Create Agent Task
      * Create a user-facing agent task.
      *
-     * Today this starts exactly one runtime session, but task identity is already
-     * separate from the runtime session id.
+     * The task is the stable conversation container. Each turn is dispatched to
+     * either the interactive agent or the nine-stage Planning Agent.
      * @param requestBody
      * @returns AgentTaskResponse Successful Response
      * @throws ApiError

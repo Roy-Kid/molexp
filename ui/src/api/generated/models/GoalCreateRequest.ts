@@ -38,3 +38,4 @@ export namespace GoalCreateRequest {
         PLAN = 'plan',
     }
 }
+

@@ -1,24 +1,20 @@
-import { CheckCircle2, ShieldQuestion, XCircle } from "lucide-react";
-import { type JSX, useCallback, useEffect, useState } from "react";
+import { CheckCircle2, Pencil, ShieldQuestion, XCircle } from "lucide-react";
+import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
 import type { PendingApprovalItem } from "@/api/generated/models/PendingApprovalItem";
 import { ApprovalsService } from "@/api/generated/services/ApprovalsService";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime } from "@/lib/datetime";
+import { collectFieldValues, type FormDocumentWire } from "./formDocument";
+import { ReviewSurface } from "./ReviewSurface";
 
 /**
- * Approvals inbox — the ONE pending-approvals surface (vision-loop-01).
+ * Approvals inbox — pending approvals with structured ReviewSurface + three actions.
  *
  * Lists every request suspended plan/curate tasks are waiting on
- * (GET /api/approvals), lets the operator Approve / Reject (+ optional
- * reason), and refetches whenever the server pings the SSE stream
- * (/api/approvals/events) — a decision made anywhere (another tab, the CLI)
- * updates this view without polling.
- *
- * `taskId` narrows the inbox to one task's requests — the inline
- * "waiting for approval" banner inside a plan/curate task view reuses the
- * same cards and decision path as the hub-level inbox.
+ * (GET /api/approvals), lets the operator Approve / Reject / Revise, and
+ * refetches on SSE `/api/approvals/events`.
  */
 
 const useApprovalsInbox = (): {
@@ -32,8 +28,6 @@ const useApprovalsInbox = (): {
       const response = await ApprovalsService.listPendingApprovalsApiApprovalsGet();
       setItems(response.items);
     } catch {
-      // Inbox route unavailable (older server / transient) — show nothing
-      // rather than an error wall on the Agents hub landing.
       setItems([]);
     }
   }, []);
@@ -65,15 +59,24 @@ const ApprovalCard = ({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const formDoc = item.formDocument as FormDocumentWire | null | undefined;
+  const hasForm = Boolean(formDoc && (formDoc.fields?.length ?? 0) > 0);
+  const initial = useMemo(() => collectFieldValues(formDoc), [formDoc]);
+  const [fieldValues, setFieldValues] = useState<Record<string, unknown>>(initial);
 
-  const decide = async (granted: boolean): Promise<void> => {
+  const decide = async (action: "approve" | "reject" | "revise"): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
       await ApprovalsService.decideApprovalApiApprovalsTaskKindTaskIdDecisionsPost(
         item.taskKind,
         item.taskId,
-        { requestId: item.requestId, granted, reason: reason.trim() || undefined },
+        {
+          requestId: item.requestId,
+          action,
+          reason: reason.trim() || undefined,
+          fieldValues: action === "revise" ? fieldValues : undefined,
+        },
       );
       onDecided();
     } catch (err) {
@@ -91,6 +94,11 @@ const ApprovalCard = ({
         <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-medium">
           {item.taskKind}
         </Badge>
+        {item.packId ? (
+          <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-mono">
+            pack
+          </Badge>
+        ) : null}
         <span className="ml-auto text-xs text-muted-foreground">
           {formatDateTime(item.requestedAt)}
         </span>
@@ -99,7 +107,14 @@ const ApprovalCard = ({
       <p className="text-xs text-muted-foreground">
         run {item.runId} · {item.projectId}/{item.experimentId}
       </p>
-      {item.preview && (
+      {hasForm ? (
+        <ReviewSurface
+          formDocument={formDoc}
+          values={fieldValues}
+          onChange={setFieldValues}
+          disabled={busy}
+        />
+      ) : item.preview ? (
         <details className="rounded-md border border-border/60 bg-muted/20">
           <summary className="cursor-pointer select-none px-3 py-1.5 text-xs font-medium text-foreground">
             Review the gated content
@@ -108,7 +123,7 @@ const ApprovalCard = ({
             {item.preview}
           </pre>
         </details>
-      )}
+      ) : null}
       {rejecting && (
         <Textarea
           placeholder="Why is this rejected? (optional)"
@@ -125,7 +140,12 @@ const ApprovalCard = ({
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setRejecting(false)}>
               Back
             </Button>
-            <Button size="sm" variant="destructive" disabled={busy} onClick={() => decide(false)}>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={busy}
+              onClick={() => void decide("reject")}
+            >
               <XCircle className="h-3.5 w-3.5" />
               Confirm reject
             </Button>
@@ -136,7 +156,18 @@ const ApprovalCard = ({
               <XCircle className="h-3.5 w-3.5" />
               Reject
             </Button>
-            <Button size="sm" disabled={busy} onClick={() => decide(true)}>
+            {hasForm ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void decide("revise")}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Revise
+              </Button>
+            ) : null}
+            <Button size="sm" disabled={busy} onClick={() => void decide("approve")}>
               <CheckCircle2 className="h-3.5 w-3.5" />
               Approve
             </Button>
