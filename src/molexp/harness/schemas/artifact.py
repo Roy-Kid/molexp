@@ -52,6 +52,8 @@ WELL_KNOWN_ARTIFACT_KINDS: tuple[str, ...] = (
     "capability_invocation_result",
     "test_result",
     "analysis_result",
+    "review_pack",
+    "review_decision",
     "final_report",
     "audit_report",
     "stdout",

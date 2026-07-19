@@ -78,6 +78,7 @@ from molexp.harness.stages import (
     ResolveCapabilities,
     ReviewPlan,
     SaveUserPlan,
+    StepAuditLoop,
     ValidateBoundWorkflow,
     ValidateExperimentSpec,
     ValidateInputSet,
@@ -85,6 +86,10 @@ from molexp.harness.stages import (
     ValidateTestSpec,
     ValidateWorkflowIR,
     ValidateWorkflowSource,
+)
+from molexp.harness.stages.review_pack_builders import (
+    build_experiment_spec_review_pack,
+    build_plan_review_pack,
 )
 
 if TYPE_CHECKING:
@@ -135,6 +140,13 @@ class PlanMode(Mode):
         the user-facing "nine steps" and the executed stage sequence can
         never drift apart.
         """
+        # Shared so StepAuditLoop can re-run the generator after reject/revise.
+        spec_generate_loop = RepairLoop(
+            name="generate_experiment_spec",
+            generate=GenerateExperimentSpec(),
+            validators=[ValidateExperimentSpec()],
+            feedback_kind="experiment_spec_feedback",
+        )
         groups: list[PlanStep] = [
             # 1. Draft proposal — capture the request, draft a human-readable report.
             PlanStep(
@@ -148,22 +160,22 @@ class PlanMode(Mode):
                 ],
             ),
             # 2. Draft spec — concretize every parameter, resolve open questions.
-            # The spec approval gate lets the human approve the concrete spec
+            # StepAuditLoop (hard) lets the human approve the concrete spec
             # BEFORE it is fed to the LLM to build the workflow. A rejection
             # stops here: no capability discovery, no IR, no source ever runs.
             PlanStep(
                 "Draft spec",
                 [
-                    RepairLoop(
-                        name="generate_experiment_spec",
-                        generate=GenerateExperimentSpec(),
-                        validators=[ValidateExperimentSpec()],
-                        feedback_kind="experiment_spec_feedback",
-                    ),
-                    ApprovalGate(
-                        requests=[self._spec_request()],
-                        approve=self._approver,
+                    spec_generate_loop,
+                    StepAuditLoop(
                         name="approve_experiment_spec",
+                        subject_kind="experiment_spec",
+                        pack_builder=build_experiment_spec_review_pack,
+                        policy="hard",
+                        request=self._spec_request(),
+                        approve=self._approver,
+                        regenerate=spec_generate_loop,
+                        feedback_kind="experiment_spec_feedback",
                         result_kind="spec_approval",
                     ),
                 ],
@@ -236,14 +248,19 @@ class PlanMode(Mode):
                     CompileWorkflow(self._executor),
                 ],
             ),
-            # 8. Review — gate the whole verified plan before it is final.
+            # 8. Review — StepAuditLoop hard-gates the whole verified plan.
             PlanStep(
                 "Review",
                 [
-                    ApprovalGate(
-                        requests=[self._final_request()],
-                        approve=self._approver,
+                    StepAuditLoop(
                         name="approve_plan",
+                        subject_kind="execution_result",
+                        pack_builder=build_plan_review_pack,
+                        policy="hard",
+                        request=self._final_request(),
+                        approve=self._approver,
+                        feedback_kind="plan_review_feedback",
+                        result_kind="analysis_result",
                     ),
                 ],
             ),

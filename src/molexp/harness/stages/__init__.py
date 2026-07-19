@@ -31,6 +31,7 @@ from molexp.harness.stages.repair_loop import RepairLoop
 from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
 from molexp.harness.stages.review_plan import ReviewPlan
 from molexp.harness.stages.save_user_plan import SaveUserPlan
+from molexp.harness.stages.step_audit_loop import StepAuditLoop
 from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 from molexp.harness.stages.validate_experiment_spec import ValidateExperimentSpec
 from molexp.harness.stages.validate_input_set import ValidateInputSet
@@ -63,6 +64,7 @@ __all__ = [
     "ResolveCapabilities",
     "ReviewPlan",
     "SaveUserPlan",
+    "StepAuditLoop",
     "ValidateBoundWorkflow",
     "ValidateExperimentSpec",
     "ValidateInputSet",
