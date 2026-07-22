@@ -24,11 +24,23 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.types import UsageBreakdown
+
+if TYPE_CHECKING:
+    # Hook types live in ``molexp.agent.loops.hooks`` (SDK-free). Importing
+    # them only under TYPE_CHECKING keeps this protocol module free of a
+    # runtime import cycle with ``agent.loops`` — ``from __future__ import
+    # annotations`` (above) defers every annotation to a string, so the
+    # signatures below never trigger a runtime import.
+    from molexp.agent.loops.hooks import (
+        AfterToolHook,
+        BeforeToolHook,
+        ShouldStopGuard,
+    )
 
 __all__ = [
     "AgenticChunk",
@@ -300,6 +312,9 @@ class Router(Protocol):
         toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
+        before_tool: BeforeToolHook | None = None,
+        after_tool: AfterToolHook | None = None,
+        should_stop: ShouldStopGuard | None = None,
     ) -> AsyncIterator[AgenticChunk]:
         """Drive an emergent tool-using loop, streamed as :data:`AgenticChunk`\\ s.
 
@@ -326,10 +341,31 @@ class Router(Protocol):
             tier: Which tier's model to use. Defaults to ``DEFAULT``.
             message_history: Opaque prior-turn history (or empty),
                 forwarded verbatim to the underlying agent.
+            before_tool: Optional :class:`~molexp.agent.loops.hooks.BeforeToolHook`
+                consulted as each tool call is dispatched. ``None`` (the
+                default) opts out — omitting it is byte-identical to today.
+            after_tool: Optional :class:`~molexp.agent.loops.hooks.AfterToolHook`
+                consulted as each tool result is observed. ``None`` (the
+                default) opts out.
+            should_stop: Optional
+                :class:`~molexp.agent.loops.hooks.ShouldStopGuard` consulted
+                before the terminal :class:`FinalChunk`. ``None`` (the default)
+                opts out.
 
         Yields:
             :data:`AgenticChunk`\\ s in emission order; the last is a
             :class:`FinalChunk`.
+
+        Note:
+            Phase 01 honors only the after-tool boundary that passive
+            ``Agent.iter()`` iteration permits — an ``after_tool`` returning
+            :meth:`~molexp.agent.loops.hooks.HookOutcome.deny` flips the
+            emitted :class:`ToolResultChunk` ``ok`` to ``False`` and folds the
+            deny message into ``result_summary``. Before-tool veto,
+            suspend-resume, and should-stop re-injection are *triggered and
+            recorded* in phase 01 but their enforcement is realized in phase
+            02. When all three hooks are ``None`` the chunk stream is
+            byte-identical to omitting them entirely.
         """
         ...
 

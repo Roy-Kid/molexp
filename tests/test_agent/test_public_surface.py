@@ -27,13 +27,27 @@ def test_agent_all_is_the_public_contract() -> None:
     }
 
 
-def test_loops_all_is_chat_and_interactive_only() -> None:
-    """Post spec 03b, ``molexp.agent.loops`` re-exports ChatLoop +
-    InteractiveLoop (+configs). The prior pipeline modes moved to
-    :mod:`molexp.harness`."""
+def test_loops_all_is_loops_plus_hook_vocabulary() -> None:
+    """``molexp.agent.loops`` re-exports the two shipping loops (ChatLoop +
+    InteractiveLoop, +configs) plus the SDK-free neutral tool/hook vocabulary
+    (``HookOutcome`` / ``HookDecision`` / ``LoopState`` / the three hook
+    Protocols / the ``invoke_*`` helpers) that phase-02's emergent loop and
+    harness-injected gates reuse (spec ``plan-emergent-01-agent-hooks``). The
+    prior pipeline modes moved to :mod:`molexp.harness`."""
     assert set(loops.__all__) == {
+        # Shipping loops.
         "ChatLoop",
         "ChatLoopConfig",
         "InteractiveLoop",
         "InteractiveLoopConfig",
+        # Neutral tool/hook vocabulary (plan-emergent-01).
+        "HookDecision",
+        "HookOutcome",
+        "LoopState",
+        "BeforeToolHook",
+        "AfterToolHook",
+        "ShouldStopGuard",
+        "invoke_before_tool",
+        "invoke_after_tool",
+        "invoke_should_stop",
     }

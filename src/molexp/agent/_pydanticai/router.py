@@ -31,7 +31,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from mollog import get_logger
 from pydantic import BaseModel
@@ -67,6 +67,17 @@ from molexp.agent.types import CallUsage, Usage, UsageBreakdown
 from .errors import ErrorKind, ProviderError, classify
 from .events import EventCallback, Outcome, ProviderEvent
 from .retry import RetryPolicy, should_retry, sleep_for
+
+if TYPE_CHECKING:
+    # Hook types for the ``stream_agentic`` signature. Imported only under
+    # TYPE_CHECKING — the runtime honor helpers are imported at the call point
+    # inside the method body so the SDK firewall never loads ``agent.loops``
+    # at module load.
+    from molexp.agent.loops.hooks import (
+        AfterToolHook,
+        BeforeToolHook,
+        ShouldStopGuard,
+    )
 
 # pydantic-ai SDK surface types reach through the router as opaque
 # pass-through values. The aliases below pin each boundary position to
@@ -380,9 +391,7 @@ class PydanticAIRouter:
             self._agents[key] = cast("Agent[None, Any]", agent)
         return self._agents[key]  # type: ignore[return-value]
 
-    def _mcp_toolsets_for(
-        self, mcp_tools: tuple[McpToolSpec, ...]
-    ) -> list[Any]:
+    def _mcp_toolsets_for(self, mcp_tools: tuple[McpToolSpec, ...]) -> list[Any]:
         """Return keep-alive MCP toolsets, creating each at most once.
 
         Plan codegen used to cold-start molmcp on every structured call
@@ -631,6 +640,9 @@ class PydanticAIRouter:
         toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
+        before_tool: BeforeToolHook | None = None,
+        after_tool: AfterToolHook | None = None,
+        should_stop: ShouldStopGuard | None = None,
     ) -> AsyncIterator[AgenticChunk]:
         """Drive pydantic-ai's native agentic loop, translated to chunks.
 
@@ -643,7 +655,34 @@ class PydanticAIRouter:
         its event stream into SDK-free
         :data:`~molexp.agent.router.AgenticChunk`\\ s. The terminal
         yield is always a :class:`~molexp.agent.router.FinalChunk`.
+
+        Hooks (``before_tool`` / ``after_tool`` / ``should_stop``) are
+        consulted at the three boundaries ``Agent.iter()`` exposes. Passive
+        iteration cannot *stop* a dispatch mid-flight, so phase 01 honors only
+        the one boundary that observation permits: an ``after_tool`` returning
+        :meth:`~molexp.agent.loops.hooks.HookOutcome.deny` rewrites the emitted
+        :class:`~molexp.agent.router.ToolResultChunk` with ``ok=False`` and the
+        deny message folded into ``result_summary``. The before-tool and
+        should-stop boundaries are *triggered and recorded* here but their
+        enforcement (veto, suspend-resume, should-stop re-injection) is
+        deferred to phase 02. When all three hooks are ``None`` the
+        :func:`~molexp.agent.loops.hooks.invoke_before_tool` /
+        :func:`~molexp.agent.loops.hooks.invoke_after_tool` /
+        :func:`~molexp.agent.loops.hooks.invoke_should_stop` helpers return
+        :meth:`~molexp.agent.loops.hooks.HookOutcome.proceed` and the chunk
+        stream is byte-identical to today.
         """
+        # Call-point import (not module top): keeps the layering honest —
+        # ``_pydanticai`` reaches up to the SDK-free hook helpers only where
+        # they are used, never pulling ``agent.loops`` into the SDK firewall's
+        # import graph at module load.
+        from molexp.agent.loops.hooks import (
+            LoopState,
+            invoke_after_tool,
+            invoke_before_tool,
+            invoke_should_stop,
+        )
+
         model = self._tier_models[tier]
         agent_kwargs: dict[str, Any] = {"model": model}
         preamble = system or self._system_prompt
@@ -664,9 +703,12 @@ class PydanticAIRouter:
         history = list(message_history) if message_history else None
         final_text = ""
         messages_json: bytes | None = None
+        step = 0
+        last_tool_name = ""
         try:
             async with agent.iter(prompt, message_history=history) as run:
                 async for node in run:
+                    step += 1
                     if Agent.is_model_request_node(node):
                         async with node.stream(run.ctx) as request_stream:
                             async for event in request_stream:
@@ -677,8 +719,46 @@ class PydanticAIRouter:
                         async with node.stream(run.ctx) as tools_stream:
                             async for event in tools_stream:
                                 tool_chunk = _tool_chunk(event)
-                                if tool_chunk is not None:
+                                if tool_chunk is None:
+                                    continue
+                                if isinstance(event, FunctionToolCallEvent):
+                                    # Phase 01: before-tool is triggered and
+                                    # recorded only — passive iteration cannot
+                                    # veto a dispatch (deferred to phase 02).
+                                    before = await invoke_before_tool(
+                                        before_tool,
+                                        tool_name=event.part.tool_name,
+                                        args=event.part.args,
+                                    )
+                                    if not before.is_proceed:
+                                        _LOG.debug(
+                                            f"[router] before_tool {event.part.tool_name} "
+                                            f"→ {before.decision.value} (phase-01 observe-only)"
+                                        )
+                                    last_tool_name = event.part.tool_name
                                     yield tool_chunk
+                                    continue
+                                if isinstance(event, FunctionToolResultEvent) and isinstance(
+                                    tool_chunk, ToolResultChunk
+                                ):
+                                    after = await invoke_after_tool(
+                                        after_tool,
+                                        tool_name=tool_chunk.tool_name,
+                                        result=tool_chunk.result_summary,
+                                    )
+                                    if after.is_deny:
+                                        tool_chunk = tool_chunk.model_copy(
+                                            update={
+                                                "ok": False,
+                                                "result_summary": (
+                                                    f"{tool_chunk.result_summary} "
+                                                    f"[denied: {after.message}]"
+                                                ),
+                                            }
+                                        )
+                                    yield tool_chunk
+                                    continue
+                                yield tool_chunk
                 final_text = str(run.result.output or "") if run.result.output is not None else ""
                 # Full conversation (prior history + this turn) for lossless
                 # AgentSession persistence (agent-record-export-04).
@@ -700,6 +780,14 @@ class PydanticAIRouter:
             f"[router] agentic tier={tier.value} ok {time.monotonic() - t0:.2f}s "
             f"final_chars={len(final_text)}"
         )
+        # Phase 01: should-stop is consulted and recorded only — the
+        # FinalChunk is never altered (re-injection deferred to phase 02).
+        stop = await invoke_should_stop(
+            should_stop,
+            state=LoopState(step=step, last_tool=last_tool_name, draft_final=final_text),
+        )
+        if not stop.is_proceed:
+            _LOG.debug(f"[router] should_stop → {stop.decision.value} (phase-01 observe-only)")
         yield FinalChunk(text=final_text, model_messages_json=messages_json)
 
 
