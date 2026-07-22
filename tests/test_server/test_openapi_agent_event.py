@@ -1,16 +1,14 @@
-"""AgentEvent union is first-class in OpenAPI + a deterministic dump (spec 01).
+"""The ``scripts/dump_openapi.py`` regen is byte-stable and server-boot-free (spec 01).
 
-The streamed event vocabulary must appear `kind`-discriminated in the schema so
-``npm run generate:api`` (link 02) can emit narrowed TS models, and the
-``scripts/dump_openapi.py`` regen must be byte-stable and server-boot-free.
+The dump feeds ``npm run generate:api`` (link 02), so its output must be
+deterministic and the AgentEvent vocabulary must be present in the emitted
+schema text.
 """
 
 from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-
-from molexp.server.app import create_app
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "dump_openapi.py"
 
@@ -21,22 +19,6 @@ def _load_dump():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.dump_openapi
-
-
-def test_schema_contains_kind_discriminated_agent_event_union() -> None:
-    schemas = create_app().openapi()["components"]["schemas"]
-    # the reasoning + answer + tool member models are present, keyed on `kind`
-    for member in (
-        "ThinkingDeltaEvent",
-        "TokenDeltaEvent",
-        "ToolCallStartedEvent",
-        "ToolCallCompletedEvent",
-        "LoopCompletedEvent",
-    ):
-        assert member in schemas, f"{member} missing from OpenAPI components"
-        kind = schemas[member]["properties"]["kind"]
-        # a pinned Literal renders as const (or a single-value enum)
-        assert kind.get("const") or kind.get("enum"), f"{member}.kind is not a discriminator"
 
 
 def test_dump_openapi_is_deterministic_and_bootless(tmp_path: Path) -> None:

@@ -1,4 +1,10 @@
-"""Unit tests for the RepairLoop stage (generate -> validate -> repair)."""
+"""Tests for ``molexp.harness.stages.repair_loop.RepairLoop``.
+
+The generate → validate → repair wrapper: regenerate with the validator's
+feedback until valid, re-raise once the attempt budget is spent, and reject a
+bad construction. Failure diagnosis / molmcp evidence enrichment is owned by
+``test_evidence_repair.py``.
+"""
 
 from __future__ import annotations
 
@@ -64,41 +70,42 @@ class _ValidateOkOnNth(Stage):
         return ctx.artifact_store.latest_by_kind("thing")
 
 
-def test_repair_loop_regenerates_with_feedback_until_valid(tmp_path) -> None:
-    ctx = _ctx(tmp_path)
-    gen = _Gen()
-    val = _ValidateOkOnNth(ok_on=3)
-    loop = RepairLoop(
-        name="thing", generate=gen, validators=[val], feedback_kind="gen_feedback", attempts=5
-    )
+class TestRepairLoop:
+    def test_regenerates_with_feedback_until_valid(self, tmp_path) -> None:
+        ctx = _ctx(tmp_path)
+        gen = _Gen()
+        val = _ValidateOkOnNth(ok_on=3)
+        loop = RepairLoop(
+            name="thing", generate=gen, validators=[val], feedback_kind="gen_feedback", attempts=5
+        )
 
-    ref = asyncio.run(loop.run(ctx))
+        ref = asyncio.run(loop.run(ctx))
 
-    assert ref.kind == "thing"  # returns the GENERATED artifact, not the report
-    assert gen.calls == 3  # failed twice, succeeded on the third attempt
-    # First attempt has no feedback; attempts 2 and 3 see the recorded failure.
-    assert gen.saw_feedback == [False, True, True]
-    # The feedback carries the validator's persisted report content.
-    fb = ctx.artifact_store.latest_by_kind("gen_feedback")
-    assert fb is not None
-    assert b"bad-2" in ctx.artifact_store.get(fb.id)
+        assert ref.kind == "thing"  # returns the GENERATED artifact, not the report
+        assert gen.calls == 3  # failed twice, succeeded on the third attempt
+        # First attempt has no feedback; attempts 2 and 3 see the recorded failure.
+        assert gen.saw_feedback == [False, True, True]
+        # The feedback carries the validator's persisted report content.
+        fb = ctx.artifact_store.latest_by_kind("gen_feedback")
+        assert fb is not None
+        assert b"bad-2" in ctx.artifact_store.get(fb.id)
 
+    def test_raises_after_exhausting_attempts(self, tmp_path) -> None:
+        ctx = _ctx(tmp_path)
+        gen = _Gen()
+        val = _ValidateOkOnNth(ok_on=99)  # never passes
+        loop = RepairLoop(
+            name="thing", generate=gen, validators=[val], feedback_kind="gen_feedback", attempts=3
+        )
 
-def test_repair_loop_raises_after_exhausting_attempts(tmp_path) -> None:
-    ctx = _ctx(tmp_path)
-    gen = _Gen()
-    val = _ValidateOkOnNth(ok_on=99)  # never passes
-    loop = RepairLoop(
-        name="thing", generate=gen, validators=[val], feedback_kind="gen_feedback", attempts=3
-    )
+        with pytest.raises(StagePersistedFailureError):
+            asyncio.run(loop.run(ctx))
+        assert gen.calls == 3  # exhausted the budget, then re-raised
 
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(loop.run(ctx))
-    assert gen.calls == 3  # exhausted the budget, then re-raised
-
-
-def test_repair_loop_rejects_bad_config() -> None:
-    with pytest.raises(ValueError, match="attempts"):
-        RepairLoop(name="x", generate=_Gen(), validators=[_Gen()], feedback_kind="f", attempts=0)
-    with pytest.raises(ValueError, match="validator"):
-        RepairLoop(name="x", generate=_Gen(), validators=[], feedback_kind="f")
+    def test_rejects_bad_config(self) -> None:
+        with pytest.raises(ValueError, match="attempts"):
+            RepairLoop(
+                name="x", generate=_Gen(), validators=[_Gen()], feedback_kind="f", attempts=0
+            )
+        with pytest.raises(ValueError, match="validator"):
+            RepairLoop(name="x", generate=_Gen(), validators=[], feedback_kind="f")

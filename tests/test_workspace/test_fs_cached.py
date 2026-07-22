@@ -194,200 +194,176 @@ def cached(fake: _FakeRemoteFS, tmp_path: Path) -> CachedRemoteFileSystem:
     return CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
 
 
-# ── Core read caching ──────────────────────────────────────────────────
+class TestCachedRemoteFileSystem:
+    # ── Core read caching ────────────────────────────────────────────────
 
+    @pytest.mark.unit
+    def test_first_read_fetches_inner_second_read_hits_mirror(
+        self, cached: CachedRemoteFileSystem, fake: _FakeRemoteFS
+    ):
+        first = cached.read_bytes("/scratch/me/log.txt")
+        second = cached.read_bytes("/scratch/me/log.txt")
+        assert first == b"hello"
+        assert second == b"hello"
+        assert fake.calls["read_bytes"] == 1, f"saw {fake.calls!r}"
 
-@pytest.mark.unit
-def test_first_read_fetches_inner_second_read_hits_mirror(
-    cached: CachedRemoteFileSystem, fake: _FakeRemoteFS
-):
-    first = cached.read_bytes("/scratch/me/log.txt")
-    second = cached.read_bytes("/scratch/me/log.txt")
-    assert first == b"hello"
-    assert second == b"hello"
-    assert fake.calls["read_bytes"] == 1, f"saw {fake.calls!r}"
-
-
-@pytest.mark.unit
-def test_mirror_layout_strips_leading_slash(
-    cached: CachedRemoteFileSystem, fake: _FakeRemoteFS, tmp_path: Path
-):
-    cached.read_bytes("/scratch/me/log.txt")
-    expected = tmp_path / "mirror" / "files" / "scratch" / "me" / "log.txt"
-    assert expected.read_bytes() == b"hello"
-    assert fake.calls["read_bytes"] == 1
-
-
-# ── Negative cache ─────────────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_missing_short_circuits_subsequent_exists(
-    cached: CachedRemoteFileSystem, fake: _FakeRemoteFS
-):
-    assert cached.exists("/scratch/me/nope") is False
-    fake.calls.clear()
-    assert cached.exists("/scratch/me/nope") is False
-    assert fake.calls["exists"] == 0
-
-
-@pytest.mark.unit
-def test_read_missing_propagates_filenotfound(cached: CachedRemoteFileSystem):
-    with pytest.raises(FileNotFoundError):
-        cached.read_bytes("/scratch/me/nope")
-
-
-# ── Invalidation on write ──────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_write_invalidates_cache(cached: CachedRemoteFileSystem, fake: _FakeRemoteFS):
-    cached.read_bytes("/scratch/me/log.txt")
-    cached.write_text("/scratch/me/log.txt", "new content")
-    fake.calls.clear()
-    assert cached.read_text("/scratch/me/log.txt") == "new content"
-    assert fake.calls["read_bytes"] == 1, "must re-fetch after write"
-
-
-@pytest.mark.unit
-def test_rename_invalidates_both_ends(cached: CachedRemoteFileSystem, fake: _FakeRemoteFS):
-    cached.read_bytes("/scratch/me/log.txt")
-    cached.rename("/scratch/me/log.txt", "/scratch/me/log2.txt")
-    fake.calls.clear()
-    assert cached.read_bytes("/scratch/me/log2.txt") == b"hello"
-    assert fake.calls["read_bytes"] == 1
-
-
-@pytest.mark.unit
-def test_remove_invalidates_entry(cached: CachedRemoteFileSystem, fake: _FakeRemoteFS):
-    cached.read_bytes("/scratch/me/log.txt")
-    cached.remove("/scratch/me/log.txt")
-    fake.calls.clear()
-    with pytest.raises(FileNotFoundError):
+    @pytest.mark.unit
+    def test_mirror_layout_strips_leading_slash(
+        self, cached: CachedRemoteFileSystem, fake: _FakeRemoteFS, tmp_path: Path
+    ):
         cached.read_bytes("/scratch/me/log.txt")
+        expected = tmp_path / "mirror" / "files" / "scratch" / "me" / "log.txt"
+        assert expected.read_bytes() == b"hello"
+        assert fake.calls["read_bytes"] == 1
 
+    # ── Negative cache ───────────────────────────────────────────────────
 
-# ── TTL expiry ─────────────────────────────────────────────────────────
+    @pytest.mark.unit
+    def test_missing_short_circuits_subsequent_exists(
+        self, cached: CachedRemoteFileSystem, fake: _FakeRemoteFS
+    ):
+        assert cached.exists("/scratch/me/nope") is False
+        fake.calls.clear()
+        assert cached.exists("/scratch/me/nope") is False
+        assert fake.calls["exists"] == 0
 
+    @pytest.mark.unit
+    def test_read_missing_propagates_filenotfound(self, cached: CachedRemoteFileSystem):
+        with pytest.raises(FileNotFoundError):
+            cached.read_bytes("/scratch/me/nope")
 
-@pytest.mark.unit
-def test_ttl_zero_always_revalidates(fake: _FakeRemoteFS, tmp_path: Path):
-    cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=0)
-    cached.read_bytes("/scratch/me/log.txt")
-    fake.calls.clear()
-    cached.read_bytes("/scratch/me/log.txt")
-    # TTL=0 means no fast path — every read re-fetches inner bytes.
-    assert fake.calls["read_bytes"] == 1
+    # ── Invalidation on write / rename ───────────────────────────────────
 
+    @pytest.mark.unit
+    def test_write_invalidates_cache(self, cached: CachedRemoteFileSystem, fake: _FakeRemoteFS):
+        cached.read_bytes("/scratch/me/log.txt")
+        cached.write_text("/scratch/me/log.txt", "new content")
+        fake.calls.clear()
+        assert cached.read_text("/scratch/me/log.txt") == "new content"
+        assert fake.calls["read_bytes"] == 1, "must re-fetch after write"
 
-@pytest.mark.unit
-def test_ttl_expiry_triggers_refetch(
-    fake: _FakeRemoteFS, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=10)
-    base = time.time()
-    monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base)
-    cached.read_bytes("/scratch/me/log.txt")
-    assert fake.calls["read_bytes"] == 1
+    @pytest.mark.unit
+    def test_rename_invalidates_both_ends(
+        self, cached: CachedRemoteFileSystem, fake: _FakeRemoteFS
+    ):
+        cached.read_bytes("/scratch/me/log.txt")
+        cached.rename("/scratch/me/log.txt", "/scratch/me/log2.txt")
+        fake.calls.clear()
+        assert cached.read_bytes("/scratch/me/log2.txt") == b"hello"
+        assert fake.calls["read_bytes"] == 1
 
-    # Within TTL — mirror hit
-    monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base + 5)
-    cached.read_bytes("/scratch/me/log.txt")
-    assert fake.calls["read_bytes"] == 1
+    # ── TTL expiry ───────────────────────────────────────────────────────
 
-    # After TTL — re-fetch
-    monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base + 20)
-    cached.read_bytes("/scratch/me/log.txt")
-    assert fake.calls["read_bytes"] == 2
+    @pytest.mark.unit
+    def test_ttl_zero_always_revalidates(self, fake: _FakeRemoteFS, tmp_path: Path):
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=0)
+        cached.read_bytes("/scratch/me/log.txt")
+        fake.calls.clear()
+        cached.read_bytes("/scratch/me/log.txt")
+        # TTL=0 means no fast path — every read re-fetches inner bytes.
+        assert fake.calls["read_bytes"] == 1
 
+    @pytest.mark.unit
+    def test_ttl_expiry_triggers_refetch(
+        self, fake: _FakeRemoteFS, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=10)
+        base = time.time()
+        monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base)
+        cached.read_bytes("/scratch/me/log.txt")
+        assert fake.calls["read_bytes"] == 1
 
-# ── Sidecar persistence ────────────────────────────────────────────────
+        # Within TTL — mirror hit
+        monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base + 5)
+        cached.read_bytes("/scratch/me/log.txt")
+        assert fake.calls["read_bytes"] == 1
 
+        # After TTL — re-fetch
+        monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base + 20)
+        cached.read_bytes("/scratch/me/log.txt")
+        assert fake.calls["read_bytes"] == 2
 
-@pytest.mark.unit
-def test_sidecar_round_trip_across_instances(fake: _FakeRemoteFS, tmp_path: Path):
-    mirror_root = tmp_path / "mirror"
-    first = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
-    first.read_bytes("/scratch/me/log.txt")
-    assert fake.calls["read_bytes"] == 1
+    # ── Sidecar persistence ──────────────────────────────────────────────
 
-    second = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
-    # Cached_paths should include the entry from the first instance.
-    assert "/scratch/me/log.txt" in second.cached_paths()
-    fake.calls.clear()
-    second.read_bytes("/scratch/me/log.txt")
-    assert fake.calls["read_bytes"] == 0, "must serve from mirror after re-instantiation"
+    @pytest.mark.unit
+    def test_sidecar_round_trip_across_instances(self, fake: _FakeRemoteFS, tmp_path: Path):
+        mirror_root = tmp_path / "mirror"
+        first = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
+        first.read_bytes("/scratch/me/log.txt")
+        assert fake.calls["read_bytes"] == 1
 
+        second = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
+        # Cached_paths should include the entry from the first instance.
+        assert "/scratch/me/log.txt" in second.cached_paths()
+        fake.calls.clear()
+        second.read_bytes("/scratch/me/log.txt")
+        assert fake.calls["read_bytes"] == 0, "must serve from mirror after re-instantiation"
 
-# ── invalidate() public surface ────────────────────────────────────────
+    # ── invalidate() public surface ──────────────────────────────────────
 
+    @pytest.mark.unit
+    def test_invalidate_scope_indices_drops_only_index_files(
+        self, fake: _FakeRemoteFS, tmp_path: Path
+    ):
+        fake.files["/scratch/me/project.json"] = b'{"items":[]}'
+        fake.files["/scratch/me/runs/a/stdout.log"] = b"log bytes"
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
+        cached.read_bytes("/scratch/me/project.json")
+        cached.read_bytes("/scratch/me/runs/a/stdout.log")
 
-@pytest.mark.unit
-def test_invalidate_scope_indices_drops_only_index_files(fake: _FakeRemoteFS, tmp_path: Path):
-    fake.files["/scratch/me/project.json"] = b'{"items":[]}'
-    fake.files["/scratch/me/runs/a/stdout.log"] = b"log bytes"
-    cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
-    cached.read_bytes("/scratch/me/project.json")
-    cached.read_bytes("/scratch/me/runs/a/stdout.log")
+        dropped = cached.invalidate(scope="indices")
+        assert dropped == 1
+        assert "/scratch/me/runs/a/stdout.log" in cached.cached_paths()
+        assert "/scratch/me/project.json" not in cached.cached_paths()
 
-    dropped = cached.invalidate(scope="indices")
-    assert dropped == 1
-    assert "/scratch/me/runs/a/stdout.log" in cached.cached_paths()
-    assert "/scratch/me/project.json" not in cached.cached_paths()
+    @pytest.mark.unit
+    def test_invalidate_scope_all_clears_everything(self, fake: _FakeRemoteFS, tmp_path: Path):
+        fake.files["/scratch/me/extra.txt"] = b"x"
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
+        cached.read_bytes("/scratch/me/log.txt")
+        cached.read_bytes("/scratch/me/extra.txt")
 
+        dropped = cached.invalidate(scope="all")
+        assert dropped == 2
+        assert cached.cached_paths() == []
+        assert not (tmp_path / "mirror" / "files").exists()
 
-@pytest.mark.unit
-def test_invalidate_scope_all_clears_everything(fake: _FakeRemoteFS, tmp_path: Path):
-    fake.files["/scratch/me/extra.txt"] = b"x"
-    cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
-    cached.read_bytes("/scratch/me/log.txt")
-    cached.read_bytes("/scratch/me/extra.txt")
+    @pytest.mark.unit
+    def test_invalidate_specific_path(self, fake: _FakeRemoteFS, tmp_path: Path):
+        fake.files["/scratch/me/extra.txt"] = b"x"
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
+        cached.read_bytes("/scratch/me/log.txt")
+        cached.read_bytes("/scratch/me/extra.txt")
 
-    dropped = cached.invalidate(scope="all")
-    assert dropped == 2
-    assert cached.cached_paths() == []
-    assert not (tmp_path / "mirror" / "files").exists()
+        cached.invalidate("/scratch/me/log.txt")
+        assert "/scratch/me/extra.txt" in cached.cached_paths()
+        assert "/scratch/me/log.txt" not in cached.cached_paths()
 
+    @pytest.mark.unit
+    def test_invalidate_rejects_unknown_scope(self, cached: CachedRemoteFileSystem):
+        with pytest.raises(ValueError, match="unknown scope"):
+            cached.invalidate(scope="bogus")
 
-@pytest.mark.unit
-def test_invalidate_specific_path(fake: _FakeRemoteFS, tmp_path: Path):
-    fake.files["/scratch/me/extra.txt"] = b"x"
-    cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
-    cached.read_bytes("/scratch/me/log.txt")
-    cached.read_bytes("/scratch/me/extra.txt")
+    # ── Stat caching ─────────────────────────────────────────────────────
 
-    cached.invalidate("/scratch/me/log.txt")
-    assert "/scratch/me/extra.txt" in cached.cached_paths()
-    assert "/scratch/me/log.txt" not in cached.cached_paths()
+    @pytest.mark.unit
+    def test_stat_serves_from_cache_after_read(
+        self, cached: CachedRemoteFileSystem, fake: _FakeRemoteFS
+    ):
+        cached.read_bytes("/scratch/me/log.txt")
+        fake.calls.clear()
+        info = cached.stat("/scratch/me/log.txt")
+        assert info.is_file is True
+        assert fake.calls["stat"] == 0
 
+    # ── Path ops never touch the inner FS ────────────────────────────────
 
-@pytest.mark.unit
-def test_invalidate_rejects_unknown_scope(cached: CachedRemoteFileSystem):
-    with pytest.raises(ValueError, match="unknown scope"):
-        cached.invalidate(scope="bogus")
-
-
-# ── Stat caching ───────────────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_stat_serves_from_cache_after_read(cached: CachedRemoteFileSystem, fake: _FakeRemoteFS):
-    cached.read_bytes("/scratch/me/log.txt")
-    fake.calls.clear()
-    info = cached.stat("/scratch/me/log.txt")
-    assert info.is_file is True
-    assert fake.calls["stat"] == 0
-
-
-# ── Sanity ─────────────────────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_path_ops_delegate_to_inner_without_io(fake: _FakeRemoteFS, tmp_path: Path):
-    cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
-    cached.join("/a", "b", "c")
-    cached.dirname("/a/b/c")
-    cached.basename("/a/b/c")
-    cached.resolve("/a/b/c")
-    # None of these trigger remote I/O.
-    assert sum(fake.calls.values()) == 0
+    @pytest.mark.unit
+    def test_path_ops_delegate_to_inner_without_io(self, fake: _FakeRemoteFS, tmp_path: Path):
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
+        cached.join("/a", "b", "c")
+        cached.dirname("/a/b/c")
+        cached.basename("/a/b/c")
+        cached.resolve("/a/b/c")
+        # None of these trigger remote I/O.
+        assert sum(fake.calls.values()) == 0

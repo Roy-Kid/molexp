@@ -1,16 +1,9 @@
-"""RED tests for ``molexp.workspace.curation`` asset queries.
+"""Tests for ``molexp.workspace.curation.query`` asset queries.
 
-Pins ``find_asset_by_hash`` (content-addressed lookup composing
-``catalog.find_by_content_hash``) and ``aggregate_assets_by_kind``
-(composing ``{scope}.assets.query`` and counting by ``kind``).
-
-Both functions are read-only and must NOT trigger a ``catalog.rebuild()``:
-imported ``DataAsset`` rows are registered directly in the catalog but are
-not written to a scope ``assets.json`` manifest, so a rebuild would drop
-them. These tests therefore query immediately after import.
-
-Until ``molexp.workspace.curation`` exists they fail at collection with
-``ModuleNotFoundError`` — the intended RED state.
+Pins ``find_asset_by_hash`` (content-addressed lookup over the authoritative
+manifests) and ``aggregate_assets_by_kind`` (counts a scope's assets by
+``kind``, honoring the ``recursive`` flag). Both are read-only compositions
+over ``scan.scan_assets`` / per-scope ``AssetsView`` — no ``catalog.rebuild()``.
 """
 
 from __future__ import annotations
@@ -19,8 +12,6 @@ from pathlib import Path
 
 from molexp.workspace import Workspace
 from molexp.workspace.curation import aggregate_assets_by_kind, find_asset_by_hash
-
-# ── find_asset_by_hash ───────────────────────────────────────────────────────
 
 
 class TestFindAssetByHash:
@@ -41,11 +32,8 @@ class TestFindAssetByHash:
         assert find_asset_by_hash(ws, "sha256:deadbeef") is None
 
 
-# ── aggregate_assets_by_kind ─────────────────────────────────────────────────
-
-
 class TestAggregateAssetsByKind:
-    def test_counts_workspace_scoped_data_asset(self, tmp_path: Path) -> None:
+    def test_counts_in_scope_asset_by_kind(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab", name="Agg Lab")
         src = tmp_path / "a.txt"
         src.write_text("aaa")
@@ -53,7 +41,7 @@ class TestAggregateAssetsByKind:
 
         assert aggregate_assets_by_kind(ws) == {"data": 1}
 
-    def test_non_recursive_experiment_scope_sees_no_run_assets(self, tmp_path: Path) -> None:
+    def test_non_recursive_scope_excludes_sub_scope_assets(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab", name="Agg Lab")
         exp = ws.add_project("p").add_experiment("e", params={})
         run = exp.add_run(params={"seed": 0})
@@ -63,7 +51,7 @@ class TestAggregateAssetsByKind:
         # Artifacts are run-scoped; the experiment scope is empty non-recursively.
         assert aggregate_assets_by_kind(exp) == {}
 
-    def test_recursive_experiment_scope_sees_run_assets(self, tmp_path: Path) -> None:
+    def test_recursive_scope_includes_sub_scope_assets(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab", name="Agg Lab")
         exp = ws.add_project("p").add_experiment("e", params={})
         run = exp.add_run(params={"seed": 0})

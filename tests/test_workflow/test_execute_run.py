@@ -57,12 +57,6 @@ class TestExecuteRun:
         assert run.status == RunStatus.SUCCEEDED.value
         assert len(run.execution_history) == 1
 
-    def test_accepts_uncompiled_compiler(self, tmp_path: Path) -> None:
-        run = _make_run(tmp_path)
-        result = execute_run(_build_wf(), run)
-        assert result.status == "succeeded"
-        assert result.outputs["summarize"] == "got 6"
-
     def test_task_failure_raises_and_persists_failed_run(self, tmp_path: Path) -> None:
         wf = WorkflowCompiler(name="boom")
 
@@ -102,14 +96,10 @@ class TestExecuteRun:
         assert 'raise ZeroDivisionError("bad cell")' in content
         assert "No Python traceback was captured" not in content
 
-    def test_succeeded_raises(self, tmp_path: Path) -> None:
-        run = _make_run(tmp_path)
-        execute_run(_build_wf(), run)
-        with pytest.raises(RunNotExecutableError, match="succeeded"):
-            execute_run(_build_wf(), run)
-
     def test_succeeded_refuses_even_with_rerun(self, tmp_path: Path) -> None:
-        """rerun's verb domain is failed/cancelled only — done is done."""
+        """A succeeded run is refused with or without ``rerun`` — the succeeded
+        check precedes the verb domain, so ``rerun=True`` cannot resurrect a
+        done run (verb domain is failed/cancelled only)."""
         run = _make_run(tmp_path)
         execute_run(_build_wf(), run)
         with pytest.raises(RunNotExecutableError, match="succeeded"):

@@ -1,31 +1,19 @@
-"""Recursive-CTE equivalence + query-count tests for SQLiteArtifactLineageStore.
+"""Traversal-contract tests for :class:`SQLiteArtifactLineageStore`.
 
-Maps acceptance criteria ac-001..ac-007 of spec
-``perf-hardening-02-provenance-recursive-cte``.
+The lineage store walks ``artifact_edges`` with a single ``WITH RECURSIVE``
+CTE. These tests own the traversal semantics — BFS level order, shallowest-depth
+dedup, cycle termination, the ``lineage_graph`` node/edge shape — plus the one
+performance-regression guard that the walk stays a single statement rather than
+one ``SELECT`` per node (the O(nodes) round-trip bug perf-hardening-02 fixed).
 
-The traversal rewrite replaces the per-node Python BFS in
-``SQLiteArtifactLineageStore._bfs`` with a single ``WITH RECURSIVE`` CTE edge
-walk. The behavioural tests below (ac-001..ac-005, ac-007) are
-EQUIVALENCE / regression guards: they pin the exact returned id set, the
-BFS/level order, the first-seen-by-shallowest-depth dedup, cycle
-termination, and the byte-identical ``lineage_graph`` shape. They pass
-against the current correct BFS AND must keep passing after the rewrite.
-
-The meaningful RED driver is the query-count test (ac-006): it counts the
-SQL statements emitted on the store's connection during a single
-``trace_backward`` over a deep chain. The current code emits ~one statement
-per node; the rewrite collapses that to a single recursive CTE.
-
-White-box convention: these tests reach into ``store._conn`` exactly as the
-sibling tests in this directory reach into store internals.
+White-box convention: the query-count guard reaches into ``store._conn`` exactly
+as the sibling stage-bracket tests reach into store internals.
 """
 
 from __future__ import annotations
 
-from collections import deque
 from itertools import pairwise
 from pathlib import Path
-from typing import Literal
 
 import pytest
 
@@ -33,9 +21,6 @@ from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
 
-# --------------------------------------------------------------------------- #
-# Fixtures
-# --------------------------------------------------------------------------- #
 @pytest.fixture()
 def artifact_store(tmp_path: Path) -> FileArtifactStore:
     return FileArtifactStore(root=tmp_path / "artifacts")
@@ -51,9 +36,9 @@ def store(tmp_path: Path, artifact_store: FileArtifactStore) -> SQLiteArtifactLi
 def _make_node(artifact_store: FileArtifactStore, label: str) -> str:
     """Create a distinct real artifact for ``label`` and return its id.
 
-    ``trace_backward`` / ``trace_forward`` hydrate every visited id through
-    ``get_ref``, so each graph node must back onto a real PlanArtifactRef. The
-    payload embeds the label so content-addressed ids stay distinct.
+    Traversals hydrate every visited id through ``get_ref``, so each graph node
+    must back onto a real ``PlanArtifactRef``; the label keeps content-addressed
+    ids distinct.
     """
     ref = artifact_store.put_json(
         kind="workflow_ir",
@@ -64,39 +49,8 @@ def _make_node(artifact_store: FileArtifactStore, label: str) -> str:
     return ref.id
 
 
-def _reference_bfs(
-    store: SQLiteArtifactLineageStore, start: str, *, direction: Literal["up", "down"]
-) -> list[str]:
-    """The pre-rewrite Python BFS, inlined as the equivalence oracle.
-
-    Issues one query per visited node (the O(nodes) algorithm the CTE
-    rewrite replaces). Used only to assert the rewritten walk returns an
-    identical ordered id list.
-    """
-    if direction == "up":
-        query = "SELECT parent_id FROM artifact_edges WHERE child_id = ?"
-    else:
-        query = "SELECT child_id FROM artifact_edges WHERE parent_id = ?"
-    seen: set[str] = {start}
-    order: list[str] = []
-    queue: deque[str] = deque([start])
-    conn = store._conn  # white-box oracle, matches sibling tests in this dir
-    while queue:
-        current = queue.popleft()
-        for (neighbour,) in conn.execute(query, (current,)).fetchall():
-            if neighbour in seen:
-                continue
-            seen.add(neighbour)
-            order.append(neighbour)
-            queue.append(neighbour)
-    return order
-
-
-class TestSqliteLineageStoreCte:
-    # ----------------------------------------------------------------------- #
-    # ac-001 — linear chain equivalence
-    # ----------------------------------------------------------------------- #
-    def test_ac001_trace_backward_linear_chain_matches_reference_and_expected_order(
+class TestSQLiteArtifactLineageStore:
+    def test_trace_backward_returns_ancestors_in_level_order(
         self, store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore
     ) -> None:
         a = _make_node(artifact_store, "A")
@@ -107,15 +61,22 @@ class TestSqliteLineageStoreCte:
         store.add_edge(parent_id=b, child_id=c)
         store.add_edge(parent_id=c, child_id=d)
 
-        result_ids = [r.id for r in store.trace_backward(d)]
+        assert [r.id for r in store.trace_backward(d)] == [c, b, a]
 
-        assert result_ids == [c, b, a]
-        assert result_ids == _reference_bfs(store, d, direction="up")
+    def test_trace_forward_returns_descendants_in_level_order(
+        self, store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore
+    ) -> None:
+        a = _make_node(artifact_store, "A")
+        b = _make_node(artifact_store, "B")
+        c = _make_node(artifact_store, "C")
+        d = _make_node(artifact_store, "D")
+        store.add_edge(parent_id=a, child_id=b)
+        store.add_edge(parent_id=b, child_id=c)
+        store.add_edge(parent_id=c, child_id=d)
 
-    # ----------------------------------------------------------------------- #
-    # ac-002 — diamond DAG dedups multi-path node once at shallowest depth
-    # ----------------------------------------------------------------------- #
-    def test_ac002_trace_backward_diamond_dedups_shared_ancestor_at_shallowest_depth(
+        assert [r.id for r in store.trace_forward(a)] == [b, c, d]
+
+    def test_trace_backward_dedups_shared_ancestor_at_shallowest_depth(
         self, store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore
     ) -> None:
         a = _make_node(artifact_store, "A")
@@ -130,20 +91,13 @@ class TestSqliteLineageStoreCte:
 
         result_ids = [r.id for r in store.trace_backward(d)]
 
-        # Each ancestor appears exactly once (shared node A deduped).
-        assert sorted(result_ids) == sorted([b, c, a])
+        # Shared ancestor A appears exactly once; depth-1 frontier precedes it.
         assert len(result_ids) == 3
         assert result_ids.count(a) == 1
-        # Level order: depth-1 frontier {B, C} precede depth-2 {A}.
         assert set(result_ids[:2]) == {b, c}
         assert result_ids[2] == a
-        # Byte-identical to the reference BFS ordering.
-        assert result_ids == _reference_bfs(store, d, direction="up")
 
-    # ----------------------------------------------------------------------- #
-    # ac-003 — cycle terminates and dedups
-    # ----------------------------------------------------------------------- #
-    def test_ac003_cycle_terminates_without_duplicates_both_directions(
+    def test_traversal_terminates_on_cycle_without_duplicates(
         self, store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore
     ) -> None:
         a = _make_node(artifact_store, "A")
@@ -152,40 +106,14 @@ class TestSqliteLineageStoreCte:
         store.add_edge(parent_id=a, child_id=b)
         store.add_edge(parent_id=b, child_id=a)
 
-        # Generous guard: if the walk hangs, the test process would never return;
-        # we additionally assert the result is finite and small.
         backward = [r.id for r in store.trace_backward(a)]
         forward = [r.id for r in store.trace_forward(a)]
 
         # Reachable set from A (exclusive of A itself) is just {B}, once.
         assert backward == [b]
         assert forward == [b]
-        assert len(backward) == len(set(backward))
-        assert len(forward) == len(set(forward))
 
-    # ----------------------------------------------------------------------- #
-    # ac-004 — trace_forward on chain + wide fan-out
-    # ----------------------------------------------------------------------- #
-    def test_ac004_trace_forward_linear_chain_matches_reference(
-        self, store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore
-    ) -> None:
-        a = _make_node(artifact_store, "A")
-        b = _make_node(artifact_store, "B")
-        c = _make_node(artifact_store, "C")
-        d = _make_node(artifact_store, "D")
-        store.add_edge(parent_id=a, child_id=b)
-        store.add_edge(parent_id=b, child_id=c)
-        store.add_edge(parent_id=c, child_id=d)
-
-        result_ids = [r.id for r in store.trace_forward(a)]
-
-        assert result_ids == [b, c, d]
-        assert result_ids == _reference_bfs(store, a, direction="down")
-
-    # ----------------------------------------------------------------------- #
-    # ac-005 — lineage_graph byte-identical shape (golden capture)
-    # ----------------------------------------------------------------------- #
-    def test_ac005_lineage_graph_diamond_shape_is_byte_identical_golden(
+    def test_lineage_graph_returns_subgraph_nodes_and_stampless_edges(
         self, store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore
     ) -> None:
         a = _make_node(artifact_store, "A")
@@ -199,98 +127,49 @@ class TestSqliteLineageStoreCte:
 
         graph = store.lineage_graph(d)
 
-        # Golden: nodes sorted by id, each {id, kind, uri}; edges only those whose
-        # both endpoints are in the subgraph. We reconstruct the expected golden
-        # from the known ids so the assertion captures the EXACT current shape and
-        # guarantees byte-identical output across the rewrite.
-        expected_ids = sorted([a, b, c, d])
-        expected_nodes = []
-        for aid in expected_ids:
-            ref = artifact_store.get_ref(aid)
-            expected_nodes.append({"id": aid, "kind": ref.kind, "uri": ref.uri})
-        # Edges written without pipeline context carry stage/run_id as None.
-        expected_edges = [
+        # Nodes: sorted by id, each {id, kind, uri}.
+        expected_nodes = [
             {
-                "parent_id": a,
-                "child_id": b,
-                "relation": "derived_from",
-                "stage": None,
-                "run_id": None,
-            },
-            {
-                "parent_id": a,
-                "child_id": c,
-                "relation": "derived_from",
-                "stage": None,
-                "run_id": None,
-            },
-            {
-                "parent_id": b,
-                "child_id": d,
-                "relation": "derived_from",
-                "stage": None,
-                "run_id": None,
-            },
-            {
-                "parent_id": c,
-                "child_id": d,
-                "relation": "derived_from",
-                "stage": None,
-                "run_id": None,
-            },
+                "id": aid,
+                "kind": artifact_store.get_ref(aid).kind,
+                "uri": artifact_store.get_ref(aid).uri,
+            }
+            for aid in sorted([a, b, c, d])
         ]
-
         assert graph["nodes"] == expected_nodes
-        # Edge ordering follows the row scan; compare as sets for stability of the
-        # contract while still asserting exact membership + the dict shape.
+        # Edges written without pipeline context carry stage/run_id as None.
         assert {(e["parent_id"], e["child_id"], e["relation"]) for e in graph["edges"]} == {
-            (e["parent_id"], e["child_id"], e["relation"]) for e in expected_edges
+            (a, b, "derived_from"),
+            (a, c, "derived_from"),
+            (b, d, "derived_from"),
+            (c, d, "derived_from"),
         }
         assert all(
             set(e.keys()) == {"parent_id", "child_id", "relation", "stage", "run_id"}
+            and e["stage"] is None
+            and e["run_id"] is None
             for e in graph["edges"]
         )
-        assert len(graph["edges"]) == len(expected_edges)
 
-    # ----------------------------------------------------------------------- #
-    # ac-006 — query-count: edge walk is 1 statement (or O(depth)), not O(nodes)
-    # ----------------------------------------------------------------------- #
-    def test_ac006_trace_backward_edge_walk_emits_one_statement_not_per_node(
+    def test_trace_backward_walks_edges_in_a_single_recursive_cte(
         self, store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore
     ) -> None:
-        # Build a linear chain of >=50 edges (51 nodes, 50 edges).
+        """The edge walk emits one statement, not one per node (perf-hardening-02)."""
         chain_depth = 50
         node_ids = [_make_node(artifact_store, f"N{i}") for i in range(chain_depth + 1)]
         for parent, child in pairwise(node_ids):
             store.add_edge(parent_id=parent, child_id=child)
 
-        leaf = node_ids[-1]
-
-        # Count only edge-walk statements: those that touch ``artifact_edges`` via
-        # the recursive walk. ``add_edge`` setup statements ran BEFORE we install
-        # the callback, so they are not counted. ``get_ref`` hydration hits the
-        # filesystem ArtifactStore (not this connection), so it cannot appear here.
+        # ``add_edge`` setup ran before the callback is installed, so those
+        # statements are not counted; ``get_ref`` hydration hits the filesystem
+        # store (a different connection), so it cannot appear here either.
         statements: list[str] = []
-
-        def _trace(sql: str) -> None:
-            statements.append(sql)
-
-        store._conn.set_trace_callback(_trace)  # white-box store test
+        store._conn.set_trace_callback(statements.append)
         try:
-            result = store.trace_backward(leaf)
+            result = store.trace_backward(node_ids[-1])
         finally:
             store._conn.set_trace_callback(None)
 
         edge_walk_statements = [s for s in statements if "artifact_edges" in s]
-
-        # Correctness sanity: all 50 ancestors were returned.
-        assert len(result) == chain_depth
-
-        # Single recursive CTE (== 1) OR an O(depth) batched fallback (<= depth),
-        # and in all cases STRICTLY LESS THAN the node count. Current per-node BFS
-        # emits ~chain_depth statements -> fails -> RED. After rewrite -> 1 -> GREEN.
-        assert edge_walk_statements, "expected at least one edge-walk statement"
-        assert len(edge_walk_statements) == 1 or len(edge_walk_statements) <= chain_depth
-        assert len(edge_walk_statements) < len(node_ids)
-        # Tightened: the rewrite target is a single recursive CTE.
+        assert len(result) == chain_depth  # correctness: all ancestors returned
         assert len(edge_walk_statements) == 1

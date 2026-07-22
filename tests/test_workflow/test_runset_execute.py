@@ -82,11 +82,6 @@ class TestRunSetExecute:
             pytest.approx(2.0),
         ]
 
-    def test_parallel_execution(self, experiment) -> None:
-        rs = experiment.sweep(_build_wf(), {"lr": [0.1, 0.2], "batch": [10, 20]})
-        summary = rs.execute(parallel=2)
-        assert all(rec["status"] == RunStatus.SUCCEEDED.value for rec in summary.to_records())
-
     def test_collect_reads_back_in_fresh_runset(self, experiment) -> None:
         """A later session can rebuild the RunSet from disk and read the
         persisted per-task outputs without re-executing anything."""

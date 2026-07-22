@@ -1,4 +1,9 @@
-"""Unit tests for molexp.plugins.submit_molq.cancel classification."""
+"""Unit tests for ``molexp.plugins.submit_molq.cancel.classify``.
+
+``classify`` is pure inspection: it maps a run's ops/executor state to a
+:class:`CancelPlan` without executing anything. One test per branch of the
+classification contract (molq / local-same-host / uncancellable reasons).
+"""
 
 from __future__ import annotations
 
@@ -22,47 +27,46 @@ def running_run(tmp_path):
     return r
 
 
-def test_molq_backend_uses_job_id(running_run):
-    running_run._update_metadata(
-        executor_info={
-            "backend": "molq",
-            "scheduler": "slurm",
-            "cluster_name": "hpc",
-            "job_id": "abc-uuid-123",
-            "scheduler_job_id": "88001",
-        }
-    )
-    plan = classify(running_run)
-    assert plan.kind == "molq"
-    assert plan.detail == "hpc"
-    assert plan.job_id == "abc-uuid-123"
+class TestClassify:
+    def test_molq_backend_with_job_id_classifies_molq(self, running_run):
+        running_run._update_metadata(
+            executor_info={
+                "backend": "molq",
+                "scheduler": "slurm",
+                "cluster_name": "hpc",
+                "job_id": "abc-uuid-123",
+                "scheduler_job_id": "88001",
+            }
+        )
+        plan = classify(running_run)
+        assert plan.kind == "molq"
+        assert plan.detail == "hpc"
+        assert plan.job_id == "abc-uuid-123"
 
+    def test_local_pid_same_host_classifies_local(self, running_run):
+        running_run.update_ops(
+            lambda s: s.model_copy(update={"owner_pid": 12345, "owner_host": platform.node()})
+        )
+        plan = classify(running_run)
+        assert plan.kind == "local"
+        assert plan.detail == "12345"
 
-def test_local_same_host_uses_pid(running_run):
-    running_run.update_ops(
-        lambda s: s.model_copy(update={"owner_pid": 12345, "owner_host": platform.node()})
-    )
-    plan = classify(running_run)
-    assert plan.kind == "local"
-    assert plan.detail == "12345"
+    def test_pid_on_different_host_is_uncancellable(self, running_run):
+        running_run.update_ops(
+            lambda s: s.model_copy(
+                update={"owner_pid": 12345, "owner_host": "some-other-host.example"}
+            )
+        )
+        plan = classify(running_run)
+        assert plan.kind == "none"
+        assert "different host" in plan.detail
 
+    def test_terminal_status_is_uncancellable(self, running_run):
+        running_run.update_ops(lambda s: s.model_copy(update={"status": RunStatus.SUCCEEDED}))
+        plan = classify(running_run)
+        assert plan.kind == "none"
+        assert plan.detail == "already terminal"
 
-def test_local_different_host_is_uncancellable(running_run):
-    running_run.update_ops(
-        lambda s: s.model_copy(update={"owner_pid": 12345, "owner_host": "some-other-host.example"})
-    )
-    plan = classify(running_run)
-    assert plan.kind == "none"
-    assert "different host" in plan.detail
-
-
-def test_terminal_status_is_uncancellable(running_run):
-    running_run.update_ops(lambda s: s.model_copy(update={"status": RunStatus.SUCCEEDED}))
-    plan = classify(running_run)
-    assert plan.kind == "none"
-    assert plan.detail == "already terminal"
-
-
-def test_no_info_is_uncancellable(running_run):
-    plan = classify(running_run)
-    assert plan.kind == "none"
+    def test_no_pid_or_scheduler_info_is_uncancellable(self, running_run):
+        plan = classify(running_run)
+        assert plan.kind == "none"

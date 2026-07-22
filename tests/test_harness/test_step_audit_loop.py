@@ -1,4 +1,11 @@
-"""Unit tests for StepAuditLoop auto / soft / hard policy matrix."""
+"""Tests for :class:`StepAuditLoop`, its ReviewPack builders, and PlanMode wiring.
+
+``StepAuditLoop`` is the expert-audit dual of ``RepairLoop``: build a
+``ReviewPack``, then branch on the auto / soft / hard policy. The pack builders
+(``review_pack_builders``) are the deterministic ReviewPack sources PlanMode's
+step-2 / step-8 loops consume; they have no dedicated test module, so their
+contract lives here.
+"""
 
 from __future__ import annotations
 
@@ -73,8 +80,8 @@ def env(tmp_path: Path) -> _Env:
     return _Env(tmp_path)
 
 
-class TestStepAuditPolicies:
-    async def test_auto_approves_without_pending(self, env: _Env) -> None:
+class TestStepAuditLoop:
+    async def test_auto_policy_approves_and_emits_audit_events(self, env: _Env) -> None:
         loop = StepAuditLoop(
             name="approve_experiment_spec",
             subject_kind="experiment_spec",
@@ -91,7 +98,7 @@ class TestStepAuditPolicies:
         assert "approval_requested" in types
         assert "approval_granted" in types
 
-    async def test_soft_persists_pack_without_pending(self, env: _Env) -> None:
+    async def test_soft_policy_persists_pack_without_pending(self, env: _Env) -> None:
         loop = StepAuditLoop(
             name="soft_audit",
             subject_kind="experiment_spec",
@@ -103,7 +110,7 @@ class TestStepAuditPolicies:
         assert ref.kind == "review_pack"
         assert env.approval_store.pending(_RUN_ID) == []
 
-    async def test_hard_suspends_when_no_approver(self, env: _Env) -> None:
+    async def test_hard_policy_suspends_when_no_approver(self, env: _Env) -> None:
         loop = StepAuditLoop(
             name="approve_experiment_spec",
             subject_kind="experiment_spec",
@@ -119,7 +126,7 @@ class TestStepAuditPolicies:
         [pending] = env.approval_store.pending(_RUN_ID)
         assert pending.id == "req-audit-1"
 
-    async def test_hard_grant_via_live_approver(self, env: _Env) -> None:
+    async def test_hard_policy_grants_via_live_approver(self, env: _Env) -> None:
         loop = StepAuditLoop(
             name="approve_experiment_spec",
             subject_kind="experiment_spec",
@@ -134,7 +141,7 @@ class TestStepAuditPolicies:
         grant = env.approval_store.granted_decision_for("req-audit-1")
         assert grant is not None and grant.granted is True
 
-    async def test_hard_grant_after_stored_decision(self, env: _Env) -> None:
+    async def test_hard_policy_grants_from_stored_decision(self, env: _Env) -> None:
         request = _request()
         env.approval_store.record_pending(_RUN_ID, request)
         env.approval_store.record_decision(
@@ -158,7 +165,7 @@ class TestStepAuditPolicies:
         ref = await loop.run(env.ctx)
         assert ref.kind == "spec_approval"
 
-    async def test_missing_subject_raises(self, env: _Env) -> None:
+    async def test_missing_subject_raises_stage_execution_error(self, env: _Env) -> None:
         loop = StepAuditLoop(
             name="x",
             subject_kind="workflow_source",
@@ -170,14 +177,14 @@ class TestStepAuditPolicies:
             await loop.run(env.ctx)
 
 
-class TestPackBuilders:
-    def test_experiment_spec_builder(self, env: _Env) -> None:
+class TestReviewPackBuilders:
+    def test_experiment_spec_pack_is_hard_review_over_the_spec(self, env: _Env) -> None:
         pack = build_experiment_spec_review_pack(env.ctx)
         assert pack.step_id == "draft_spec"
         assert pack.policy == "hard"
         assert pack.subject_refs
 
-    def test_plan_builder_prefers_execution_result(self, env: _Env) -> None:
+    def test_plan_pack_prefers_execution_result_over_workflow_source(self, env: _Env) -> None:
         env.artifacts.put_json(
             kind="workflow_source",
             obj={"module_name": "wf", "source": "pass"},
@@ -196,41 +203,16 @@ class TestPackBuilders:
 
 
 class TestPlanModeWiring:
-    def test_step2_and_step8_are_step_audit_loops(self) -> None:
-        from molexp.harness import PlanMode
+    def test_step_audit_loops_replace_only_the_spec_and_plan_gates(self) -> None:
+        """Step 2 / step 8 became StepAuditLoops; the execute-tail gate stays an ApprovalGate.
 
-        stages = {s.name: s for s in PlanMode().stages("draft")}
-        assert isinstance(stages["approve_experiment_spec"], StepAuditLoop)
-        assert isinstance(stages["approve_plan"], StepAuditLoop)
-        # Policy is constructor-only; name + type pin the PlanMode migration.
-        assert stages["approve_experiment_spec"].name == "approve_experiment_spec"
-        assert stages["approve_plan"].name == "approve_plan"
-
-    def test_execute_tail_still_uses_approval_gate(self) -> None:
+        The nine-step name sequence itself is owned by
+        ``test_plan_mode.py::TestPlanModeShape``.
+        """
         from molexp.harness import PlanMode
 
         stages = {s.name: s for s in PlanMode(execute=True).stages("draft")}
+        assert isinstance(stages["approve_experiment_spec"], StepAuditLoop)
+        assert isinstance(stages["approve_plan"], StepAuditLoop)
         assert isinstance(stages["approve_execution"], ApprovalGate)
         assert not isinstance(stages["approve_execution"], StepAuditLoop)
-
-    def test_nine_step_name_sequence_unchanged(self) -> None:
-        from molexp.harness import PlanMode
-
-        names = [s.name for s in PlanMode().stages("draft")]
-        assert names == [
-            "save_user_plan",
-            "assemble_knowledge_context",
-            "generate_experiment_report",
-            "generate_experiment_spec",
-            "approve_experiment_spec",
-            "resolve_capabilities",
-            "extract_workflow_ir",
-            "bind_molcrafts_tasks",
-            "sequential_task_build",
-            "validate_workflow_source",
-            "review_plan",
-            "generate_input_set",
-            "compile_workflow",
-            "approve_plan",
-            "generate_execution_report",
-        ]

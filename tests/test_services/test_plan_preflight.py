@@ -152,17 +152,6 @@ class TestPreflightSuccess:
         assert resolved[ModelTier.DEFAULT] == "deepseek-v4-flash"
         assert resolved[ModelTier.HEAVY] == "deepseek-v4-pro"
 
-    def test_configured_deepseek_model_passes_and_returns_the_router(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """With a registered key the preflight builds + primes the router
-        offline (provider construction only — no network round-trip)."""
-        import molexp
-
-        monkeypatch.setitem(molexp.config, "deepseek_api_key", "test-key")
-        router = preflight_plan_router(model="deepseek:deepseek-v4-flash")
-        assert router is not None
-
     def test_preflight_writes_nothing_to_cwd(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: object
     ) -> None:

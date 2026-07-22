@@ -41,9 +41,9 @@ class TestRunSetContainer:
         assert len(summary) == 4
         assert all(rec["status"] == "pending" for rec in summary.to_records())
 
-    def test_execute_without_workflow_layer_errors_clearly(self, tmp_path: Path) -> None:
+    def test_execute_without_workflow_layer_fails_fast(self, tmp_path: Path) -> None:
         """Without ``import molexp.workflow`` the executor seam is unwired;
-        RunSet.execute must fail fast with guidance, never fall back."""
+        ``RunSet.execute`` must fail fast with guidance, never fall back."""
         code = (
             "import sys\n"
             "from molexp.workspace import GridSpace, Workspace\n"
@@ -58,23 +58,6 @@ class TestRunSetContainer:
             "    assert 'workflow' in str(exc), str(exc)\n"
             "else:\n"
             "    raise SystemExit('RunSet.execute did not fail fast')\n"
-        )
-        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-        assert result.returncode == 0, result.stderr or result.stdout
-
-    def test_run_execute_without_workflow_layer_errors_clearly(self, tmp_path: Path) -> None:
-        code = (
-            "import sys\n"
-            "from molexp.workspace import Workspace\n"
-            "assert 'molexp.workflow' not in sys.modules\n"
-            f"ws = Workspace(root={str(tmp_path / 'ws3')!r}, name='lab')\n"
-            "run = ws.add_project('p').add_experiment('e').add_run(params={'x': 1})\n"
-            "try:\n"
-            "    run.execute(object())\n"
-            "except RuntimeError as exc:\n"
-            "    assert 'workflow' in str(exc), str(exc)\n"
-            "else:\n"
-            "    raise SystemExit('Run.execute did not fail fast')\n"
         )
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr or result.stdout

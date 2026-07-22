@@ -1,41 +1,26 @@
 """Tests for the side-effect approval gate (workspace-curation-toolset, link 03).
 
-Contract under test (RED — the helpers + the ``InvokeCapability(approve=...)``
-keyword do not exist yet, so this module fails at *import/collection* until the
-production code lands):
+Covers the three surfaces of the side-effect gate, all harness-owned:
 
-- :func:`molexp.harness.make_side_effect_approval_requests` (pure) derives one
-  :class:`~molexp.harness.schemas.approval.ApprovalRequest` per item carrying a
-  NON-EMPTY ``side_effects`` list, reusing the existing ``"overwrite"``
-  :data:`~molexp.harness.schemas.approval.ApprovalIntent` (no schema change),
-  tagged ``triggered_by_policy == "side_effects_present"``, with deduped +
-  sorted side effects in ``metadata``. Read-only items emit nothing.
-- :func:`molexp.harness.enforce_side_effect_approvals` (async) is a true
+- :func:`molexp.harness.policy.make_side_effect_approval_requests` (pure) derives
+  one :class:`ApprovalRequest` per item carrying a NON-EMPTY ``side_effects``
+  list, reusing the existing ``"overwrite"`` intent, tagged
+  ``triggered_by_policy == "side_effects_present"``, with deduped + sorted side
+  effects in ``metadata``. Read-only items emit nothing.
+- :func:`molexp.harness.policy.enforce_side_effect_approvals` (async) is a true
   bypass when no item declares a side effect (returns ``None``, runs no gate,
   persists no artifact); otherwise it drives an :class:`ApprovalGate`
   (``result_kind="side_effect_approval"``) and lets a denial's
   :class:`StageExecutionError` propagate unwrapped.
-- :class:`molexp.harness.InvokeCapability` gains a keyword-only ``approve``
-  param that interposes the gate AFTER capability resolution and BEFORE any
-  dispatch/persistence: a denied destructive capability never reaches the
-  executor (no ``capability_invocation_result``), while a read-only capability
-  bypasses the gate entirely and dispatches normally.
+- :class:`InvokeCapability` (with keyword-only ``approve``) interposes the gate
+  AFTER capability resolution and BEFORE any dispatch: a denied destructive
+  capability never reaches the executor (no ``capability_invocation_result``),
+  while a read-only capability bypasses the gate entirely and dispatches.
 
-Async style: this module mirrors ``test_invoke_capability_stage.py`` and
-``test_phase09_executors_and_approval.py`` — plain ``def test_*`` functions
-that drive coroutines through :func:`asyncio.run` (no ``pytest.mark.asyncio``).
-
-Pre-persist guarantees (ac-007) are asserted by calling ``stage.run(ctx)``
-DIRECTLY rather than through ``run_stage_bracketed`` so the typed
-``StageExecutionError`` raised by the gate propagates unwrapped, exactly as it
-would in the bracket's plain-exception arm (see
-``test_stage_bracket.py::test_bracket_plain_failure_wraps_in_stage_execution_error``).
-
-BoundTask decision (reported to caller): a real
-:class:`molexp.harness.schemas.bound_workflow.BoundTask` is cheap to build
-(``parameters`` / ``inputs`` / ``outputs`` accept empty dicts), so ac-003 uses
-a genuine ``BoundTask`` — the strongest "handled identically" assertion — and
-no local stub is needed.
+Async style mirrors ``test_invoke_capability_stage.py``: plain ``def test_*``
+driving coroutines through :func:`asyncio.run`. Pre-persist guarantees are
+asserted by calling ``stage.run(ctx)`` DIRECTLY so the typed
+``StageExecutionError`` propagates unwrapped.
 """
 
 from __future__ import annotations
@@ -118,10 +103,7 @@ def _make_ctx(
     registry: CapabilityRegistry | None = None,
     run_id: str = "run-side-effect",
 ) -> HarnessRunContext:
-    """Build a fresh ``HarnessRunContext`` backed by isolated on-disk stores.
-
-    Mirrors the ``_make_ctx`` helper in ``test_invoke_capability_stage.py``.
-    """
+    """Build a fresh ``HarnessRunContext`` backed by isolated on-disk stores."""
     db_path = root / "events.sqlite"
     artifacts = FileArtifactStore(root=root / "artifacts")
     events = SQLiteEventLog(path=db_path)
@@ -156,154 +138,127 @@ _DENYING_APPROVER: Approver = denying_approver
 @pytest.fixture()
 def subprocess_can_import_fixtures(monkeypatch: pytest.MonkeyPatch) -> None:
     """Seed ``PYTHONPATH`` with the repo root so a ``LocalExecutor`` subprocess
-    can ``import tests.test_harness._capability_fixtures`` (copied from
-    ``test_invoke_capability_stage.py``)."""
+    can ``import tests.test_harness._capability_fixtures``."""
     existing = os.environ.get("PYTHONPATH", "")
     combined = str(_REPO_ROOT) + (os.pathsep + existing if existing else "")
     monkeypatch.setenv("PYTHONPATH", combined)
 
 
-# ──────────────────────────────────── ac-002 · pure derivation, destructive cap
-# Category: basics + domain validation (the exact request shape the gate gates on).
+class TestMakeSideEffectApprovalRequests:
+    def test_destructive_capability_yields_one_overwrite_request(self) -> None:
+        """A destructive capability emits exactly one fully-specified ``overwrite`` request."""
+        cap = _make_capability(id_="cap.delete", side_effects=["delete", "write"])
+
+        requests = make_side_effect_approval_requests([cap])
+
+        assert len(requests) == 1
+        (request,) = requests
+        assert request.intent == "overwrite"
+        assert request.triggered_by_policy == "side_effects_present"
+        assert cap.id in request.reason
+        assert request.metadata == {
+            "capability_id": cap.id,
+            "side_effects": ["delete", "write"],
+        }
+
+    def test_mixed_items_emit_only_for_destructive_with_dedup_sorted_metadata(self) -> None:
+        """Across a mixed list, only the destructive items (caps + a real ``BoundTask``)
+        emit requests, each with deduped + sorted ``side_effects`` metadata."""
+        ro1 = _make_capability(id_="cap.ro1", side_effects=[])
+        ro2 = _make_capability(id_="cap.ro2", side_effects=[])
+        d1 = _make_capability(id_="cap.d1", side_effects=["delete"])
+        # Duplicate + unsorted on purpose: exercises sorted(set(...)).
+        d2 = _make_capability(id_="cap.d2", side_effects=["write", "delete", "write"])
+        bound = _make_bound_task(id_="task.d3", side_effects=["network", "delete"])
+        items: list[ToolCapability | BoundTask] = [ro1, d1, ro2, d2, bound]
+
+        requests = make_side_effect_approval_requests(items)
+
+        assert len(requests) == 3  # exactly the destructive item count
+        by_id = {r.metadata["capability_id"]: r for r in requests}
+        assert set(by_id) == {"cap.d1", "cap.d2", "task.d3"}  # both read-only omitted
+        assert by_id["cap.d2"].metadata["side_effects"] == ["delete", "write"]
+        assert by_id["task.d3"].metadata["side_effects"] == ["delete", "network"]
+        # The BoundTask is handled identically to a ToolCapability.
+        assert by_id["task.d3"].intent == "overwrite"
+        assert by_id["task.d3"].triggered_by_policy == "side_effects_present"
 
 
-def test_destructive_capability_yields_one_overwrite_request() -> None:
-    """A destructive capability emits exactly one fully-specified ``overwrite`` request."""
-    cap = _make_capability(id_="cap.delete", side_effects=["delete", "write"])
+class TestEnforceSideEffectApprovals:
+    def test_bypasses_when_no_side_effects(self, tmp_path: Path) -> None:
+        """With no side-effecting items the call returns ``None`` and persists nothing."""
+        cap = _make_capability(id_="cap.ro", side_effects=[])
+        ctx = _make_ctx(tmp_path)
 
-    requests = make_side_effect_approval_requests([cap])
+        result = asyncio.run(enforce_side_effect_approvals([cap], ctx=ctx))
 
-    assert len(requests) == 1
-    (request,) = requests
-    assert request.intent == "overwrite"
-    assert request.triggered_by_policy == "side_effects_present"
-    assert cap.id in request.reason
-    assert request.metadata == {
-        "capability_id": cap.id,
-        "side_effects": ["delete", "write"],
-    }
+        assert result is None
+        assert ctx.artifact_store.list_by_kind("side_effect_approval") == []
 
+    def test_raises_and_logs_request_then_rejection_on_denial(self, tmp_path: Path) -> None:
+        """A denied destructive item raises ``StageExecutionError`` and the event log
+        records ``approval_requested`` before ``approval_rejected``."""
+        cap = _make_capability(id_="cap.del", side_effects=["delete"])
+        ctx = _make_ctx(tmp_path)
 
-# ──────────────────────────────── ac-003 · pure derivation, mixed list + BoundTask
-# Category: edge cases + integration (read-only omitted; dedup+sort; BoundTask parity).
+        with pytest.raises(StageExecutionError):
+            asyncio.run(enforce_side_effect_approvals([cap], ctx=ctx, approve=_DENYING_APPROVER))
 
+        types = [e.type for e in ctx.event_log.list_events(ctx.run_id)]
+        assert "approval_requested" in types
+        assert "approval_rejected" in types
+        assert types.index("approval_requested") < types.index("approval_rejected")
 
-def test_mixed_items_emit_only_for_destructive_with_dedup_sorted_metadata() -> None:
-    """Across a mixed list, only the destructive items (caps + a real ``BoundTask``)
-    emit requests, each with deduped + sorted ``side_effects`` metadata."""
-    ro1 = _make_capability(id_="cap.ro1", side_effects=[])
-    ro2 = _make_capability(id_="cap.ro2", side_effects=[])
-    d1 = _make_capability(id_="cap.d1", side_effects=["delete"])
-    # Duplicate + unsorted on purpose: exercises sorted(set(...)).
-    d2 = _make_capability(id_="cap.d2", side_effects=["write", "delete", "write"])
-    bound = _make_bound_task(id_="task.d3", side_effects=["network", "delete"])
-    items: list[ToolCapability | BoundTask] = [ro1, d1, ro2, d2, bound]
+    def test_returns_side_effect_approval_artifact_on_grant(self, tmp_path: Path) -> None:
+        """An auto-granted destructive item yields a ``side_effect_approval`` ``PlanArtifactRef``."""
+        cap = _make_capability(id_="cap.del", side_effects=["delete"])
+        ctx = _make_ctx(tmp_path)
 
-    requests = make_side_effect_approval_requests(items)
+        ref = asyncio.run(
+            enforce_side_effect_approvals([cap], ctx=ctx, approve=auto_grant_approver)
+        )
 
-    assert len(requests) == 3  # exactly the destructive item count
-    by_id = {r.metadata["capability_id"]: r for r in requests}
-    assert set(by_id) == {"cap.d1", "cap.d2", "task.d3"}  # both read-only omitted
-    assert by_id["cap.d2"].metadata["side_effects"] == ["delete", "write"]
-    assert by_id["task.d3"].metadata["side_effects"] == ["delete", "network"]
-    # The BoundTask is handled identically to a ToolCapability.
-    assert by_id["task.d3"].intent == "overwrite"
-    assert by_id["task.d3"].triggered_by_policy == "side_effects_present"
+        assert ref is not None
+        assert isinstance(ref, PlanArtifactRef)
+        assert ref.kind == "side_effect_approval"
 
 
-# ────────────────────────────────────────── ac-004 · runtime bypass (no side effects)
-# Category: lifecycle (true bypass: no gate, no artifact, returns None).
+class TestInvokeCapabilitySideEffectGate:
+    def test_destructive_capability_denied_never_dispatches(self, tmp_path: Path) -> None:
+        """A destructive ``InvokeCapability`` with a denying approver aborts before the
+        executor runs — no ``capability_invocation_result`` is ever persisted."""
+        cap = _make_capability(id_="cap.del", callable_path=_ECHO_PATH, side_effects=["delete"])
+        ctx = _make_ctx(tmp_path, registry=InMemoryCapabilityRegistry([cap]))
+        stage = InvokeCapability(
+            "cap.del",
+            {"message": "hi"},
+            executor=LocalExecutor(),
+            approve=_DENYING_APPROVER,
+        )
 
+        with pytest.raises(StageExecutionError):
+            asyncio.run(stage.run(ctx))
 
-def test_enforce_bypasses_when_no_side_effects(tmp_path: Path) -> None:
-    """With no side-effecting items the call returns ``None`` and persists nothing."""
-    cap = _make_capability(id_="cap.ro", side_effects=[])
-    ctx = _make_ctx(tmp_path)
+        assert ctx.artifact_store.list_by_kind("capability_invocation_result") == []
 
-    result = asyncio.run(enforce_side_effect_approvals([cap], ctx=ctx))
+    def test_read_only_capability_bypasses_gate_and_dispatches(
+        self,
+        tmp_path: Path,
+        subprocess_can_import_fixtures: None,
+    ) -> None:
+        """A read-only ``InvokeCapability`` bypasses the gate (a denier never fires) and
+        dispatches normally, persisting a succeeded ``capability_invocation_result``."""
+        cap = _make_capability(id_="cap.echo", callable_path=_ECHO_PATH, side_effects=[])
+        ctx = _make_ctx(tmp_path, registry=InMemoryCapabilityRegistry([cap]))
+        stage = InvokeCapability(
+            "cap.echo",
+            {"message": "hi"},
+            executor=LocalExecutor(),
+            approve=_DENYING_APPROVER,
+        )
 
-    assert result is None
-    assert ctx.artifact_store.list_by_kind("side_effect_approval") == []
+        ref = asyncio.run(stage.run(ctx))
 
-
-# ─────────────────────────────────────────────── ac-005 · runtime denial propagates
-# Category: edge case + integration (denial raises; both audit events logged in order).
-
-
-def test_enforce_raises_and_logs_request_then_rejection_on_denial(tmp_path: Path) -> None:
-    """A denied destructive item raises ``StageExecutionError`` and the event log
-    records ``approval_requested`` before ``approval_rejected``."""
-    cap = _make_capability(id_="cap.del", side_effects=["delete"])
-    ctx = _make_ctx(tmp_path)
-
-    with pytest.raises(StageExecutionError):
-        asyncio.run(enforce_side_effect_approvals([cap], ctx=ctx, approve=_DENYING_APPROVER))
-
-    types = [e.type for e in ctx.event_log.list_events(ctx.run_id)]
-    assert "approval_requested" in types
-    assert "approval_rejected" in types
-    assert types.index("approval_requested") < types.index("approval_rejected")
-
-
-# ──────────────────────────────────────────── ac-006 · runtime grant returns summary
-# Category: basics (granted gate persists a kind-tagged summary PlanArtifactRef).
-
-
-def test_enforce_returns_side_effect_approval_artifact_on_grant(tmp_path: Path) -> None:
-    """An auto-granted destructive item yields a ``side_effect_approval`` ``PlanArtifactRef``."""
-    cap = _make_capability(id_="cap.del", side_effects=["delete"])
-    ctx = _make_ctx(tmp_path)
-
-    ref = asyncio.run(enforce_side_effect_approvals([cap], ctx=ctx, approve=auto_grant_approver))
-
-    assert ref is not None
-    assert isinstance(ref, PlanArtifactRef)
-    assert ref.kind == "side_effect_approval"
-
-
-# ──────────────────────────────────────── ac-007 · InvokeCapability wiring, denied
-# Category: integration (destructive + denier → never dispatched, no result artifact).
-
-
-def test_destructive_capability_denied_never_dispatches(tmp_path: Path) -> None:
-    """A destructive ``InvokeCapability`` with a denying approver aborts before the
-    executor runs — no ``capability_invocation_result`` is ever persisted."""
-    cap = _make_capability(id_="cap.del", callable_path=_ECHO_PATH, side_effects=["delete"])
-    ctx = _make_ctx(tmp_path, registry=InMemoryCapabilityRegistry([cap]))
-    stage = InvokeCapability(
-        "cap.del",
-        {"message": "hi"},
-        executor=LocalExecutor(),
-        approve=_DENYING_APPROVER,
-    )
-
-    with pytest.raises(StageExecutionError):
-        asyncio.run(stage.run(ctx))
-
-    assert ctx.artifact_store.list_by_kind("capability_invocation_result") == []
-
-
-# ────────────────────────────────────── ac-007 · InvokeCapability wiring, read-only
-# Category: integration (read-only bypasses the gate even with a denier; dispatches).
-
-
-def test_read_only_capability_bypasses_gate_and_dispatches(
-    tmp_path: Path,
-    subprocess_can_import_fixtures: None,
-) -> None:
-    """A read-only ``InvokeCapability`` bypasses the gate (a denier never fires) and
-    dispatches normally, persisting a succeeded ``capability_invocation_result``."""
-    cap = _make_capability(id_="cap.echo", callable_path=_ECHO_PATH, side_effects=[])
-    ctx = _make_ctx(tmp_path, registry=InMemoryCapabilityRegistry([cap]))
-    stage = InvokeCapability(
-        "cap.echo",
-        {"message": "hi"},
-        executor=LocalExecutor(),
-        approve=_DENYING_APPROVER,
-    )
-
-    ref = asyncio.run(stage.run(ctx))
-
-    assert ref.kind == "capability_invocation_result"
-    result = CapabilityInvocationResult.model_validate_json(ctx.artifact_store.get(ref.id))
-    assert result.status == "succeeded"
+        assert ref.kind == "capability_invocation_result"
+        result = CapabilityInvocationResult.model_validate_json(ctx.artifact_store.get(ref.id))
+        assert result.status == "succeeded"

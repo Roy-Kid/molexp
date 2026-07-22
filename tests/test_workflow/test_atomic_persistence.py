@@ -1,12 +1,9 @@
-"""Workflow persistence routes through ``workspace.atomic_write_json``.
+"""Invariant lock: workflow persistence routes through ``workspace.atomic_write_json``.
 
-Phase 2 of the rectification spec moved workflow-state writes off raw
-``tmp.write_text`` + ``tmp.replace`` and onto workspace's public
-``atomic_write_json``. This test verifies the wiring at the source —
-the persistence module imports the workspace helper and uses it for
-``workflow.json``. (Hardening P1-2 reduced the module to a single
-``write_initial_workflow_json`` function; the atomic-write guarantee is
-unchanged.)
+The CLAUDE.md atomic-persistence law requires workflow-layer JSON writes to go
+through workspace's public ``atomic_write_json`` (temp-file + ``os.rename``),
+never raw ``tmp.write_text`` + ``tmp.replace``. This source scan pins that wiring
+in ``_engine.persistence.write_initial_workflow_json``.
 """
 
 from __future__ import annotations

@@ -1,10 +1,11 @@
-"""Tests for the derived bundle index + search.
+"""Tests for the derived bundle index + its index-level search filters.
 
 ``Bundle.build_index()`` rolls the whole Concept tree (``meta.yaml`` +
 markdown-link graph) into a :class:`BundleIndex` and writes two *derived*
 siblings at the bundle root — ``index.json`` (machine) + ``INDEX.md``
-(human/agent). ``search()`` filters that index by type / tag / text. Neither
-file is a source of truth; both are rebuilt on demand.
+(human/agent). Neither file is a source of truth; both are rebuilt on demand.
+``search()``'s index-level filters (type / tag / text AND semantics, rebuild)
+live here; its body-aware retrieval is owned by ``test_bundle_search.py``.
 """
 
 from __future__ import annotations
@@ -34,99 +35,91 @@ def _concept(name: str, root_path: Path) -> Folder:
     return folder
 
 
-# ── build_index (ac-008) ──────────────────────────────────────────────────────
+class TestBuildIndex:
+    """``Bundle.build_index`` — the derived, rebuildable rollup."""
+
+    def test_entries_equal_walk_set_with_typed_rows(self, tmp_path: Path) -> None:
+        root = _hierarchy(tmp_path)
+        b = Bundle(root)
+        idx = b.build_index(now=FIXED)
+        assert {e.path for e in idx.entries} == {b.rel_path(f) for f in b.walk()}
+        by_path = {e.path: e for e in idx.entries}
+        assert by_path["lab"].type == "workspace.root"
+        assert by_path["lab/projects/p/experiments/e/runs/run-r"].type == "workspace.run"
+
+    def test_writes_derived_siblings_not_mistaken_for_concepts(self, tmp_path: Path) -> None:
+        root = _hierarchy(tmp_path)
+        b = Bundle(root)
+        b.build_index(now=FIXED)
+        assert (root / INDEX_JSON_FILENAME).is_file()
+        assert (root / INDEX_MD_FILENAME).is_file()
+        md = (root / INDEX_MD_FILENAME).read_text()
+        assert "lab/projects/p" in md
+        # the derived files are not mistaken for concepts
+        assert all(not b.rel_path(f).endswith(".json") for f in b.walk())
+        assert all(not b.rel_path(f).endswith(".md") for f in b.walk())
+
+    def test_title_from_h1_else_name_and_resolves_links(self, tmp_path: Path) -> None:
+        root = tmp_path / "bundle"
+        root.mkdir()
+        a = _concept("alpha", root)
+        b_concept = _concept("beta", root)
+        a.write_index("# Alpha Title\n\nbody\n- [to-b](../beta)\n")
+        bundle = Bundle(root)
+        idx = bundle.build_index(now=FIXED)
+        by_path = {e.path: e for e in idx.entries}
+        assert by_path["alpha"].title == "Alpha Title"
+        assert by_path["beta"].title == "beta"  # no H1 → concept name
+        assert by_path["beta"].path == bundle.rel_path(b_concept)
+        # link resolves to beta as bundle-relative posix
+        assert "beta" in by_path["alpha"].links
+
+    def test_rebuild_restores_deleted_siblings(self, tmp_path: Path) -> None:
+        root = _hierarchy(tmp_path)
+        b = Bundle(root)
+        b.build_index(now=FIXED)
+        (root / INDEX_JSON_FILENAME).unlink()
+        (root / INDEX_MD_FILENAME).unlink()
+        b.build_index(now=FIXED)
+        assert (root / INDEX_JSON_FILENAME).is_file()
+        assert (root / INDEX_MD_FILENAME).is_file()
 
 
-def test_build_index_entries_equal_walk_set(tmp_path: Path) -> None:
-    root = _hierarchy(tmp_path)
-    b = Bundle(root)
-    idx = b.build_index(now=FIXED)
-    assert {e.path for e in idx.entries} == {b.rel_path(f) for f in b.walk()}
-    by_path = {e.path: e for e in idx.entries}
-    assert by_path["lab"].type == "workspace.root"
-    assert by_path["lab/projects/p/experiments/e/runs/run-r"].type == "workspace.run"
+class TestSearchFilters:
+    """``Bundle.search`` index-level filters + rebuild (body-aware match: see
+    ``test_bundle_search.py``)."""
 
+    def test_filter_by_type(self, tmp_path: Path) -> None:
+        b = Bundle(_hierarchy(tmp_path))
+        runs = b.search(concept_type="workspace.run")
+        assert [h.entry.path for h in runs.hits] == ["lab/projects/p/experiments/e/runs/run-r"]
+        assert runs.truncated is False
 
-def test_build_index_writes_derived_siblings(tmp_path: Path) -> None:
-    root = _hierarchy(tmp_path)
-    b = Bundle(root)
-    b.build_index(now=FIXED)
-    assert (root / INDEX_JSON_FILENAME).is_file()
-    assert (root / INDEX_MD_FILENAME).is_file()
-    md = (root / INDEX_MD_FILENAME).read_text()
-    assert "lab/projects/p" in md
-    # the derived files are not mistaken for concepts
-    assert all(not b.rel_path(f).endswith(".json") for f in b.walk())
-    assert all(not b.rel_path(f).endswith(".md") for f in b.walk())
+    def test_filter_by_tag(self, tmp_path: Path) -> None:
+        root = tmp_path / "bundle"
+        root.mkdir()
+        tagged = _concept("tagged", root)
+        # tags live in meta.yaml; write_meta() only stores type+id, so add tags directly
+        (Path(tagged.resolve()) / "meta.yaml").write_text(
+            "type: bundle.concept\nid: tagged\ntags:\n- important\n"
+        )
+        _concept("plain", root)
+        b = Bundle(root)
+        result = b.search(tag="important")
+        assert [h.entry.path for h in result.hits] == ["tagged"]
 
+    def test_text_and_type_use_and_semantics(self, tmp_path: Path) -> None:
+        b = Bundle(_hierarchy(tmp_path))
+        paths = {h.entry.path for h in b.search("p").hits}
+        assert {"lab/projects/p", "lab/projects/p/experiments/e"} <= paths
+        # AND: text + type
+        assert [h.entry.path for h in b.search("lab", concept_type="workspace.run").hits] == [
+            "lab/projects/p/experiments/e/runs/run-r"
+        ]
 
-def test_build_index_title_from_h1_else_name_and_links(tmp_path: Path) -> None:
-    root = tmp_path / "bundle"
-    root.mkdir()
-    a = _concept("alpha", root)
-    b_concept = _concept("beta", root)
-    a.write_index("# Alpha Title\n\nbody\n- [to-b](../beta)\n")
-    bundle = Bundle(root)
-    idx = bundle.build_index(now=FIXED)
-    by_path = {e.path: e for e in idx.entries}
-    assert by_path["alpha"].title == "Alpha Title"
-    assert by_path["beta"].title == "beta"  # no H1 → concept name
-    assert by_path["beta"].path == bundle.rel_path(b_concept)
-    # link resolves to beta as bundle-relative posix
-    assert "beta" in by_path["alpha"].links
-
-
-# ── search (ac-009) ───────────────────────────────────────────────────────────
-
-
-def test_search_by_type(tmp_path: Path) -> None:
-    b = Bundle(_hierarchy(tmp_path))
-    runs = b.search(concept_type="workspace.run")
-    assert [h.entry.path for h in runs.hits] == ["lab/projects/p/experiments/e/runs/run-r"]
-    assert runs.truncated is False
-
-
-def test_search_by_tag(tmp_path: Path) -> None:
-    root = tmp_path / "bundle"
-    root.mkdir()
-    tagged = _concept("tagged", root)
-    # tags live in meta.yaml; write_meta() only stores type+id, so add tags directly
-    (Path(tagged.resolve()) / "meta.yaml").write_text(
-        "type: bundle.concept\nid: tagged\ntags:\n- important\n"
-    )
-    _concept("plain", root)
-    b = Bundle(root)
-    result = b.search(tag="important")
-    assert [h.entry.path for h in result.hits] == ["tagged"]
-
-
-def test_search_by_text_and_and_semantics(tmp_path: Path) -> None:
-    b = Bundle(_hierarchy(tmp_path))
-    paths = {h.entry.path for h in b.search("p").hits}
-    assert {"lab/projects/p", "lab/projects/p/experiments/e"} <= paths
-    # AND: text + type
-    assert [h.entry.path for h in b.search("lab", concept_type="workspace.run").hits] == [
-        "lab/projects/p/experiments/e/runs/run-r"
-    ]
-
-
-def test_search_rebuild_reflects_new_concept(tmp_path: Path) -> None:
-    root = _hierarchy(tmp_path)
-    b = Bundle(root)
-    b.build_index(now=FIXED)
-    Workspace(root=root / "lab").add_project("q")
-    assert any(h.entry.path == "lab/projects/q" for h in b.search(rebuild=True).hits)
-
-
-# ── derived / rebuildable (ac-008) ────────────────────────────────────────────
-
-
-def test_rebuild_restores_deleted_siblings(tmp_path: Path) -> None:
-    root = _hierarchy(tmp_path)
-    b = Bundle(root)
-    b.build_index(now=FIXED)
-    (root / INDEX_JSON_FILENAME).unlink()
-    (root / INDEX_MD_FILENAME).unlink()
-    b.build_index(now=FIXED)
-    assert (root / INDEX_JSON_FILENAME).is_file()
-    assert (root / INDEX_MD_FILENAME).is_file()
+    def test_rebuild_reflects_new_concept(self, tmp_path: Path) -> None:
+        root = _hierarchy(tmp_path)
+        b = Bundle(root)
+        b.build_index(now=FIXED)
+        Workspace(root=root / "lab").add_project("q")
+        assert any(h.entry.path == "lab/projects/q" for h in b.search(rebuild=True).hits)

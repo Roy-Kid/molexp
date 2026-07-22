@@ -1,16 +1,8 @@
-"""Tests for validate_bound_workflow (Phase 3 §11.3, structural-only).
+"""Structural (Phase 3) checks of ``BoundWorkflowValidator`` — one per code.
 
-One unit test per failure code. Baseline pair (ir, bw) maps `t1`→`b1` and
-`t2`→`b2` with a single edge `b1`→`b2`.
-
-Codes:
-- unknown_ir_task (error)
-- duplicate_ir_task_binding (error)
-- input_key_mismatch (error)
-- output_key_mismatch (error)
-- allowed_path_outside_workspace (error)
-- missing_baseline_deny (error)
-- edge_topology_mismatch (error)
+Baseline pair (ir, bw) maps ``t1``→``b1`` and ``t2``→``b2`` with a single edge
+``b1``→``b2``. Each violation code gets exactly one test; the capability-aware
+(registry) checks live in ``test_bound_workflow_validator_capability.py``.
 """
 
 from __future__ import annotations
@@ -103,9 +95,7 @@ def _codes(report) -> list[str]:
 
 
 class TestBoundWorkflowValidator:
-    # ---------------------------------------------------------------- baseline
-
-    def test_baseline_pair_is_clean(self, tmp_path: Path) -> None:
+    def test_baseline_pair_passes_clean(self, tmp_path: Path) -> None:
         from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
         ir, bw = _baseline()
@@ -114,8 +104,6 @@ class TestBoundWorkflowValidator:
         assert report.violations == []
         assert report.target_kind == "bound_workflow"
         assert report.target_id == "bw-001"
-
-    # --------------------------------------------------------------- violations
 
     def test_unknown_ir_task(self, tmp_path: Path) -> None:
         from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
@@ -154,17 +142,8 @@ class TestBoundWorkflowValidator:
         report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path)
         assert "output_key_mismatch" in _codes(report)
 
-    def test_allowed_path_outside_workspace_absolute(self, tmp_path: Path) -> None:
-        from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
-
-        ir, bw = _baseline()
-        bad_policy = bw.resource_policy.model_copy(update={"allowed_paths": ["/etc/passwd"]})
-        bw = bw.model_copy(update={"resource_policy": bad_policy})
-        report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path)
-        assert "allowed_path_outside_workspace" in _codes(report)
-
-    def test_allowed_path_outside_workspace_relative_escapes(self, tmp_path: Path) -> None:
-        """A relative path that resolves outside workspace must fail."""
+    def test_allowed_path_escaping_workspace_fails(self, tmp_path: Path) -> None:
+        """A relative path that resolves outside the workspace must fail."""
         from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
         ir, bw = _baseline()
@@ -174,7 +153,7 @@ class TestBoundWorkflowValidator:
         assert "allowed_path_outside_workspace" in _codes(report)
 
     def test_allowed_path_inside_workspace_is_clean(self, tmp_path: Path) -> None:
-        """A relative path inside workspace must NOT trigger the violation."""
+        """Boundary: a relative path inside the workspace must NOT trigger it."""
         from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
         ir, bw = _baseline()
@@ -183,7 +162,7 @@ class TestBoundWorkflowValidator:
         report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path)
         assert "allowed_path_outside_workspace" not in _codes(report)
 
-    def test_missing_baseline_deny_root(self, tmp_path: Path) -> None:
+    def test_missing_baseline_deny(self, tmp_path: Path) -> None:
         from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
         ir, bw = _baseline()

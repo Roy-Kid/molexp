@@ -66,20 +66,14 @@ class _CaptureToolsetsRouter:
 
 
 def _write_workspace_mcp(workspace: Path, *, name: str = "demo") -> None:
-    payload = {
-        "mcpServers": {
-            name: {"type": "stdio", "command": "python", "args": ["-c", "pass"]}
-        }
-    }
+    payload = {"mcpServers": {name: {"type": "stdio", "command": "python", "args": ["-c", "pass"]}}}
     (workspace / "mcp.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _isolate_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Point the store at an empty user home so no platform seed leaks in."""
     monkeypatch.setattr("molexp.agent.mcp.store.USER_DIR", tmp_path / "user_home")
-    monkeypatch.setattr(
-        "molexp.agent.mcp.defaults.seed_user_defaults", lambda *_a, **_k: False
-    )
+    monkeypatch.setattr("molexp.agent.mcp.defaults.seed_user_defaults", lambda *_a, **_k: False)
 
 
 class TestInteractiveLoopMcpWiring:
@@ -97,9 +91,7 @@ class TestInteractiveLoopMcpWiring:
             built.append(str(kwargs.get("name", "")))
             return sentinel
 
-        monkeypatch.setattr(
-            "molexp.agent._pydanticai.mcp.build_mcp_server", _fake_build_mcp_server
-        )
+        monkeypatch.setattr("molexp.agent._pydanticai.mcp.build_mcp_server", _fake_build_mcp_server)
         _isolate_store(monkeypatch, tmp_path)
         _write_workspace_mcp(tmp_path)
 

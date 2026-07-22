@@ -1,9 +1,15 @@
-"""Tests for workflow execution through the molexp scheduler.
+"""``WorkflowRuntime.execute`` — the runtime API contract.
 
-After the rectification, the runtime takes an opaque duck-typed
-``run_context`` payload and a ``Mapping[str, Any]`` config — never a
-``Workspace.Run`` or ``ProfileConfig``. The legacy ``run=`` kwarg is
-gone; ``run_dir=`` accepts a path directly.
+Post-rectification the runtime takes an opaque duck-typed ``run_context`` and a
+``Mapping[str, Any]`` config — never a ``Workspace.Run`` or ``ProfileConfig``
+(the legacy ``run=`` kwarg is gone; ``run_dir=`` accepts a path directly). This
+file owns that boundary: failure→status, run_context handling (duck-typed, never
+exposed on the public ``TaskContext``), executions materialization, the bare
+``Runnable`` protocol body, and the ``scratch_root``/``ctx.workdir`` contract.
+
+Graph topology (chains, diamonds, dict-merge binding, explicit parallelism) is
+owned by ``test_parallel`` / ``test_by_name_binding`` / ``test_values_on_edges``
+/ ``test_sync_tasks`` — not re-asserted here.
 """
 
 from __future__ import annotations
@@ -12,15 +18,14 @@ from pathlib import Path
 
 import pytest
 
-from molexp.workflow import Task, TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
 
 
 class _RunContextStub:
     """Minimal duck-typed ``run_context`` — what the runtime now requires.
 
-    Exposes ``.work_dir`` / ``.config`` / ``.run`` so the runtime can
-    extract a run dir and forward the value to ``TaskContext.run_context``.
-    No ``Workspace`` import.
+    Exposes ``.work_dir`` / ``.config`` / ``.run`` so the runtime can extract a
+    run dir and forward the value to its private channel. No ``Workspace`` import.
     """
 
     def __init__(
@@ -43,22 +48,8 @@ class _RunContextStub:
 
 
 @pytest.mark.asyncio
-class TestFunctionalExecution:
-    async def test_chain(self):
-        wf = WorkflowCompiler(name="chain")
-
-        @wf.task
-        async def step_a(ctx: TaskContext) -> int:
-            return 10
-
-        @wf.task(depends_on=["step_a"])
-        async def step_b(step_a: int) -> int:
-            return step_a + 5
-
-        result = await WorkflowRuntime().execute(wf.compile())
-        assert result.outputs == {"step_a": 10, "step_b": 15}
-
-    async def test_failure_propagates(self):
+class TestWorkflowRuntimeExecute:
+    async def test_task_failure_propagates_to_failed_status(self):
         wf = WorkflowCompiler(name="fail")
 
         @wf.task
@@ -67,6 +58,17 @@ class TestFunctionalExecution:
 
         result = await WorkflowRuntime().execute(wf.compile())
         assert result.status == "failed"
+
+    async def test_external_runnable_protocol_body_executes(self):
+        # A bare duck-typed body (no ``Task`` base — the ``Runnable`` protocol
+        # surface) added via ``.add`` executes and its return becomes the output.
+        class External:
+            async def execute(self, ctx) -> int:
+                return 99
+
+        spec = WorkflowCompiler(name="ext").add(External(), name="ext").compile()
+        result = await WorkflowRuntime().execute(spec)
+        assert result.outputs["ext"] == 99
 
     async def test_run_context_is_not_exposed_on_task_ctx(self, tmp_path):
         # Pure-task-context contract: run_context is NOT forwarded to the public
@@ -88,9 +90,9 @@ class TestFunctionalExecution:
         assert result.status == "succeeded"
         assert result.outputs["inspect"] is True
 
-    async def test_runtime_runs_with_duck_typed_run_context_no_workspace(self, tmp_path):
-        """Critical: runtime drives a workflow with a stub run_context that
-        has no Workspace ancestry whatsoever, and writes workflow.json under
+    async def test_duck_typed_run_context_needs_no_workspace_and_writes_executions(self, tmp_path):
+        """The runtime drives a workflow with a stub run_context that has no
+        Workspace ancestry whatsoever, and materializes workflow.json under
         run_dir/executions/<execution_id>/."""
         wf = WorkflowCompiler(name="duck")
 
@@ -106,103 +108,43 @@ class TestFunctionalExecution:
 
         executions = run_ctx.work_dir / "executions"
         assert executions.exists(), "runtime must materialize executions/ under run_dir"
-        # Find the workflow.json under the single execution.
         wf_jsons = list(executions.rglob("workflow.json"))
         assert wf_jsons, "workflow.json must be written under run_dir/executions/<id>/"
 
+    async def test_scratch_root_gives_every_task_a_workdir(self, tmp_path: Path) -> None:
+        """``scratch_root=`` closes the ctx.workdir contract for bare executions.
 
-@pytest.mark.asyncio
-class TestOOPExecution:
-    async def test_task_subclass(self):
-        class AddTen(Task):
-            async def execute(self, ctx: TaskContext, value: int = 0) -> int:
-                return value + 10
-
-        spec = WorkflowCompiler(name="oop").add(AddTen()).compile()
-        result = await WorkflowRuntime().execute(spec)
-        assert result.outputs["add_ten"] == 10
-
-
-@pytest.mark.asyncio
-class TestProtocolExecution:
-    async def test_external_runnable(self):
-        class External:
-            async def execute(self, ctx) -> int:
-                return 99
-
-        spec = WorkflowCompiler(name="ext").add(External(), name="ext").compile()
-        result = await WorkflowRuntime().execute(spec)
-        assert result.outputs["ext"] == 99
-
-
-@pytest.mark.asyncio
-class TestParallelExecution:
-    async def test_diamond_dependency(self):
-        wf = WorkflowCompiler(name="diamond")
+        A plan-materialized driver runs ``WorkflowRuntime().execute(compiled,
+        config=...)`` with NO tracked Run, but task bodies use ``ctx.workdir`` for
+        scratch files. ``scratch_root`` mounts the content-addressed materialization
+        store at an explicit location so ``ctx.workdir`` is never ``None``.
+        """
+        wf = WorkflowCompiler(name="scratch-demo")
 
         @wf.task
-        async def root():
-            return 1
+        async def write_report(ctx: TaskContext) -> dict:
+            assert ctx.workdir is not None
+            path = ctx.workdir / "report.json"
+            path.write_text("{}")
+            return {"report": str(path)}
 
-        # Single scalar upstream binds positionally to the sole free parameter.
-        @wf.task(depends_on=["root"])
-        async def left(root) -> dict:
-            return {"left": root + 10}
+        scratch = tmp_path / "scratch"
+        result = await WorkflowRuntime().execute(wf.compile(), scratch_root=scratch)
+        assert result.status == "succeeded"
+        report = Path(result.outputs["write_report"]["report"])
+        assert report.exists()
+        assert scratch in report.parents
 
-        @wf.task(depends_on=["root"])
-        async def right(root) -> dict:
-            return {"right": root + 20}
+    async def test_without_scratch_root_keeps_workdir_none(self, tmp_path: Path) -> None:
+        """No silent default: a bare execution that mounts no scratch_root keeps
+        ``ctx.workdir`` as ``None`` (embedders must opt in explicitly — a cwd
+        default would litter every caller's working directory)."""
+        wf = WorkflowCompiler(name="no-scratch")
 
-        # Two upstreams: their dict outputs MERGE into one flat name→value map,
-        # and the body binds each by name.
-        @wf.task(depends_on=["left", "right"])
-        async def merge(left: int, right: int):
-            return left + right
+        @wf.task
+        async def probe(ctx: TaskContext) -> dict:
+            return {"workdir": ctx.workdir}
 
         result = await WorkflowRuntime().execute(wf.compile())
-        assert result.outputs["merge"] == 32
-
-
-@pytest.mark.asyncio
-async def test_bare_execution_scratch_root_gives_every_task_a_workdir(tmp_path: Path) -> None:
-    """``scratch_root=`` closes the ctx.workdir contract for bare executions.
-
-    The plan-materialized driver runs ``WorkflowRuntime().execute(compiled,
-    config=...)`` with NO tracked Run — but the workflow-source contract tells
-    task bodies to use ``ctx.workdir`` for scratch files. Without a Run there
-    is no materialization layer and ``ctx.workdir`` was ``None`` (production:
-    ``TypeError: unsupported operand type(s) for /: 'NoneType' and 'str'`` in
-    a generated verify task). ``scratch_root`` mounts the content-addressed
-    materialization store at an explicit location instead.
-    """
-    wf = WorkflowCompiler(name="scratch-demo")
-
-    @wf.task
-    async def write_report(ctx: TaskContext) -> dict:
-        assert ctx.workdir is not None
-        path = ctx.workdir / "report.json"
-        path.write_text("{}")
-        return {"report": str(path)}
-
-    scratch = tmp_path / "scratch"
-    result = await WorkflowRuntime().execute(wf.compile(), scratch_root=scratch)
-    assert result.status == "succeeded"
-    report = Path(result.outputs["write_report"]["report"])
-    assert report.exists()
-    assert scratch in report.parents
-
-
-@pytest.mark.asyncio
-async def test_bare_execution_without_scratch_root_keeps_workdir_none(tmp_path: Path) -> None:
-    """No silent default: a bare execution that mounts no scratch_root keeps
-    ``ctx.workdir`` as ``None`` (tests and embedders must opt in explicitly —
-    a cwd default would litter every caller's working directory)."""
-    wf = WorkflowCompiler(name="no-scratch")
-
-    @wf.task
-    async def probe(ctx: TaskContext) -> dict:
-        return {"workdir": ctx.workdir}
-
-    result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "succeeded"
-    assert result.outputs["probe"]["workdir"] is None
+        assert result.status == "succeeded"
+        assert result.outputs["probe"]["workdir"] is None

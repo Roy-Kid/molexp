@@ -1,102 +1,101 @@
-"""Compile-time validation tests for control edges, entry, reachability, deadlock.
+"""Compile-time validation: control-edge shape, entry, and reachability.
 
-Spec: .claude/specs/03-molexp-workflow-cycles.md §3, §4, §8, §9
+Each test locks one distinct ``WorkflowCompiler.compile()`` rejection rule
+(a distinct error type + trigger); structural deadlock lives in
+``test_deadlock_guard``. Spec: .claude/specs/03-molexp-workflow-cycles.md.
 """
+
+from __future__ import annotations
 
 import pytest
 
-from molexp.workflow import WorkflowCompiler
+from molexp.workflow import (
+    EdgeShapeError,
+    EntryAmbiguousError,
+    UnknownTaskError,
+    UnreachableTaskError,
+    WorkflowCompiler,
+)
 
 
-def test_mixed_route_shape_rejected():
-    """Mixing unconditional + branch out-edges on the same node fails at compile."""
-    from molexp.workflow import EdgeShapeError
+class TestCompileValidation:
+    def test_mixed_unconditional_and_branch_out_edges_rejected(self) -> None:
+        """Mixing an unconditional control edge and a branch out-edge on the same
+        node fails with ``EdgeShapeError`` naming the node."""
+        wf = WorkflowCompiler(name="mixed", entry="src")
 
-    wf = WorkflowCompiler(name="mixed", entry="src")
+        @wf.task
+        async def src(ctx) -> int:
+            return 1
 
-    @wf.task
-    async def src(ctx) -> int:
-        return 1
+        @wf.task
+        async def a(ctx) -> int:
+            return 2
 
-    @wf.task
-    async def a(ctx) -> int:
-        return 2
+        @wf.task
+        async def b(ctx) -> int:
+            return 3
 
-    @wf.task
-    async def b(ctx) -> int:
-        return 3
+        wf.control("src", "a")  # unconditional
+        wf.branch("src", "x", "b")  # branch on the same node
 
-    wf.control("src", "a")  # unconditional
-    wf.branch("src", "x", "b")  # branch on the same node
+        with pytest.raises(EdgeShapeError) as exc_info:
+            wf.compile()
+        assert "src" in str(exc_info.value)
 
-    with pytest.raises(EdgeShapeError) as exc_info:
-        wf.compile()
-    assert "src" in str(exc_info.value)
+    def test_control_edges_without_entry_declaration_rejected(self) -> None:
+        """Control edges but no ``wf.entry(...)`` ⇒ ``EntryAmbiguousError`` that
+        names the remedy and the candidate entries."""
+        wf = WorkflowCompiler(name="no-entry")
 
+        @wf.task
+        async def a(ctx) -> int:
+            return 1
 
-def test_control_workflow_without_entry_rejected():
-    """A workflow with control edges but no `wf.entry(...)` declaration fails at compile."""
-    from molexp.workflow import EntryAmbiguousError
+        @wf.task
+        async def b(ctx) -> int:
+            return 2
 
-    wf = WorkflowCompiler(name="no-entry")
+        wf.control("a", "b")
 
-    @wf.task
-    async def a(ctx) -> int:
-        return 1
+        with pytest.raises(EntryAmbiguousError) as exc_info:
+            wf.compile()
+        msg = str(exc_info.value)
+        assert "wf.entry" in msg
+        assert "a" in msg  # candidate list reported
 
-    @wf.task
-    async def b(ctx) -> int:
-        return 2
+    def test_entry_referencing_unknown_task_rejected(self) -> None:
+        """``wf.entry("ghost")`` referencing an unregistered task ⇒ ``UnknownTaskError``."""
+        wf = WorkflowCompiler(name="bad-entry")
 
-    wf.control("a", "b")
-    # Note: no wf.entry(...) call.
+        @wf.task
+        async def real_task(ctx) -> int:
+            return 1
 
-    with pytest.raises(EntryAmbiguousError) as exc_info:
-        wf.compile()
-    msg = str(exc_info.value)
-    assert "wf.entry" in msg
-    # Candidate list should be reported.
-    assert "a" in msg
+        wf.entry("ghost")
 
+        with pytest.raises(UnknownTaskError) as exc_info:
+            wf.compile()
+        assert "ghost" in str(exc_info.value)
 
-def test_entry_unknown_task_rejected():
-    """`wf.entry("missing")` referencing an unknown task fails at compile."""
-    from molexp.workflow import UnknownTaskError
+    def test_task_unreachable_from_entry_rejected(self) -> None:
+        """A registered task with no control path from any entry ⇒ ``UnreachableTaskError``."""
+        wf = WorkflowCompiler(name="unreachable", entry="a")
 
-    wf = WorkflowCompiler(name="bad-entry")
+        @wf.task
+        async def a(ctx) -> int:
+            return 1
 
-    @wf.task
-    async def real_task(ctx) -> int:
-        return 1
+        @wf.task
+        async def b(ctx) -> int:
+            return 2
 
-    wf.entry("ghost")  # ghost not registered
+        @wf.task
+        async def orphan(ctx) -> int:
+            return 99
 
-    with pytest.raises(UnknownTaskError) as exc_info:
-        wf.compile()
-    assert "ghost" in str(exc_info.value)
+        wf.control("a", "b")
 
-
-def test_unreachable_task_rejected():
-    """A task unreachable from any entry through control edges fails at compile."""
-    from molexp.workflow import UnreachableTaskError
-
-    wf = WorkflowCompiler(name="unreachable", entry="a")
-
-    @wf.task
-    async def a(ctx) -> int:
-        return 1
-
-    @wf.task
-    async def b(ctx) -> int:
-        return 2
-
-    @wf.task
-    async def orphan(ctx) -> int:  # no incoming edge from any entry
-        return 99
-
-    wf.control("a", "b")
-    # `orphan` is registered but never reachable.
-
-    with pytest.raises(UnreachableTaskError) as exc_info:
-        wf.compile()
-    assert "orphan" in str(exc_info.value)
+        with pytest.raises(UnreachableTaskError) as exc_info:
+            wf.compile()
+        assert "orphan" in str(exc_info.value)

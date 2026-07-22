@@ -1,21 +1,16 @@
-"""``SQLiteApprovalStore`` round-trip laws (spec vision-loop-01-approval-inbox).
+"""``SQLiteApprovalStore`` round-trip + replay laws (spec vision-loop-01).
 
 The store turns approvals from per-process callbacks into a durable resource.
-Its one non-obvious rule is the replay law:
+Its laws:
 
 * **Grants replay** — a stored grant is durable consent; ``granted_decision_for``
   returns it on every later re-entry.
-* **Rejections never replay** — a rejection is recorded (history), but
-  ``granted_decision_for`` returns ``None`` and a later ``record_pending`` for
-  the same request id re-opens it as pending ("not now" must never deadlock
-  re-entry forever).
-* ``record_pending`` is an idempotent upsert that never downgrades a
-  **granted** row back to pending. (Per the spec's replay law, "decided" here
-  means *granted*: a rejected row is deliberately re-askable.)
+* **Rejections never replay** — recorded as history, but ``granted_decision_for``
+  returns ``None`` and a later ``record_pending`` re-opens the request pending
+  ("not now" must never deadlock re-entry forever).
+* ``record_pending`` is an idempotent upsert that never downgrades a *granted*
+  row back to pending.
 * ``record_decision`` on an unknown ``request_id`` fails loud — no fallback.
-
-The store shares the run's existing ``harness.sqlite`` (same ``db_path`` as
-``SQLiteEventLog`` / ``SQLiteArtifactLineageStore``).
 """
 
 from __future__ import annotations
@@ -63,11 +58,8 @@ def store(tmp_path: Path) -> SQLiteApprovalStore:
     return SQLiteApprovalStore(tmp_path / "harness.sqlite")
 
 
-# ───────────────────────────────────────────────────────────── basics
-
-
-class TestApprovalStoreBasics:
-    def test_record_pending_round_trips_the_request(self, store: SQLiteApprovalStore) -> None:
+class TestSQLiteApprovalStore:
+    def test_record_pending_round_trips_every_field(self, store: SQLiteApprovalStore) -> None:
         request = _request()
         store.record_pending(_RUN_ID, request)
 
@@ -79,11 +71,6 @@ class TestApprovalStoreBasics:
         assert pending.metadata == request.metadata
         assert pending.created_at == request.created_at
 
-
-# ─────────────────────────────────────────────────────── replay law
-
-
-class TestReplayLaw:
     def test_grant_replays_and_clears_pending(self, store: SQLiteApprovalStore) -> None:
         request = _request()
         store.record_pending(_RUN_ID, request)
@@ -106,7 +93,9 @@ class TestReplayLaw:
         assert store.granted_decision_for(request.id) is None
         assert store.pending(_RUN_ID) == []
 
-    def test_reentry_after_rejection_reopens_pending(self, store: SQLiteApprovalStore) -> None:
+    def test_record_pending_after_rejection_reopens_pending(
+        self, store: SQLiteApprovalStore
+    ) -> None:
         request = _request()
         store.record_pending(_RUN_ID, request)
         store.record_decision(_decision(granted=False, reason="not now"))
@@ -117,11 +106,6 @@ class TestReplayLaw:
         assert reopened.id == request.id
         assert store.granted_decision_for(request.id) is None
 
-
-# ────────────────────────────────────────────── edge cases / immutability
-
-
-class TestPendingUpsert:
     def test_record_pending_is_idempotent(self, store: SQLiteApprovalStore) -> None:
         request = _request()
         store.record_pending(_RUN_ID, request)

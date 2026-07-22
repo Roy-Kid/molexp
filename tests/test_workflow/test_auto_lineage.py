@@ -1,9 +1,10 @@
 """Engine-automatic artifact lineage (vision-loop-09).
 
-THE FAIR anchor: a tracked run's workflow DAG projects into
-``Producer.inputs`` with ZERO task-author annotation — "which input produced
-this result?" is answerable for every tracked run through the existing
-``lineage.ancestors`` / ``GET /assets/{id}/lineage`` surfaces.
+THE FAIR anchor: a tracked run's workflow DAG projects into ``Producer.inputs``
+with ZERO task-author annotation — the engine (``_engine.node_cache._upstream_asset_ids``)
+records each task's upstream asset ids, so "which input produced this result?" is
+answerable for every tracked run through ``lineage.ancestors`` / the
+``GET /assets/{id}/lineage`` surface.
 """
 
 from __future__ import annotations
@@ -41,87 +42,88 @@ def _chain_workflow() -> WorkflowCompiler:
     return wf
 
 
-def test_two_task_run_projects_the_dag_with_zero_annotation(tmp_path: Path) -> None:
-    """THE test: downstream's producer.inputs carries upstream's asset_id."""
-    ws = _workspace(tmp_path)
-    run = ws.add_project("p").add_experiment("e").add_run(params=None)
-    run.execute(_chain_workflow())
+class TestEngineAutomaticLineage:
+    def test_chain_projects_upstream_id_into_downstream_producer_inputs(
+        self, tmp_path: Path
+    ) -> None:
+        """THE test: downstream's producer.inputs carries upstream's asset_id and
+        the ``lineage.ancestors`` traversal answers it — zero task annotation."""
+        ws = _workspace(tmp_path)
+        run = ws.add_project("p").add_experiment("e").add_run(params=None)
+        run.execute(_chain_workflow())
 
-    up = _artifact_for(ws, run.id, "upstream")
-    down = _artifact_for(ws, run.id, "downstream")
-    assert up.asset_id in (down.producer.inputs if down.producer else ())
-    # ...and the existing traversal answers it.
-    assert up.asset_id in lineage.ancestors(ws, down.asset_id)
+        up = _artifact_for(ws, run.id, "upstream")
+        down = _artifact_for(ws, run.id, "downstream")
+        assert up.asset_id in (down.producer.inputs if down.producer else ())
+        assert up.asset_id in lineage.ancestors(ws, down.asset_id)
 
+    def test_root_task_artifact_has_empty_inputs(self, tmp_path: Path) -> None:
+        ws = _workspace(tmp_path)
+        run = ws.add_project("p").add_experiment("e").add_run(params=None)
+        run.execute(_chain_workflow())
+        up = _artifact_for(ws, run.id, "upstream")
+        assert up.producer is not None
+        assert up.producer.inputs == ()
 
-def test_root_task_artifact_has_empty_inputs(tmp_path: Path) -> None:
-    ws = _workspace(tmp_path)
-    run = ws.add_project("p").add_experiment("e").add_run(params=None)
-    run.execute(_chain_workflow())
-    up = _artifact_for(ws, run.id, "upstream")
-    assert up.producer is not None
-    assert up.producer.inputs == ()
+    def test_diamond_fan_in_records_both_upstreams_deduped(self, tmp_path: Path) -> None:
+        wf = WorkflowCompiler(name="diamond")
 
+        @wf.task
+        async def left(ctx: TaskContext) -> dict:
+            return {"l": 1}
 
-def test_diamond_fan_in_records_both_upstreams_deduped(tmp_path: Path) -> None:
-    wf = WorkflowCompiler(name="diamond")
+        @wf.task
+        async def right(ctx: TaskContext) -> dict:
+            return {"r": 2}
 
-    @wf.task
-    async def left(ctx: TaskContext) -> dict:
-        return {"l": 1}
+        @wf.task(depends_on=["left", "right"])
+        async def join(l: int, r: int) -> dict:  # noqa: E741 — mirrors upstream keys
+            return {"sum": l + r}
 
-    @wf.task
-    async def right(ctx: TaskContext) -> dict:
-        return {"r": 2}
+        ws = _workspace(tmp_path)
+        run = ws.add_project("p").add_experiment("e").add_run(params=None)
+        run.execute(wf)
 
-    @wf.task(depends_on=["left", "right"])
-    async def join(l: int, r: int) -> dict:  # noqa: E741 — mirrors the upstream keys
-        return {"sum": l + r}
+        join_asset = _artifact_for(ws, run.id, "join")
+        inputs = set(join_asset.producer.inputs if join_asset.producer else ())
+        left_id = _artifact_for(ws, run.id, "left").asset_id
+        right_id = _artifact_for(ws, run.id, "right").asset_id
+        assert {left_id, right_id} <= inputs
+        assert len(join_asset.producer.inputs) == len(inputs)  # deduped
+        # Independent parallel tasks record no cross-edges.
+        left_asset = _artifact_for(ws, run.id, "left")
+        assert right_id not in (left_asset.producer.inputs if left_asset.producer else ())
 
-    ws = _workspace(tmp_path)
-    run = ws.add_project("p").add_experiment("e").add_run(params=None)
-    run.execute(wf)
+    def test_cache_hit_upstream_still_chains_downstream(self, tmp_path: Path) -> None:
+        """A second run whose upstream cache-hits still chains downstream→upstream."""
+        ws = _workspace(tmp_path)
+        exp = ws.add_project("p").add_experiment("e")
 
-    join_asset = _artifact_for(ws, run.id, "join")
-    inputs = set(join_asset.producer.inputs if join_asset.producer else ())
-    left_id = _artifact_for(ws, run.id, "left").asset_id
-    right_id = _artifact_for(ws, run.id, "right").asset_id
-    assert {left_id, right_id} <= inputs
-    assert len(join_asset.producer.inputs) == len(inputs)  # deduped
-    # Independent parallel tasks record no cross-edges.
-    left_asset = _artifact_for(ws, run.id, "left")
-    assert right_id not in (left_asset.producer.inputs if left_asset.producer else ())
+        run1 = exp.add_run(params=None, id="first")
+        run1.execute(_chain_workflow())
 
+        run2 = exp.add_run(params=None, id="second")
+        run2.execute(_chain_workflow())
 
-def test_cache_hit_keeps_the_chain(tmp_path: Path) -> None:
-    """A second run whose upstream cache-hits still chains downstream→upstream."""
-    ws = _workspace(tmp_path)
-    exp = ws.add_project("p").add_experiment("e")
+        down2 = _artifact_for(ws, "second", "downstream")
+        up2 = _artifact_for(ws, "second", "upstream")
+        assert up2.asset_id in (down2.producer.inputs if down2.producer else ())
+        assert up2.asset_id in lineage.ancestors(ws, down2.asset_id)
 
-    run1 = exp.add_run(params=None, id="first")
-    run1.execute(_chain_workflow())
+    def test_raising_lineage_computation_never_fails_the_run(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Fail-soft: lineage rides the persistence bonus channel — a raising
+        upstream-id computation degrades (persist skipped, debug log) and the
+        run still succeeds with its results intact."""
+        from molexp.workflow._engine import node_cache
 
-    run2 = exp.add_run(params=None, id="second")
-    run2.execute(_chain_workflow())
+        def _boom(deps, registration):
+            raise RuntimeError("lineage computation broken")
 
-    down2 = _artifact_for(ws, "second", "downstream")
-    up2 = _artifact_for(ws, "second", "upstream")
-    assert up2.asset_id in (down2.producer.inputs if down2.producer else ())
-    assert up2.asset_id in lineage.ancestors(ws, down2.asset_id)
-
-
-def test_raising_lineage_computation_never_fails_the_run(tmp_path: Path, monkeypatch) -> None:
-    """Fail-soft: lineage rides the persistence bonus channel — a raising
-    upstream-id computation degrades (persist skipped, debug log) and the
-    run still succeeds with its results intact."""
-    from molexp.workflow._engine import node_cache
-
-    def _boom(deps, registration):
-        raise RuntimeError("lineage computation broken")
-
-    monkeypatch.setattr(node_cache, "_upstream_asset_ids", _boom)
-    ws = _workspace(tmp_path)
-    run = ws.add_project("p").add_experiment("e").add_run(params=None)
-    result = run.execute(_chain_workflow())
-    assert result.status == "succeeded"
-    assert result.outputs["downstream"] == {"doubled": 42}
+        monkeypatch.setattr(node_cache, "_upstream_asset_ids", _boom)
+        ws = _workspace(tmp_path)
+        run = ws.add_project("p").add_experiment("e").add_run(params=None)
+        result = run.execute(_chain_workflow())
+        assert result.status == "succeeded"
+        assert result.outputs["downstream"] == {"doubled": 42}

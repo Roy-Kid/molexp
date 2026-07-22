@@ -1,10 +1,10 @@
-"""``Workflow.run_on(experiment, ...)`` happy-path one-liner.
+"""``WorkflowRuntime.run_on(experiment, ...)`` convenience one-liner.
 
-Covers acceptance criterion ac-007 of the ``oop-api-rectification``
-spec: ``run_on`` wraps the build-run-execute three-step into one
-call, runs the workflow against a fresh ``Run``, returns a
-``WorkflowResult``, and **does not** auto-bind the workflow to the
-experiment (binding is the caller's choice).
+Covers ``oop-api-rectification`` ac-007: ``run_on`` wraps build-run-execute into
+one call — it creates a fresh ``Run`` under the experiment, returns a
+``WorkflowResult``, does NOT auto-bind the workflow to the experiment (binding is
+the caller's choice), and on failure re-raises a ``RuntimeError`` carrying the
+workflow name + final status while recording the run as failed.
 """
 
 from __future__ import annotations
@@ -52,61 +52,39 @@ def _failing_workflow() -> CompiledWorkflow:
     return builder.compile()
 
 
-@pytest.mark.asyncio
-async def test_run_on_returns_workflow_result(tmp_path):
-    ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.add_project(name="demo")
-    exp = proj.add_experiment(name="trivial-exp")
-    wf = _trivial_workflow()
+class TestRunOn:
+    @pytest.mark.asyncio
+    async def test_executes_and_creates_a_fresh_run(self, tmp_path):
+        """run_on runs the workflow against a fresh Run and returns its result."""
+        ws = Workspace(root=tmp_path, name="ws")
+        exp = ws.add_project(name="demo").add_experiment(name="trivial-exp")
 
-    result = await WorkflowRuntime().run_on(wf, exp)
+        runs_before = exp.list_runs()
+        result = await WorkflowRuntime().run_on(_trivial_workflow(), exp, parameters={"lr": 1e-3})
 
-    assert result is not None
-    assert result.outputs.get("emit") == 42
+        assert result.outputs.get("emit") == 42
+        assert len(exp.list_runs()) == len(runs_before) + 1
 
+    @pytest.mark.asyncio
+    async def test_does_not_auto_bind(self, tmp_path):
+        """run_on must NOT auto-bind the workflow — that is ``bind_to``'s job."""
+        ws = Workspace(root=tmp_path, name="ws")
+        exp = ws.add_project(name="demo").add_experiment(name="trivial-exp")
 
-@pytest.mark.asyncio
-async def test_run_on_does_not_auto_bind(tmp_path):
-    ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.add_project(name="demo")
-    exp = proj.add_experiment(name="trivial-exp")
-    wf = _trivial_workflow()
+        assert default_binding_registry.for_experiment(exp) is None
+        await WorkflowRuntime().run_on(_trivial_workflow(), exp)
+        assert default_binding_registry.for_experiment(exp) is None
 
-    assert default_binding_registry.for_experiment(exp) is None
-    await WorkflowRuntime().run_on(wf, exp)
-    # run_on must NOT auto-bind — that's bind_to's job.
-    assert default_binding_registry.for_experiment(exp) is None
+    @pytest.mark.asyncio
+    async def test_reraises_and_records_failed_run(self, tmp_path):
+        """A task failure re-raises a RuntimeError naming the workflow + status,
+        and the created run is left FAILED."""
+        ws = Workspace(root=tmp_path, name="ws")
+        exp = ws.add_project(name="demo").add_experiment(name="failing-exp")
 
+        with pytest.raises(RuntimeError, match=r"failing.*status 'failed'"):
+            await WorkflowRuntime().run_on(_failing_workflow(), exp)
 
-@pytest.mark.asyncio
-async def test_run_on_creates_a_run_under_the_experiment(tmp_path):
-    ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.add_project(name="demo")
-    exp = proj.add_experiment(name="trivial-exp")
-    wf = _trivial_workflow()
-
-    runs_before = exp.list_runs()
-    await WorkflowRuntime().run_on(wf, exp, parameters={"lr": 1e-3})
-    runs_after = exp.list_runs()
-
-    assert len(runs_after) == len(runs_before) + 1
-
-
-@pytest.mark.asyncio
-async def test_run_on_failure_propagates_and_records_failed_status(tmp_path):
-    ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.add_project(name="demo")
-    exp = proj.add_experiment(name="failing-exp")
-    wf = _failing_workflow()
-
-    # The underlying workflow runtime catches task exceptions and stores
-    # the failure on the WorkflowResult.status; ``run_on`` re-raises a
-    # RuntimeError carrying the workflow name + final status. Original
-    # task traceback is preserved in the runtime logs but not on the
-    # rebuilt exception.
-    with pytest.raises(RuntimeError, match=r"failing.*status 'failed'"):
-        await WorkflowRuntime().run_on(wf, exp)
-
-    runs = exp.list_runs()
-    assert len(runs) == 1
-    assert runs[0].status == RunStatus.FAILED
+        runs = exp.list_runs()
+        assert len(runs) == 1
+        assert runs[0].status == RunStatus.FAILED

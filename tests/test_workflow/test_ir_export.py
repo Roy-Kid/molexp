@@ -1,10 +1,10 @@
-"""Tests for the full-graph IR + Mermaid export.
+"""Full-graph IR + Mermaid export — ``CompiledWorkflow.to_graph_ir`` /
+``to_graph_mermaid`` (``molexp.workflow.ir``).
 
-Covers :meth:`Workflow.to_ir` (→ :class:`WorkflowGraphIR`) and
-:meth:`Workflow.to_mermaid`. Unlike the DAG-only wire IR
-(:meth:`Workflow.to_dict`), this surface captures the complete compiled
-topology — entries, control edges, branch routes, loops, parallels — and
-serializes decorator-defined workflows that carry no ``task_type`` slug.
+Unlike the DAG-only wire IR (``Workflow.to_ir``, covered by
+``test_ir_roundtrip`` / ``test_codec``), this surface captures the complete
+compiled topology — entries, control edges, branch routes, loops, parallels —
+and serializes decorator-defined workflows that carry no ``task_type`` slug.
 """
 
 from __future__ import annotations
@@ -45,287 +45,251 @@ def _branchy_builder() -> WorkflowCompiler:
     return wf
 
 
-# ── to_ir ────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_to_ir_returns_workflow_graph_ir_with_metadata():
-    spec = _branchy_builder().compile()
-    ir = spec.to_graph_ir()
-    assert isinstance(ir, WorkflowGraphIR)
-    assert ir.name == "pipeline"
-    assert ir.workflow_id == spec.workflow_id
-    assert ir.version == "3"
-    assert ir.mode == "batch"
-
-
-@pytest.mark.unit
-def test_to_ir_captures_all_tasks_without_requiring_task_type_slug():
-    """Decorator tasks have no slug; the full IR exports them anyway."""
-    ir = _branchy_builder().compile().to_graph_ir()
-    names = [t.name for t in ir.tasks]
-    assert names == ["fetch", "validate", "publish", "rollback", "stream"]
-    assert all(t.task_type is None for t in ir.tasks)
-
-
-@pytest.mark.unit
-def test_to_ir_marks_actor_nodes():
-    ir = _branchy_builder().compile().to_graph_ir()
-    by_name = {t.name: t for t in ir.tasks}
-    assert by_name["stream"].is_actor is True
-    assert by_name["fetch"].is_actor is False
-
-
-@pytest.mark.unit
-def test_to_ir_captures_dependencies_entries_and_branches():
-    ir = _branchy_builder().compile().to_graph_ir()
-    by_name = {t.name: t for t in ir.tasks}
-    assert by_name["validate"].depends_on == ("fetch",)
-    assert ir.entries == ("fetch",)
-    assert ("validate", "ok", "publish") in ir.branch_edges
-    assert ("validate", "fail", "rollback") in ir.branch_edges
-
-
-@pytest.mark.unit
-def test_to_ir_captures_control_edges():
-    wf = WorkflowCompiler(name="cf")
-
-    @wf.task
-    async def a(ctx):
-        return 1
-
-    @wf.task
-    async def b(ctx):
-        return 2
-
-    wf.entry("a")
-    wf.control(src="a", to="b")
-    ir = wf.compile().to_graph_ir()
-    assert ("a", "b") in ir.control_edges
-
-
-@pytest.mark.unit
-def test_to_ir_emits_unified_typed_edge_set():
-    """``build_workflow_graph_ir`` projects the split collections into one
-    ``kind``-tagged edge set: depends_on→data, branch routes→branch(+condition)."""
-    ir = _branchy_builder().compile().to_graph_ir()
-    data_edges = {(e.source, e.target) for e in ir.edges if e.kind == "data"}
-    branch_edges = {(e.source, e.condition, e.target) for e in ir.edges if e.kind == "branch"}
-    assert ("fetch", "validate") in data_edges
-    assert ("validate", "ok", "publish") in branch_edges
-    assert ("validate", "fail", "rollback") in branch_edges
-    assert {e.kind for e in ir.edges} <= {"data", "control", "branch", "loop", "parallel"}
-
-
-@pytest.mark.unit
-def test_to_ir_carries_node_position_from_ir():
-    """A position set on the wire IR survives into the full graph IR's nodes
-    (and the WorkflowGraphIR node exposes it as a GraphNodePosition)."""
-    from molexp.workflow import CompiledWorkflow, GraphNodePosition
-
-    ir = {
-        "workflow_id": "workflow_00000000",
-        "name": "p",
-        "task_configs": [
-            {
-                "task_id": "k",
-                "task_type": "core.constant",
-                "config": {"value": 1},
-                "status": "pending",
-                "position": {"x": 12.5, "y": -3.0},
-            }
-        ],
-        "links": [],
-        "metadata": {"label": None, "description": None, "tags": [], "custom": {}},
-    }
-    graph_ir = CompiledWorkflow.from_ir(ir).to_graph_ir()
-    node = next(t for t in graph_ir.tasks if t.name == "k")
-    assert node.position == GraphNodePosition(x=12.5, y=-3.0)
-
-
-@pytest.mark.unit
-def test_to_ir_captures_loops_and_parallels():
-    wf = WorkflowCompiler(name="lp")
-
-    @wf.task
-    async def seed(ctx):
-        return 0
-
-    @wf.task(depends_on=["seed"])
-    async def compute(ctx):
-        return 1
-
-    @wf.task(depends_on=["compute"])
-    async def check_done(ctx):
-        return 2
-
-    @wf.task
-    async def items(ctx):
-        return [1, 2]
-
-    @wf.task
-    async def process(ctx):
-        return 3
-
-    # Parallel join is a distinct task `gather` (not the loop until): genuine
-    # pg lowering cannot fuse a parallel-join and a loop-until onto one node
-    # (the resulting Join lacks a dominating fork across the loop cycle), so
-    # the realistic topology uses separate tasks. The IR features asserted
-    # below (loop + parallel captured) are unchanged.
-    @wf.task(depends_on=["items"])
-    async def gather(ctx):
-        return 4
-
-    wf.loop(body=["compute"], until="check_done", max_iters=10)
-    wf.parallel(map_over="items", body="process", join="gather", max_concurrency=4)
-    ir = wf.compile().to_graph_ir()
-
-    assert ir.loops == (
-        GraphLoopIR(body=("compute",), until="check_done", max_iters=10, on_exit="_end"),
-    )
-    assert ir.parallels == (
-        GraphParallelIR(map_over="items", body="process", join="gather", max_concurrency=4),
-    )
-
-
-def test_to_graph_ir_emits_parallel_fanout_edges():
-    """ac-001/002: to_graph_ir tags both map_over→body and body→join edges
-    kind="parallel"; to_ir's data-DAG wire format omits them (by-design)."""
-    wf = WorkflowCompiler(name="par")
-
-    @wf.task
-    async def items(ctx):
-        return [1, 2]
-
-    @wf.task
-    async def process(ctx):
-        return 3
-
-    @wf.task(depends_on=["items"])
-    async def gather(ctx):
-        return 4
-
-    wf.parallel(map_over="items", body="process", join="gather")
-    compiled = wf.compile()
-
-    parallel_pairs = {
-        (e.source, e.target) for e in compiled.to_graph_ir().edges if e.kind == "parallel"
-    }
-    assert ("items", "process") in parallel_pairs
-    assert ("process", "gather") in parallel_pairs
-
-    # The data-DAG wire format (to_ir) deliberately omits the parallel fan-out
-    # representation: it never tags an edge "parallel", and the map_over→body
-    # edge is absent. (The body→join wiring rides a plain data dep, so it may
-    # appear as a "data" link — what to_ir lacks is the *parallel* topology,
-    # not every pairing.)
-    links = compiled.to_ir(strict=False).get("links", [])
-    assert all(link.get("kind") != "parallel" for link in links if isinstance(link, dict))
-    data_pairs = {(link["source"], link["target"]) for link in links if isinstance(link, dict)}
-    assert ("items", "process") not in data_pairs
-
-
-@pytest.mark.unit
-def test_to_ir_carries_config_for_oop_tasks():
-    from molexp.workflow import Task
-    from molexp.workflow.registry import default_registry
-
-    class Adder(Task):
-        def __init__(self, value: int = 0) -> None:
-            self.value = value
-
-        async def execute(self, ctx):
-            return 1
-
-    # Slug lives with the type, declared once; resolved at compile time.
-    default_registry.register("test.adder", Adder)
-
-    wf = WorkflowCompiler(name="oop")
-    # Config is the instance's captured __init__ args — IR carries them for round-trip.
-    wf.add(Adder(value=10), name="adder")
-    ir = wf.compile().to_graph_ir()
-    adder = next(t for t in ir.tasks if t.name == "adder")
-    assert adder.task_type == "test.adder"
-    assert adder.config == {"value": 10}
-
-
-# ── IR immutability + JSON round-trip ────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_workflow_graph_ir_json_round_trip_is_exact():
-    ir = _branchy_builder().compile().to_graph_ir()
-    restored = WorkflowGraphIR.model_validate_json(ir.model_dump_json())
-    assert restored == ir
-
-
-# ── to_mermaid ───────────────────────────────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_to_mermaid_renders_nodes_dependencies_and_entry_marker():
-    out = _branchy_builder().compile().to_graph_mermaid()
-    assert 'n_fetch["fetch"]' in out
-    assert "__start((start))" in out
-    assert "__start --> n_fetch" in out
-    assert "n_fetch --> n_validate" in out
-
-
-@pytest.mark.unit
-def test_to_mermaid_labels_branch_routes_and_suppresses_plain_duplicate():
-    out = _branchy_builder().compile().to_graph_mermaid()
-    assert "n_validate -->|ok| n_publish" in out
-    assert "n_validate -->|fail| n_rollback" in out
-    # The plain dependency edge on the same pair is suppressed in favour of
-    # the labeled branch edge.
-    assert "n_validate --> n_publish" not in out
-    assert "n_validate --> n_rollback" not in out
-
-
 class _Noop:
     async def execute(self, ctx):
         return None
 
 
-# ── SubWorkflow nodes carry their inner graph IR (UI drill-down surface) ──────
+class TestToGraphIR:
+    @pytest.mark.unit
+    def test_exports_all_nodes_without_slug_and_marks_actors(self):
+        """Decorator tasks carry no slug yet all export (in order, ``task_type``
+        None), and actor nodes are flagged ``is_actor``."""
+        spec = _branchy_builder().compile()
+        ir = spec.to_graph_ir()
+
+        assert isinstance(ir, WorkflowGraphIR)
+        assert ir.name == "pipeline"
+        assert ir.workflow_id == spec.workflow_id
+
+        by_name = {t.name: t for t in ir.tasks}
+        assert [t.name for t in ir.tasks] == ["fetch", "validate", "publish", "rollback", "stream"]
+        assert all(t.task_type is None for t in ir.tasks)
+        assert by_name["stream"].is_actor is True
+        assert by_name["fetch"].is_actor is False
+
+    @pytest.mark.unit
+    def test_captures_entries_dependencies_and_branch_routes(self):
+        ir = _branchy_builder().compile().to_graph_ir()
+        by_name = {t.name: t for t in ir.tasks}
+        assert by_name["validate"].depends_on == ("fetch",)
+        assert ir.entries == ("fetch",)
+        assert ("validate", "ok", "publish") in ir.branch_edges
+        assert ("validate", "fail", "rollback") in ir.branch_edges
+
+    @pytest.mark.unit
+    def test_captures_control_edges(self):
+        wf = WorkflowCompiler(name="cf")
+
+        @wf.task
+        async def a(ctx):
+            return 1
+
+        @wf.task
+        async def b(ctx):
+            return 2
+
+        wf.entry("a")
+        wf.control(src="a", to="b")
+        ir = wf.compile().to_graph_ir()
+        assert ("a", "b") in ir.control_edges
+
+    @pytest.mark.unit
+    def test_captures_loops_and_parallels(self):
+        wf = WorkflowCompiler(name="lp")
+
+        @wf.task
+        async def seed(ctx):
+            return 0
+
+        @wf.task(depends_on=["seed"])
+        async def compute(ctx):
+            return 1
+
+        @wf.task(depends_on=["compute"])
+        async def check_done(ctx):
+            return 2
+
+        @wf.task
+        async def items(ctx):
+            return [1, 2]
+
+        @wf.task
+        async def process(ctx):
+            return 3
+
+        # A parallel-join and a loop-until cannot be fused onto one node, so
+        # the join rides a distinct task; the IR features asserted (loop +
+        # parallel captured) are unchanged.
+        @wf.task(depends_on=["items"])
+        async def gather(ctx):
+            return 4
+
+        wf.loop(body=["compute"], until="check_done", max_iters=10)
+        wf.parallel(map_over="items", body="process", join="gather", max_concurrency=4)
+        ir = wf.compile().to_graph_ir()
+
+        assert ir.loops == (
+            GraphLoopIR(body=("compute",), until="check_done", max_iters=10, on_exit="_end"),
+        )
+        assert ir.parallels == (
+            GraphParallelIR(map_over="items", body="process", join="gather", max_concurrency=4),
+        )
+
+    @pytest.mark.unit
+    def test_projects_unified_kind_tagged_edge_set(self):
+        """``build_workflow_graph_ir`` projects the split collections into one
+        ``kind``-tagged edge set: depends_on→data, branch routes→branch(+condition)."""
+        ir = _branchy_builder().compile().to_graph_ir()
+        data_edges = {(e.source, e.target) for e in ir.edges if e.kind == "data"}
+        branch_edges = {(e.source, e.condition, e.target) for e in ir.edges if e.kind == "branch"}
+        assert ("fetch", "validate") in data_edges
+        assert ("validate", "ok", "publish") in branch_edges
+        assert ("validate", "fail", "rollback") in branch_edges
+        assert {e.kind for e in ir.edges} <= {"data", "control", "branch", "loop", "parallel"}
+
+    @pytest.mark.unit
+    def test_parallel_fanout_in_unified_edges_and_omitted_from_wire_ir(self):
+        """ac-001/002: to_graph_ir tags both map_over→body and body→join edges
+        kind="parallel"; to_ir's data-DAG wire format omits them (by-design)."""
+        wf = WorkflowCompiler(name="par")
+
+        @wf.task
+        async def items(ctx):
+            return [1, 2]
+
+        @wf.task
+        async def process(ctx):
+            return 3
+
+        @wf.task(depends_on=["items"])
+        async def gather(ctx):
+            return 4
+
+        wf.parallel(map_over="items", body="process", join="gather")
+        compiled = wf.compile()
+
+        parallel_pairs = {
+            (e.source, e.target) for e in compiled.to_graph_ir().edges if e.kind == "parallel"
+        }
+        assert ("items", "process") in parallel_pairs
+        assert ("process", "gather") in parallel_pairs
+
+        # The data-DAG wire format (to_ir) deliberately omits the parallel
+        # fan-out: it never tags an edge "parallel", and the map_over→body edge
+        # is absent.
+        links = compiled.to_ir(strict=False).get("links", [])
+        assert all(link.get("kind") != "parallel" for link in links if isinstance(link, dict))
+        data_pairs = {(link["source"], link["target"]) for link in links if isinstance(link, dict)}
+        assert ("items", "process") not in data_pairs
+
+    @pytest.mark.unit
+    def test_carries_node_position_from_wire_ir(self):
+        """A position set on the wire IR survives into the full graph IR's nodes
+        (exposed as a GraphNodePosition)."""
+        from molexp.workflow import CompiledWorkflow, GraphNodePosition
+
+        ir = {
+            "workflow_id": "workflow_00000000",
+            "name": "p",
+            "task_configs": [
+                {
+                    "task_id": "k",
+                    "task_type": "core.constant",
+                    "config": {"value": 1},
+                    "status": "pending",
+                    "position": {"x": 12.5, "y": -3.0},
+                }
+            ],
+            "links": [],
+            "metadata": {"label": None, "description": None, "tags": [], "custom": {}},
+        }
+        graph_ir = CompiledWorkflow.from_ir(ir).to_graph_ir()
+        node = next(t for t in graph_ir.tasks if t.name == "k")
+        assert node.position == GraphNodePosition(x=12.5, y=-3.0)
+
+    @pytest.mark.unit
+    def test_carries_config_for_registered_oop_task(self):
+        from molexp.workflow import Task
+        from molexp.workflow.registry import default_registry
+
+        class Adder(Task):
+            def __init__(self, value: int = 0) -> None:
+                self.value = value
+
+            async def execute(self, ctx):
+                return 1
+
+        # Slug lives with the type, declared once; resolved at compile time.
+        default_registry.register("test.adder", Adder)
+
+        wf = WorkflowCompiler(name="oop")
+        # Config is the instance's captured __init__ args — IR carries them.
+        wf.add(Adder(value=10), name="adder")
+        ir = wf.compile().to_graph_ir()
+        adder = next(t for t in ir.tasks if t.name == "adder")
+        assert adder.task_type == "test.adder"
+        assert adder.config == {"value": 10}
+
+    @pytest.mark.unit
+    def test_json_round_trip_is_exact(self):
+        ir = _branchy_builder().compile().to_graph_ir()
+        restored = WorkflowGraphIR.model_validate_json(ir.model_dump_json())
+        assert restored == ir
+
+    @pytest.mark.unit
+    def test_embeds_subworkflow_inner_graph(self):
+        """A SubWorkflow node exposes the full inner WorkflowGraphIR under
+        ``GraphTaskIR.subworkflow`` (UI drill-down); ordinary nodes carry
+        ``subworkflow=None``. The embedding round-trips through JSON."""
+        from molexp.workflow import SubWorkflow
+
+        inner = WorkflowCompiler(name="inner")
+
+        @inner.task
+        async def load(ctx):
+            return ctx.inputs
+
+        @inner.task(depends_on=["load"])
+        async def scale(ctx):
+            return ctx.inputs
+
+        outer = (
+            WorkflowCompiler(name="outer")
+            .add(SubWorkflow(inner), name="sub")
+            .add(_Noop(), name="after", depends_on=["sub"])
+            .compile()
+        )
+        ir = outer.to_graph_ir()
+        by_name = {t.name: t for t in ir.tasks}
+
+        assert by_name["after"].subworkflow is None
+
+        sub_ir = by_name["sub"].subworkflow
+        assert isinstance(sub_ir, WorkflowGraphIR)
+        assert sub_ir.name == "inner"
+        assert {t.name for t in sub_ir.tasks} == {"load", "scale"}
+
+        # Round-trips through JSON (the wire contract for the UI).
+        dumped = ir.model_dump(mode="json")
+        sub_dumped = next(t for t in dumped["tasks"] if t["name"] == "sub")["subworkflow"]
+        assert sub_dumped["name"] == "inner"
+        assert WorkflowGraphIR.model_validate(dumped) == ir
 
 
-@pytest.mark.unit
-def test_to_graph_ir_embeds_subworkflow_inner_graph():
-    """A SubWorkflow node exposes the full inner WorkflowGraphIR under
-    ``GraphTaskIR.subworkflow`` so a UI can render a distinct badge and drill into
-    the inner topology; ordinary nodes carry ``subworkflow=None``."""
-    from molexp.workflow import SubWorkflow
+class TestToGraphMermaid:
+    @pytest.mark.unit
+    def test_renders_nodes_entry_dependencies_and_branch_routes(self):
+        """Nodes + start marker + dependency edges render; branch routes carry
+        their label and suppress the plain duplicate edge on the same pair."""
+        out = _branchy_builder().compile().to_graph_mermaid()
 
-    inner = WorkflowCompiler(name="inner")
+        assert 'n_fetch["fetch"]' in out
+        assert "__start((start))" in out
+        assert "__start --> n_fetch" in out
+        assert "n_fetch --> n_validate" in out
 
-    @inner.task
-    async def load(ctx):
-        return ctx.inputs
-
-    @inner.task(depends_on=["load"])
-    async def scale(ctx):
-        return ctx.inputs
-
-    outer = (
-        WorkflowCompiler(name="outer")
-        .add(SubWorkflow(inner), name="sub")
-        .add(_Noop(), name="after", depends_on=["sub"])
-        .compile()
-    )
-    ir = outer.to_graph_ir()
-    by_name = {t.name: t for t in ir.tasks}
-
-    # The plain node has no inner graph.
-    assert by_name["after"].subworkflow is None
-
-    # The SubWorkflow node carries the inner graph IR, recursively typed.
-    sub_ir = by_name["sub"].subworkflow
-    assert isinstance(sub_ir, WorkflowGraphIR)
-    assert sub_ir.name == "inner"
-    assert {t.name for t in sub_ir.tasks} == {"load", "scale"}
-    # Round-trips through JSON (the wire contract for the UI).
-    dumped = ir.model_dump(mode="json")
-    sub_dumped = next(t for t in dumped["tasks"] if t["name"] == "sub")["subworkflow"]
-    assert sub_dumped["name"] == "inner"
-    assert WorkflowGraphIR.model_validate(dumped) == ir
+        assert "n_validate -->|ok| n_publish" in out
+        assert "n_validate -->|fail| n_rollback" in out
+        assert "n_validate --> n_publish" not in out
+        assert "n_validate --> n_rollback" not in out

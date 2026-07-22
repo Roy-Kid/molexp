@@ -1,9 +1,9 @@
 """Manifest-scanning asset query layer (``assets/scan.py``).
 
-These tests pin the scanner as the asset query surface that replaced the
-derived SQLite ``AssetCatalog``: every query shape is answered by scanning the
-authoritative ``assets.json`` + ``assets/<id>/asset.json`` records.
-(Spec: workspace-git-projection-01-drop-catalog.)
+The scanner is the asset query surface that replaced the derived SQLite
+``AssetCatalog``: every query shape is answered by scanning the authoritative
+``assets.json`` + ``assets/<id>/asset.json`` records
+(spec: workspace-git-projection-01-drop-catalog).
 """
 
 from __future__ import annotations
@@ -35,16 +35,16 @@ def _kinds(assets) -> set[str]:
     return {a.kind for a in assets}
 
 
-class TestScanner:
+class TestScanAssets:
     """Each query shape returns the expected asset set from the manifests."""
 
-    def test_all_assets(self, tmp_path):
+    def test_returns_every_asset_across_scopes(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab")  # 3 runs x 4 assets
         assets = scan.scan_assets(ws.root)
         assert len(assets) == 3 * ASSETS_PER_RUN
         assert _kinds(assets) == {"artifact", "log", "checkpoint"}
 
-    def test_kind_filter(self, tmp_path):
+    def test_kind_filter_accepts_str_or_asset_subclass(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab")
         by_str = scan.scan_assets(ws.root, kind="artifact")
         by_type = scan.scan_assets(ws.root, kind=ArtifactAsset)
@@ -52,33 +52,46 @@ class TestScanner:
         assert len(by_str) == 3
         assert all(a.kind == "artifact" for a in by_str)
 
-    def test_run_scope_exact(self, tmp_path):
+    def test_run_scope_matches_only_that_run(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab")
         run = ws.project("demo").experiment("baseline").list_runs()[0]
         scoped = scan.scan_assets(ws.root, scope=run.scope)
-        assert len(scoped) == ASSETS_PER_RUN  # this run's artifact+train log+run log+ckpt
+        assert len(scoped) == ASSETS_PER_RUN
         assert all(a.scope == run.scope for a in scoped)
 
-    def test_experiment_scope_recursive(self, tmp_path):
+    def test_experiment_scope_recursive_vs_exact(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab")
         exp = ws.project("demo").experiment("baseline")
         assert len(scan.scan_assets(ws.root, scope=exp.scope, recursive=True)) == 3 * ASSETS_PER_RUN
-        # non-recursive experiment scope sees no run-scoped assets
+        # Non-recursive experiment scope sees no run-scoped assets.
         assert scan.scan_assets(ws.root, scope=exp.scope) == []
 
-    def test_limit(self, tmp_path):
+    def test_limit_caps_result_count(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab")
         assert len(scan.scan_assets(ws.root, limit=2)) == 2
 
+    def test_results_sorted_by_created_at_then_id(self, tmp_path):
+        ws = _seed_workspace(tmp_path / "lab")
+        keys = [(a.created_at, a.asset_id) for a in scan.scan_assets(ws.root)]
+        assert keys == sorted(keys)
 
-class TestScannerLookups:
-    def test_get_asset(self, tmp_path):
+    def test_empty_workspace_yields_no_assets(self, tmp_path):
+        ws = Workspace(tmp_path / "empty")
+        ws.materialize()
+        assert scan.scan_assets(ws.root) == []
+        assert scan.get_asset(ws.root, "x") is None
+
+
+class TestGetAsset:
+    def test_returns_asset_by_id_else_none(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab")
         some = scan.scan_assets(ws.root)[0]
         assert scan.get_asset(ws.root, some.asset_id).asset_id == some.asset_id
         assert scan.get_asset(ws.root, "nonexistent") is None
 
-    def test_find_by_content_hash(self, tmp_path):
+
+class TestFindByContentHash:
+    def test_matches_hash_and_rejects_absent_or_empty(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab")
         artifact = scan.scan_assets(ws.root, kind="artifact")[0]
         assert artifact.content_hash
@@ -89,25 +102,10 @@ class TestScannerLookups:
         assert scan.find_by_content_hash(ws.root, "") is None
 
 
-class TestScannerDeterministicOrder:
-    def test_sorted_by_created_at_then_id(self, tmp_path):
-        ws = _seed_workspace(tmp_path / "lab")
-        assets = scan.scan_assets(ws.root)
-        keys = [(a.created_at, a.asset_id) for a in assets]
-        assert keys == sorted(keys)
-
-
-class TestEmptyWorkspace:
-    def test_no_manifests_returns_empty(self, tmp_path):
-        ws = Workspace(tmp_path / "empty")
-        ws.materialize()
-        assert scan.scan_assets(ws.root) == []
-        assert scan.get_asset(ws.root, "x") is None
-
-
 class TestNoDerivedSqliteIndex:
-    """The derived SQLite ``AssetCatalog`` is gone: the authoritative
-    per-scope ``assets.json`` manifests are the only on-disk asset record."""
+    """Invariant lock: the derived SQLite ``AssetCatalog`` is gone — the
+    authoritative per-scope ``assets.json`` manifests are the only on-disk
+    asset record (One-source-of-truth law)."""
 
     def test_seeded_workspace_writes_only_manifests_no_sqlite(self, tmp_path):
         from molexp.workspace.events import WORKSPACE_EVENTS_DB

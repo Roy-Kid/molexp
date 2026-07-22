@@ -1,9 +1,9 @@
 """Tests for :func:`molexp.workflow.contract.validate_workflow_contract`.
 
-Each :class:`ValidationCheckId` member gets one positive (passes) and
-one negative (fails with the expected ``check_id``) test case. The
-aggregation rule ``report.ok = not any(severity == 'error')`` is also
-exercised directly with mixed warning / error fixtures.
+Each :class:`ValidationCheckId` member owns a positive (passes) and a negative
+(fails with the expected ``check_id`` / target / severity) case — one class per
+check. ``ValidationReport.ok = not any(severity == 'error')`` is exercised via
+the per-check severity override.
 """
 
 from __future__ import annotations
@@ -24,297 +24,280 @@ def _emitted_check_ids(report) -> set[ValidationCheckId]:  # type: ignore[no-unt
     return {issue.check_id for issue in report.issues}
 
 
-# ── unique_artifact_paths ──────────────────────────────────────────────────
-
-
-def test_unique_artifact_paths_passes_when_paths_distinct() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                artifacts=(ArtifactDecl(path="a/x.json", produced_by="A"),),
+class TestUniqueArtifactPaths:
+    def test_passes_when_paths_distinct(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    artifacts=(ArtifactDecl(path="a/x.json", produced_by="A"),),
+                ),
+                TaskIO(
+                    task_id="B",
+                    artifacts=(ArtifactDecl(path="b/y.json", produced_by="B"),),
+                ),
             ),
-            TaskIO(
-                task_id="B",
-                artifacts=(ArtifactDecl(path="b/y.json", produced_by="B"),),
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.unique_artifact_paths not in _emitted_check_ids(rep)
+
+    def test_fails_on_duplicate_path(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    artifacts=(ArtifactDecl(path="dup.json", produced_by="A"),),
+                ),
+                TaskIO(
+                    task_id="B",
+                    artifacts=(ArtifactDecl(path="dup.json", produced_by="B"),),
+                ),
             ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.unique_artifact_paths not in _emitted_check_ids(rep)
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.unique_artifact_paths in _emitted_check_ids(rep)
+        issue = next(i for i in rep.issues if i.check_id is ValidationCheckId.unique_artifact_paths)
+        assert issue.target == "dup.json"
+        assert issue.severity == "error"
+        assert rep.ok is False
 
 
-def test_unique_artifact_paths_fails_on_duplicate_path() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                artifacts=(ArtifactDecl(path="dup.json", produced_by="A"),),
+class TestAcyclicDataEdges:
+    def test_passes_on_dag(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    outputs=(TaskOutputSpec(name="x", type="int"),),
+                ),
+                TaskIO(
+                    task_id="B",
+                    inputs=(TaskInputSpec(name="x", type="int", source="A"),),
+                ),
             ),
-            TaskIO(
-                task_id="B",
-                artifacts=(ArtifactDecl(path="dup.json", produced_by="B"),),
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.acyclic_data_edges not in _emitted_check_ids(rep)
+
+    def test_fails_on_cycle(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    inputs=(TaskInputSpec(name="x", type="int", source="B"),),
+                ),
+                TaskIO(
+                    task_id="B",
+                    inputs=(TaskInputSpec(name="y", type="int", source="A"),),
+                ),
             ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.unique_artifact_paths in _emitted_check_ids(rep)
-    issue = next(i for i in rep.issues if i.check_id is ValidationCheckId.unique_artifact_paths)
-    assert issue.target == "dup.json"
-    assert issue.severity == "error"
-    assert rep.ok is False
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.acyclic_data_edges in _emitted_check_ids(rep)
+        assert rep.ok is False
 
 
-# ── acyclic_data_edges ─────────────────────────────────────────────────────
-
-
-def test_acyclic_data_edges_passes_on_dag() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                outputs=(TaskOutputSpec(name="x", type="int"),),
+class TestEveryInputHasSource:
+    def test_passes_when_all_inputs_have_source(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    outputs=(TaskOutputSpec(name="x", type="int"),),
+                ),
+                TaskIO(
+                    task_id="B",
+                    inputs=(TaskInputSpec(name="x", type="int", source="A"),),
+                ),
             ),
-            TaskIO(
-                task_id="B",
-                inputs=(TaskInputSpec(name="x", type="int", source="A"),),
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.every_input_has_source not in _emitted_check_ids(rep)
+
+    def test_fails_without_spec_when_source_none(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    inputs=(TaskInputSpec(name="x", type="int"),),
+                ),
             ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.acyclic_data_edges not in _emitted_check_ids(rep)
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.every_input_has_source in _emitted_check_ids(rep)
+        issue = next(
+            i for i in rep.issues if i.check_id is ValidationCheckId.every_input_has_source
+        )
+        assert issue.target == "A"
+        assert rep.ok is False
 
 
-def test_acyclic_data_edges_fails_on_cycle() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                inputs=(TaskInputSpec(name="x", type="int", source="B"),),
+class TestProducedByResolves:
+    def test_passes_when_produced_by_known_task(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    artifacts=(ArtifactDecl(path="a.json", produced_by="A"),),
+                ),
             ),
-            TaskIO(
-                task_id="B",
-                inputs=(TaskInputSpec(name="y", type="int", source="A"),),
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.produced_by_resolves not in _emitted_check_ids(rep)
+
+    def test_fails_on_unknown_task(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    artifacts=(ArtifactDecl(path="a.json", produced_by="ghost"),),
+                ),
             ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.acyclic_data_edges in _emitted_check_ids(rep)
-    assert rep.ok is False
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.produced_by_resolves in _emitted_check_ids(rep)
+        issue = next(i for i in rep.issues if i.check_id is ValidationCheckId.produced_by_resolves)
+        assert issue.target == "a.json"
+        assert rep.ok is False
 
 
-# ── every_input_has_source ─────────────────────────────────────────────────
-
-
-def test_every_input_has_source_passes_when_all_have_source() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                outputs=(TaskOutputSpec(name="x", type="int"),),
+class TestOutputsMatchDownstreamInputs:
+    def test_passes_when_names_align(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    outputs=(TaskOutputSpec(name="x", type="int"),),
+                ),
+                TaskIO(
+                    task_id="B",
+                    inputs=(TaskInputSpec(name="x", type="int", source="A"),),
+                ),
             ),
-            TaskIO(
-                task_id="B",
-                inputs=(TaskInputSpec(name="x", type="int", source="A"),),
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.outputs_match_downstream_inputs not in _emitted_check_ids(rep)
+
+    def test_warns_on_name_mismatch_but_report_stays_ok(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    outputs=(TaskOutputSpec(name="x", type="int"),),
+                ),
+                TaskIO(
+                    task_id="B",
+                    inputs=(TaskInputSpec(name="y", type="int", source="A"),),
+                ),
             ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.every_input_has_source not in _emitted_check_ids(rep)
+        )
+        rep = validate_workflow_contract(contract)
+        assert ValidationCheckId.outputs_match_downstream_inputs in _emitted_check_ids(rep)
+        issue = next(
+            i for i in rep.issues if i.check_id is ValidationCheckId.outputs_match_downstream_inputs
+        )
+        assert issue.severity == "warning"
+        # Warning-only ⇒ report still ok.
+        assert rep.ok is True
 
 
-def test_every_input_has_source_fails_without_spec_when_source_none() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                inputs=(TaskInputSpec(name="x", type="int"),),
+class TestNoOrphanTasks:
+    """Spec-aware check: inert without a spec, cross-checks the spec task set
+    against ``contract.task_io`` when a spec is supplied."""
+
+    def test_no_op_without_spec(self) -> None:
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(TaskIO(task_id="phantom"),),
+        )
+        rep = validate_workflow_contract(contract, spec=None)
+        assert ValidationCheckId.no_orphan_tasks not in _emitted_check_ids(rep)
+
+    def test_passes_when_spec_set_matches_contract(self) -> None:
+        from molexp.workflow.compiler import WorkflowCompiler
+        from molexp.workflow.task import Task
+
+        class Inert(Task):
+            async def execute(self, ctx):  # type: ignore[no-untyped-def, override]
+                return None
+
+        spec = (
+            WorkflowCompiler(name="wf")
+            .add(Inert(), name="A")
+            .add(Inert(), name="B", depends_on=["A"])
+            .compile()
+        )
+        contract = WorkflowContract(
+            workflow_id=spec.workflow_id,
+            task_io=(
+                TaskIO(task_id="A", outputs=(TaskOutputSpec(name="x", type="int"),)),
+                TaskIO(
+                    task_id="B",
+                    inputs=(TaskInputSpec(name="x", type="int", source="A"),),
+                ),
             ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.every_input_has_source in _emitted_check_ids(rep)
-    issue = next(i for i in rep.issues if i.check_id is ValidationCheckId.every_input_has_source)
-    assert issue.target == "A"
-    assert rep.ok is False
+        )
+        rep = validate_workflow_contract(contract, spec=spec)
+        assert ValidationCheckId.no_orphan_tasks not in _emitted_check_ids(rep)
+
+    def test_fails_when_spec_has_task_absent_from_contract(self) -> None:
+        from molexp.workflow.compiler import WorkflowCompiler
+        from molexp.workflow.task import Task
+
+        class Inert(Task):
+            async def execute(self, ctx):  # type: ignore[no-untyped-def, override]
+                return None
+
+        spec = (
+            WorkflowCompiler(name="wf")
+            .add(Inert(), name="A")
+            .add(Inert(), name="B", depends_on=["A"])
+            .compile()
+        )
+        # Contract is missing TaskIO for "B".
+        contract = WorkflowContract(
+            workflow_id=spec.workflow_id,
+            task_io=(TaskIO(task_id="A"),),
+        )
+        rep = validate_workflow_contract(contract, spec=spec)
+        assert ValidationCheckId.no_orphan_tasks in _emitted_check_ids(rep)
+        bad = [i for i in rep.issues if i.check_id is ValidationCheckId.no_orphan_tasks]
+        assert any(i.target == "B" for i in bad)
+        assert rep.ok is False
 
 
-# ── produced_by_resolves ───────────────────────────────────────────────────
-
-
-def test_produced_by_resolves_passes_when_known_task() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                artifacts=(ArtifactDecl(path="a.json", produced_by="A"),),
+class TestValidationReportAggregation:
+    def test_severity_override_promotes_warning_to_error(self) -> None:
+        """A consumer promoting ``outputs_match_downstream_inputs`` to error
+        severity flips ``report.ok`` to False."""
+        contract = WorkflowContract(
+            workflow_id="workflow_00000000",
+            task_io=(
+                TaskIO(
+                    task_id="A",
+                    outputs=(TaskOutputSpec(name="x", type="int"),),
+                ),
+                TaskIO(
+                    task_id="B",
+                    inputs=(TaskInputSpec(name="y", type="int", source="A"),),
+                ),
             ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.produced_by_resolves not in _emitted_check_ids(rep)
-
-
-def test_produced_by_resolves_fails_on_unknown_task() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                artifacts=(ArtifactDecl(path="a.json", produced_by="ghost"),),
+            validation_checks=(
+                ValidationCheck(
+                    id=ValidationCheckId.outputs_match_downstream_inputs,
+                    severity="error",
+                ),
             ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.produced_by_resolves in _emitted_check_ids(rep)
-    issue = next(i for i in rep.issues if i.check_id is ValidationCheckId.produced_by_resolves)
-    assert issue.target == "a.json"
-    assert rep.ok is False
-
-
-# ── outputs_match_downstream_inputs ────────────────────────────────────────
-
-
-def test_outputs_match_downstream_inputs_passes_when_names_align() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                outputs=(TaskOutputSpec(name="x", type="int"),),
-            ),
-            TaskIO(
-                task_id="B",
-                inputs=(TaskInputSpec(name="x", type="int", source="A"),),
-            ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.outputs_match_downstream_inputs not in _emitted_check_ids(rep)
-
-
-def test_outputs_match_downstream_inputs_warns_on_name_mismatch() -> None:
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                outputs=(TaskOutputSpec(name="x", type="int"),),
-            ),
-            TaskIO(
-                task_id="B",
-                inputs=(TaskInputSpec(name="y", type="int", source="A"),),
-            ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert ValidationCheckId.outputs_match_downstream_inputs in _emitted_check_ids(rep)
-    issue = next(
-        i for i in rep.issues if i.check_id is ValidationCheckId.outputs_match_downstream_inputs
-    )
-    assert issue.severity == "warning"
-    # Warning-only ⇒ report still ok.
-    assert rep.ok is True
-
-
-# ── no_orphan_tasks (spec-aware) ───────────────────────────────────────────
-
-
-def test_no_orphan_tasks_no_op_without_spec() -> None:
-    """Without a spec the check has nothing to cross-reference."""
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(TaskIO(task_id="phantom"),),
-    )
-    rep = validate_workflow_contract(contract, spec=None)
-    assert ValidationCheckId.no_orphan_tasks not in _emitted_check_ids(rep)
-
-
-def test_no_orphan_tasks_passes_when_spec_set_matches_contract() -> None:
-    from molexp.workflow.compiler import WorkflowCompiler
-    from molexp.workflow.task import Task
-
-    class Inert(Task):
-        async def execute(self, ctx):  # type: ignore[no-untyped-def, override]
-            return None
-
-    spec = (
-        WorkflowCompiler(name="wf")
-        .add(Inert(), name="A")
-        .add(Inert(), name="B", depends_on=["A"])
-        .compile()
-    )
-    contract = WorkflowContract(
-        workflow_id=spec.workflow_id,
-        task_io=(
-            TaskIO(task_id="A", outputs=(TaskOutputSpec(name="x", type="int"),)),
-            TaskIO(
-                task_id="B",
-                inputs=(TaskInputSpec(name="x", type="int", source="A"),),
-            ),
-        ),
-    )
-    rep = validate_workflow_contract(contract, spec=spec)
-    assert ValidationCheckId.no_orphan_tasks not in _emitted_check_ids(rep)
-
-
-def test_no_orphan_tasks_fails_when_spec_has_extra_task() -> None:
-    from molexp.workflow.compiler import WorkflowCompiler
-    from molexp.workflow.task import Task
-
-    class Inert(Task):
-        async def execute(self, ctx):  # type: ignore[no-untyped-def, override]
-            return None
-
-    spec = (
-        WorkflowCompiler(name="wf")
-        .add(Inert(), name="A")
-        .add(Inert(), name="B", depends_on=["A"])
-        .compile()
-    )
-    # Contract is missing TaskIO for "B".
-    contract = WorkflowContract(
-        workflow_id=spec.workflow_id,
-        task_io=(TaskIO(task_id="A"),),
-    )
-    rep = validate_workflow_contract(contract, spec=spec)
-    assert ValidationCheckId.no_orphan_tasks in _emitted_check_ids(rep)
-    bad = [i for i in rep.issues if i.check_id is ValidationCheckId.no_orphan_tasks]
-    assert any(i.target == "B" for i in bad)
-    assert rep.ok is False
-
-
-# ── ValidationReport.ok aggregation ────────────────────────────────────────
-
-
-def test_severity_override_promotes_warning_to_error() -> None:
-    """A consumer who wants strict ``outputs_match_downstream_inputs``
-    can promote it to error-severity; ``ok`` flips accordingly."""
-    contract = WorkflowContract(
-        workflow_id="workflow_00000000",
-        task_io=(
-            TaskIO(
-                task_id="A",
-                outputs=(TaskOutputSpec(name="x", type="int"),),
-            ),
-            TaskIO(
-                task_id="B",
-                inputs=(TaskInputSpec(name="y", type="int", source="A"),),
-            ),
-        ),
-        validation_checks=(
-            ValidationCheck(
-                id=ValidationCheckId.outputs_match_downstream_inputs,
-                severity="error",
-            ),
-        ),
-    )
-    rep = validate_workflow_contract(contract)
-    assert rep.ok is False
+        )
+        rep = validate_workflow_contract(contract)
+        assert rep.ok is False

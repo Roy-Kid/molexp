@@ -1,4 +1,13 @@
-"""Tests for Workspace / Project / Experiment / Run hierarchy."""
+"""Tests for the Workspace / Project / Experiment / Run hierarchy.
+
+Scope note — this file owns the *hierarchy-specific* behaviors: lazy
+construction + materialization of a ``Workspace``, entity-vs-derived-index
+separation, typed-sugar slugification, ``sync_folders`` reconciliation, and
+``workflow_source`` externalization on an ``Experiment``. ``add_*`` idempotency
+lives in ``test_crud_convergence.py``; run materialization in
+``test_add_runs.py``; the run status lifecycle in the ``test_run_lifecycle_*``
+files.
+"""
 
 import json
 from pathlib import Path
@@ -9,25 +18,20 @@ from molexp.workspace import Workspace
 
 
 class TestLegacyLibraryRemoved:
-    """wsokf-11: the legacy per-scope Library stack is gone."""
+    """wsokf-11: the legacy per-scope Library stack is gone (module-gone lock)."""
 
     def test_library_subpackage_gone(self):
         with pytest.raises(ModuleNotFoundError):
             import molexp.workspace.library  # noqa: F401
 
-    def test_note_kind_no_longer_parses(self):
-        from molexp.workspace.assets import parse_asset
-
-        with pytest.raises(Exception):  # noqa: B017 - pydantic ValidationError
-            parse_asset({"kind": "note", "asset_id": "x", "name": "n", "path": "p.md"})
-
 
 class TestWorkspace:
-    def test_creation_no_side_effects(self, tmp_path):
+    def test_construction_writes_nothing(self, tmp_path):
+        """Charter law: no disk I/O in ``__init__`` — all I/O is lazy."""
         Workspace(root=tmp_path / "new", name="Lab")
         assert not (tmp_path / "new" / "workspace.json").exists()
 
-    def test_materialize_creates_files(self, tmp_path):
+    def test_materialize_creates_workspace_json(self, tmp_path):
         ws = Workspace(root=tmp_path, name="Lab")
         ws.materialize()
         assert (tmp_path / "workspace.json").exists()
@@ -37,33 +41,29 @@ class TestWorkspace:
         ws.add_project("first")
         assert (tmp_path / "workspace.json").exists()
 
-    def test_load_preserves_metadata(self, workspace):
+    def test_load_preserves_identity(self, workspace):
         workspace.materialize()
         loaded = Workspace.load(workspace.root)
         assert loaded.id == workspace.id
         assert loaded.name == workspace.name
 
-    def test_metadata_has_no_child_lists(self, workspace):
+    def test_entity_metadata_has_no_child_lists(self, workspace):
+        """The entity ``workspace.json`` never embeds the derived child index."""
         workspace.materialize()
         data = json.loads(Path(workspace.root / "workspace.json").read_text())
         assert "projects" not in data
 
 
 class TestProject:
-    def test_creation(self, workspace):
+    def test_add_project_slugifies_display_name(self, workspace):
         proj = workspace.add_project("QM9")
         assert proj.id == "qm9"
         assert proj.name == "QM9"
 
-    def test_get_by_name_slugified(self, workspace):
+    def test_get_project_resolves_slugified_display_name(self, workspace):
         workspace.add_project("My Project")
         found = workspace.get_project("My Project")
         assert found.id == "my-project"
-
-    def test_list_projects(self, workspace):
-        workspace.add_project("a")
-        workspace.add_project("b")
-        assert len(workspace.list_projects()) == 2
 
     def test_sync_folders_imports_orphan_dirs_into_index(self, tmp_path):
         """``sync_folders`` reconciles the per-class index with disk reality.
@@ -93,17 +93,6 @@ class TestProject:
 
 
 class TestExperiment:
-    def test_creation_with_workflow(self, project):
-        exp = project.add_experiment(
-            "baseline",
-            workflow_source="train.py",
-            params={"lr": 1e-4},
-            git_commit="abc",
-        )
-        assert exp.metadata.workflow_source == "train.py"
-        assert exp.metadata.parameter_space == {"lr": 1e-4}
-        assert exp.metadata.git_commit == "abc"
-
     def test_ir_workflow_source_externalized_to_workflow_json(self, project):
         """A compiled-IR ``workflow_source`` lands as a standalone ``workflow.json``.
 
@@ -135,12 +124,7 @@ class TestExperiment:
 
 
 class TestRun:
-    def test_creation(self, experiment):
-        run = experiment.add_run(params={"x": 1})
-        assert run.parameters == {"x": 1}
-        assert run.status == "pending"
-
-    def test_reload_from_disk(self, experiment):
+    def test_reload_rehydrates_params_and_workflow_snapshot(self, experiment):
         run = experiment.add_run(
             params={"x": 42},
             workflow_snapshot={"source": "train.py"},

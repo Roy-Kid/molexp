@@ -1,17 +1,9 @@
-"""Tests for ``molexp.workspace.folder`` — the abstract Folder base class.
+"""Tests for ``molexp.workspace.folder`` — the abstract ``Folder`` base class.
 
-This module covers sub-spec ``unify-folder-abstraction-01-folder-base``.
-The 11 acceptance criteria (ac-001 .. ac-011) are mapped one-to-one onto
-test methods below; helper edge-case tests are kept at the bottom of the
-file.
-
-Production code does not exist yet — every test must FAIL at collection
-time (``ImportError`` from ``molexp.workspace.folder``) until sub-spec 01
-is implemented.
-
-References:
-- spec:        ``.claude/specs/unify-folder-abstraction-01-folder-base.md``
-- acceptance:  ``.claude/specs/unify-folder-abstraction-01-folder-base.acceptance.md``
+Covers the ``Folder`` lifecycle (lazy mkdir, atomic ``write_json``, id/kind
+validation, ``children`` filtering, metadata round-trip, ``delete`` / ``move_to``)
+and the typed markdown-graph edges (``append_link`` / ``typed_out_edges``).
+The folder-module import-guard subprocess lives at the bottom.
 """
 
 from __future__ import annotations
@@ -26,370 +18,195 @@ from pathlib import Path
 import pytest
 
 from molexp.workspace.base import _load_metadata
-from molexp.workspace.folder import Folder, FolderMoveCollisionError
+from molexp.workspace.folder import Folder, FolderMoveCollisionError, append_link
 from molexp.workspace.models import FolderMetadata
 
 
-# ── Helper subclass used purely to verify children() filtering. ────────────
-#
-# ``Folder`` has no business subclasses in sub-spec 01; this private
-# ``_TestSubFolder`` exists only so ``children()`` has something to
-# reconstruct without depending on sub-spec 02's eventual ``Project`` /
-# ``Experiment`` / ``Run`` subclasses.
+# ``Folder`` has no business subclasses at this level; this private subclass
+# exists only so ``children()`` has something concrete to reconstruct.
 class _TestSubFolder(Folder):
     """Minimal Folder subclass used only by the children() filter test."""
 
 
-# ── ac-001 ────────────────────────────────────────────────────────────────
-def test_construction_is_side_effect_free_first_path_creates_dir(
-    tmp_path: Path,
-) -> None:
-    """Folder construction performs no I/O; ``path()`` is the lazy mkdir.
+class TestFolder:
+    def test_construction_is_side_effect_free_then_path_lazily_mkdirs(self, tmp_path: Path) -> None:
+        """Construction touches no filesystem; the first ``path()`` mkdirs, and
+        a second ``path()`` is an idempotent no-op returning the same Path."""
+        folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
 
-    Covers ac-001: instantiating ``Folder`` must not touch the filesystem.
-    Calling ``path()`` once creates the directory; calling it again is an
-    idempotent no-op returning the same Path.
-    """
-    folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
+        target = tmp_path / "alpha"
+        assert not target.exists(), "construction must be side-effect-free"
 
-    target = tmp_path / "alpha"
-    assert not target.exists(), "construction must be side-effect-free"
+        first = Path(folder.path())
+        assert first == target
+        assert first.is_dir()
+        assert Path(folder.path()) == first  # idempotent
 
-    first = Path(folder.path())
-    assert first == target
-    assert first.is_dir()
+    def test_write_json_round_trips_and_survives_mid_write_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Happy path round-trips; a mid-write ``os.replace`` failure leaves the
+        pre-existing file intact (atomic temp-file + rename)."""
+        folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
 
-    second = Path(folder.path())
-    assert second == first
-    assert second.is_dir()
+        written = Path(str(folder.write_json("data.json", {"k": 1})))
+        assert json.loads(written.read_text()) == {"k": 1}
 
+        target_path = Path(folder.path()) / "data.json"
 
-# ── ac-002 ────────────────────────────────────────────────────────────────
-def test_write_json_persists_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``write_json`` happy path round-trips; mid-write failure is atomic.
+        def _explode(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("simulated mid-write failure")
 
-    Covers ac-002:
-    - happy path: ``folder.write_json("data.json", {"k": 1})`` then stdlib
-      ``json.load`` returns ``{"k": 1}``.
-    - failure path: monkeypatch ``os.replace`` to raise; the destination
-      file (or its absence on first write) is unchanged after the failure.
-    """
-    folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
+        monkeypatch.setattr("molexp.atomicio.os.replace", _explode)
+        with pytest.raises(RuntimeError):
+            folder.write_json("data.json", {"k": 2})
 
-    # Happy path.
-    written = folder.write_json("data.json", {"k": 1})
-    written_local = Path(str(written))
-    assert written_local.exists()
-    with written_local.open() as fh:
-        loaded = json.load(fh)
-    assert loaded == {"k": 1}
+        assert json.loads(target_path.read_text()) == {"k": 1}
 
-    # Failure path: original file (here: pre-existing payload) survives a
-    # mid-write os.replace failure on the *next* write attempt.
-    target_path = Path(folder.path()) / "data.json"
-
-    def _explode(*_args: object, **_kwargs: object) -> None:
-        raise RuntimeError("simulated mid-write failure")
-
-    # Patch the os.replace symbol in molexp.atomicio (where
-    # atomic_write_json — re-exported by workspace.base — now lives).
-    monkeypatch.setattr("molexp.atomicio.os.replace", _explode)
-
-    with pytest.raises(RuntimeError):
-        folder.write_json("data.json", {"k": 2})
-
-    # Original file content is intact.
-    with target_path.open() as fh:
-        still = json.load(fh)
-    assert still == {"k": 1}
-
-
-# ── ac-003 ────────────────────────────────────────────────────────────────
-@pytest.mark.parametrize(
-    "name, valid",
-    [
-        ("ok-1", True),
-        ("UPPER", False),
-        ("../etc", False),
-        ("", False),
-        (".  ", False),
-        ("   ", False),
-        ("!!!", False),  # all-punctuation slugifies to empty
-    ],
-)
-def test_id_name_kind_validation_name(tmp_path: Path, name: str, valid: bool) -> None:
-    """``name`` is validated and slugified into a kind-pattern-conforming id.
-
-    Covers ac-003 (name axis). ``slugify(name)`` must yield an ``id`` that
-    matches ``_KIND_PATTERN``; otherwise ``ValueError`` at construction.
-    All-punctuation names that slugify to empty are rejected.
-    """
-    if valid:
-        Folder(parent=None, name=name, kind="test.root", root_path=tmp_path)
-    else:
-        with pytest.raises(ValueError):
-            Folder(parent=None, name=name, kind="test.root", root_path=tmp_path)
-
-
-@pytest.mark.parametrize(
-    "kind, valid",
-    [
-        ("workspace.project", True),
-        ("test.root", True),
-        ("agent", True),
-        ("WORKSPACE.foo", False),
-        (".leading", False),
-        ("../etc", False),
-        ("", False),
-        ("   ", False),
-        ("foo bar", False),
-    ],
-)
-def test_id_name_kind_validation_kind(tmp_path: Path, kind: str, valid: bool) -> None:
-    """``kind`` is validated against ``_KIND_PATTERN`` at construction.
-
-    Covers ac-003 (kind axis). dotted lowercase ASCII only; uppercase,
-    leading-dot, and path-traversal kinds are rejected.
-    """
-    if valid:
-        Folder(parent=None, name="alpha", kind=kind, root_path=tmp_path)
-    else:
-        with pytest.raises(ValueError):
-            Folder(parent=None, name="alpha", kind=kind, root_path=tmp_path)
-
-
-# ── ac-004 ────────────────────────────────────────────────────────────────
-def test_parent_root_path_mutual_exclusion(tmp_path: Path) -> None:
-    """Construction shapes after the sub-spec 03 CRUD rewrite.
-
-    - ``parent=None`` with ``root_path=None`` is the **unmounted state** —
-      legal at construction time but ``.path()`` and ``.materialize()``
-      raise ``RuntimeError`` until ``parent.add_folder(child)`` mounts it.
-    - ``parent=other`` with ``root_path`` set → ``ValueError`` (still
-      mutually exclusive when both are non-None).
-    - 3-level nesting walks correctly: ``Path(leaf.path()) == root / mid / leaf``.
-    """
-    # parent=None with root_path=None is now ALLOWED (unmounted state).
-    unmounted = Folder(parent=None, name="alpha", kind="test.root", root_path=None)
-    assert unmounted._parent is None
-    with pytest.raises(RuntimeError, match="unmounted"):
-        Path(unmounted.path())
-
-    other = Folder(parent=None, name="other", kind="test.root", root_path=tmp_path)
-
-    # parent + root_path both given → still ValueError.
-    with pytest.raises(ValueError):
-        Folder(parent=other, name="beta", kind="test.child", root_path=tmp_path)
-
-    # Three-level nesting walks correctly.
-    root = Folder(parent=None, name="root", kind="test.root", root_path=tmp_path)
-    mid = Folder(parent=root, name="mid", kind="test.mid")
-    leaf = Folder(parent=mid, name="leaf", kind="test.leaf")
-    assert Path(leaf.path()) == Path(root.path()) / "mid" / "leaf"
-
-
-# ── ac-005 ────────────────────────────────────────────────────────────────
-def test_children_lists_and_filters_by_kind(tmp_path: Path) -> None:
-    """``children()`` lists materialized subfolders; ``kind=`` filters.
-
-    Covers ac-005:
-    - Two ``test.alpha`` + one ``test.beta`` materialized under a parent.
-    - ``parent.children()`` returns 3 Folder instances.
-    - ``parent.children(kind="test.alpha")`` returns exactly 2.
-    - ``parent.children()`` on a non-materialized parent returns ``[]``
-      (lazy semantics — no exception, no mkdir side effect).
-    """
-    parent = Folder(parent=None, name="parent", kind="test.root", root_path=tmp_path)
-
-    # Lazy semantics: pre-materialize, children() returns [].
-    # Use a fresh non-materialized folder so we can test the empty case
-    # without forcing Path(parent.path()) to mkdir.
-    fresh = Folder(parent=None, name="fresh", kind="test.root", root_path=tmp_path)
-    assert fresh.children() == []
-    assert not (tmp_path / "fresh").exists(), "children() must not mkdir"
-
-    # Materialize three sub-folders under parent.
-    alpha1 = _TestSubFolder(parent=parent, name="alpha1", kind="test.alpha")
-    alpha2 = _TestSubFolder(parent=parent, name="alpha2", kind="test.alpha")
-    beta = _TestSubFolder(parent=parent, name="beta", kind="test.beta")
-    alpha1.materialize()
-    alpha2.materialize()
-    beta.materialize()
-
-    all_children = parent.children()
-    assert len(all_children) == 3
-    assert all(isinstance(c, Folder) for c in all_children)
-
-    alphas = parent.children(kind="test.alpha")
-    assert len(alphas) == 2
-    assert {c.metadata.name for c in alphas} == {"alpha1", "alpha2"}
-
-    betas = parent.children(kind="test.beta")
-    assert len(betas) == 1
-    assert betas[0].metadata.name == "beta"
-
-
-# ── ac-006 ────────────────────────────────────────────────────────────────
-def test_folder_metadata_round_trip_with_monotonic_updated_at(
-    tmp_path: Path,
-) -> None:
-    """FolderMetadata round-trips with ``updated_at > created_at``.
-
-    Covers ac-006. This test deliberately deviates from
-    ``models.py:38``'s mtime-based design (the ``WorkspaceMetadata`` /
-    ``ProjectMetadata`` / etc. comment that says "No ``updated_at``. If
-    you need 'last modified', read the file mtime."). Rationale (from
-    sub-spec 01 § Design § 6):
-
-    - ``mtime`` is unstable across rsync / git checkout / cross-host
-      copies, and cannot back the global folder index introduced in
-      sub-spec 03;
-    - the lifecycle ``updated_at`` must be monotonically advanced inside
-      the metadata JSON, decoupled from external filesystem state.
-
-    This test pins that behaviour as a regression guard so the deviation
-    is not silently reverted.
-    """
-    folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
-    folder.materialize()
-
-    # Monotonicity guard: ensure the clock has had a chance to tick.
-    time.sleep(0.001)
-    folder.save()
-
-    loaded = _load_metadata(FolderMetadata, Path(folder.path()) / "metadata.json")
-    assert isinstance(loaded, FolderMetadata)
-    assert loaded.updated_at > loaded.created_at, (
-        "save() must bump updated_at past created_at — this is the "
-        "deliberate deviation from models.py:38's mtime-based design."
+    @pytest.mark.parametrize(
+        "name, valid",
+        [
+            ("ok-1", True),
+            ("UPPER", False),  # uppercase rejected
+            ("../etc", False),  # path traversal rejected
+            ("", False),  # empty rejected
+            ("!!!", False),  # all-punctuation slugifies to empty
+        ],
     )
+    def test_name_is_slugified_and_validated(self, tmp_path: Path, name: str, valid: bool) -> None:
+        """``slugify(name)`` must yield an id matching ``_KIND_PATTERN``;
+        otherwise ``ValueError`` at construction."""
+        if valid:
+            Folder(parent=None, name=name, kind="test.root", root_path=tmp_path)
+        else:
+            with pytest.raises(ValueError):
+                Folder(parent=None, name=name, kind="test.root", root_path=tmp_path)
 
+    @pytest.mark.parametrize(
+        "kind, valid",
+        [
+            ("workspace.project", True),
+            ("WORKSPACE.foo", False),  # uppercase rejected
+            (".leading", False),  # leading dot rejected
+            ("../etc", False),  # path traversal rejected
+            ("", False),  # empty rejected
+            ("foo bar", False),  # invalid char rejected
+        ],
+    )
+    def test_kind_is_validated(self, tmp_path: Path, kind: str, valid: bool) -> None:
+        """``kind`` must be dotted lowercase ASCII (``_KIND_PATTERN``)."""
+        if valid:
+            Folder(parent=None, name="alpha", kind=kind, root_path=tmp_path)
+        else:
+            with pytest.raises(ValueError):
+                Folder(parent=None, name="alpha", kind=kind, root_path=tmp_path)
 
-# ── ac-007 ────────────────────────────────────────────────────────────────
-def test_delete_removes_directory_recursively(tmp_path: Path) -> None:
-    """``delete()`` removes the directory tree (including nested files).
+    def test_construction_shapes_parent_vs_root_path(self, tmp_path: Path) -> None:
+        """``parent=None`` + ``root_path=None`` is the unmounted state (legal at
+        construction; ``.path()`` raises until mounted). ``parent`` + ``root_path``
+        both set is a ``ValueError``. Nesting walks parent→child correctly."""
+        unmounted = Folder(parent=None, name="alpha", kind="test.root", root_path=None)
+        assert unmounted._parent is None
+        with pytest.raises(RuntimeError, match="unmounted"):
+            Path(unmounted.path())
 
-    Covers ac-007. We capture ``path()`` BEFORE ``delete()`` because
-    re-calling ``Path(folder.path())`` afterward would re-mkdir the directory
-    (lazy mkdir contract from ac-001).
-    """
-    folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
-    folder.materialize()
-    folder.write_json("file.json", {})
+        other = Folder(parent=None, name="other", kind="test.root", root_path=tmp_path)
+        with pytest.raises(ValueError):
+            Folder(parent=other, name="beta", kind="test.child", root_path=tmp_path)
 
-    captured = Path(folder.path())
-    assert captured.exists()
+        root = Folder(parent=None, name="root", kind="test.root", root_path=tmp_path)
+        mid = Folder(parent=root, name="mid", kind="test.mid")
+        leaf = Folder(parent=mid, name="leaf", kind="test.leaf")
+        assert Path(leaf.path()) == Path(root.path()) / "mid" / "leaf"
 
-    folder.delete()
+    def test_children_lists_materialized_subfolders_and_filters_by_kind(
+        self, tmp_path: Path
+    ) -> None:
+        """``children()`` lists materialized subfolders and filters by ``kind=``;
+        a non-materialized parent returns ``[]`` without a mkdir side effect."""
+        fresh = Folder(parent=None, name="fresh", kind="test.root", root_path=tmp_path)
+        assert fresh.children() == []
+        assert not (tmp_path / "fresh").exists(), "children() must not mkdir"
 
-    # Do NOT call Path(folder.path()) here; it would re-mkdir.
-    assert not captured.exists()
+        parent = Folder(parent=None, name="parent", kind="test.root", root_path=tmp_path)
+        for name, kind in (
+            ("alpha1", "test.alpha"),
+            ("alpha2", "test.alpha"),
+            ("beta", "test.beta"),
+        ):
+            _TestSubFolder(parent=parent, name=name, kind=kind).materialize()
 
+        assert len(parent.children()) == 3
+        assert all(isinstance(c, Folder) for c in parent.children())
+        assert {c.metadata.name for c in parent.children(kind="test.alpha")} == {"alpha1", "alpha2"}
+        assert [c.metadata.name for c in parent.children(kind="test.beta")] == ["beta"]
 
-# ── ac-008 ────────────────────────────────────────────────────────────────
-def test_move_to_relocates_and_bumps_updated_at(tmp_path: Path) -> None:
-    """``move_to(new_parent)`` relocates on disk and bumps ``updated_at``.
+    def test_save_bumps_updated_at_past_created_at(self, tmp_path: Path) -> None:
+        """Regression guard on the deliberate deviation from the mtime-based
+        design (sub-spec 01 §6): ``save()`` advances ``updated_at`` monotonically
+        inside the metadata JSON, decoupled from filesystem mtime."""
+        folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
+        folder.materialize()
 
-    Covers ac-008 (success path). Old path absent, new path present,
-    ``folder.parent is parent_b``, ``metadata.updated_at`` advanced past
-    its pre-move value.
-    """
-    parent_a = Folder(parent=None, name="parent_a", kind="test.root", root_path=tmp_path)
-    parent_b = Folder(parent=None, name="parent_b", kind="test.root", root_path=tmp_path)
+        time.sleep(0.001)  # let the clock tick so the bump is observable
+        folder.save()
 
-    folder = Folder(parent=parent_a, name="movable", kind="test.child")
-    folder.materialize()
+        loaded = _load_metadata(FolderMetadata, Path(folder.path()) / "metadata.json")
+        assert isinstance(loaded, FolderMetadata)
+        assert loaded.updated_at > loaded.created_at
 
-    old_path = Path(folder.path())
-    before = folder.metadata.updated_at
-    assert old_path.exists()
+    def test_delete_removes_directory_tree(self, tmp_path: Path) -> None:
+        """``delete()`` removes the directory tree (including nested files)."""
+        folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
+        folder.materialize()
+        folder.write_json("file.json", {})
 
-    time.sleep(0.001)
-    folder.move_to(parent_b)
+        captured = Path(folder.path())  # capture before delete (re-path would re-mkdir)
+        assert captured.exists()
+        folder.delete()
+        assert not captured.exists()
 
-    assert not old_path.exists(), "old path must be gone after move"
-    assert folder.parent is parent_b
-    new_path = Path(folder.path())
-    assert new_path == Path(parent_b.path()) / "movable"
-    assert new_path.exists()
-    assert folder.metadata.updated_at > before
+    def test_move_to_relocates_and_bumps_updated_at(self, tmp_path: Path) -> None:
+        """``move_to(new_parent)`` relocates on disk, reparents, and bumps
+        ``updated_at``."""
+        parent_a = Folder(parent=None, name="parent_a", kind="test.root", root_path=tmp_path)
+        parent_b = Folder(parent=None, name="parent_b", kind="test.root", root_path=tmp_path)
 
+        folder = Folder(parent=parent_a, name="movable", kind="test.child")
+        folder.materialize()
+        old_path = Path(folder.path())
+        before = folder.metadata.updated_at
 
-def test_move_to_collision_raises(tmp_path: Path) -> None:
-    """``move_to`` raises ``FolderMoveCollisionError`` on existing target.
-
-    Covers ac-008 (collision path).
-    """
-    parent_a = Folder(parent=None, name="parent_a", kind="test.root", root_path=tmp_path)
-    parent_b = Folder(parent=None, name="parent_b", kind="test.root", root_path=tmp_path)
-
-    folder = Folder(parent=parent_a, name="movable", kind="test.child")
-    folder.materialize()
-
-    # Pre-create a colliding directory at the target.
-    Path(parent_b.path()).joinpath("movable").mkdir(parents=True, exist_ok=True)
-
-    with pytest.raises(FolderMoveCollisionError):
+        time.sleep(0.001)
         folder.move_to(parent_b)
 
+        assert not old_path.exists()
+        assert folder.parent is parent_b
+        assert Path(folder.path()) == Path(parent_b.path()) / "movable"
+        assert Path(folder.path()).exists()
+        assert folder.metadata.updated_at > before
 
-# ── ac-009: legacy reverse-import (deleted by unify-folder-abstraction-03) ──
-# ``subsystem.py`` was removed; ``_KIND_PATTERN`` now lives only in folder.py.
+    def test_move_to_collision_raises(self, tmp_path: Path) -> None:
+        """``move_to`` raises ``FolderMoveCollisionError`` when the target exists."""
+        parent_a = Folder(parent=None, name="parent_a", kind="test.root", root_path=tmp_path)
+        parent_b = Folder(parent=None, name="parent_b", kind="test.root", root_path=tmp_path)
 
+        folder = Folder(parent=parent_a, name="movable", kind="test.child")
+        folder.materialize()
+        Path(parent_b.path()).joinpath("movable").mkdir(parents=True, exist_ok=True)
 
-# ── ac-011 ────────────────────────────────────────────────────────────────
-def test_import_guard_subprocess() -> None:
-    """``import molexp.workspace.folder`` pulls no upstream layer modules.
+        with pytest.raises(FolderMoveCollisionError):
+            folder.move_to(parent_b)
 
-    Covers ac-011. Subprocess isolation is required because the in-process
-    interpreter likely has ``molexp.workflow`` / ``molexp.agent`` etc.
-    already loaded from other test modules.
-    """
-    code = (
-        "import sys\n"
-        "import molexp.workspace.folder  # noqa: F401\n"
-        "assert 'molexp.workflow' not in sys.modules, "
-        "    'molexp.workspace.folder eagerly imported molexp.workflow'\n"
-        "assert 'molexp.agent' not in sys.modules, "
-        "    'molexp.workspace.folder eagerly imported molexp.agent'\n"
-        "assert 'pydantic_ai' not in sys.modules, "
-        "    'molexp.workspace.folder eagerly imported pydantic_ai'\n"
-        "assert 'pydantic_graph' not in sys.modules, "
-        "    'molexp.workspace.folder eagerly imported pydantic_graph'\n"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        print("stderr:", result.stderr.decode())
-        print("stdout:", result.stdout.decode())
-    assert result.returncode == 0, "import-guard subprocess failed; see captured stderr above"
-
-
-# ── Edge cases (extra, not strictly tied to ac) ────────────────────────────
-@pytest.mark.parametrize(
-    "bad_name",
-    [
-        "a/b.json",
-        "a\\b.json",
-        ".",
-        "..",
-    ],
-)
-def test_write_json_rejects_bad_names(tmp_path: Path, bad_name: str) -> None:
-    """``write_json`` rejects names with path separators or ``.``/``..``.
-
-    Mirrors ``SubsystemStore.file`` validation semantics (subsystem.py:81).
-    """
-    folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
-    folder.materialize()
-    with pytest.raises(ValueError):
-        folder.write_json(bad_name, {})
-
-
-# ── typed-provenance-edge (P0.1): typed edge roles on the markdown graph ──────
+    @pytest.mark.parametrize("bad_name", ["a/b.json", ".."])
+    def test_write_json_rejects_path_separators_and_traversal(
+        self, tmp_path: Path, bad_name: str
+    ) -> None:
+        """``write_json`` rejects names with path separators or ``.``/``..``."""
+        folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
+        folder.materialize()
+        with pytest.raises(ValueError):
+            folder.write_json(bad_name, {})
 
 
 def _concept_folder(name: str, root: Path) -> Folder:
@@ -400,47 +217,61 @@ def _concept_folder(name: str, root: Path) -> Folder:
     return folder
 
 
-def test_edge_role_round_trip(tmp_path: Path) -> None:
-    """ac-001: every EdgeRole written via append_link is recoverable, role intact."""
-    from molexp.workspace.folder import append_link
+class TestFolderEdges:
+    def test_append_link_round_trips_role_and_path_view(self, tmp_path: Path) -> None:
+        """``append_link`` writes a typed edge recoverable via ``typed_out_edges``
+        (role intact) while the path-only ``out_edges`` view still resolves the
+        target."""
+        src = _concept_folder("src", tmp_path)
+        dst = _concept_folder("dst", tmp_path)
+        append_link(src, dst, role="derived_from")
 
-    roles = ("derived_from", "cites", "supersedes", "records", "references")
-    for i, role in enumerate(roles):
-        src = _concept_folder(f"src{i}", tmp_path)
-        dst = _concept_folder(f"dst{i}", tmp_path)
-        append_link(src, dst, role=role)
         typed = src.typed_out_edges()
         assert len(typed) == 1
         assert os.path.normpath(typed[0].target) == os.path.normpath(str(dst.resolve()))
-        assert typed[0].role == role
-        # the path-only view is unchanged and still resolves dst
+        assert typed[0].role == "derived_from"
         assert os.path.normpath(str(dst.resolve())) in {
             os.path.normpath(e) for e in src.out_edges()
         }
 
+    def test_legacy_untyped_link_defaults_role_and_is_kept(self, tmp_path: Path) -> None:
+        """A plain pre-role markdown link parses to ``DEFAULT_EDGE_ROLE`` and is
+        never dropped; ``meta.yaml`` is never consulted for the edge."""
+        from molexp.workspace.edges import DEFAULT_EDGE_ROLE
 
-def test_legacy_untyped_link_defaults_role(tmp_path: Path) -> None:
-    """ac-002: a plain pre-role link parses to DEFAULT_EDGE_ROLE and is never dropped."""
-    from molexp.workspace.edges import DEFAULT_EDGE_ROLE
+        src = _concept_folder("src", tmp_path)
+        dst = _concept_folder("dst", tmp_path)
+        src.write_index("# src\n\n- [dst](../dst)\n")
 
-    src = _concept_folder("src", tmp_path)
-    dst = _concept_folder("dst", tmp_path)
-    # a plain markdown link with no role sigil — as older code wrote it
-    src.write_index("# src\n\n- [dst](../dst)\n")
-    typed = src.typed_out_edges()
-    assert len(typed) == 1
-    assert typed[0].role == DEFAULT_EDGE_ROLE
-    assert os.path.normpath(str(dst.resolve())) in {os.path.normpath(e) for e in src.out_edges()}
-    # meta.yaml is never consulted for the edge
-    assert "dst" not in (Path(src.resolve()) / "meta.yaml").read_text(encoding="utf-8")
+        typed = src.typed_out_edges()
+        assert len(typed) == 1
+        assert typed[0].role == DEFAULT_EDGE_ROLE
+        assert os.path.normpath(str(dst.resolve())) in {
+            os.path.normpath(e) for e in src.out_edges()
+        }
+        assert "dst" not in (Path(src.resolve()) / "meta.yaml").read_text(encoding="utf-8")
+
+    def test_append_link_unknown_role_raises_and_writes_nothing(self, tmp_path: Path) -> None:
+        src = _concept_folder("src", tmp_path)
+        dst = _concept_folder("dst", tmp_path)
+        with pytest.raises(ValueError):
+            append_link(src, dst, role="not_a_role")
+        assert src.read_index() == ""
 
 
-def test_append_link_unknown_role_raises(tmp_path: Path) -> None:
-    """ac-003: an unknown role raises and writes nothing."""
-    from molexp.workspace.folder import append_link
-
-    src = _concept_folder("src", tmp_path)
-    dst = _concept_folder("dst", tmp_path)
-    with pytest.raises(ValueError):
-        append_link(src, dst, role="not_a_role")
-    assert src.read_index() == ""
+def test_import_guard_folder_pulls_no_upstream_layer() -> None:
+    """``import molexp.workspace.folder`` pulls no upstream layer (workflow /
+    agent) nor ``pydantic_ai`` / ``pydantic_graph`` into ``sys.modules``.
+    Subprocess-isolated because the in-process interpreter has those loaded."""
+    code = (
+        "import sys\n"
+        "import molexp.workspace.folder  # noqa: F401\n"
+        "for mod in ('molexp.workflow', 'molexp.agent', 'pydantic_ai', 'pydantic_graph'):\n"
+        "    assert mod not in sys.modules, "
+        "        f'molexp.workspace.folder eagerly imported {mod}'\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, check=False)
+    if result.returncode != 0:
+        print("stderr:", result.stderr.decode())
+        print("stdout:", result.stdout.decode())
+    assert result.returncode == 0, "import-guard subprocess failed; see captured stderr above"

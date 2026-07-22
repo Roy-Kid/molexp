@@ -1,12 +1,15 @@
-"""Tests for the ``GenerateTestCode`` stage (spec ``harness-run-mode-01-substrate``, T03).
+"""Tests for the ``GenerateTestCode`` pipeline stage.
 
-Mirrors ``test_generate_workflow_source.py`` exactly:
-- fail-fast ``StageExecutionError`` when ``ctx.agent_gateway`` is None;
-- the ``AgentCallSpec`` carries ``agent_name="test_code_writer"``, the
-  ordered input ids ``[test_spec_id, workflow_source_id]``, and
-  ``output_schema == TestSource.model_json_schema()``;
-- the returned ref has kind ``"test_source"`` with both input ids in its
-  ``parent_ids`` (lineage).
+Owned behaviors (harness pipeline orchestration):
+- fail-fast :class:`StageExecutionError` when ``ctx.agent_gateway`` is None;
+- **single-task path** (spec bundle of size <= 1): one ``test_code_writer``
+  call with ordered inputs ``[test_spec, workflow_source]`` and
+  ``output_schema == TestSource.model_json_schema()``, returning the persisted
+  ``test_source`` artifact with both inputs in its ``parent_ids``;
+- **multi-task path**: one ``test_code_file_writer`` call per task, merged into
+  a single ``test_source`` artifact whose ``source`` stays empty (so
+  MaterializeExecution never emits a package colliding with a same-stem test
+  file) and whose per-task files are collected under distinct paths.
 """
 
 from __future__ import annotations
@@ -91,6 +94,37 @@ def _seed_workflow_source(artifact_store: ArtifactStore) -> PlanArtifactRef:
     )
 
 
+def _seed_two_task_bundle(artifact_store: ArtifactStore) -> PlanArtifactRef:
+    from molexp.harness.schemas import TestSpec, TestSpecBundle
+
+    bundle = TestSpecBundle(
+        id="tsb-001",
+        bound_workflow_id="bw-x",
+        specs=[
+            TestSpec(
+                id="ts-load",
+                name="unit: load",
+                kind="unit_test",
+                target_task_id="load",
+                description="load emits ints",
+            ),
+            TestSpec(
+                id="ts-save",
+                name="unit: save",
+                kind="unit_test",
+                target_task_id="save",
+                description="save writes a file",
+            ),
+        ],
+    )
+    return artifact_store.put_json(
+        kind="test_spec",
+        obj=json.loads(bundle.model_dump_json()),
+        created_by="seed",
+        parent_ids=[],
+    )
+
+
 @pytest.fixture()
 def ctx_no_gw(tmp_path: Path) -> HarnessRunContext:
     from molexp.harness.core.run_context import HarnessRunContext
@@ -134,160 +168,127 @@ def ctx_with_gw(tmp_path: Path) -> HarnessRunContext:
     )
 
 
-def test_fail_fast_no_gateway(ctx_no_gw) -> None:
-    from molexp.harness import StageExecutionError
-    from molexp.harness.stages import GenerateTestCode
+class TestGenerateTestCode:
+    def test_fail_fast_when_no_gateway(self, ctx_no_gw) -> None:
+        from molexp.harness import StageExecutionError
+        from molexp.harness.stages import GenerateTestCode
 
-    _seed_test_spec(ctx_no_gw.artifact_store)
-    _seed_workflow_source(ctx_no_gw.artifact_store)
-    stage = GenerateTestCode()
-    with pytest.raises(StageExecutionError) as exc:
-        asyncio.run(stage.run(ctx_no_gw))
-    assert "agent_gateway" in str(exc.value)
+        _seed_test_spec(ctx_no_gw.artifact_store)
+        _seed_workflow_source(ctx_no_gw.artifact_store)
+        stage = GenerateTestCode()
+        with pytest.raises(StageExecutionError) as exc:
+            asyncio.run(stage.run(ctx_no_gw))
+        assert "agent_gateway" in str(exc.value)
 
+    def test_single_task_builds_spec_with_ordered_inputs_and_schema(self, ctx_with_gw) -> None:
+        from molexp.harness.gateways.gateway import AgentGateway
+        from molexp.harness.schemas import AgentCallResult, AgentCallSpec, TestSource
+        from molexp.harness.stages import GenerateTestCode
 
-def test_builds_correct_spec(ctx_with_gw) -> None:
-    from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.schemas import AgentCallResult, AgentCallSpec, TestSource
-    from molexp.harness.stages import GenerateTestCode
+        ts_ref = _seed_test_spec(ctx_with_gw.artifact_store)
+        ws_ref = _seed_workflow_source(ctx_with_gw.artifact_store)
+        real_gw = ctx_with_gw.agent_gateway
+        real_gw.register(
+            agent_name="test_code_writer",
+            output=_test_source_canned(),
+            output_kind="test_source",
+        )
+        captured: list[AgentCallSpec] = []
 
-    ts_ref = _seed_test_spec(ctx_with_gw.artifact_store)
-    ws_ref = _seed_workflow_source(ctx_with_gw.artifact_store)
-    real_gw = ctx_with_gw.agent_gateway
-    real_gw.register(
-        agent_name="test_code_writer",
-        output=_test_source_canned(),
-        output_kind="test_source",
-    )
-    captured: list[AgentCallSpec] = []
+        class Cap:
+            async def call(self, spec: AgentCallSpec) -> AgentCallResult:
+                captured.append(spec)
+                return await real_gw.call(spec)
 
-    class Cap:
-        async def call(self, spec: AgentCallSpec) -> AgentCallResult:
-            captured.append(spec)
-            return await real_gw.call(spec)
+        object.__setattr__(ctx_with_gw, "_frozen", False)
+        ctx_with_gw.agent_gateway = cast(AgentGateway, Cap())
+        object.__setattr__(ctx_with_gw, "_frozen", True)
 
-    object.__setattr__(ctx_with_gw, "_frozen", False)
-    ctx_with_gw.agent_gateway = cast(AgentGateway, Cap())
-    object.__setattr__(ctx_with_gw, "_frozen", True)
+        asyncio.run(GenerateTestCode().run(ctx_with_gw))
+        assert len(captured) == 1
+        spec = captured[0]
+        assert spec.agent_name == "test_code_writer"
+        assert spec.input_artifact_ids == [ts_ref.id, ws_ref.id]
+        assert spec.output_schema == TestSource.model_json_schema()
 
-    asyncio.run(GenerateTestCode().run(ctx_with_gw))
-    assert len(captured) == 1
-    spec = captured[0]
-    assert spec.agent_name == "test_code_writer"
-    assert spec.input_artifact_ids == [ts_ref.id, ws_ref.id]
-    assert spec.output_schema == TestSource.model_json_schema()
+    def test_single_task_persists_test_source_with_lineage(self, ctx_with_gw) -> None:
+        from molexp.harness.stages import GenerateTestCode
 
+        ts_ref = _seed_test_spec(ctx_with_gw.artifact_store)
+        ws_ref = _seed_workflow_source(ctx_with_gw.artifact_store)
+        ctx_with_gw.agent_gateway.register(
+            agent_name="test_code_writer",
+            output=_test_source_canned(),
+            output_kind="test_source",
+        )
+        ref = asyncio.run(GenerateTestCode().run(ctx_with_gw))
+        assert ref.kind == "test_source"
+        assert ts_ref.id in ref.parent_ids
+        assert ws_ref.id in ref.parent_ids
 
-def test_persists_test_source_artifact_with_lineage(ctx_with_gw) -> None:
-    from molexp.harness.stages import GenerateTestCode
+    def test_multi_task_bundle_fans_out_per_file_and_merges(self, ctx_with_gw) -> None:
+        """A >1-task bundle drives one ``test_code_file_writer`` call per task
+        and assembles their files into one merged ``test_source`` artifact."""
+        from molexp.harness.gateways.gateway import AgentGateway
+        from molexp.harness.schemas import (
+            AgentCallResult,
+            AgentCallSpec,
+            TestSource,
+            TestSpecBundle,
+        )
+        from molexp.harness.schemas.workflow_source import GeneratedFile
+        from molexp.harness.stages import GenerateTestCode
 
-    ts_ref = _seed_test_spec(ctx_with_gw.artifact_store)
-    ws_ref = _seed_workflow_source(ctx_with_gw.artifact_store)
-    ctx_with_gw.agent_gateway.register(
-        agent_name="test_code_writer",
-        output=_test_source_canned(),
-        output_kind="test_source",
-    )
-    ref = asyncio.run(GenerateTestCode().run(ctx_with_gw))
-    assert ref.kind == "test_source"
-    assert ts_ref.id in ref.parent_ids
-    assert ws_ref.id in ref.parent_ids
+        store = ctx_with_gw.artifact_store
+        ts_ref = _seed_two_task_bundle(store)
+        _seed_workflow_source(store)
 
+        calls: list[str] = []
 
-def _seed_two_task_bundle(artifact_store: ArtifactStore) -> PlanArtifactRef:
-    from molexp.harness.schemas import TestSpec, TestSpecBundle
+        class PerTaskGateway:
+            """Returns a distinct one-file TestSource per task in the slice."""
 
-    bundle = TestSpecBundle(
-        id="tsb-001",
-        bound_workflow_id="bw-x",
-        specs=[
-            TestSpec(
-                id="ts-load",
-                name="unit: load",
-                kind="unit_test",
-                target_task_id="load",
-                description="load emits ints",
-            ),
-            TestSpec(
-                id="ts-save",
-                name="unit: save",
-                kind="unit_test",
-                target_task_id="save",
-                description="save writes a file",
-            ),
-        ],
-    )
-    return artifact_store.put_json(
-        kind="test_spec",
-        obj=json.loads(bundle.model_dump_json()),
-        created_by="seed",
-        parent_ids=[],
-    )
+            async def call(self, spec: AgentCallSpec) -> AgentCallResult:
+                calls.append(spec.agent_name)
+                # First input is the single-task test_spec_slice.
+                slice_bundle = TestSpecBundle.from_artifact(store.get(spec.input_artifact_ids[0]))
+                task = slice_bundle.specs[0].target_task_id
+                out = TestSource(
+                    source=f"def test_{task}_ok():\n    assert True\n",
+                    module_name=f"test_{task}",
+                    test_spec_id=slice_bundle.id,
+                    bound_workflow_id="bw-x",
+                    files=[
+                        GeneratedFile(
+                            path=f"tests/test_{task}.py",
+                            source=f"def test_{task}_ok():\n    assert True\n",
+                        )
+                    ],
+                )
+                ref = store.put_json(
+                    kind="test_source_file",
+                    obj=json.loads(out.model_dump_json()),
+                    created_by="fake",
+                    parent_ids=[spec.input_artifact_ids[0]],
+                )
+                return AgentCallResult(output_artifact=ref, raw_response_artifact=ref, model="fake")
 
+        object.__setattr__(ctx_with_gw, "_frozen", False)
+        ctx_with_gw.agent_gateway = cast(AgentGateway, PerTaskGateway())
+        object.__setattr__(ctx_with_gw, "_frozen", True)
 
-def test_multi_task_bundle_fans_out_per_file_and_merges(ctx_with_gw) -> None:
-    """A >1-task bundle drives one ``test_code_file_writer`` call per task and
-    assembles their files into one merged ``test_source`` artifact."""
-    from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.schemas import (
-        AgentCallResult,
-        AgentCallSpec,
-        TestSource,
-        TestSpecBundle,
-    )
-    from molexp.harness.schemas.workflow_source import GeneratedFile
-    from molexp.harness.stages import GenerateTestCode
+        ref = asyncio.run(GenerateTestCode().run(ctx_with_gw))
 
-    store = ctx_with_gw.artifact_store
-    ts_ref = _seed_two_task_bundle(store)
-    _seed_workflow_source(store)
-
-    calls: list[str] = []
-
-    class PerTaskGateway:
-        """Returns a distinct one-file TestSource per task in the slice."""
-
-        async def call(self, spec: AgentCallSpec) -> AgentCallResult:
-            calls.append(spec.agent_name)
-            # First input is the single-task test_spec_slice.
-            slice_bundle = TestSpecBundle.from_artifact(store.get(spec.input_artifact_ids[0]))
-            task = slice_bundle.specs[0].target_task_id
-            out = TestSource(
-                source=f"def test_{task}_ok():\n    assert True\n",
-                module_name=f"test_{task}",
-                test_spec_id=slice_bundle.id,
-                bound_workflow_id="bw-x",
-                files=[
-                    GeneratedFile(
-                        path=f"tests/test_{task}.py",
-                        source=f"def test_{task}_ok():\n    assert True\n",
-                    )
-                ],
-            )
-            ref = store.put_json(
-                kind="test_source_file",
-                obj=json.loads(out.model_dump_json()),
-                created_by="fake",
-                parent_ids=[spec.input_artifact_ids[0]],
-            )
-            return AgentCallResult(output_artifact=ref, raw_response_artifact=ref, model="fake")
-
-    object.__setattr__(ctx_with_gw, "_frozen", False)
-    ctx_with_gw.agent_gateway = cast(AgentGateway, PerTaskGateway())
-    object.__setattr__(ctx_with_gw, "_frozen", True)
-
-    ref = asyncio.run(GenerateTestCode().run(ctx_with_gw))
-
-    # One pro call per task, all via the per-file writer.
-    assert calls == ["test_code_file_writer", "test_code_file_writer"]
-    # The merged artifact is a single test_source carrying both task files.
-    assert ref.kind == "test_source"
-    merged = TestSource.model_validate_json(store.get(ref.id))
-    assert {f.path for f in merged.files} == {"tests/test_load.py", "tests/test_save.py"}
-    assert ts_ref.id in ref.parent_ids
-    # `source` MUST stay empty in multi-file mode: a non-empty entry source
-    # makes MaterializeExecution emit a `{module_name}/__init__.py` package
-    # that collides with a same-stem test file (pytest import mismatch).
-    assert merged.source == ""
-    stems = {f.path.rsplit("/", 1)[-1][:-3] for f in merged.files}
-    assert merged.module_name not in stems
+        # One pro call per task, all via the per-file writer.
+        assert calls == ["test_code_file_writer", "test_code_file_writer"]
+        # The merged artifact is a single test_source carrying both task files.
+        assert ref.kind == "test_source"
+        merged = TestSource.model_validate_json(store.get(ref.id))
+        assert {f.path for f in merged.files} == {"tests/test_load.py", "tests/test_save.py"}
+        assert ts_ref.id in ref.parent_ids
+        # `source` MUST stay empty in multi-file mode: a non-empty entry source
+        # makes MaterializeExecution emit a `{module_name}/__init__.py` package
+        # that collides with a same-stem test file (pytest import mismatch).
+        assert merged.source == ""
+        stems = {f.path.rsplit("/", 1)[-1][:-3] for f in merged.files}
+        assert merged.module_name not in stems

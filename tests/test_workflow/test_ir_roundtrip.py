@@ -1,10 +1,11 @@
-"""IR (JSON) ↔ Workflow round-trip tests.
+"""Wire IR (JSON dict) ↔ ``CompiledWorkflow`` round-trip.
 
-These verify that:
-- ``CompiledWorkflow.from_ir(d)`` produces a runnable spec.
-- ``Workflow.to_ir()`` is the inverse for IR-built specs.
-- Python-built specs round-trip too (slugs resolved from the registry).
-- The recomputed ``workflow_id`` (topology hash) is preserved.
+Covers the public ``CompiledWorkflow.from_ir`` / ``.to_ir`` surface (which
+delegates to ``default_codec``): from_ir yields a runnable spec, to_ir is its
+inverse for IR- and Python-built specs, typed control-flow edges (data /
+control / branch / loop / parallel) survive the round-trip, and node
+``position`` round-trips without entering the topology hash. The codec's own
+golden/byte-identity contracts live in ``test_codec``.
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ def _ir_constant_add() -> dict:
     }
 
 
-class TestFromDict:
+class TestFromIR:
     def test_topology_is_recovered(self, registry: TaskTypeRegistry) -> None:
         spec = CompiledWorkflow.from_ir(_ir_constant_add(), registry=registry)
         names = {t.name for t in spec._tasks}
@@ -76,18 +77,16 @@ class TestFromDict:
         with pytest.raises(ValueError, match="ghost"):
             CompiledWorkflow.from_ir(ir, registry=registry)
 
-
-class TestExecute:
     @pytest.mark.asyncio
-    async def test_execute_constant_add(self, registry: TaskTypeRegistry) -> None:
+    async def test_reconstructed_spec_is_runnable(self, registry: TaskTypeRegistry) -> None:
         spec = CompiledWorkflow.from_ir(_ir_constant_add(), registry=registry)
         result = await WorkflowRuntime().execute(spec)
         # Final task `c` should receive a + b = 5
         assert result.outputs["c"] == 5.0
 
 
-class TestRoundtrip:
-    def test_to_dict_then_from_dict(self, registry: TaskTypeRegistry) -> None:
+class TestToIR:
+    def test_to_ir_then_from_ir_preserves_workflow_id(self, registry: TaskTypeRegistry) -> None:
         original = CompiledWorkflow.from_ir(_ir_constant_add(), registry=registry)
         ir = original.to_ir()
         rebuilt = CompiledWorkflow.from_ir(ir, registry=registry)
@@ -95,17 +94,15 @@ class TestRoundtrip:
         assert rebuilt.name == original.name
         assert {t.name for t in rebuilt._tasks} == {t.name for t in original._tasks}
 
-    def test_python_built_with_slug_serializes(self, registry: TaskTypeRegistry) -> None:
+    def test_python_built_spec_serializes_with_registry_slugs(
+        self, registry: TaskTypeRegistry
+    ) -> None:
         from molexp.workflow.registry import _Add, _Constant
 
         wf = WorkflowCompiler(name="py_built")
         wf.add(_Constant(value=4), name="four")
         wf.add(_Constant(value=6), name="six")
-        wf.add(
-            _Add(),
-            name="sum",
-            depends_on=["four", "six"],
-        )
+        wf.add(_Add(), name="sum", depends_on=["four", "six"])
         spec = wf.compile()
         ir = spec.to_ir()
         # IR reflects the topology faithfully
@@ -114,7 +111,7 @@ class TestRoundtrip:
         sources_for_sum = sorted(link["source"] for link in ir["links"] if link["target"] == "sum")
         assert sources_for_sum == ["four", "six"]
 
-    def test_to_dict_rejects_unslugged_tasks(self) -> None:
+    def test_to_ir_rejects_unslugged_tasks(self) -> None:
         from molexp.workflow import Task
 
         class _Unregistered(Task):
@@ -135,8 +132,7 @@ def _ir_excluding_id(spec: CompiledWorkflow) -> dict:
 
     ``workflow_id`` is a content hash recomputed from the (post-lowering)
     task list, so it legitimately differs across a serialize/reload cycle
-    even when the topology is identical — the golden test normalizes it for
-    the same reason. Everything else must round-trip exactly.
+    even when the topology is identical. Everything else must round-trip.
     """
     ir = dict(default_codec.spec_to_ir(spec))
     ir.pop("workflow_id", None)
@@ -147,9 +143,8 @@ class TestTypedEdgeRoundtrip:
     """Typed-edge IR: data / control / branch / loop / parallel round-trip.
 
     Together these cover all five ``kind`` values. ``spec.to_ir()`` no longer
-    rejects control flow (the former ``codec.py`` rejection is gone); the
-    structured ``entries`` / ``loops`` / ``parallels`` arrays make the
-    reload lossless. pg-lowering's reachability rules make a single
+    rejects control flow; the structured ``entries`` / ``loops`` / ``parallels``
+    arrays make the reload lossless. Lowering's reachability rules make a single
     all-five-in-one graph impractical, so each kind rides a real, compilable
     workflow.
     """
@@ -164,12 +159,7 @@ class TestTypedEdgeRoundtrip:
     ) -> None:
         from molexp.workflow.registry import _Constant
 
-        wf.add(
-            _Constant(value=value),
-            name=name,
-            depends_on=deps,
-            **kw,
-        )
+        wf.add(_Constant(value=value), name=name, depends_on=deps, **kw)
 
     def test_branch_and_entry_round_trip(self) -> None:
         """A spec with wf.entry + wf.branch — previously rejected — now round-trips."""

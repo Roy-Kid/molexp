@@ -1,13 +1,4 @@
-"""Tests for SaveUserPlan stage (Phase 2 §SaveUserPlan).
-
-Locks:
-- name == "save_user_plan"
-- Two user_plan artifacts: raw text first (via put_text), structured JSON
-  second (via put_json) referencing raw via parent_ids
-- Returned ref is the structured JSON (downstream stages depend on it)
-- Through StageRunner: event log = [stage_started, artifact_created, stage_completed]
-  and provenance edge raw → structured wired via parent_ids
-"""
+"""Tests for the ``SaveUserPlan`` stage (``molexp.harness.stages.save_user_plan``)."""
 
 from __future__ import annotations
 
@@ -38,41 +29,41 @@ def ctx(tmp_path: Path):
     )
 
 
-def test_save_user_plan_writes_two_artifacts_and_wires_provenance(ctx) -> None:
-    from molexp.harness.core.stage_runner import StageRunner
-    from molexp.harness.stages.save_user_plan import SaveUserPlan
+class TestSaveUserPlan:
+    def test_writes_raw_and_structured_artifacts_with_provenance_edge(self, ctx) -> None:
+        """Raw text + structured JSON, both ``user_plan`` kind, raw → structured edge."""
+        from molexp.harness.core.stage_runner import StageRunner
+        from molexp.harness.stages.save_user_plan import SaveUserPlan
 
-    runner = StageRunner(ctx)
-    structured_ref = asyncio.run(runner.run_stage(SaveUserPlan(user_text="Simulate water at 300K")))
+        runner = StageRunner(ctx)
+        structured_ref = asyncio.run(
+            runner.run_stage(SaveUserPlan(user_text="Simulate water at 300K"))
+        )
 
-    # Two artifacts of kind user_plan exist.
-    refs = ctx.artifact_store.list_by_kind("user_plan")
-    assert len(refs) == 2
+        refs = ctx.artifact_store.list_by_kind("user_plan")
+        assert len(refs) == 2
 
-    # Returned ref is the structured JSON; the other is the raw text.
-    raw_refs = [r for r in refs if r.id != structured_ref.id]
-    assert len(raw_refs) == 1
-    raw_ref = raw_refs[0]
+        # Returned ref is the structured JSON; the other is the raw text.
+        raw_refs = [r for r in refs if r.id != structured_ref.id]
+        assert len(raw_refs) == 1
+        raw_ref = raw_refs[0]
 
-    # Structured ref carries raw ref in parent_ids; StageRunner has wired
-    # the derived_from edge for us.
-    assert raw_ref.id in structured_ref.parent_ids
-    ancestors = ctx.lineage_store.trace_backward(structured_ref.id)
-    assert [r.id for r in ancestors] == [raw_ref.id]
+        # StageRunner wires the derived_from edge from parent_ids.
+        assert raw_ref.id in structured_ref.parent_ids
+        ancestors = ctx.lineage_store.trace_backward(structured_ref.id)
+        assert [r.id for r in ancestors] == [raw_ref.id]
 
+    def test_structured_artifact_is_valid_user_plan_json(self, ctx) -> None:
+        """The returned structured artifact is a valid ``UserPlan`` envelope."""
+        from molexp.harness.core.stage_runner import StageRunner
+        from molexp.harness.schemas.user_plan import UserPlan
+        from molexp.harness.stages.save_user_plan import SaveUserPlan
 
-def test_save_user_plan_structured_json_round_trips_to_user_plan_schema(ctx) -> None:
-    """The structured artifact is a valid UserPlan JSON envelope."""
-    from molexp.harness.core.stage_runner import StageRunner
-    from molexp.harness.schemas.user_plan import UserPlan
-    from molexp.harness.stages.save_user_plan import SaveUserPlan
+        runner = StageRunner(ctx)
+        structured_ref = asyncio.run(
+            runner.run_stage(SaveUserPlan(user_text="simulate water", user_id="alice"))
+        )
 
-    runner = StageRunner(ctx)
-    structured_ref = asyncio.run(
-        runner.run_stage(SaveUserPlan(user_text="simulate water", user_id="alice"))
-    )
-
-    raw_bytes = ctx.artifact_store.get(structured_ref.id)
-    plan = UserPlan.model_validate(json.loads(raw_bytes))
-    assert plan.raw_text == "simulate water"
-    assert plan.user_id == "alice"
+        plan = UserPlan.model_validate(json.loads(ctx.artifact_store.get(structured_ref.id)))
+        assert plan.raw_text == "simulate water"
+        assert plan.user_id == "alice"

@@ -1,8 +1,8 @@
-"""Tests for record_approval_request + record_approval_decision (Phase 6).
+"""``ApprovalEventRecorder`` — approval events threaded into the harness log.
 
-Asserts the exact persisted payload shape and actor defaults for the request
-and the granted-decision events (the rejected type + audit ordering are pinned
-end-to-end in ``test_approval_gate.py``).
+Pins the exact persisted payload shape and actor defaults for the request and
+the granted-decision events (the rejected type + audit ordering across all
+three gate paths are pinned end-to-end in ``test_approval_gate.py``).
 """
 
 from __future__ import annotations
@@ -12,6 +12,9 @@ from pathlib import Path
 
 import pytest
 
+from molexp.harness.policy.event_log import ApprovalEventRecorder
+from molexp.harness.schemas.approval import ApprovalDecision, ApprovalRequest
+
 
 @pytest.fixture()
 def event_log(tmp_path: Path):
@@ -20,9 +23,7 @@ def event_log(tmp_path: Path):
     return SQLiteEventLog(path=tmp_path / "events.sqlite")
 
 
-def _request():
-    from molexp.harness.schemas.approval import ApprovalRequest
-
+def _request() -> ApprovalRequest:
     return ApprovalRequest(
         id="req-abc",
         intent="hpc_submission",
@@ -33,13 +34,8 @@ def _request():
     )
 
 
-# -------------------------------------------------- record_approval_request
-
-
-class TestApprovalEventLog:
-    def test_record_approval_request_writes_correct_event(self, event_log) -> None:
-        from molexp.harness.policy.event_log import ApprovalEventRecorder
-
+class TestApprovalEventRecorder:
+    def test_record_request_persists_requested_event_with_id_in_payload(self, event_log) -> None:
         req = _request()
         event = ApprovalEventRecorder.record_request(event_log, "run-001", req)
 
@@ -54,17 +50,10 @@ class TestApprovalEventLog:
         }
         # ApprovalRequest.id is NOT an artifact_store id — it lives in payload.
         assert event.artifact_ids == []
+        # The event is persisted: list_events surfaces it.
+        assert event_log.list_events("run-001")[-1] == event
 
-        # The event is persisted: list_events should surface it.
-        listed = event_log.list_events("run-001")
-        assert listed[-1] == event
-
-    # ------------------------------------------------- record_approval_decision
-
-    def test_record_approval_decision_granted(self, event_log) -> None:
-        from molexp.harness.policy.event_log import ApprovalEventRecorder
-        from molexp.harness.schemas.approval import ApprovalDecision
-
+    def test_record_decision_granted_defaults_actor_to_decided_by(self, event_log) -> None:
         req = _request()
         decision = ApprovalDecision(
             request_id=req.id,
@@ -74,6 +63,7 @@ class TestApprovalEventLog:
             reason="Reviewed and OK",
         )
         event = ApprovalEventRecorder.record_decision(event_log, "run-001", req, decision)
+
         assert event.type == "approval_granted"
         assert event.actor == "alice"  # defaults to decision.decided_by
         assert event.payload == {

@@ -1,8 +1,8 @@
-"""Tests for PlanArtifactRef + ArtifactKind (Phase 1 schema layer).
+"""Tests for ``PlanArtifactRef`` (``molexp.harness.schemas.artifact``).
 
-Locks the two non-obvious wire contracts:
-- ArtifactKind is an open `str` alias; arbitrary (agent-registered) kinds accepted
-- sha256 is bare hex (no "sha256:" prefix) — callers must strip the workspace prefix
+Locks the two non-obvious wire contracts: ``kind`` is an open ``str`` (agent
+layers register their own kinds without touching the schema module), and
+``sha256`` is bare hex (callers must strip the workspace ``sha256:`` prefix).
 """
 
 from __future__ import annotations
@@ -12,51 +12,42 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-
-def test_artifact_ref_accepts_arbitrary_string_kind() -> None:
-    """PlanArtifactRef accepts arbitrary string kinds under the open `str` contract.
-
-    Spec ac-004: agent-layer modes register kinds like "intent_spec",
-    "plan_graph", "preflight_report", … without round-tripping through the
-    harness schema module.
-    """
-    from molexp.harness.schemas.artifact import PlanArtifactRef
-
-    ref = PlanArtifactRef(
-        id="a1b2c3d4",
-        kind="intent_spec",
-        uri="file:///x",
-        sha256="0" * 64,
-        created_at=datetime(2026, 5, 26, tzinfo=UTC),
-        created_by="harness",
-    )
-    assert ref.kind == "intent_spec"
-    # JSON round-trip preserves the custom kind value.
-    rehydrated = PlanArtifactRef.model_validate_json(ref.model_dump_json())
-    assert rehydrated.kind == "intent_spec"
-    assert rehydrated == ref
+from molexp.harness.schemas.artifact import PlanArtifactRef
 
 
-def test_artifact_ref_sha256_must_be_bare_hex() -> None:
-    """PlanArtifactRef.sha256 stores bare hex, not the 'sha256:<hex>' prefixed form."""
-    from molexp.harness.schemas.artifact import PlanArtifactRef
+class TestPlanArtifactRef:
+    def test_accepts_and_round_trips_arbitrary_string_kind(self) -> None:
+        """Agent-registered kinds (e.g. ``intent_spec``) are valid and survive JSON."""
+        ref = PlanArtifactRef(
+            id="a1b2c3d4",
+            kind="intent_spec",
+            uri="file:///x",
+            sha256="0" * 64,
+            created_at=datetime(2026, 5, 26, tzinfo=UTC),
+            created_by="harness",
+        )
+        rehydrated = PlanArtifactRef.model_validate_json(ref.model_dump_json())
+        assert rehydrated.kind == "intent_spec"
+        assert rehydrated == ref
 
-    # Bare hex of length 64 is accepted.
-    PlanArtifactRef(
-        id="a1b2c3d4",
-        kind="log",
-        uri="file:///x",
-        sha256="a" * 64,
-        created_at=datetime(2026, 5, 26, tzinfo=UTC),
-        created_by="harness",
-    )
-    # Prefixed form is rejected — caller (FileArtifactStore) must strip it.
-    with pytest.raises(ValidationError):
+    def test_sha256_accepts_bare_hex(self) -> None:
         PlanArtifactRef(
             id="a1b2c3d4",
             kind="log",
             uri="file:///x",
-            sha256="sha256:" + "a" * 64,
+            sha256="a" * 64,
             created_at=datetime(2026, 5, 26, tzinfo=UTC),
             created_by="harness",
         )
+
+    def test_sha256_rejects_prefixed_form(self) -> None:
+        """The ``sha256:`` prefix must be stripped by FileArtifactStore first."""
+        with pytest.raises(ValidationError):
+            PlanArtifactRef(
+                id="a1b2c3d4",
+                kind="log",
+                uri="file:///x",
+                sha256="sha256:" + "a" * 64,
+                created_at=datetime(2026, 5, 26, tzinfo=UTC),
+                created_by="harness",
+            )

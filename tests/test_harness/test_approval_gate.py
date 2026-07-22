@@ -1,6 +1,6 @@
-"""``ApprovalGate`` store-first semantics (spec vision-loop-01-approval-inbox).
+"""``ApprovalGate`` store-first resolution (spec vision-loop-01-approval-inbox).
 
-There is **no auto-grant default** anymore. ``approve=None`` means, per request:
+There is **no auto-grant default**. ``approve=None`` means, per request:
 
 1. a stored grant in ``ctx.approval_store`` passes immediately (the stored
    decision is re-logged, ``decided_by`` preserved);
@@ -10,9 +10,8 @@ There is **no auto-grant default** anymore. ``approve=None`` means, per request:
    ``ApprovalPendingError`` — suspension, not failure, and **no** summary
    artifact is persisted.
 
-Audit contract stays intact in all three paths: ``approval_requested`` is
-recorded before any decision event (the ``audit``-named tests pin the order;
-select them with ``pytest -k audit``).
+Audit contract holds in every path: ``approval_requested`` is recorded before
+any decision event (the ``audit``-named tests pin the order; ``pytest -k audit``).
 """
 
 from __future__ import annotations
@@ -94,11 +93,9 @@ async def _reject_live(request: ApprovalRequest) -> ApprovalDecision:
     return _decision(request.id, granted=False, decided_by="live-human", reason="nope")
 
 
-# ─────────────────────────────────── pending path (approve=None, no grant)
-
-
-class TestPendingSuspension:
-    async def test_no_approver_and_no_stored_grant_raises_approval_pending(self, env: _Env) -> None:
+class TestApprovalGate:
+    # ── pending path (approve=None, no stored grant) ─────────────────────
+    async def test_pending_path_raises_with_run_id_and_requests(self, env: _Env) -> None:
         request = _request()
         gate = ApprovalGate(requests=[request], approve=None)
 
@@ -108,7 +105,7 @@ class TestPendingSuspension:
         assert excinfo.value.run_id == _RUN_ID
         assert [r.id for r in excinfo.value.requests] == [request.id]
 
-    async def test_pending_suspension_records_pending_and_no_artifact(self, env: _Env) -> None:
+    async def test_pending_path_records_pending_and_persists_no_artifact(self, env: _Env) -> None:
         request = _request()
         gate = ApprovalGate(requests=[request], approve=None)
 
@@ -120,35 +117,25 @@ class TestPendingSuspension:
         # Suspension persists NO summary artifact — nothing was approved.
         assert env.artifacts.latest_by_kind("analysis_result") is None
 
-    async def test_pending_error_is_a_stage_execution_error(self) -> None:
+    def test_pending_error_is_a_stage_execution_error(self) -> None:
         # Existing `except StageExecutionError` call sites must still stop.
         assert issubclass(ApprovalPendingError, StageExecutionError)
 
-    async def test_audit_pending_records_the_request_and_no_decision(self, env: _Env) -> None:
+    async def test_audit_pending_logs_request_only(self, env: _Env) -> None:
         gate = ApprovalGate(requests=[_request()], approve=None)
 
         with pytest.raises(ApprovalPendingError):
             await gate.run(env.ctx)
 
-        types = env.event_types()
-        assert types == ["approval_requested"]  # asked, nobody decided (yet)
+        assert env.event_types() == ["approval_requested"]  # asked, nobody decided yet
 
-
-# ───────────────────────────────────────── stored-grant replay path
-
-
-class TestStoredGrantReplay:
-    def _store_grant(self, env: _Env, request: ApprovalRequest) -> None:
+    # ── stored-grant replay path ─────────────────────────────────────────
+    async def test_audit_stored_grant_replays_preserving_decided_by(self, env: _Env) -> None:
+        request = _request()
         env.approval_store.record_pending(_RUN_ID, request)
         env.approval_store.record_decision(
             _decision(request.id, granted=True, decided_by="ui-operator", reason="approved")
         )
-
-    async def test_audit_stored_replay_logs_request_then_decision_preserving_decided_by(
-        self, env: _Env
-    ) -> None:
-        request = _request()
-        self._store_grant(env, request)
         gate = ApprovalGate(requests=[request], approve=None)
 
         await gate.run(env.ctx)
@@ -158,12 +145,8 @@ class TestStoredGrantReplay:
         # The audit shows the re-entry resolved from the stored grant.
         assert events[-1].payload["decided_by"] == "ui-operator"
 
-
-# ─────────────────────────────────────────── live-approver path
-
-
-class TestInjectedApprover:
-    async def test_injected_approver_grants_and_persists_to_store(self, env: _Env) -> None:
+    # ── live-approver path ───────────────────────────────────────────────
+    async def test_live_grant_persists_to_store_and_returns_summary_ref(self, env: _Env) -> None:
         request = _request()
         gate = ApprovalGate(requests=[request], approve=_grant_live)
 
@@ -175,7 +158,7 @@ class TestInjectedApprover:
         assert stored.decided_by == "live-human"
         assert env.approval_store.pending(_RUN_ID) == []
 
-    async def test_injected_approver_rejection_fails_and_persists(self, env: _Env) -> None:
+    async def test_live_rejection_fails_without_a_replayable_grant(self, env: _Env) -> None:
         request = _request()
         gate = ApprovalGate(requests=[request], approve=_reject_live)
 
@@ -187,13 +170,12 @@ class TestInjectedApprover:
         assert env.approval_store.granted_decision_for(request.id) is None
         assert env.approval_store.pending(_RUN_ID) == []
 
-    async def test_audit_live_approver_logs_request_then_decision(self, env: _Env) -> None:
+    async def test_audit_live_grant_logs_request_then_grant(self, env: _Env) -> None:
         gate = ApprovalGate(requests=[_request()], approve=_grant_live)
 
         await gate.run(env.ctx)
 
-        types = env.event_types()
-        assert types == ["approval_requested", "approval_granted"]
+        assert env.event_types() == ["approval_requested", "approval_granted"]
 
     async def test_audit_live_rejection_logs_request_then_rejection(self, env: _Env) -> None:
         gate = ApprovalGate(requests=[_request()], approve=_reject_live)
@@ -201,5 +183,4 @@ class TestInjectedApprover:
         with pytest.raises(StageExecutionError):
             await gate.run(env.ctx)
 
-        types = env.event_types()
-        assert types == ["approval_requested", "approval_rejected"]
+        assert env.event_types() == ["approval_requested", "approval_rejected"]

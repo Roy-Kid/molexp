@@ -1,14 +1,11 @@
-"""RED tests for ``molexp.workspace.curation`` source consolidation.
+"""Tests for ``molexp.workspace.curation.consolidate`` source dedup.
 
 Pins ``dedupe_workflow_source`` (group run ids by the content hash of their
 ``run_dir/source`` snapshot; runs lacking a ``source/`` dir are skipped) and
-``consolidate_workflow_source`` (report-only mapping of duplicate run ids to
-the canonical — first-sorted — id of each multi-member group).
-
-Two runs share a hash iff their ``source/`` trees are byte-identical with
-identical relative filenames (``compute_content_hash`` walks sorted files).
-Until ``molexp.workspace.curation`` exists these tests fail at collection
-with ``ModuleNotFoundError`` — the intended RED state.
+``consolidate_workflow_source`` (report-only mapping of each duplicate run id to
+the canonical — first-sorted — id of its multi-member group). Two runs share a
+hash iff their ``source/`` trees are byte-identical (``compute_content_hash``
+walks sorted files).
 """
 
 from __future__ import annotations
@@ -28,13 +25,8 @@ def _write_source(run: Run, files: dict[str, str]) -> None:
         (src / name).write_text(body)
 
 
-# ── dedupe_workflow_source ───────────────────────────────────────────────────
-
-
 class TestDedupeWorkflowSource:
-    def test_identical_sources_group_a_differing_run_alone_no_source_skipped(
-        self, tmp_path: Path
-    ) -> None:
+    def test_groups_identical_sources_and_skips_sourceless_runs(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab", name="Dedup Lab")
         exp = ws.add_project("p").add_experiment("e", params={})
         r1 = exp.add_run(params={"seed": 0})
@@ -51,28 +43,22 @@ class TestDedupeWorkflowSource:
         # r1 & r2 collapse onto one content hash, keyed by that hash.
         shared_hash = compute_content_hash(Path(str(r1.run_dir)) / "source")
         assert sorted(groups[shared_hash]) == sorted([r1.id, r2.id])
-
         # r3's distinct source forms its own single-member group.
         r3_groups = [members for members in groups.values() if r3.id in members]
-        assert len(r3_groups) == 1
-        assert r3_groups[0] == [r3.id]
-
+        assert r3_groups == [[r3.id]]
         # r4 has no source/ snapshot — it appears in no group.
         assert all(r4.id not in members for members in groups.values())
         assert len(groups) == 2
 
-    def test_run_without_source_is_skipped(self, tmp_path: Path) -> None:
+    def test_all_sourceless_runs_yield_empty_groups(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab", name="Dedup Lab")
         exp = ws.add_project("p").add_experiment("e", params={})
         run = exp.add_run(params={"seed": 0})  # source/ never created
         assert dedupe_workflow_source([run]) == {}
 
 
-# ── consolidate_workflow_source ──────────────────────────────────────────────
-
-
 class TestConsolidateWorkflowSource:
-    def test_maps_duplicate_to_canonical_run_id(self, tmp_path: Path) -> None:
+    def test_maps_duplicate_to_canonical_and_excludes_singletons(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab", name="Consolidate Lab")
         exp = ws.add_project("p").add_experiment("e", params={})
         r1 = exp.add_run(params={"seed": 0})

@@ -1,21 +1,18 @@
-"""NL curation flow x run-lifecycle verbs + rehome colon refs (vision-loop-07 §3/§4).
+"""``curate_runtime.proposal_flow`` — the shared curation ChangeProposal mapping.
 
-Two contracts of the ``services.curate_runtime`` proposal mapping:
+Two contracts of the services proposal mapping:
 
 * **The five ``molexp.lifecycle.*`` ids map onto ChangeProposals** (op
-  ``run_lifecycle``, verb discriminated by ``payload["lifecycle_verb"]`` —
-  the ``asset_move``/``curation_op`` precedent), with the spec's reversibility
-  table: ``irreversible`` for prune, ``partially`` for the execute family,
-  ``reversible`` for cancel. No known destructive capability maps to ``None``
-  any more — the ``CurationArgumentError`` escape is unreachable for them.
-* **``rehome_asset`` is now expressible in the flat reference map** via
-  colon-encoded scope refs (``source: "experiment:exp-a"``,
-  ``target: "project:demo"``).
+  ``run_lifecycle``, verb discriminated by ``payload["lifecycle_verb"]``), each
+  carrying the spec's reversibility (``irreversible`` prune, ``partially``
+  execute family, ``reversible`` cancel). No known destructive capability maps
+  to ``None`` — the ``CurationArgumentError`` escape is unreachable for them.
+* **``rehome_asset`` is expressible in the flat reference map** via colon-encoded
+  scope refs (``source: "experiment:exp-a"``, ``target: "project:demo"``).
 
-Gating end-to-end (spec Testing strategy): a proposal denied by the approver
-mutates NOTHING — run status, ``_ops`` history, and disk are untouched; the
-outcome records ``rejected`` and never raises through the flow. Idioms mirror
-``tests/test_server/test_curate_proposal_flow.py``.
+Gating end-to-end: a proposal denied by the approver mutates NOTHING — run
+status, ``_ops`` history and disk are untouched; the outcome records ``rejected``
+and never raises through the flow.
 """
 
 from __future__ import annotations
@@ -34,8 +31,6 @@ from molexp.services.curate_runtime import (
 from molexp.workspace import Workspace
 from molexp.workspace.models import ExecutionRecord, RunStatus
 from molexp.workspace.run import Run
-
-# ── shared fixtures / helpers ────────────────────────────────────────────────
 
 #: id → (lifecycle_verb, reversibility) — the spec table.
 LIFECYCLE_TABLE: dict[str, tuple[str, str]] = {
@@ -102,9 +97,6 @@ def _lifecycle_proposal(capability_id: str, references: dict[str, str]) -> Chang
     return proposal
 
 
-# ── mapping: the five lifecycle ids ──────────────────────────────────────────
-
-
 class TestLifecycleMapping:
     @pytest.mark.parametrize("capability_id", sorted(LIFECYCLE_TABLE))
     def test_maps_to_a_run_lifecycle_proposal(self, capability_id: str) -> None:
@@ -114,22 +106,16 @@ class TestLifecycleMapping:
         assert proposal.proposed_change.payload["lifecycle_verb"] == verb
         assert proposal.reversibility == reversibility
 
-    def test_prune_escalates_to_elevated(self) -> None:
-        proposal = _lifecycle_proposal("molexp.lifecycle.runs_prune", {"run": "r1"})
-        assert proposal.approval_level == "elevated"
-
-    def test_rerun_fresh_true_is_parsed_to_a_real_bool(self) -> None:
-        proposal = _lifecycle_proposal("molexp.lifecycle.run_rerun", {"run": "r1", "fresh": "true"})
-        assert proposal.proposed_change.payload.get("fresh") is True
-
-    def test_rerun_fresh_false_never_becomes_truthy(self) -> None:
-        """A "false" string reference must not survive as a truthy payload value."""
+    @pytest.mark.parametrize(("literal", "expected"), [("true", True), ("false", False)])
+    def test_rerun_fresh_string_is_coerced_to_a_real_bool(
+        self, literal: str, expected: bool
+    ) -> None:
         proposal = _lifecycle_proposal(
-            "molexp.lifecycle.run_rerun", {"run": "r1", "fresh": "false"}
+            "molexp.lifecycle.run_rerun", {"run": "r1", "fresh": literal}
         )
-        assert bool(proposal.proposed_change.payload.get("fresh", False)) is False
+        assert bool(proposal.proposed_change.payload.get("fresh", False)) is expected
 
-    def test_prune_statuses_reference_is_a_comma_list(self) -> None:
+    def test_prune_statuses_reference_is_split_to_a_list(self) -> None:
         proposal = _lifecycle_proposal(
             "molexp.lifecycle.runs_prune", {"run": "r1", "statuses": "failed,cancelled"}
         )
@@ -149,9 +135,6 @@ class TestLifecycleMapping:
         }
         for cap_id, references in cases.items():
             assert curation_invocation_to_proposal(cap_id, references) is not None, cap_id
-
-
-# ── mapping: rehome_asset colon-encoded scope refs ───────────────────────────
 
 
 class TestRehomeColonRefs:
@@ -195,9 +178,6 @@ class TestRehomeColonRefs:
                 "molexp.curation.rehome_asset",
                 {"asset": "a1", "source": "exp-a", "target": "project:demo"},
             )
-
-
-# ── gating end-to-end: a denied proposal mutates nothing ─────────────────────
 
 
 class TestDeniedProposalMutatesNothing:

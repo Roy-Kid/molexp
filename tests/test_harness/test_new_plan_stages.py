@@ -1,8 +1,10 @@
-"""Tests for the new plan-pipeline stages (9-step redesign).
+"""Plan-pipeline stages that have no dedicated per-stage test module.
 
-Covers GenerateExperimentSpec, ValidateExperimentSpec, ResolveCapabilities,
-GenerateInputSet, ValidateInputSet, CompileWorkflow, GenerateExecutionReport.
-Each uses a small ctx + the in-memory StubAgentGateway / DryRunExecutor.
+One ``TestX`` per stage class: ``GenerateExperimentSpec`` /
+``ValidateExperimentSpec`` / ``ResolveCapabilities`` / ``GenerateInputSet`` /
+``ValidateInputSet`` / ``GenerateExecutionReport`` / ``CompileWorkflow``.
+Each runs against a small ctx with the in-memory ``StubAgentGateway`` /
+``DryRunExecutor`` — deterministic, network-free.
 """
 
 from __future__ import annotations
@@ -113,65 +115,18 @@ def _seed_bound(store):
     )
 
 
-# ---------------------------------------------------------- GenerateExperimentSpec
-
-
-def test_generate_experiment_spec(tmp_path: Path) -> None:
-    from molexp.harness.stages.generate_experiment_spec import GenerateExperimentSpec
-
-    ctx = _ctx(tmp_path, with_stub=True)
-    report = _seed_report(ctx.artifact_store, user_questions=["which water model?"])
-    # AssembleKnowledgeContext always precedes this stage in the pipeline.
-    ctx.artifact_store.put_text(
-        kind="knowledge_context", text="no prior knowledge", created_by="seed", parent_ids=[]
-    )
-    ctx.agent_gateway.register(
-        agent_name="experiment_spec_generator",
-        output=_spec_obj(resolved=[{"question": "which water model?", "answer": "SPC/E"}]),
-        output_kind="experiment_spec",
-    )
-    ref = asyncio.run(GenerateExperimentSpec().run(ctx))
-    assert ref.kind == "experiment_spec"
-    assert report.id in ref.parent_ids
-
-
-def test_generate_experiment_spec_fail_fast_without_gateway(tmp_path: Path) -> None:
-    from molexp.harness.errors import StageExecutionError
-    from molexp.harness.stages.generate_experiment_spec import GenerateExperimentSpec
-
-    ctx = _ctx(tmp_path)
-    _seed_report(ctx.artifact_store)
-    with pytest.raises(StageExecutionError):
-        asyncio.run(GenerateExperimentSpec().run(ctx))
-
-
-# ---------------------------------------------------------- ValidateExperimentSpec
-
-
-def test_validate_experiment_spec_passes_when_questions_resolved(tmp_path: Path) -> None:
-    from molexp.harness.schemas import PlanValidationReport
-    from molexp.harness.stages.validate_experiment_spec import ValidateExperimentSpec
-
-    ctx = _ctx(tmp_path)
-    _seed_report(ctx.artifact_store, user_questions=["which water model?"])
-    _seed_spec(ctx.artifact_store, resolved=[{"question": "which water model?", "answer": "SPC/E"}])
-    ref = asyncio.run(ValidateExperimentSpec().run(ctx))
-    report = PlanValidationReport.model_validate_json(ctx.artifact_store.get(ref.id))
-    assert report.passed
-
-
-def test_validate_experiment_spec_flags_unresolved_question(tmp_path: Path) -> None:
-    from molexp.harness.errors import StagePersistedFailureError
-    from molexp.harness.stages.validate_experiment_spec import ValidateExperimentSpec
-
-    ctx = _ctx(tmp_path)
-    _seed_report(ctx.artifact_store, user_questions=["which water model?"])
-    _seed_spec(ctx.artifact_store, resolved=[])  # not resolved
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(ValidateExperimentSpec().run(ctx))
-
-
-# ---------------------------------------------------------- ResolveCapabilities
+def _seed_input_set(store, *, axis_name="n_steps", total_runs=2, fixed_params=None):
+    obj = {
+        "id": "is-1",
+        "experiment_spec_id": "spec-1",
+        "title": "sweep",
+        "sweep_axes": [{"name": axis_name, "values": [1000, 2000], "source": "user_provided"}],
+        "strategy": "grid",
+        "total_runs": total_runs,
+    }
+    if fixed_params is not None:
+        obj["fixed_params"] = fixed_params
+    return store.put_json(kind="input_set", obj=obj, created_by="seed", parent_ids=[])
 
 
 def _cap(cap_id: str, name: str, desc: str):
@@ -201,234 +156,263 @@ def _two_cap_registry():
     )
 
 
-def test_resolve_capabilities_llm_selects_subset(tmp_path: Path) -> None:
-    """With a gateway, the LLM-selected subset (with reasons) is what lands in the catalog."""
-    from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
+class TestGenerateExperimentSpec:
+    def test_persists_spec_parented_to_the_experiment_report(self, tmp_path: Path) -> None:
+        from molexp.harness.stages.generate_experiment_spec import GenerateExperimentSpec
 
-    ctx = _ctx(tmp_path, with_stub=True, registry=_two_cap_registry())
-    _seed_spec(ctx.artifact_store)
-    ctx.agent_gateway.register(
-        agent_name="capability_selector",
-        output={
-            "selected": [{"id": "molpy.core.cg.CoarseGrain", "reason": "builds the CG beads"}],
-            "notes": "",
-        },
-        output_kind="capability_selection",
-    )
-    ref = asyncio.run(ResolveCapabilities().run(ctx))
-    assert ref.kind == "capability_catalog"
-    text = ctx.artifact_store.get(ref.id).decode("utf-8")
-    assert "molpy.core.cg.CoarseGrain" in text
-    assert "builds the CG beads" in text  # the LLM's reason is shown
-    assert "write_gromacs" not in text  # the un-selected capability is omitted
+        ctx = _ctx(tmp_path, with_stub=True)
+        report = _seed_report(ctx.artifact_store, user_questions=["which water model?"])
+        # AssembleKnowledgeContext always precedes this stage in the pipeline.
+        ctx.artifact_store.put_text(
+            kind="knowledge_context", text="no prior knowledge", created_by="seed", parent_ids=[]
+        )
+        ctx.agent_gateway.register(
+            agent_name="experiment_spec_generator",
+            output=_spec_obj(resolved=[{"question": "which water model?", "answer": "SPC/E"}]),
+            output_kind="experiment_spec",
+        )
+        ref = asyncio.run(GenerateExperimentSpec().run(ctx))
+        assert ref.kind == "experiment_spec"
+        assert report.id in ref.parent_ids
 
+    def test_fail_fast_without_gateway(self, tmp_path: Path) -> None:
+        from molexp.harness.errors import StageExecutionError
+        from molexp.harness.stages.generate_experiment_spec import GenerateExperimentSpec
 
-def test_resolve_capabilities_full_catalog_without_gateway(tmp_path: Path) -> None:
-    """Registry but no LLM gateway → loud note + the full grounded catalog (no silent drop)."""
-    from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
-
-    ctx = _ctx(tmp_path, registry=_two_cap_registry())
-    ref = asyncio.run(ResolveCapabilities().run(ctx))
-    text = ctx.artifact_store.get(ref.id).decode("utf-8")
-    assert "LLM selector unavailable" in text
-    assert "molpy.core.cg.CoarseGrain" in text and "write_gromacs" in text
+        ctx = _ctx(tmp_path)
+        _seed_report(ctx.artifact_store)
+        with pytest.raises(StageExecutionError):
+            asyncio.run(GenerateExperimentSpec().run(ctx))
 
 
-def test_resolve_capabilities_without_registry(tmp_path: Path) -> None:
-    from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
+class TestValidateExperimentSpec:
+    def test_passes_when_user_questions_are_resolved(self, tmp_path: Path) -> None:
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages.validate_experiment_spec import ValidateExperimentSpec
 
-    ctx = _ctx(tmp_path)
-    ref = asyncio.run(ResolveCapabilities().run(ctx))
-    assert ref.kind == "capability_catalog"
-    assert "No capability registry" in ctx.artifact_store.get(ref.id).decode("utf-8")
+        ctx = _ctx(tmp_path)
+        _seed_report(ctx.artifact_store, user_questions=["which water model?"])
+        _seed_spec(
+            ctx.artifact_store,
+            resolved=[{"question": "which water model?", "answer": "SPC/E"}],
+        )
+        ref = asyncio.run(ValidateExperimentSpec().run(ctx))
+        report = PlanValidationReport.model_validate_json(ctx.artifact_store.get(ref.id))
+        assert report.passed
 
+    def test_flags_an_unresolved_user_question(self, tmp_path: Path) -> None:
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.stages.validate_experiment_spec import ValidateExperimentSpec
 
-# ---------------------------------------------------------- GenerateInputSet
-
-
-def test_generate_input_set(tmp_path: Path) -> None:
-    from molexp.harness.stages.generate_input_set import GenerateInputSet
-
-    ctx = _ctx(tmp_path, with_stub=True)
-    spec = _seed_spec(ctx.artifact_store)
-    ir = _seed_ir(ctx.artifact_store)
-    ctx.agent_gateway.register(
-        agent_name="input_set_generator",
-        output={
-            "id": "is-1",
-            "experiment_spec_id": "spec-1",
-            "title": "sweep",
-            "sweep_axes": [{"name": "n_steps", "values": [1000, 2000], "source": "user_provided"}],
-            "strategy": "grid",
-            "total_runs": 2,
-        },
-        output_kind="input_set",
-    )
-    ref = asyncio.run(GenerateInputSet().run(ctx))
-    assert ref.kind == "input_set"
-    assert spec.id in ref.parent_ids and ir.id in ref.parent_ids
+        ctx = _ctx(tmp_path)
+        _seed_report(ctx.artifact_store, user_questions=["which water model?"])
+        _seed_spec(ctx.artifact_store, resolved=[])  # not resolved
+        with pytest.raises(StagePersistedFailureError):
+            asyncio.run(ValidateExperimentSpec().run(ctx))
 
 
-# ---------------------------------------------------------- ValidateInputSet
+class TestResolveCapabilities:
+    def test_llm_selects_minimal_subset_with_reasons(self, tmp_path: Path) -> None:
+        """With a gateway, the LLM-selected subset (with reasons) is what lands in the catalog."""
+        from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
+
+        ctx = _ctx(tmp_path, with_stub=True, registry=_two_cap_registry())
+        _seed_spec(ctx.artifact_store)
+        ctx.agent_gateway.register(
+            agent_name="capability_selector",
+            output={
+                "selected": [{"id": "molpy.core.cg.CoarseGrain", "reason": "builds the CG beads"}],
+                "notes": "",
+            },
+            output_kind="capability_selection",
+        )
+        ref = asyncio.run(ResolveCapabilities().run(ctx))
+        assert ref.kind == "capability_catalog"
+        text = ctx.artifact_store.get(ref.id).decode("utf-8")
+        assert "molpy.core.cg.CoarseGrain" in text
+        assert "builds the CG beads" in text  # the LLM's reason is shown
+        assert "write_gromacs" not in text  # the un-selected capability is omitted
+
+    def test_full_catalog_with_a_loud_note_when_no_gateway(self, tmp_path: Path) -> None:
+        """Registry but no LLM gateway → loud note + the full grounded catalog (no silent drop)."""
+        from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
+
+        ctx = _ctx(tmp_path, registry=_two_cap_registry())
+        ref = asyncio.run(ResolveCapabilities().run(ctx))
+        text = ctx.artifact_store.get(ref.id).decode("utf-8")
+        assert "LLM selector unavailable" in text
+        assert "molpy.core.cg.CoarseGrain" in text and "write_gromacs" in text
+
+    def test_empty_catalog_note_when_no_registry(self, tmp_path: Path) -> None:
+        from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
+
+        ctx = _ctx(tmp_path)
+        ref = asyncio.run(ResolveCapabilities().run(ctx))
+        assert ref.kind == "capability_catalog"
+        assert "No capability registry" in ctx.artifact_store.get(ref.id).decode("utf-8")
 
 
-def _seed_input_set(store, *, axis_name="n_steps", total_runs=2, fixed_params=None):
-    obj = {
-        "id": "is-1",
-        "experiment_spec_id": "spec-1",
-        "title": "sweep",
-        "sweep_axes": [{"name": axis_name, "values": [1000, 2000], "source": "user_provided"}],
-        "strategy": "grid",
-        "total_runs": total_runs,
-    }
-    if fixed_params is not None:
-        obj["fixed_params"] = fixed_params
-    return store.put_json(kind="input_set", obj=obj, created_by="seed", parent_ids=[])
+class TestGenerateInputSet:
+    def test_persists_input_set_parented_to_spec_and_ir(self, tmp_path: Path) -> None:
+        from molexp.harness.stages.generate_input_set import GenerateInputSet
+
+        ctx = _ctx(tmp_path, with_stub=True)
+        spec = _seed_spec(ctx.artifact_store)
+        ir = _seed_ir(ctx.artifact_store)
+        ctx.agent_gateway.register(
+            agent_name="input_set_generator",
+            output={
+                "id": "is-1",
+                "experiment_spec_id": "spec-1",
+                "title": "sweep",
+                "sweep_axes": [
+                    {"name": "n_steps", "values": [1000, 2000], "source": "user_provided"}
+                ],
+                "strategy": "grid",
+                "total_runs": 2,
+            },
+            output_kind="input_set",
+        )
+        ref = asyncio.run(GenerateInputSet().run(ctx))
+        assert ref.kind == "input_set"
+        assert spec.id in ref.parent_ids and ir.id in ref.parent_ids
 
 
-def test_validate_input_set_passes(tmp_path: Path) -> None:
-    from molexp.harness.schemas import PlanValidationReport
-    from molexp.harness.stages.validate_input_set import ValidateInputSet
+class TestValidateInputSet:
+    def test_passes_when_axis_names_an_ir_input(self, tmp_path: Path) -> None:
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages.validate_input_set import ValidateInputSet
 
-    ctx = _ctx(tmp_path)
-    _seed_ir(ctx.artifact_store, inputs=("n_steps",))
-    _seed_input_set(ctx.artifact_store, axis_name="n_steps", total_runs=2)
-    ref = asyncio.run(ValidateInputSet().run(ctx))
-    assert PlanValidationReport.model_validate_json(ctx.artifact_store.get(ref.id)).passed
+        ctx = _ctx(tmp_path)
+        _seed_ir(ctx.artifact_store, inputs=("n_steps",))
+        _seed_input_set(ctx.artifact_store, axis_name="n_steps", total_runs=2)
+        ref = asyncio.run(ValidateInputSet().run(ctx))
+        assert PlanValidationReport.model_validate_json(ctx.artifact_store.get(ref.id)).passed
 
+    def test_flags_axis_not_present_in_ir_inputs(self, tmp_path: Path) -> None:
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.stages.validate_input_set import ValidateInputSet
 
-def test_validate_input_set_flags_unknown_axis(tmp_path: Path) -> None:
-    from molexp.harness.errors import StagePersistedFailureError
-    from molexp.harness.stages.validate_input_set import ValidateInputSet
+        ctx = _ctx(tmp_path)
+        _seed_ir(ctx.artifact_store, inputs=("n_steps",))
+        # "temperature" is not an IR input.
+        _seed_input_set(ctx.artifact_store, axis_name="temperature", total_runs=2)
+        with pytest.raises(StagePersistedFailureError):
+            asyncio.run(ValidateInputSet().run(ctx))
 
-    ctx = _ctx(tmp_path)
-    _seed_ir(ctx.artifact_store, inputs=("n_steps",))
-    _seed_input_set(ctx.artifact_store, axis_name="temperature", total_runs=2)  # not an IR input
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(ValidateInputSet().run(ctx))
+    def test_flags_axis_targeting_a_list_valued_ir_input(self, tmp_path: Path) -> None:
+        """A sweep axis delivers ONE scalar per cell — an axis whose IR root input
+        is list-valued would change the parameter's shape (the task iterates it).
+        Regression: a real ``--execute`` run passed ``sigma_values=0.9`` into
+        ``for sigma in sigma_values`` → ``TypeError: 'float' object is not
+        iterable``. Such a param belongs in ``fixed_params``, passed whole."""
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.stages.validate_input_set import ValidateInputSet
 
+        ctx = _ctx(tmp_path)
+        _seed_ir(ctx.artifact_store, inputs={"sigma_values": [0.9, 1.0], "n_steps": 500})
+        _seed_input_set(ctx.artifact_store, axis_name="sigma_values", total_runs=2)
+        with pytest.raises(StagePersistedFailureError) as excinfo:
+            asyncio.run(ValidateInputSet().run(ctx))
+        message = str(excinfo.value)
+        assert "axis_targets_list_param" in message
+        assert "sigma_values" in message
+        assert "fixed_params" in message  # the message names the fix
 
-def test_validate_input_set_flags_axis_targeting_list_param(tmp_path: Path) -> None:
-    """A sweep axis delivers ONE scalar per cell — an axis whose IR root input
-    is list-valued would change the parameter's shape (the task iterates it).
-    Regression: a real ``--execute`` run passed ``sigma_values=0.9`` into
-    ``for sigma in sigma_values`` → ``TypeError: 'float' object is not
-    iterable``. Such a param belongs in ``fixed_params``, passed whole."""
-    from molexp.harness.errors import StagePersistedFailureError
-    from molexp.harness.stages.validate_input_set import ValidateInputSet
+    def test_accepts_fixed_params_for_a_list_valued_input(self, tmp_path: Path) -> None:
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages.validate_input_set import ValidateInputSet
 
-    ctx = _ctx(tmp_path)
-    _seed_ir(ctx.artifact_store, inputs={"sigma_values": [0.9, 1.0], "n_steps": 500})
-    _seed_input_set(ctx.artifact_store, axis_name="sigma_values", total_runs=2)
-    with pytest.raises(StagePersistedFailureError) as excinfo:
-        asyncio.run(ValidateInputSet().run(ctx))
-    message = str(excinfo.value)
-    assert "axis_targets_list_param" in message
-    assert "sigma_values" in message
-    assert "fixed_params" in message  # the message names the fix
+        ctx = _ctx(tmp_path)
+        _seed_ir(ctx.artifact_store, inputs={"sigma_values": [0.9, 1.0], "n_steps": 500})
+        _seed_input_set(
+            ctx.artifact_store, axis_name="n_steps", fixed_params={"sigma_values": [0.9, 1.0]}
+        )
+        ref = asyncio.run(ValidateInputSet().run(ctx))
+        assert PlanValidationReport.model_validate_json(ctx.artifact_store.get(ref.id)).passed
 
+    def test_flags_fixed_param_not_present_in_ir_inputs(self, tmp_path: Path) -> None:
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.stages.validate_input_set import ValidateInputSet
 
-def test_validate_input_set_accepts_fixed_params(tmp_path: Path) -> None:
-    from molexp.harness.schemas import PlanValidationReport
-    from molexp.harness.stages.validate_input_set import ValidateInputSet
+        ctx = _ctx(tmp_path)
+        _seed_ir(ctx.artifact_store, inputs=("n_steps",))
+        _seed_input_set(ctx.artifact_store, fixed_params={"temperature": 300})
+        with pytest.raises(StagePersistedFailureError) as excinfo:
+            asyncio.run(ValidateInputSet().run(ctx))
+        assert "unknown_fixed_param" in str(excinfo.value)
 
-    ctx = _ctx(tmp_path)
-    _seed_ir(ctx.artifact_store, inputs={"sigma_values": [0.9, 1.0], "n_steps": 500})
-    _seed_input_set(
-        ctx.artifact_store, axis_name="n_steps", fixed_params={"sigma_values": [0.9, 1.0]}
-    )
-    ref = asyncio.run(ValidateInputSet().run(ctx))
-    assert PlanValidationReport.model_validate_json(ctx.artifact_store.get(ref.id)).passed
+    def test_flags_a_name_used_as_both_axis_and_fixed_param(self, tmp_path: Path) -> None:
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.stages.validate_input_set import ValidateInputSet
 
-
-def test_validate_input_set_flags_unknown_fixed_param(tmp_path: Path) -> None:
-    from molexp.harness.errors import StagePersistedFailureError
-    from molexp.harness.stages.validate_input_set import ValidateInputSet
-
-    ctx = _ctx(tmp_path)
-    _seed_ir(ctx.artifact_store, inputs=("n_steps",))
-    _seed_input_set(ctx.artifact_store, fixed_params={"temperature": 300})
-    with pytest.raises(StagePersistedFailureError) as excinfo:
-        asyncio.run(ValidateInputSet().run(ctx))
-    assert "unknown_fixed_param" in str(excinfo.value)
-
-
-def test_validate_input_set_flags_axis_fixed_overlap(tmp_path: Path) -> None:
-    from molexp.harness.errors import StagePersistedFailureError
-    from molexp.harness.stages.validate_input_set import ValidateInputSet
-
-    ctx = _ctx(tmp_path)
-    _seed_ir(ctx.artifact_store, inputs=("n_steps",))
-    _seed_input_set(ctx.artifact_store, axis_name="n_steps", fixed_params={"n_steps": 500})
-    with pytest.raises(StagePersistedFailureError) as excinfo:
-        asyncio.run(ValidateInputSet().run(ctx))
-    assert "axis_fixed_overlap" in str(excinfo.value)
+        ctx = _ctx(tmp_path)
+        _seed_ir(ctx.artifact_store, inputs=("n_steps",))
+        _seed_input_set(ctx.artifact_store, axis_name="n_steps", fixed_params={"n_steps": 500})
+        with pytest.raises(StagePersistedFailureError) as excinfo:
+            asyncio.run(ValidateInputSet().run(ctx))
+        assert "axis_fixed_overlap" in str(excinfo.value)
 
 
-# ---------------------------------------------------------- GenerateExecutionReport
+class TestGenerateExecutionReport:
+    def test_reports_injected_compute_target_scheduler_and_account(self, tmp_path: Path) -> None:
+        from molexp.harness.schemas import ExecutionReport
+        from molexp.harness.stages.generate_execution_report import GenerateExecutionReport
+        from molexp.workspace.models import ComputeTarget
+
+        ctx = _ctx(tmp_path)
+        bw = _seed_bound(ctx.artifact_store)
+        _seed_input_set(ctx.artifact_store, total_runs=2)
+        target = ComputeTarget(
+            name="hpc1",
+            host="me@cluster.example.org",
+            scheduler="slurm",
+            scratch_root="/scratch/me/molexp",
+            default_scheduling={"account": "proj-1234", "queue": "normal"},
+        )
+        ref = asyncio.run(GenerateExecutionReport(compute_target=target).run(ctx))
+        assert ref.kind == "execution_report"
+        assert bw.id in ref.parent_ids
+        report = ExecutionReport.model_validate_json(ctx.artifact_store.get(ref.id))
+        assert report.target_name == "hpc1"
+        assert report.scheduler == "slurm"
+        assert report.account == "proj-1234"
+        assert report.total_runs == 2
+
+    def test_defaults_to_a_local_target_when_none_injected(self, tmp_path: Path) -> None:
+        from molexp.harness.schemas import ExecutionReport
+        from molexp.harness.stages.generate_execution_report import GenerateExecutionReport
+
+        ctx = _ctx(tmp_path)
+        _seed_bound(ctx.artifact_store)
+        ref = asyncio.run(GenerateExecutionReport().run(ctx))
+        report = ExecutionReport.model_validate_json(ctx.artifact_store.get(ref.id))
+        assert report.target_name == "local"
+        assert report.scheduler == "local"
+        assert report.total_runs == 1
 
 
-def test_generate_execution_report_with_target(tmp_path: Path) -> None:
-    from molexp.harness.schemas import ExecutionReport
-    from molexp.harness.stages.generate_execution_report import GenerateExecutionReport
-    from molexp.workspace.models import ComputeTarget
+class TestCompileWorkflow:
+    def test_dry_executor_yields_succeeded_result_tagged_compile(self, tmp_path: Path) -> None:
+        """CompileWorkflow wiring: DryRunExecutor → succeeded execution_result, mode=compile."""
+        from molexp.harness.executors import DryRunExecutor
+        from molexp.harness.schemas import ExecutionResult
+        from molexp.harness.stages.compile_workflow import CompileWorkflow
 
-    ctx = _ctx(tmp_path)
-    bw = _seed_bound(ctx.artifact_store)
-    _seed_input_set(ctx.artifact_store, total_runs=2)
-    target = ComputeTarget(
-        name="hpc1",
-        host="me@cluster.example.org",
-        scheduler="slurm",
-        scratch_root="/scratch/me/molexp",
-        default_scheduling={"account": "proj-1234", "queue": "normal"},
-    )
-    ref = asyncio.run(GenerateExecutionReport(compute_target=target).run(ctx))
-    assert ref.kind == "execution_report"
-    assert bw.id in ref.parent_ids
-    report = ExecutionReport.model_validate_json(ctx.artifact_store.get(ref.id))
-    assert report.target_name == "hpc1"
-    assert report.scheduler == "slurm"
-    assert report.account == "proj-1234"
-    assert report.total_runs == 2
-
-
-def test_generate_execution_report_local_default(tmp_path: Path) -> None:
-    from molexp.harness.schemas import ExecutionReport
-    from molexp.harness.stages.generate_execution_report import GenerateExecutionReport
-
-    ctx = _ctx(tmp_path)
-    _seed_bound(ctx.artifact_store)
-    ref = asyncio.run(GenerateExecutionReport().run(ctx))
-    report = ExecutionReport.model_validate_json(ctx.artifact_store.get(ref.id))
-    assert report.target_name == "local"
-    assert report.scheduler == "local"
-    assert report.total_runs == 1
-
-
-# ---------------------------------------------------------- CompileWorkflow
-
-
-def test_compile_workflow_dry_executor(tmp_path: Path) -> None:
-    """CompileWorkflow wiring: DryRunExecutor → succeeded execution_result, mode=compile."""
-    from molexp.harness.executors import DryRunExecutor
-    from molexp.harness.schemas import ExecutionResult
-    from molexp.harness.stages.compile_workflow import CompileWorkflow
-
-    ctx = _ctx(tmp_path)
-    ctx.artifact_store.put_json(
-        kind="workflow_source",
-        obj={
-            "source": "def build_workflow():\n    return None\n",
-            "module_name": "generated_workflow",
-            "bound_workflow_id": "bw-1",
-            "symbols": [],
-        },
-        created_by="seed",
-        parent_ids=[],
-    )
-    ref = asyncio.run(CompileWorkflow(DryRunExecutor()).run(ctx))
-    assert ref.kind == "execution_result"
-    result = ExecutionResult.model_validate_json(ctx.artifact_store.get(ref.id))
-    assert result.status == "succeeded"
-    assert result.metadata.get("mode") == "compile"
+        ctx = _ctx(tmp_path)
+        ctx.artifact_store.put_json(
+            kind="workflow_source",
+            obj={
+                "source": "def build_workflow():\n    return None\n",
+                "module_name": "generated_workflow",
+                "bound_workflow_id": "bw-1",
+                "symbols": [],
+            },
+            created_by="seed",
+            parent_ids=[],
+        )
+        ref = asyncio.run(CompileWorkflow(DryRunExecutor()).run(ctx))
+        assert ref.kind == "execution_result"
+        result = ExecutionResult.model_validate_json(ctx.artifact_store.get(ref.id))
+        assert result.status == "succeeded"
+        assert result.metadata.get("mode") == "compile"

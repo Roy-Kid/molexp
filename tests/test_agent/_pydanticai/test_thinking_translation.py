@@ -14,14 +14,14 @@ from molexp.agent.router import ThinkingDeltaChunk
 
 pytest.importorskip("pydantic_ai")
 
-from pydantic_ai.messages import (  # noqa: E402 — gated on the importorskip above
+from pydantic_ai.messages import (
     PartDeltaEvent,
     PartStartEvent,
     ThinkingPart,
     ThinkingPartDelta,
 )
 
-from molexp.agent._pydanticai.router import (  # noqa: E402 — gated on the importorskip above
+from molexp.agent._pydanticai.router import (
     _request_stream_chunk,
 )
 
@@ -47,7 +47,4 @@ class TestRequestStreamChunk:
 
     def test_empty_thinking_content_yields_no_chunk(self) -> None:
         """Boundary: a reasoning event with no content is dropped (no no-op chunk)."""
-        assert (
-            _request_stream_chunk(PartStartEvent(index=0, part=ThinkingPart(content="")))
-            is None
-        )
+        assert _request_stream_chunk(PartStartEvent(index=0, part=ThinkingPart(content=""))) is None

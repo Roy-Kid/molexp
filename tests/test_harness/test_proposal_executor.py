@@ -1,8 +1,11 @@
-"""Guarded-execution slice 01 — the proposal dispatch spine.
+"""Tests for ``molexp.harness.actions.proposal_executor`` — the dispatch spine.
 
-RED-first: ``molexp.harness.actions`` does not exist yet. Exercises the
-``ProposalExecutor`` dispatch contract with a local no-op handler and zero
-curation code (curation handlers are slice 02).
+Owns the ``ProposalExecutor`` dispatch contract (executed / unhandled /
+recorded-failure), the ``assert_within_affected_scope`` binding guard, and the
+audit invariant that action events reuse the existing ``tool_*`` vocabulary
+rather than widening ``EventType``. The gated end-to-end path (grant / reject /
+runtime-failure through ``gate_change_proposal``) is owned by
+``test_guarded_execution.py``.
 """
 
 from __future__ import annotations
@@ -86,83 +89,67 @@ def _executor_with(op: str, handler):
     return ProposalExecutor(registry)
 
 
-def test_dispatch_returns_executed_outcome(tmp_path: Path) -> None:
-    """ac-001 — a registered handler yields an executed outcome + tool_* events."""
-    ctx = _ctx(tmp_path)
-    executor = _executor_with("asset_move", _NoopHandler())
-    outcome = asyncio.run(executor.dispatch(ctx, _proposal("asset_move")))
-    assert outcome.status == "executed"
-    types = [e.type for e in ctx.event_log.list_events("run-ge")]
-    assert types == ["tool_called", "tool_completed"]
+class TestProposalExecutor:
+    def test_registered_handler_yields_executed_outcome_and_tool_events(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = _ctx(tmp_path)
+        executor = _executor_with("asset_move", _NoopHandler())
+        outcome = asyncio.run(executor.dispatch(ctx, _proposal("asset_move")))
+        assert outcome.status == "executed"
+        types = [e.type for e in ctx.event_log.list_events("run-ge")]
+        assert types == ["tool_called", "tool_completed"]
+
+    def test_unknown_op_raises_and_records_no_event(self, tmp_path: Path) -> None:
+        from molexp.harness.actions import ChangeActionRegistry, ProposalExecutor
+        from molexp.harness.errors import UnhandledHighRiskOpError
+
+        ctx = _ctx(tmp_path)
+        executor = ProposalExecutor(ChangeActionRegistry())  # empty registry
+        with pytest.raises(UnhandledHighRiskOpError):
+            asyncio.run(executor.dispatch(ctx, _proposal("workflow_change")))
+        assert ctx.event_log.list_events("run-ge") == []
+
+    def test_handler_exception_recorded_as_failed_not_raised(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path)
+        executor = _executor_with("asset_move", _BoomHandler())
+        outcome = asyncio.run(executor.dispatch(ctx, _proposal("asset_move")))
+        assert outcome.status == "failed"
+        assert outcome.reason and "boom" in outcome.reason
+        types = [e.type for e in ctx.event_log.list_events("run-ge")]
+        assert types == ["tool_called", "tool_failed"]
+
+    def test_action_events_carry_proposal_id_and_op(self, tmp_path: Path) -> None:
+        """Every action event stamps proposal_id + high_risk_op (audit invariant #7)."""
+        ctx = _ctx(tmp_path)
+        executor = _executor_with("asset_move", _NoopHandler())
+        asyncio.run(executor.dispatch(ctx, _proposal("asset_move")))
+        for event in ctx.event_log.list_events("run-ge"):
+            assert event.payload["proposal_id"] == "cp-ge-1"
+            assert event.payload["high_risk_op"] == "asset_move"
 
 
-def test_unknown_op_raises_unhandled(tmp_path: Path) -> None:
-    """ac-002 — an op with no registered handler fails loudly, records no event."""
-    from molexp.harness.actions import ChangeActionRegistry, ProposalExecutor
-    from molexp.harness.errors import UnhandledHighRiskOpError
+class TestAssertWithinAffectedScope:
+    def test_in_scope_target_returns_none(self) -> None:
+        from molexp.harness.actions import assert_within_affected_scope
 
-    ctx = _ctx(tmp_path)
-    executor = ProposalExecutor(ChangeActionRegistry())  # empty registry
-    with pytest.raises(UnhandledHighRiskOpError):
-        asyncio.run(executor.dispatch(ctx, _proposal("workflow_change")))
-    assert ctx.event_log.list_events("run-ge") == []
+        proposal = _proposal("asset_move", affected=[ObjectRef(kind="run", id="r1")])
+        assert assert_within_affected_scope(proposal, [ObjectRef(kind="run", id="r1")]) is None
 
+    def test_out_of_scope_target_raises(self) -> None:
+        from molexp.harness.actions import assert_within_affected_scope
+        from molexp.harness.errors import OutOfAffectedScopeError
 
-def test_handler_raise_recorded_as_failed(tmp_path: Path) -> None:
-    """ac-003 — a handler exception becomes status=failed + tool_failed, not raised."""
-    ctx = _ctx(tmp_path)
-    executor = _executor_with("asset_move", _BoomHandler())
-    outcome = asyncio.run(executor.dispatch(ctx, _proposal("asset_move")))
-    assert outcome.status == "failed"
-    assert outcome.reason and "boom" in outcome.reason
-    types = [e.type for e in ctx.event_log.list_events("run-ge")]
-    assert types == ["tool_called", "tool_failed"]
+        proposal = _proposal("asset_move", affected=[ObjectRef(kind="run", id="r1")])
+        with pytest.raises(OutOfAffectedScopeError):
+            assert_within_affected_scope(proposal, [ObjectRef(kind="run", id="ghost")])
 
 
-def test_out_of_affected_scope_rejected(tmp_path: Path) -> None:
-    """ac-004 — assert_within_affected_scope guards the §8.2 binding scope."""
-    from molexp.harness.actions import assert_within_affected_scope
-    from molexp.harness.errors import OutOfAffectedScopeError
-
-    proposal = _proposal("asset_move", affected=[ObjectRef(kind="run", id="r1")])
-    # in-scope target → returns None
-    assert assert_within_affected_scope(proposal, [ObjectRef(kind="run", id="r1")]) is None
-    # out-of-scope target → raises
-    with pytest.raises(OutOfAffectedScopeError):
-        assert_within_affected_scope(proposal, [ObjectRef(kind="run", id="ghost")])
-
-    # a handler that hits an out-of-scope target is recorded status=failed + tool_failed
-    class _ScopeViolating:
-        async def apply(self, ctx, prop):
-            assert_within_affected_scope(prop, [ObjectRef(kind="run", id="ghost")])
-            return ProposalOutcome(status="executed", decided_by="x", decided_at=_NOW)
-
-    ctx = _ctx(tmp_path)
-    executor = _executor_with("asset_move", _ScopeViolating())
-    outcome = asyncio.run(executor.dispatch(ctx, proposal))
-    assert outcome.status == "failed"
-    assert [e.type for e in ctx.event_log.list_events("run-ge")] == ["tool_called", "tool_failed"]
-
-
-def test_action_events_carry_proposal_and_op(tmp_path: Path) -> None:
-    """ac-005 — every action event carries proposal_id + high_risk_op (invariant #7)."""
-    ctx = _ctx(tmp_path)
-    executor = _executor_with("asset_move", _NoopHandler())
-    asyncio.run(executor.dispatch(ctx, _proposal("asset_move")))
-    for event in ctx.event_log.list_events("run-ge"):
-        assert event.payload["proposal_id"] == "cp-ge-1"
-        assert event.payload["high_risk_op"] == "asset_move"
-
-
-def test_public_surface_and_eventtype_not_widened() -> None:
-    """ac-006 — the actions surface exports and EventType is not widened."""
-    from molexp.harness.actions import ChangeActionHandler, ProposalActionRecorder, ProposalExecutor
-    from molexp.harness.errors import OutOfAffectedScopeError, UnhandledHighRiskOpError
-
-    assert ProposalExecutor and ChangeActionHandler and ProposalActionRecorder
-    assert UnhandledHighRiskOpError and OutOfAffectedScopeError
-    # EventType still carries exactly its pre-existing tool_* members — no new ones.
-    members = set(get_args(EventType))
-    assert {"tool_called", "tool_completed", "tool_failed"} <= members
-    assert "action_completed" not in members
-    assert "action_failed" not in members
+class TestActionEventVocabulary:
+    def test_eventtype_reuses_tool_events_and_is_not_widened(self) -> None:
+        """Guarded execution records via the existing ``tool_*`` events; EventType
+        gains no ``action_*`` member."""
+        members = set(get_args(EventType))
+        assert {"tool_called", "tool_completed", "tool_failed"} <= members
+        assert "action_completed" not in members
+        assert "action_failed" not in members

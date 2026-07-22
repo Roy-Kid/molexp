@@ -45,18 +45,6 @@ def _make_ctx(root: Path, *, run_id: str = "run-test") -> HarnessRunContext:
     )
 
 
-class NoopStage(Stage):
-    name = "NoopStage"
-
-    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
-        return ctx.artifact_store.put_json(
-            kind="log",
-            obj={"note": "hello"},
-            created_by="NoopStage",
-            parent_ids=[],
-        )
-
-
 class SeedStage(Stage):
     name = "SeedStage"
 
@@ -107,90 +95,74 @@ def _persist_then_raise_stage(parent_id: str) -> type[Stage]:
     return PersistThenRaiseStage
 
 
-# ─────────────────────────────────────────────────────────── success path
+class TestRunStageBracketed:
+    def test_success_emits_started_created_completed(self, tmp_path: Path) -> None:
+        ctx = _make_ctx(tmp_path)
+        ref = asyncio.run(run_stage_bracketed(ctx, SeedStage()))
+
+        events = ctx.event_log.list_events("run-test")
+        assert [e.type for e in events] == [
+            "stage_started",
+            "artifact_created",
+            "stage_completed",
+        ]
+        assert ref.id in events[1].artifact_ids
+
+    def test_persisted_failure_records_artifact_then_stage_failed(self, tmp_path: Path) -> None:
+        ctx = _make_ctx(tmp_path)
+        parent = ctx.artifact_store.put_json(
+            kind="user_plan", obj={"step": "parent"}, created_by="seed", parent_ids=[]
+        )
+        with pytest.raises(StagePersistedFailureError):
+            asyncio.run(run_stage_bracketed(ctx, _persist_then_raise_stage(parent.id)()))
+
+        assert [e.type for e in ctx.event_log.list_events("run-test")] == [
+            "stage_started",
+            "artifact_created",
+            "stage_failed",
+        ]
+        # The persisted failure report's lineage is recorded before the failure.
+        descendants = ctx.lineage_store.trace_forward(parent.id)
+        assert any(d.kind == "validation_report" for d in descendants)
+
+    def test_plain_exception_wraps_in_stage_execution_error(self, tmp_path: Path) -> None:
+        ctx = _make_ctx(tmp_path)
+        with pytest.raises(StageExecutionError) as exc:
+            asyncio.run(run_stage_bracketed(ctx, PlainFailStage()))
+
+        assert isinstance(exc.value.__cause__, RuntimeError)
+        assert [e.type for e in ctx.event_log.list_events("run-test")] == [
+            "stage_started",
+            "stage_failed",
+        ]
+
+    def test_derived_from_edge_is_stamped_with_stage_and_run_id(self, tmp_path: Path) -> None:
+        """The bracket wires the returned ref's parent_ids into a stamped edge."""
+        ctx = _make_ctx(tmp_path / "ctx", run_id="run-lineage")
+        parent = asyncio.run(run_stage_bracketed(ctx, SeedStage()))
+        child = asyncio.run(run_stage_bracketed(ctx, ChildStage(parent.id)))
+
+        edges = ctx.lineage_store.lineage_graph(parent.id)["edges"]
+        assert edges == [
+            {
+                "parent_id": parent.id,
+                "child_id": child.id,
+                "relation": "derived_from",
+                "stage": "ChildStage",
+                "run_id": "run-lineage",
+            }
+        ]
 
 
-def test_bracket_success_event_sequence(tmp_path: Path) -> None:
-    """Success → stage_started / artifact_created / stage_completed."""
-    ctx = _make_ctx(tmp_path)
-    ref = asyncio.run(run_stage_bracketed(ctx, SeedStage()))
+class TestStageRunner:
+    def test_run_stage_produces_identical_audit_to_the_bracket(self, tmp_path: Path) -> None:
+        ctx = _make_ctx(tmp_path)
+        ref = asyncio.run(StageRunner(ctx).run_stage(SeedStage()))
 
-    events = ctx.event_log.list_events("run-test")
-    assert [e.type for e in events] == ["stage_started", "artifact_created", "stage_completed"]
-    assert ref.id in events[1].artifact_ids
-
-
-def test_bracket_wires_derived_from_edges(tmp_path: Path) -> None:
-    """The returned ref's parent_ids become derived_from lineage edges."""
-    ctx = _make_ctx(tmp_path)
-    parent = asyncio.run(run_stage_bracketed(ctx, SeedStage()))
-    child = asyncio.run(run_stage_bracketed(ctx, ChildStage(parent.id)))
-
-    ancestors = [r.kind for r in ctx.lineage_store.trace_backward(child.id)]
-    assert ancestors == ["user_plan"]
-
-
-# ─────────────────────────────────────────────────────────── failure paths
-
-
-def test_bracket_persisted_failure_emits_artifact_then_failed(tmp_path: Path) -> None:
-    """StagePersistedFailureError → artifact_created + edges then stage_failed."""
-    ctx = _make_ctx(tmp_path)
-    parent = ctx.artifact_store.put_json(
-        kind="user_plan", obj={"step": "parent"}, created_by="seed", parent_ids=[]
-    )
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(run_stage_bracketed(ctx, _persist_then_raise_stage(parent.id)()))
-
-    events = [e.type for e in ctx.event_log.list_events("run-test")]
-    assert events == ["stage_started", "artifact_created", "stage_failed"]
-    # The persisted failure report's lineage is recorded before the failure.
-    descendants = ctx.lineage_store.trace_forward(parent.id)
-    assert any(d.kind == "validation_report" for d in descendants)
-
-
-def test_bracket_plain_failure_wraps_in_stage_execution_error(tmp_path: Path) -> None:
-    """A plain exception surfaces as StageExecutionError with stage_failed."""
-    ctx = _make_ctx(tmp_path)
-    with pytest.raises(StageExecutionError) as exc:
-        asyncio.run(run_stage_bracketed(ctx, PlainFailStage()))
-
-    assert isinstance(exc.value.__cause__, RuntimeError)
-    assert [e.type for e in ctx.event_log.list_events("run-test")] == [
-        "stage_started",
-        "stage_failed",
-    ]
-
-
-# ──────────────────────── pipeline context on lineage edges (stage + run_id)
-
-
-def test_bracket_stamps_stage_and_run_id_on_lineage_edges(tmp_path: Path) -> None:
-    """The audit bracket records WHICH stage of WHICH run wrote each edge."""
-    ctx = _make_ctx(tmp_path / "ctx", run_id="run-lineage")
-    parent = asyncio.run(run_stage_bracketed(ctx, SeedStage()))
-    child = asyncio.run(run_stage_bracketed(ctx, ChildStage(parent.id)))
-
-    edges = ctx.lineage_store.lineage_graph(parent.id)["edges"]
-    assert edges == [
-        {
-            "parent_id": parent.id,
-            "child_id": child.id,
-            "relation": "derived_from",
-            "stage": "ChildStage",
-            "run_id": "run-lineage",
-        }
-    ]
-
-
-# ──────────────────────────────────────────── StageRunner thin-wrapper parity
-
-
-def test_stage_runner_delegates_to_the_bracket(tmp_path: Path) -> None:
-    """StageRunner.run_stage produces the identical audit to the bare bracket."""
-    ctx = _make_ctx(tmp_path)
-    ref = asyncio.run(StageRunner(ctx).run_stage(NoopStage()))
-
-    events = ctx.event_log.list_events("run-test")
-    assert [e.type for e in events] == ["stage_started", "artifact_created", "stage_completed"]
-    assert ref.id in events[1].artifact_ids
+        events = ctx.event_log.list_events("run-test")
+        assert [e.type for e in events] == [
+            "stage_started",
+            "artifact_created",
+            "stage_completed",
+        ]
+        assert ref.id in events[1].artifact_ids

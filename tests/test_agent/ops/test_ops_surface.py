@@ -28,18 +28,16 @@ class TestBuildOpsTools:
         names = {t.__name__ for t in build_ops_tools(ctx)}
         assert names == OPS_TOOL_NAMES
 
-    def test_workspace_ensure_and_code_run_wire_through_to_backends(
-        self, tmp_path: Path
-    ) -> None:
+    def test_workspace_ensure_and_code_run_wire_through_to_backends(self, tmp_path: Path) -> None:
         ctx = build_session_context(
             workspace_root=tmp_path,
             execution_env=LocalExecutionEnv(scratch_dir=tmp_path / "scratch"),
         )
         tools = {t.__name__: t for t in build_ops_tools(ctx)}
         assert tools["workspace_ensure"]("project", "demo-xx").startswith("ok")
-        assert tools["workspace_ensure"](
-            "experiment", "yy-scan", project="demo-xx"
-        ).startswith("ok")
+        assert tools["workspace_ensure"]("experiment", "yy-scan", project="demo-xx").startswith(
+            "ok"
+        )
         assert (tmp_path / "projects" / "demo-xx").is_dir()
         wrote = tools["code_write"]("scripts/t.py", "print(1+1)\n")
         assert wrote.startswith("wrote")

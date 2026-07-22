@@ -1,16 +1,17 @@
-"""Tests for ``molexp.git.GitWorktreeManager``.
+"""Tests for ``molexp.git.worktree.GitWorktreeManager``.
 
 Each test sets up a real bare git repo in ``tmp_path`` (so worktree
-operations exercise the actual ``git worktree`` plumbing) and exercises
-the async manager API. ``git`` binary on PATH is required.
+operations exercise the actual ``git worktree`` plumbing) and drives the
+async manager API. A ``git`` binary on PATH is required.
 """
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
-import pytest
+from molexp.git import GitWorktreeManager
 
 
 def _init_seed_repo(tmp_path: Path) -> Path:
@@ -40,50 +41,36 @@ def _init_seed_repo(tmp_path: Path) -> Path:
     return seed
 
 
-@pytest.mark.asyncio
-async def test_add_creates_shared_worktree(tmp_path: Path):
-    from molexp.git import GitWorktreeManager
+class TestGitWorktreeManager:
+    async def test_add_creates_worktree_sharing_the_object_db(self, tmp_path: Path):
+        seed = _init_seed_repo(tmp_path)
+        wt_path = tmp_path / "wt-issue-1"
+        mgr = GitWorktreeManager(seed)
 
-    seed = _init_seed_repo(tmp_path)
-    wt_path = tmp_path / "wt-issue-1"
-    mgr = GitWorktreeManager(seed)
+        await mgr.add("claude/issue-1", wt_path)
 
-    await mgr.add("claude/issue-1", wt_path)
+        assert wt_path.is_dir()
+        assert (wt_path / "README.md").is_file()
+        # The .git in the worktree is a *file* (gitlink), not a dir — proof
+        # the object DB is shared with the seed repo.
+        git_pointer = wt_path / ".git"
+        assert git_pointer.is_file(), ".git in a worktree should be a gitlink file, not a dir"
+        assert "gitdir:" in git_pointer.read_text()
 
-    # Worktree directory exists with a checkout.
-    assert wt_path.is_dir()
-    assert (wt_path / "README.md").is_file()
-    # The .git in the worktree is a *file* (gitlink), not a dir — proof
-    # the object DB is shared with the seed repo.
-    git_pointer = wt_path / ".git"
-    assert git_pointer.exists()
-    assert git_pointer.is_file(), ".git in a worktree should be a gitlink file, not a dir"
-    assert "gitdir:" in git_pointer.read_text()
+    async def test_list_remove_and_prune_track_worktree_lifecycle(self, tmp_path: Path):
+        seed = _init_seed_repo(tmp_path)
+        wt_path = tmp_path / "wt-issue-2"
+        mgr = GitWorktreeManager(seed)
 
+        await mgr.add("claude/issue-2", wt_path)
+        assert str(wt_path) in {str(p) for p in await mgr.list()}
 
-@pytest.mark.asyncio
-async def test_add_lists_then_remove_and_prune(tmp_path: Path):
-    from molexp.git import GitWorktreeManager
+        await mgr.remove(wt_path)
+        assert not wt_path.exists()
 
-    seed = _init_seed_repo(tmp_path)
-    wt_path = tmp_path / "wt-issue-2"
-    mgr = GitWorktreeManager(seed)
-
-    await mgr.add("claude/issue-2", wt_path)
-
-    listed = await mgr.list()
-    listed_str = {str(p) for p in listed}
-    assert str(wt_path) in listed_str
-
-    await mgr.remove(wt_path)
-    assert not wt_path.exists()
-
-    # rm -rf'd a worktree dir (simulate user manual delete) → prune cleans
-    other = tmp_path / "wt-stale"
-    await mgr.add("claude/stale", other)
-    import shutil
-
-    shutil.rmtree(other)
-    await mgr.prune()
-    listed_after = await mgr.list()
-    assert all("wt-stale" not in str(p) for p in listed_after)
+        # A worktree dir deleted out-of-band (rm -rf) is cleaned up by prune.
+        other = tmp_path / "wt-stale"
+        await mgr.add("claude/stale", other)
+        shutil.rmtree(other)
+        await mgr.prune()
+        assert all("wt-stale" not in str(p) for p in await mgr.list())

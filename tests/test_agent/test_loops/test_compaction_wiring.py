@@ -170,9 +170,7 @@ class TestMaybeCompact:
 
         Sole owner of ``_compact._render_transcript``'s prior-summary folding.
         """
-        router = _FakeRouter(
-            responses=["summary one", "answer one", "summary two", "answer two"]
-        )
+        router = _FakeRouter(responses=["summary one", "answer one", "summary two", "answer two"])
         runtime, session = _runtime(router, tmp_path)
         _seed_history(session, turns=4)
         loop = ChatLoop(config=ChatLoopConfig(compaction=_SMALL_BUDGET))

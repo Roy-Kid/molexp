@@ -190,91 +190,88 @@ def scripted(tmp_path: Path):
     return ws, cached, fs
 
 
-@pytest.mark.unit
-def test_partial_failure_yields_warning_and_continues(scripted):
-    ws, _cached, _fs = scripted
-    warnings = prefetch_workspace_indices(ws)
-    bad_paths = [w.path for w in warnings]
-    assert "/scratch/me/workspace/projects/beta/experiment.json" in bad_paths
-    assert any("ssh dropped" in w.reason for w in warnings), warnings
+class TestPrefetchWorkspaceIndices:
+    @pytest.mark.unit
+    def test_partial_failure_warns_but_healthy_projects_still_hydrate(self, scripted):
+        """A single bad node surfaces a warning; the walk continues and the
+        healthy project's ``run.json`` is still hydrated into the cache."""
+        ws, cached, _fs = scripted
+        warnings = prefetch_workspace_indices(ws)
 
+        bad_paths = [w.path for w in warnings]
+        assert "/scratch/me/workspace/projects/beta/experiment.json" in bad_paths
+        assert any("ssh dropped" in w.reason for w in warnings), warnings
 
-@pytest.mark.unit
-def test_healthy_project_still_hydrated(scripted):
-    ws, cached, fs = scripted
-    fs.calls.clear()
-    prefetch_workspace_indices(ws)
+        # Alpha's run.json was read despite beta failing.
+        cached_paths = cached.cached_paths()
+        assert any("alpha/experiments/exp1/runs/r1/run.json" in k for k in cached_paths), (
+            cached_paths
+        )
 
-    # Alpha's run.json was read.
-    cached_paths = cached.cached_paths()
-    assert any("alpha/experiments/exp1/runs/r1/run.json" in k for k in cached_paths), cached_paths
+    @pytest.mark.unit
+    def test_walk_uses_listdir_fallback_when_index_missing(self, tmp_path: Path):
+        """A missing children-index file falls back to listdir silently.
 
+        Children-indices are lazily rebuilt by the workspace, so a fresh
+        hierarchy commonly lacks them — emitting a warning would create
+        noise.  The walk should still hydrate the project's metadata.
+        """
+        fs = _ScriptedFS()
+        root = "/scratch/me/workspace"
+        fs.files[f"{root}/workspace.json"] = b"{}"
+        # No project.json (children-index of projects) — but the directory has
+        # one child whose own project.json exists.
+        fs.files[f"{root}/projects/gamma/project.json"] = b'{"id":"gamma"}'
+        fs.dirs.add(f"{root}/projects")
+        fs.dirs.add(f"{root}/projects/gamma")
 
-@pytest.mark.unit
-def test_walk_uses_listdir_fallback_when_index_missing(tmp_path: Path):
-    """A missing children-index file falls back to listdir silently.
+        cached = CachedRemoteFileSystem(fs, mirror_root=tmp_path / "mirror", ttl_seconds=300)
+        ws = SimpleNamespace(root=root, _fs=cached)
 
-    Children-indices are lazily rebuilt by the workspace, so a fresh
-    hierarchy commonly lacks them — emitting a warning would create
-    noise.  The walk should still hydrate the project's metadata.
-    """
-    fs = _ScriptedFS()
-    root = "/scratch/me/workspace"
-    fs.files[f"{root}/workspace.json"] = b"{}"
-    # No project.json (children-index of projects) — but the directory has
-    # one child whose own project.json exists.
-    fs.files[f"{root}/projects/gamma/project.json"] = b'{"id":"gamma"}'
-    fs.dirs.add(f"{root}/projects")
-    fs.dirs.add(f"{root}/projects/gamma")
+        warnings = prefetch_workspace_indices(ws)
+        # No warnings — missing children-index is normal for a fresh hierarchy.
+        assert warnings == []
+        cached_paths = cached.cached_paths()
+        assert any("projects/gamma/project.json" in k for k in cached_paths)
 
-    cached = CachedRemoteFileSystem(fs, mirror_root=tmp_path / "mirror", ttl_seconds=300)
-    ws = SimpleNamespace(root=root, _fs=cached)
+    @pytest.mark.unit
+    def test_prefetch_reconstructs_tree_and_no_plural_index_files(self, tmp_path: Path):
+        """Full tree is prefetchable from entity ``*.json`` with no plural index.
 
-    warnings = prefetch_workspace_indices(ws)
-    # No warnings — missing children-index is normal for a fresh hierarchy.
-    assert warnings == []
-    cached_paths = cached.cached_paths()
-    assert any("projects/gamma/project.json" in k for k in cached_paths)
+        workspace-slim-02: the entity ``*.json`` is the sole truth source and
+        the catalog is the derived index.  After a real workspace materializes
+        a project → experiment → run and runs one execution, there must be *no*
+        bare-``pathlib`` plural container-index files (``projects.json`` /
+        ``experiments.json`` / ``runs.json`` / ``executions.json``) anywhere
+        under the root — and the navigation prefetch must still reconstruct the
+        full ``workspace → project → experiment → run`` tree over a cached
+        remote FS, sourcing names via ``self._fs`` (``listdir`` + per-child
+        entity metadata) rather than the deleted ``runs.json`` chain.
+        """
+        root = tmp_path / "ws"
+        ws = Workspace(root=root, name="ws")
+        proj = ws.add_project("alpha")
+        exp = proj.add_experiment("counter")
+        run = exp.add_run(params={"x": 1})
+        with run.start():
+            pass
 
+        plural = {"projects.json", "experiments.json", "runs.json", "executions.json"}
+        stray = sorted(str(p) for p in root.rglob("*.json") if p.name in plural)
+        assert stray == [], f"plural container-index files must not exist: {stray}"
 
-@pytest.mark.unit
-def test_prefetch_reconstructs_tree_and_no_plural_index_files(tmp_path: Path):
-    """Full tree is prefetchable from entity ``*.json`` with no plural index.
+        # Observe the prefetch through a fresh cached remote FS over the same disk.
+        cached = CachedRemoteFileSystem(
+            LocalFileSystem(), mirror_root=tmp_path / "mirror", ttl_seconds=300
+        )
+        nav = SimpleNamespace(root=str(root), _fs=cached)
+        warnings = prefetch_workspace_indices(nav)
+        assert warnings == [], warnings
 
-    workspace-slim-02: the entity ``*.json`` is the sole truth source and
-    the catalog is the derived index.  After a real workspace materializes
-    a project → experiment → run and runs one execution, there must be *no*
-    bare-``pathlib`` plural container-index files (``projects.json`` /
-    ``experiments.json`` / ``runs.json`` / ``executions.json``) anywhere
-    under the root — and the navigation prefetch must still reconstruct the
-    full ``workspace → project → experiment → run`` tree over a cached
-    remote FS, sourcing names via ``self._fs`` (``listdir`` + per-child
-    entity metadata) rather than the deleted ``runs.json`` chain.
-    """
-    root = tmp_path / "ws"
-    ws = Workspace(root=root, name="ws")
-    proj = ws.add_project("alpha")
-    exp = proj.add_experiment("counter")
-    run = exp.add_run(params={"x": 1})
-    with run.start():
-        pass
-
-    plural = {"projects.json", "experiments.json", "runs.json", "executions.json"}
-    stray = sorted(str(p) for p in root.rglob("*.json") if p.name in plural)
-    assert stray == [], f"plural container-index files must not exist: {stray}"
-
-    # Observe the prefetch through a fresh cached remote FS over the same disk.
-    cached = CachedRemoteFileSystem(
-        LocalFileSystem(), mirror_root=tmp_path / "mirror", ttl_seconds=300
-    )
-    nav = SimpleNamespace(root=str(root), _fs=cached)
-    warnings = prefetch_workspace_indices(nav)
-    assert warnings == [], warnings
-
-    cached_paths = cached.cached_paths()
-    assert any(p.endswith("/workspace.json") for p in cached_paths), cached_paths
-    assert any(p.endswith("/projects/alpha/project.json") for p in cached_paths), cached_paths
-    assert any(p.endswith("/experiments/counter/experiment.json") for p in cached_paths), (
-        cached_paths
-    )
-    assert any("/runs/" in p and p.endswith("/run.json") for p in cached_paths), cached_paths
+        cached_paths = cached.cached_paths()
+        assert any(p.endswith("/workspace.json") for p in cached_paths), cached_paths
+        assert any(p.endswith("/projects/alpha/project.json") for p in cached_paths), cached_paths
+        assert any(p.endswith("/experiments/counter/experiment.json") for p in cached_paths), (
+            cached_paths
+        )
+        assert any("/runs/" in p and p.endswith("/run.json") for p in cached_paths), cached_paths

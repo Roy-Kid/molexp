@@ -199,7 +199,7 @@ class TestSideEffectsContract:
                     entry.id
                 )
 
-    def test_destructive_id_set_is_exactly_the_three_mutators(self) -> None:
+    def test_destructive_id_set_matches_expected_mutators(self) -> None:
         destructive_ids = {
             entry.id for entry in curation_capabilities() if "destructive" in entry.tags
         }

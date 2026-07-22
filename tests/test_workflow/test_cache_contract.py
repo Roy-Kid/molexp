@@ -1,14 +1,7 @@
 """Cache-identity contract: code_hash + config_hash + inputs_hash.
 
-Phase 01 of the pure-task-context chain pinned the ``Caching``-seam half of
-this contract; sweep-param injection has since landed, so the engine half is
-now LIVE and pinned here too: the engine-injected root inputs (run params —
-plus any SubWorkflow-forwarded keys merged into the root entry) are folded
-into the cache identity by ``node_cache._cache_inputs``, while the
-content-addressed workdir ``Path`` is canonicalized OUT (it varies per
-workspace/execution without changing task semantics).
-
-Contract, stated as six pins:
+Architectural lock for ``molexp.workflow.cache`` — the cache key is
+``f(snapshot.key, inputs_hash)`` and nothing else. Six pins:
 
 1. ``inputs`` participate in ``cache_key`` — differing inputs ⇒ different key.
 2. Identical code + config + inputs collide on one ``cache_key`` (reuse).
@@ -45,78 +38,9 @@ class _Body(Task):
         return {"x": 1}
 
 
-def _snapshot(task_id: str = "t", *, k: str = "v") -> TaskSnapshot:
+def _snapshot(*, k: str = "v") -> TaskSnapshot:
     # Config is the instance's captured __init__ args — not a registration dict.
-    return TaskSnapshot.from_task_body(task_id, _Body(k))
-
-
-# ── (a) inputs participate in cache_key ────────────────────────────────────────
-
-
-def test_put_then_get_with_different_inputs_misses(tmp_path: Path) -> None:
-    cache = Caching(store_dir=tmp_path)
-    snap = _snapshot()
-    cache.put(snap, {"n": 1}, {"result": "A"})
-    assert cache.get(snap, {"n": 1}) == {"result": "A"}  # hit on same inputs
-    assert cache.get(snap, {"n": 2}) is None  # different inputs ⇒ MISS
-
-
-# ── (b) reuse on identical code+config+inputs ──────────────────────────────────
-
-
-def test_identical_inputs_hit_and_reuse(tmp_path: Path) -> None:
-    cache = Caching(store_dir=tmp_path)
-    snap = _snapshot()
-    cache.put(snap, {"n": 1}, {"result": "A"})
-    # A fresh snapshot of the same body+config has the same key; identical
-    # inputs must therefore collide on the same cache_key and hit.
-    same = _snapshot()
-    assert same.key == snap.key
-    assert cache.get(same, {"n": 1}) == {"result": "A"}
-
-
-def test_input_hash_insensitive_to_key_order() -> None:
-    # sort_keys=True ⇒ insertion order is irrelevant.
-    a = Caching._compute_input_hash({"n": 1, "m": 2})
-    b = Caching._compute_input_hash({"m": 2, "n": 1})
-    assert a == b
-
-
-# ── (c) Path-valued inputs hash stably ─────────────────────────────────────────
-
-
-def test_path_input_hashes_stably_across_instances() -> None:
-    # Two independently constructed Path objects for the same path string must
-    # hash identically — proving _robust_json_default uses str(path), not an
-    # address-bearing object repr.
-    h1 = Caching._compute_input_hash({"workdir": Path("/scratch/abc")})
-    h2 = Caching._compute_input_hash({"workdir": Path("/scratch") / "abc"})
-    assert h1 == h2
-
-
-def test_path_input_does_not_collide_with_equivalent_str() -> None:
-    # The {"__type__": "Path"} wrapper keeps Path("x") distinct from str "x".
-    h_path = Caching._compute_input_hash({"v": Path("x")})
-    h_str = Caching._compute_input_hash({"v": "x"})
-    assert h_path != h_str
-
-
-# ── (d) snapshot identity excludes inputs ──────────────────────────────────────
-
-
-def test_snapshot_identity_independent_of_inputs() -> None:
-    # from_task_body takes no inputs argument: the snapshot cannot know inputs.
-    # Same body + same __init__ config ⇒ identical key regardless of runtime inputs.
-    s1 = _snapshot(k="v")
-    s2 = _snapshot(k="v")
-    assert s1.key == s2.key
-    # The instance's __init__ config DOES move the key (it is part of identity);
-    # inputs never reach here.
-    s3 = _snapshot(k="other")
-    assert s3.key != s1.key
-
-
-# ── (e)+(f) engine-injected root inputs: params in, workdir out ────────────────
+    return TaskSnapshot.from_task_body("t", _Body(k))
 
 
 def _workspace_run(root: Path, name: str, params: dict):
@@ -126,59 +50,110 @@ def _workspace_run(root: Path, name: str, params: dict):
     return experiment.add_run(params=params)
 
 
-@pytest.mark.asyncio
-async def test_sweep_runs_with_different_params_never_share_root_cache(
-    tmp_path: Path,
-) -> None:
-    """Regression — the first sweep cell's root result must NOT be served to
-    every other cell. Different run params ⇒ root-task cache MISS ⇒ body runs."""
-    counters = {"root": 0}
-    wf = WorkflowCompiler(name="sweep")
+class TestCachingInputHash:
+    """``Caching`` folds ``inputs`` (and only inputs) into the cache term."""
 
-    # Root task binds the run param ``ratio`` by name (engine-injected).
-    @wf.task
-    async def root(ratio: str) -> str:
-        counters["root"] += 1
-        return ratio
+    def test_differing_inputs_produce_a_miss(self, tmp_path: Path) -> None:
+        """Pin 1 — inputs participate: same snapshot, different inputs ⇒ miss."""
+        cache = Caching(store_dir=tmp_path)
+        snap = _snapshot()
+        cache.put(snap, {"n": 1}, {"result": "A"})
+        assert cache.get(snap, {"n": 1}) == {"result": "A"}
+        assert cache.get(snap, {"n": 2}) is None
 
-    compiled = wf.compile()
-    cache = Caching(store_dir=tmp_path / "shared-cache")
+    def test_identical_code_config_inputs_reuse_one_entry(self, tmp_path: Path) -> None:
+        """Pin 2 — a fresh snapshot of the same body+config collides and hits."""
+        cache = Caching(store_dir=tmp_path)
+        snap = _snapshot()
+        cache.put(snap, {"n": 1}, {"result": "A"})
+        same = _snapshot()
+        assert same.key == snap.key
+        assert cache.get(same, {"n": 1}) == {"result": "A"}
 
-    run1 = _workspace_run(tmp_path, "a", {"ratio": "r1"})
-    with run1.start() as ctx1:
-        r1 = await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache)
-    run2 = _workspace_run(tmp_path, "b", {"ratio": "r2"})
-    with run2.start() as ctx2:
-        r2 = await WorkflowRuntime().execute(compiled, run_context=ctx2, cache=cache)
+    def test_input_hash_ignores_key_order(self) -> None:
+        """Canonical (sorted) input hashing — insertion order is irrelevant."""
+        a = Caching._compute_input_hash({"n": 1, "m": 2})
+        b = Caching._compute_input_hash({"m": 2, "n": 1})
+        assert a == b
 
-    assert counters["root"] == 2  # both cells computed — no cross-param hit
-    assert r1.outputs["root"] == "r1"
-    assert r2.outputs["root"] == "r2"  # NOT the first cell's value
+    def test_path_input_hashes_stably_across_instances(self) -> None:
+        """Pin 3 — two Path objects for the same path string hash identically
+        (``_robust_json_default`` serializes ``str(path)``, not an object repr)."""
+        h1 = Caching._compute_input_hash({"workdir": Path("/scratch/abc")})
+        h2 = Caching._compute_input_hash({"workdir": Path("/scratch") / "abc"})
+        assert h1 == h2
+
+    def test_path_input_distinct_from_equivalent_string(self) -> None:
+        """The ``{"__type__": "Path"}`` wrapper keeps ``Path("x")`` distinct from ``"x"``."""
+        h_path = Caching._compute_input_hash({"v": Path("x")})
+        h_str = Caching._compute_input_hash({"v": "x"})
+        assert h_path != h_str
 
 
-@pytest.mark.asyncio
-async def test_same_params_different_workdir_and_exec_hits(tmp_path: Path) -> None:
-    """Same params in two different workspaces (⇒ different content-addressed
-    workdir Paths and execution ids) share one cache entry — the workdir must
-    not poison the key."""
-    counters = {"root": 0}
-    wf = WorkflowCompiler(name="sweep-hit")
+class TestSnapshotExcludesInputs:
+    """Pin 4 — ``TaskSnapshot.key`` never folds in runtime inputs."""
 
-    # Root task binds the run param ``ratio`` by name (engine-injected).
-    @wf.task
-    async def root(ratio: str) -> str:
-        counters["root"] += 1
-        return ratio
+    def test_key_moves_with_config_but_never_with_inputs(self) -> None:
+        # from_task_body takes no inputs argument: the snapshot cannot know inputs.
+        s1 = _snapshot(k="v")
+        s2 = _snapshot(k="v")
+        assert s1.key == s2.key
+        # Build-time config IS part of identity; inputs never reach here.
+        s3 = _snapshot(k="other")
+        assert s3.key != s1.key
 
-    compiled = wf.compile()
-    cache = Caching(store_dir=tmp_path / "shared-cache")
 
-    run1 = _workspace_run(tmp_path, "ws1", {"ratio": "r1"})
-    with run1.start() as ctx1:
-        r1 = await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache)
-    run2 = _workspace_run(tmp_path, "ws2", {"ratio": "r1"})
-    with run2.start() as ctx2:
-        r2 = await WorkflowRuntime().execute(compiled, run_context=ctx2, cache=cache)
+class TestEngineInjectedCacheIdentity:
+    """Pins 5 + 6 — engine-injected root inputs: sweep params in, workdir out."""
 
-    assert counters["root"] == 1  # second run served from cache
-    assert r1.outputs["root"] == r2.outputs["root"] == "r1"
+    @pytest.mark.asyncio
+    async def test_differing_run_params_never_share_root_cache(self, tmp_path: Path) -> None:
+        """Regression — the first sweep cell's root result must NOT be served to
+        every other cell. Different run params ⇒ root-task cache MISS ⇒ body runs."""
+        counters = {"root": 0}
+        wf = WorkflowCompiler(name="sweep")
+
+        @wf.task
+        async def root(ratio: str) -> str:
+            counters["root"] += 1
+            return ratio
+
+        compiled = wf.compile()
+        cache = Caching(store_dir=tmp_path / "shared-cache")
+
+        run1 = _workspace_run(tmp_path, "a", {"ratio": "r1"})
+        with run1.start() as ctx1:
+            r1 = await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache)
+        run2 = _workspace_run(tmp_path, "b", {"ratio": "r2"})
+        with run2.start() as ctx2:
+            r2 = await WorkflowRuntime().execute(compiled, run_context=ctx2, cache=cache)
+
+        assert counters["root"] == 2  # both cells computed — no cross-param hit
+        assert r1.outputs["root"] == "r1"
+        assert r2.outputs["root"] == "r2"  # NOT the first cell's value
+
+    @pytest.mark.asyncio
+    async def test_same_params_different_workdir_still_hits(self, tmp_path: Path) -> None:
+        """Same params in two workspaces (⇒ different content-addressed workdir
+        Paths and execution ids) share one cache entry — workdir never poisons
+        the key."""
+        counters = {"root": 0}
+        wf = WorkflowCompiler(name="sweep-hit")
+
+        @wf.task
+        async def root(ratio: str) -> str:
+            counters["root"] += 1
+            return ratio
+
+        compiled = wf.compile()
+        cache = Caching(store_dir=tmp_path / "shared-cache")
+
+        run1 = _workspace_run(tmp_path, "ws1", {"ratio": "r1"})
+        with run1.start() as ctx1:
+            r1 = await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache)
+        run2 = _workspace_run(tmp_path, "ws2", {"ratio": "r1"})
+        with run2.start() as ctx2:
+            r2 = await WorkflowRuntime().execute(compiled, run_context=ctx2, cache=cache)
+
+        assert counters["root"] == 1  # second run served from cache
+        assert r1.outputs["root"] == r2.outputs["root"] == "r1"

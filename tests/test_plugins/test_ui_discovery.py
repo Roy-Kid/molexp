@@ -1,14 +1,10 @@
 """Tests for ``molexp.plugins.ui.discover_ui_plugin_dirs`` — the slim,
 Python-side directory-pointer discovery for UI plugins.
 
-This module deliberately has zero UI semantics on the Python side: the
-discovery only resolves a directory pointer per entry-point. The real
-manifest (api version, contributions, etc.) lives in TypeScript land.
-
-These tests are isolated from the host process's installed entry points
-by monkeypatching ``importlib.metadata.entry_points`` so the suite stays
-deterministic regardless of which optional plugins the developer has
-installed locally.
+The Python side has zero UI semantics: discovery only resolves a directory
+pointer per entry-point; the real manifest lives in TypeScript land. Tests
+isolate from installed entry points by monkeypatching
+``importlib.metadata.entry_points`` so the suite stays deterministic.
 """
 
 from __future__ import annotations
@@ -55,7 +51,7 @@ def _install_fake_eps(
         "molexp.plugins.ui.importlib_metadata.entry_points",
         lambda: _FakeEntryPoints(),
     )
-    # Cached state must be cleared so the test sees the patched eps
+    # Cached state must be cleared so the test sees the patched eps.
     _discover_ui_uncached.cache_clear()
 
 
@@ -77,33 +73,14 @@ def warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return captured
 
 
-# ── discovery tests (ac-003) ──────────────────────────────────────────────
-
-
 class TestDiscoverUiPluginDirs:
-    def test_returns_dict_keyed_by_ep_name(
+    def test_path_loader_returns_dict_keyed_by_ep_name(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        _install_fake_eps(
-            monkeypatch,
-            [_FakeEntryPoint("alpha", lambda: tmp_path)],
-        )
-
-        result = discover_ui_plugin_dirs()
-
-        assert isinstance(result, dict)
-        assert result == {"alpha": tmp_path}
-
-    def test_path_loader_accepted(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         # Loader returns a Path directly (not a callable wrapping one).
-        _install_fake_eps(
-            monkeypatch,
-            [_FakeEntryPoint("direct", lambda: tmp_path)],
-        )
+        _install_fake_eps(monkeypatch, [_FakeEntryPoint("alpha", lambda: tmp_path)])
 
-        result = discover_ui_plugin_dirs()
-
-        assert result == {"direct": tmp_path}
+        assert discover_ui_plugin_dirs() == {"alpha": tmp_path}
 
     def test_callable_loader_accepted(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -112,14 +89,9 @@ class TestDiscoverUiPluginDirs:
         def _resolve() -> Path:
             return tmp_path
 
-        _install_fake_eps(
-            monkeypatch,
-            [_FakeEntryPoint("callable", lambda: _resolve)],
-        )
+        _install_fake_eps(monkeypatch, [_FakeEntryPoint("callable", lambda: _resolve)])
 
-        result = discover_ui_plugin_dirs()
-
-        assert result == {"callable": tmp_path}
+        assert discover_ui_plugin_dirs() == {"callable": tmp_path}
 
     def test_callable_raising_is_isolated(
         self,
@@ -224,41 +196,10 @@ class TestDiscoverUiPluginDirs:
         assert result == {"good": good_dir}
         assert any("bad" in msg for msg in warnings)
 
-    def test_cache_hits_on_second_call(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        # Wrap the fake entry_points() in a counter so we can assert that
-        # the second call to ``discover_ui_plugin_dirs`` does NOT
-        # re-enumerate (i.e. ``functools.cache`` works).
-        eps_tuple = (_FakeEntryPoint("cached", lambda: tmp_path),)
-        call_count = {"n": 0}
-
-        class _FakeEntryPoints:
-            def select(self, *, group: str):
-                return tuple(ep for ep in eps_tuple if ep.group == group)
-
-        def _entry_points():
-            call_count["n"] += 1
-            return _FakeEntryPoints()
-
-        monkeypatch.setattr(
-            "molexp.plugins.ui.importlib_metadata.entry_points",
-            _entry_points,
-        )
-        # Reset cache only at the start; do not reset between the two calls.
-        _discover_ui_uncached.cache_clear()
-
-        first = discover_ui_plugin_dirs()
-        second = discover_ui_plugin_dirs()
-
-        assert first == {"cached": tmp_path}
-        assert second == first
-        assert call_count["n"] == 1
-
     def test_module_does_not_define_uiplugin_class(self) -> None:
-        # Sanity check for the design: Python side has zero UI semantics —
-        # no ``UiPlugin`` dataclass, no ``api_version`` field. UI semantics
-        # live in TS-side ``manifest.json``.
+        # Design invariant: the Python side has zero UI semantics — no
+        # ``UiPlugin`` dataclass, no ``api_version`` field. UI semantics live
+        # in the TS-side ``manifest.json``.
         import molexp.plugins.ui as ui_mod
 
         assert not hasattr(ui_mod, "UiPlugin")

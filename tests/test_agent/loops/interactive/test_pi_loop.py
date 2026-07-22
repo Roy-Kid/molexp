@@ -204,9 +204,7 @@ class TestInteractiveLoopSteering:
         router = _ScriptedRouter()
         guard = _ScriptedGuard([HookOutcome.deny("look again")])
         loop = InteractiveLoop(config=_config(tmp_path), hooks=LoopHooks(should_stop=guard))
-        runtime, session = _runtime(
-            router, InMemorySessionStorage(), tmp_path, session_id="steer"
-        )
+        runtime, session = _runtime(router, InMemorySessionStorage(), tmp_path, session_id="steer")
 
         events = await _drive(loop, runtime, "inspect the project")
 
@@ -263,9 +261,7 @@ class TestInteractiveLoopSteering:
             config=_config(tmp_path, max_passes=3),
             hooks=LoopHooks(should_stop=guard),
         )
-        runtime, _session = _runtime(
-            router, InMemorySessionStorage(), tmp_path, session_id="bound"
-        )
+        runtime, _session = _runtime(router, InMemorySessionStorage(), tmp_path, session_id="bound")
 
         events = await _drive(loop, runtime, "never satisfied")
 

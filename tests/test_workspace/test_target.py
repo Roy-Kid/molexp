@@ -1,10 +1,9 @@
 """Behavior locks for ``molexp.workspace.target`` — the Target address family.
 
-Written BEFORE the targets-merge refactor (two parallel target systems →
-one ``ComputeTarget``-rooted family) to pin the observable behavior of the
-address-parsing side: ``parse_target`` / ``resolve_target`` / the transport +
-filesystem bridges / the SSH session cache.  Every assertion here must hold
-both before and after the merge.
+One ``ComputeTarget``-rooted family: ``parse_target`` / ``resolve_target``
+produce ``LocalTarget`` / ``RemoteTarget`` address views that ARE
+``ComputeTarget`` subclasses (the targets-merge invariant), plus the
+transport + filesystem bridges and the SSH session cache.
 """
 
 from __future__ import annotations
@@ -15,7 +14,13 @@ from pathlib import Path
 import pytest
 from molq.transport import LocalTransport, SshTransport
 
-from molexp.workspace import ComputeTarget, Workspace, add_target
+from molexp.workspace import (
+    ComputeTarget,
+    SSHSession,
+    Workspace,
+    add_target,
+    resolve_compute_target,
+)
 from molexp.workspace.fs_local import LocalFileSystem
 from molexp.workspace.target import (
     LocalTarget,
@@ -36,24 +41,31 @@ def ws(tmp_path: Path) -> Workspace:
     return w
 
 
-# ---------------------------------------------------------------------------
-# parse_target
-# ---------------------------------------------------------------------------
-
-
 class TestParseTarget:
-    def test_none_and_empty_resolve_to_cwd(self) -> None:
+    def test_falsy_resolves_to_cwd_local(self) -> None:
         for raw in (None, ""):
             target = parse_target(raw)
             assert isinstance(target, LocalTarget)
             assert target.path == Path.cwd()
 
-    def test_scp_notation_with_user(self) -> None:
+    def test_local_path_is_a_compute_target_address_view(self, tmp_path: Path) -> None:
+        target = parse_target(str(tmp_path))
+        assert isinstance(target, ComputeTarget)  # unified family (targets-merge)
+        assert isinstance(target, LocalTarget)
+        assert target.host is None
+        assert target.is_remote is False
+        assert target.scratch_root == str(tmp_path.resolve())
+        assert target.scheduler == "local"
+
+    def test_scp_remote_is_a_compute_target_with_all_fields(self) -> None:
         target = parse_target("me@host.example:/data/ws")
+        assert isinstance(target, ComputeTarget)  # unified family (targets-merge)
         assert isinstance(target, RemoteTarget)
+        assert target.is_remote is True
         assert target.user == "me"
         assert target.host == "host.example"
         assert target.path == "/data/ws"
+        assert target.scratch_root == "/data/ws"
         assert target.scp_notation == "me@host.example:/data/ws"
         assert str(target) == "me@host.example:/data/ws"
 
@@ -68,23 +80,18 @@ class TestParseTarget:
             parse_target("@cluster")
 
 
-# ---------------------------------------------------------------------------
-# resolve_target
-# ---------------------------------------------------------------------------
-
-
 class TestResolveTarget:
-    def test_local_spec(self, tmp_path: Path) -> None:
+    def test_local_spec_pairs_local_transport(self, tmp_path: Path) -> None:
         target, transport = resolve_target(str(tmp_path))
         assert isinstance(target, LocalTarget)
         assert isinstance(transport, LocalTransport)
 
-    def test_remote_spec(self) -> None:
+    def test_remote_spec_pairs_ssh_transport(self) -> None:
         target, transport = resolve_target("me@host.example:/data/ws")
         assert isinstance(target, RemoteTarget)
         assert isinstance(transport, SshTransport)
 
-    def test_at_name_without_workspace_raises(self) -> None:
+    def test_at_name_without_workspace_raises_needs_resolution(self) -> None:
         with pytest.raises(TargetNeedsResolution):
             resolve_target("@cluster", None)
 
@@ -92,7 +99,7 @@ class TestResolveTarget:
         with pytest.raises(TargetNotFound):
             resolve_target("@does-not-exist", ws)
 
-    def test_at_name_local_registry_target(self, ws: Workspace, tmp_path: Path) -> None:
+    def test_at_name_resolves_local_registry_target(self, ws: Workspace, tmp_path: Path) -> None:
         scratch = tmp_path / "scratch"
         add_target(ws, ComputeTarget(name="box", scratch_root=str(scratch)))
         target, transport = resolve_target("@box", ws)
@@ -100,61 +107,7 @@ class TestResolveTarget:
         assert target.path == Path(str(scratch))
         assert isinstance(transport, LocalTransport)
 
-    def test_at_name_remote_registry_target(self, ws: Workspace) -> None:
-        add_target(
-            ws,
-            ComputeTarget(
-                name="hpc",
-                host="me@cluster.example",
-                scheduler="slurm",
-                scratch_root="/scratch/me",
-            ),
-        )
-        target, transport = resolve_target("@hpc", ws)
-        assert isinstance(target, RemoteTarget)
-        assert target.user == "me"
-        assert target.host == "cluster.example"
-        assert target.path == "/scratch/me"
-        assert isinstance(transport, SshTransport)
-
-
-# ---------------------------------------------------------------------------
-# Transport / filesystem bridges
-# ---------------------------------------------------------------------------
-
-
-class TestBridges:
-    def test_local_target_to_filesystem(self, tmp_path: Path) -> None:
-        assert isinstance(target_to_filesystem(parse_target(str(tmp_path))), LocalFileSystem)
-
-    def test_remote_target_to_filesystem(self) -> None:
-        from molexp.workspace.fs_remote import RemoteFileSystem
-
-        fs = target_to_filesystem(parse_target("me@host.example:/data"))
-        assert isinstance(fs, RemoteFileSystem)
-
-
-# ---------------------------------------------------------------------------
-# Unified family (targets-merge): address views ARE ComputeTargets
-# ---------------------------------------------------------------------------
-
-
-class TestUnifiedFamily:
-    def test_local_view_is_a_compute_target(self, tmp_path: Path) -> None:
-        target = parse_target(str(tmp_path))
-        assert isinstance(target, ComputeTarget)
-        assert target.host is None
-        assert target.is_remote is False
-        assert target.scratch_root == str(tmp_path.resolve())
-        assert target.scheduler == "local"
-
-    def test_remote_view_is_a_compute_target(self) -> None:
-        target = parse_target("me@host.example:/data/ws")
-        assert isinstance(target, ComputeTarget)
-        assert target.is_remote is True
-        assert target.scratch_root == "/data/ws"
-
-    def test_at_name_view_carries_registry_fields(self, ws: Workspace) -> None:
+    def test_at_name_resolves_remote_registry_target_with_all_fields(self, ws: Workspace) -> None:
         add_target(
             ws,
             ComputeTarget(
@@ -165,12 +118,18 @@ class TestUnifiedFamily:
                 default_resources={"gpus": 1},
             ),
         )
-        target, _transport = resolve_target("@hpc", ws)
+        target, transport = resolve_target("@hpc", ws)
+        assert isinstance(target, RemoteTarget)
+        assert target.user == "me"
+        assert target.host == "cluster.example"
+        assert target.path == "/scratch/me"
+        # The address view carries the registry record's fields (unified family).
         assert target.name == "hpc"
         assert target.scheduler == "slurm"
         assert target.default_resources == {"gpus": 1}
+        assert isinstance(transport, SshTransport)
 
-    def test_at_local_falls_back_to_builtin(self, ws: Workspace) -> None:
+    def test_at_local_falls_back_to_builtin_local(self, ws: Workspace) -> None:
         """CLI ``@local`` resolves like the server: built-in local target."""
         target, transport = resolve_target("@local", ws)
         assert isinstance(target, LocalTarget)
@@ -178,9 +137,11 @@ class TestUnifiedFamily:
         assert target.path == Path(str(ws.root))
         assert isinstance(transport, LocalTransport)
 
-    def test_resolve_compute_target_is_the_workspace_named_resolver(self, ws: Workspace) -> None:
-        from molexp.workspace import resolve_compute_target
 
+class TestResolveComputeTarget:
+    def test_named_lookup_local_fallback_and_missing_raises(self, ws: Workspace) -> None:
+        """The single named-target resolution path: named lookup, the built-in
+        ``local`` fallback, and a raw ``KeyError`` on an unknown name."""
         add_target(ws, ComputeTarget(name="laptop", scratch_root="/tmp/molexp"))
         assert resolve_compute_target(ws, "laptop").scratch_root == "/tmp/molexp"
         assert resolve_compute_target(ws, "local").scratch_root == str(ws.root)
@@ -188,9 +149,15 @@ class TestUnifiedFamily:
             resolve_compute_target(ws, "ghost")
 
 
-# ---------------------------------------------------------------------------
-# Session cache (SSH connection reuse)
-# ---------------------------------------------------------------------------
+class TestTargetToFilesystem:
+    def test_local_target_yields_local_filesystem(self, tmp_path: Path) -> None:
+        assert isinstance(target_to_filesystem(parse_target(str(tmp_path))), LocalFileSystem)
+
+    def test_remote_target_yields_remote_filesystem(self) -> None:
+        from molexp.workspace.fs_remote import RemoteFileSystem
+
+        fs = target_to_filesystem(parse_target("me@host.example:/data"))
+        assert isinstance(fs, RemoteFileSystem)
 
 
 @pytest.fixture(autouse=True)
@@ -226,11 +193,9 @@ class TestSessionManager:
         assert SessionManager.get(target) is None
         assert SessionManager.close("me@host.example:/data/ws") is False
 
-    def test_sessions_are_ssh_sessions(self) -> None:
+    def test_session_type_is_sshsession_not_bare_session(self) -> None:
         """workspace ``Session`` was renamed ``SSHSession`` — the bare name now
         belongs exclusively to the agent layer's LLM conversation session."""
-        from molexp.workspace import SSHSession
-
         session = SessionManager.get_or_create(self._remote())
         assert isinstance(session, SSHSession)
         assert not hasattr(__import__("molexp.workspace", fromlist=["x"]), "Session")

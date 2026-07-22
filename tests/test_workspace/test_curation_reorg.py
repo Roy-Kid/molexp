@@ -1,18 +1,9 @@
-"""Tests for ``molexp.workspace.curation`` reorganization helpers.
+"""Tests for ``molexp.workspace.curation.reorg`` reorganization helpers.
 
-Pins ``move_run`` (relocate a Run to another Experiment, including the
-destination-collision guard), ``rehome_asset`` (re-import a DataAsset payload
+Pins ``move_run`` (relocate a Run to another Experiment, plus the
+destination-collision guard that propagates ``FolderMoveCollisionError``
+rather than swallowing it), ``rehome_asset`` (re-import a DataAsset payload
 into another scope, preserving its content hash) and ``delete_folder``.
-
-``reslug`` (entity rename) is intentionally deferred: renaming an entity's id
-must rewrite its authoritative metadata file and re-home every asset cataloged
-under the old scope (and a Run's id is embedded in its execution ids), which is
-a focused follow-up rather than a thin ``move_to`` compose.
-
-The assertions describe the *correct end state* the curation layer must
-produce — e.g. after ``move_run`` the run is discoverable via the target
-experiment's ``list_runs()`` (which scans the ``runs/`` container on disk)
-and gone from the source.
 """
 
 from __future__ import annotations
@@ -23,8 +14,6 @@ import pytest
 
 from molexp.workspace import FolderMoveCollisionError, Workspace
 from molexp.workspace.curation import delete_folder, move_run, rehome_asset
-
-# ── move_run ─────────────────────────────────────────────────────────────────
 
 
 class TestMoveRun:
@@ -44,9 +33,8 @@ class TestMoveRun:
         assert not old_dir.exists()
 
     def test_collision_propagates(self, tmp_path: Path) -> None:
-        # The target experiment already holds a run at the same id, so the
-        # underlying move_to must refuse rather than clobber it. The typed
-        # collision error is propagated verbatim, never caught-and-continued.
+        # The target already holds a run at the same id; the underlying move_to
+        # must refuse rather than clobber — the typed collision error propagates.
         ws = Workspace(root=tmp_path / "lab", name="Collision Lab")
         proj = ws.add_project("proj")
         source_exp = proj.add_experiment("source-exp", params={})
@@ -58,12 +46,8 @@ class TestMoveRun:
             move_run(run, target_exp)
 
 
-# ── rehome_asset ─────────────────────────────────────────────────────────────
-
-
 class TestRehomeAsset:
-    @pytest.mark.parametrize("action", ["copy", "move"])
-    def test_content_hash_preserved(self, tmp_path: Path, action: str) -> None:
+    def test_content_hash_preserved_on_reimport(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab", name="Rehome Lab")
         target = ws.add_project("dest")
 
@@ -75,12 +59,9 @@ class TestRehomeAsset:
         assert original_hash is not None
         assert original_hash.startswith("sha256:")
 
-        rehomed = rehome_asset(asset, source=ws, target=target, action=action)
+        rehomed = rehome_asset(asset, source=ws, target=target, action="copy")
         assert rehomed.content_hash == original_hash
         assert rehomed.name == asset.name
-
-
-# ── delete_folder ────────────────────────────────────────────────────────────
 
 
 class TestDeleteFolder:

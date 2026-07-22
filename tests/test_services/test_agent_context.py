@@ -1,21 +1,11 @@
-"""``build_mount_context`` — mount-point context builder (vision-loop-11, RED set).
+"""``build_mount_context`` — the mount-point context builder (services layer).
 
-The services-layer builder renders a deterministic markdown context block from
-the ``WorkspaceContext`` read-model (``workspace/workspace_context.py``) per
-mount depth:
-
-- **run scope** — params / status / config_hash / execution id / error text /
-  artifact list;
-- **experiment scope** — parameter space / workflow presence / per-status run
-  counts;
-- **workspace scope** (no ids) — projects overview + knowledge doc titles.
-
-Scope resolution is strict: an id that does not resolve raises the workspace's
-typed ``*NotFoundError`` — never a silent downgrade to workspace scope. Output
-is deterministic and budgeted (``max_chars``, cut at section boundaries with an
-explicit ``(truncated)`` marker).
-
-Spec: ``.claude/specs/vision-loop-11-mount-context.md``.
+The ONE mount-context builder shared by ``molexp agent`` and the server's
+session-create route (Python = UI). Given an optional scope it renders a
+deterministic, budgeted markdown block from the workspace ``WorkspaceContext``
+read-model, per mount depth (run / experiment / workspace). Scope resolution is
+strict: a bad id raises the workspace's typed ``*NotFoundError`` — never a
+silent downgrade (no-fallback law).
 """
 
 from __future__ import annotations
@@ -79,48 +69,33 @@ def _seed(tmp_path: Path) -> tuple[Workspace, Experiment, Run, Run]:
     return ws, exp, ok, failed
 
 
-def _run_scope(ws: Workspace, run: Run, **kwargs: int) -> str:
+def _run_scope(ws: Workspace, run: Run) -> str:
     return build_mount_context(
-        ws,
-        project_id="proton-transport",
-        experiment_id="sigma-scan",
-        run_id=run.id,
-        **kwargs,
+        ws, project_id="proton-transport", experiment_id="sigma-scan", run_id=run.id
     )
 
 
-# ── Run scope ────────────────────────────────────────────────────────────────
-
-
-class TestRunScope:
-    def test_renders_params(self, tmp_path: Path) -> None:
+class TestBuildMountContext:
+    def test_run_scope_renders_params_and_artifacts(self, tmp_path: Path) -> None:
         ws, _, ok, _ = _seed(tmp_path)
         out = _run_scope(ws, ok)
         assert "sigma" in out
         assert "0.25" in out
+        assert "m1.json" in out
 
-    def test_renders_artifacts(self, tmp_path: Path) -> None:
-        ws, _, ok, _ = _seed(tmp_path)
-        assert "m1.json" in _run_scope(ws, ok)
-
-    def test_failed_run_renders_error_text(self, tmp_path: Path) -> None:
+    def test_run_scope_renders_failed_error(self, tmp_path: Path) -> None:
         ws, _, _, failed = _seed(tmp_path)
         out = _run_scope(ws, failed)
         assert "failed" in out
         assert "ValueError" in out
         assert "lattice exploded" in out
 
-
-# ── Experiment scope ─────────────────────────────────────────────────────────
-
-
-class TestExperimentScope:
-    def test_renders_parameter_space(self, tmp_path: Path) -> None:
+    def test_experiment_scope_renders_parameter_space(self, tmp_path: Path) -> None:
         ws, _, _, _ = _seed(tmp_path)
         out = build_mount_context(ws, project_id="proton-transport", experiment_id="sigma-scan")
         assert "lr" in out
 
-    def test_renders_per_status_run_counts(self, tmp_path: Path) -> None:
+    def test_experiment_scope_renders_per_status_run_counts(self, tmp_path: Path) -> None:
         ws, exp, _, _ = _seed(tmp_path)
         # Second failed run → the failed count (2) differs from succeeded (1).
         extra = exp.add_run(params={"sigma": 0.75, "seed": 7})
@@ -133,24 +108,14 @@ class TestExperimentScope:
             f"expected a failed-run count of 2 on one line, got:\n{out}"
         )
 
-
-# ── Workspace scope (no ids) ─────────────────────────────────────────────────
-
-
-class TestWorkspaceScope:
-    def test_renders_projects_overview(self, tmp_path: Path) -> None:
+    def test_workspace_scope_renders_projects_overview(self, tmp_path: Path) -> None:
         ws, _, _, _ = _seed(tmp_path)
         assert "proton-transport" in build_mount_context(ws)
 
-    def test_renders_knowledge_doc_title(self, tmp_path: Path) -> None:
+    def test_workspace_scope_renders_knowledge_doc_title(self, tmp_path: Path) -> None:
         ws, _, _, _ = _seed(tmp_path)
         assert _NOTE_TITLE in build_mount_context(ws)
 
-
-# ── Strict scope resolution ──────────────────────────────────────────────────
-
-
-class TestStrictResolution:
     def test_unknown_project_raises(self, tmp_path: Path) -> None:
         ws, _, _, _ = _seed(tmp_path)
         with pytest.raises(ProjectNotFoundError):
@@ -171,13 +136,8 @@ class TestStrictResolution:
                 run_id="deadbeef",
             )
 
-
-# ── Determinism ──────────────────────────────────────────────────────────────
-
-
-class TestDeterminism:
     @pytest.mark.parametrize("level", ["workspace", "experiment", "run"])
-    def test_two_calls_byte_identical(self, tmp_path: Path, level: str) -> None:
+    def test_render_is_deterministic(self, tmp_path: Path, level: str) -> None:
         ws, _, ok, _ = _seed(tmp_path)
         kwargs: dict[str, str] = {}
         if level in ("experiment", "run"):
@@ -185,17 +145,9 @@ class TestDeterminism:
             kwargs["experiment_id"] = "sigma-scan"
         if level == "run":
             kwargs["run_id"] = ok.id
+        assert build_mount_context(ws, **kwargs) == build_mount_context(ws, **kwargs)
 
-        first = build_mount_context(ws, **kwargs)
-        second = build_mount_context(ws, **kwargs)
-        assert first == second
-
-
-# ── Budget / truncation ──────────────────────────────────────────────────────
-
-
-class TestBudget:
-    def test_under_budget_has_no_marker(self, tmp_path: Path) -> None:
+    def test_under_budget_has_no_truncation_marker(self, tmp_path: Path) -> None:
         ws, _, _, _ = _seed(tmp_path)
         out = build_mount_context(ws)
         assert len(out) <= 4000

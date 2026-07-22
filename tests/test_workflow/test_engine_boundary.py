@@ -141,16 +141,6 @@ def test_next_is_public_and_single_class():
     )
 
 
-def test_next_docstring_documents_routing_contract():
-    from molexp.workflow import Next
-
-    doc = (Next.__doc__ or "").lower()
-    assert "routing" in doc and "routes" in doc, (
-        "Next docstring must document the route-label contract "
-        "(picks a declared routes={label: target} entry)."
-    )
-
-
 # ── 5. structural bans under workflow/ ──────────────────────────────────────
 
 

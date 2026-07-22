@@ -1,9 +1,10 @@
-"""Guarded-execution slice 03 — wire ProposalExecutor into the ChangeProposal gate.
+"""Guarded execution — the opt-in ``executor=`` param on ``gate_change_proposal``.
 
-Guarded-path tests only; the dry-gate tests in ``test_change_proposal.py`` are the
-untouched regression net. Exercises the opt-in ``executor=`` param on
-``gate_change_proposal``: granted → dispatch (executed/failed), reject → dry,
-single-gate, no double side-effect approval.
+Locks the distinct grant/reject/failure transitions of the guarded path:
+executor=None stays advisory-dry; granted+executor dispatches the mutation and
+reports ``executed``; the mutation is gated exactly once (no double side-effect
+approval); reject stays dry with the proposal preserved; a reorg runtime failure
+is recorded ``failed`` without raising; an unknown op raises past the gate.
 """
 
 from __future__ import annotations
@@ -107,147 +108,115 @@ def _run_in(ws_root: Path, experiment: str) -> bool:
     return ws.get_project("p").get_experiment(experiment).has_run("r1")
 
 
-# ── ac-001: dry default preserved ────────────────────────────────────────────
-
-
-def test_dry_default_no_executor(tmp_path: Path) -> None:
-    """ac-001 — executor=None keeps the advisory dry behavior (granted, no run)."""
-    _workspace(tmp_path)
-    ctx = _ctx(tmp_path)
-    result = asyncio.run(
-        gate_change_proposal(ctx, _move_run_proposal(), approve=auto_grant_approver)
-    )
-    assert result.execution_result is not None
-    assert result.execution_result.status == "granted"
-    assert _run_in(tmp_path, "e1")  # not executed → run stayed put
-    assert not _run_in(tmp_path, "e2")
-
-
-# ── ac-002 / ac-003 / ac-004: granted + executor ─────────────────────────────
-
-
-def test_granted_executed_move_run(tmp_path: Path) -> None:
-    """ac-002 — granted asset_move + executor performs the move + reports executed."""
-    _workspace(tmp_path)
-    ctx = _ctx(tmp_path)
-    result = asyncio.run(
-        gate_change_proposal(
-            ctx, _move_run_proposal(), approve=auto_grant_approver, executor=_curation_executor()
+class TestGateChangeProposal:
+    def test_dry_default_no_executor_grants_without_mutation(self, tmp_path: Path) -> None:
+        """executor=None keeps the advisory dry behavior (granted, no run move)."""
+        _workspace(tmp_path)
+        ctx = _ctx(tmp_path)
+        result = asyncio.run(
+            gate_change_proposal(ctx, _move_run_proposal(), approve=auto_grant_approver)
         )
-    )
-    assert result.execution_result.status == "executed"
-    assert result.execution_result.result_artifact_ids
-    assert _run_in(tmp_path, "e2")
-    assert not _run_in(tmp_path, "e1")
+        assert result.execution_result is not None
+        assert result.execution_result.status == "granted"
+        assert _run_in(tmp_path, "e1")  # not executed → run stayed put
+        assert not _run_in(tmp_path, "e2")
 
-
-def test_timeline_requested_granted_completed(tmp_path: Path) -> None:
-    """ac-003 — the event timeline is approval_requested → approval_granted → tool_completed."""
-    _workspace(tmp_path)
-    ctx = _ctx(tmp_path)
-    asyncio.run(
-        gate_change_proposal(
-            ctx, _move_run_proposal(), approve=auto_grant_approver, executor=_curation_executor()
+    def test_granted_with_executor_performs_move_and_reports_executed(self, tmp_path: Path) -> None:
+        """granted asset_move + executor performs the move + reports executed."""
+        _workspace(tmp_path)
+        ctx = _ctx(tmp_path)
+        result = asyncio.run(
+            gate_change_proposal(
+                ctx,
+                _move_run_proposal(),
+                approve=auto_grant_approver,
+                executor=_curation_executor(),
+            )
         )
-    )
-    types = [e.type for e in ctx.event_log.list_events("run-ge3")]
-    assert "approval_requested" in types
-    assert "approval_granted" in types
-    assert "tool_completed" in types
-    assert (
-        types.index("approval_requested")
-        < types.index("approval_granted")
-        < types.index("tool_completed")
-    )
+        assert result.execution_result.status == "executed"
+        assert result.execution_result.result_artifact_ids
+        assert _run_in(tmp_path, "e2")
+        assert not _run_in(tmp_path, "e1")
 
-
-def test_single_gate_one_approval_round(tmp_path: Path) -> None:
-    """ac-004 — the mutation is gated exactly once (one approval round, one move)."""
-    _workspace(tmp_path)
-    ctx = _ctx(tmp_path)
-    asyncio.run(
-        gate_change_proposal(
-            ctx, _move_run_proposal(), approve=auto_grant_approver, executor=_curation_executor()
-        )
-    )
-    types = [e.type for e in ctx.event_log.list_events("run-ge3")]
-    assert types.count("approval_requested") == 1
-    assert types.count("approval_granted") == 1
-    # applied once: run present in e2, gone from e1
-    assert _run_in(tmp_path, "e2")
-    assert not _run_in(tmp_path, "e1")
-
-
-# ── ac-005: reject stays dry ─────────────────────────────────────────────────
-
-
-def test_reject_with_executor_stays_dry(tmp_path: Path) -> None:
-    """ac-005 — a rejected proposal performs no mutation; the proposal is preserved."""
-    _workspace(tmp_path)
-    ctx = _ctx(tmp_path)
-    result = asyncio.run(
-        gate_change_proposal(
-            ctx, _move_run_proposal(), approve=_reject, executor=_curation_executor()
-        )
-    )
-    assert result.execution_result.status == "rejected"
-    assert _run_in(tmp_path, "e1")  # no move
-    # no action ever dispatched
-    assert not any(e.type.startswith("tool_") for e in ctx.event_log.list_events("run-ge3"))
-    # the change_proposal artifact is preserved (§8.3)
-    preserved_id = result.execution_result.result_artifact_ids[0]
-    assert ctx.artifact_store.get_ref(preserved_id) is not None
-
-
-# ── ac-006: runtime failure recorded ─────────────────────────────────────────
-
-
-def test_runtime_failure_recorded_not_raised(tmp_path: Path) -> None:
-    """ac-006 — a reorg runtime failure yields status=failed, gate does not raise."""
-    ws = _workspace(tmp_path)
-    ws.get_project("p").get_experiment("e2").add_run(id="r1")  # collision on move
-    ctx = _ctx(tmp_path)
-    result = asyncio.run(
-        gate_change_proposal(
-            ctx, _move_run_proposal(), approve=auto_grant_approver, executor=_curation_executor()
-        )
-    )
-    assert result.execution_result.status == "failed"
-
-
-# ── ac-007: fail-loud ────────────────────────────────────────────────────────
-
-
-def test_unknown_op_propagates_past_gate(tmp_path: Path) -> None:
-    """ac-007 — an unknown-op proposal raises UnhandledHighRiskOpError past the gate."""
-    from molexp.harness.errors import UnhandledHighRiskOpError
-
-    _workspace(tmp_path)
-    ctx = _ctx(tmp_path)
-    # workflow_change has no registered curation handler
-    proposal = _proposal("workflow_change", [ObjectRef(kind="workflow", id="wf-1")], {})
-    with pytest.raises(UnhandledHighRiskOpError):
+    def test_mutation_is_gated_exactly_once(self, tmp_path: Path) -> None:
+        """The mutation is gated exactly once — one approval round, one move."""
+        _workspace(tmp_path)
+        ctx = _ctx(tmp_path)
         asyncio.run(
+            gate_change_proposal(
+                ctx,
+                _move_run_proposal(),
+                approve=auto_grant_approver,
+                executor=_curation_executor(),
+            )
+        )
+        types = [e.type for e in ctx.event_log.list_events("run-ge3")]
+        assert types.count("approval_requested") == 1
+        assert types.count("approval_granted") == 1
+        assert _run_in(tmp_path, "e2")
+        assert not _run_in(tmp_path, "e1")
+
+    def test_reject_with_executor_stays_dry_and_preserves_proposal(self, tmp_path: Path) -> None:
+        """A rejected proposal performs no mutation; the proposal artifact is preserved."""
+        _workspace(tmp_path)
+        ctx = _ctx(tmp_path)
+        result = asyncio.run(
+            gate_change_proposal(
+                ctx, _move_run_proposal(), approve=_reject, executor=_curation_executor()
+            )
+        )
+        assert result.execution_result.status == "rejected"
+        assert _run_in(tmp_path, "e1")  # no move
+        # no action ever dispatched
+        assert not any(e.type.startswith("tool_") for e in ctx.event_log.list_events("run-ge3"))
+        # the change_proposal artifact is preserved (§8.3)
+        preserved_id = result.execution_result.result_artifact_ids[0]
+        assert ctx.artifact_store.get_ref(preserved_id) is not None
+
+    def test_runtime_failure_recorded_failed_not_raised(self, tmp_path: Path) -> None:
+        """A reorg runtime failure yields status=failed; the gate does not raise."""
+        ws = _workspace(tmp_path)
+        ws.get_project("p").get_experiment("e2").add_run(id="r1")  # collision on move
+        ctx = _ctx(tmp_path)
+        result = asyncio.run(
+            gate_change_proposal(
+                ctx,
+                _move_run_proposal(),
+                approve=auto_grant_approver,
+                executor=_curation_executor(),
+            )
+        )
+        assert result.execution_result.status == "failed"
+
+    def test_unknown_op_propagates_past_gate(self, tmp_path: Path) -> None:
+        """An unknown-op proposal raises UnhandledHighRiskOpError past the gate."""
+        from molexp.harness.errors import UnhandledHighRiskOpError
+
+        _workspace(tmp_path)
+        ctx = _ctx(tmp_path)
+        # workflow_change has no registered curation handler
+        proposal = _proposal("workflow_change", [ObjectRef(kind="workflow", id="wf-1")], {})
+        with pytest.raises(UnhandledHighRiskOpError):
+            asyncio.run(
+                gate_change_proposal(
+                    ctx, proposal, approve=auto_grant_approver, executor=_curation_executor()
+                )
+            )
+
+    def test_out_of_bounds_target_recorded_failed_no_mutation(self, tmp_path: Path) -> None:
+        """An out-of-affected_objects target is recorded failed; the run is unmutated."""
+        _workspace(tmp_path)
+        ctx = _ctx(tmp_path)
+        # affected omits e2 but the payload names it
+        proposal = _proposal(
+            "asset_move",
+            [ObjectRef(kind="run", id="r1")],
+            {"curation_op": "move_run", "target_experiment": {"kind": "experiment", "id": "e2"}},
+        )
+        result = asyncio.run(
             gate_change_proposal(
                 ctx, proposal, approve=auto_grant_approver, executor=_curation_executor()
             )
         )
-
-
-def test_out_of_bounds_recorded_failed_no_mutation(tmp_path: Path) -> None:
-    """ac-007 — an out-of-affected_objects target is recorded failed, run unmutated."""
-    _workspace(tmp_path)
-    ctx = _ctx(tmp_path)
-    # affected omits e2 but the payload names it
-    proposal = _proposal(
-        "asset_move",
-        [ObjectRef(kind="run", id="r1")],
-        {"curation_op": "move_run", "target_experiment": {"kind": "experiment", "id": "e2"}},
-    )
-    result = asyncio.run(
-        gate_change_proposal(
-            ctx, proposal, approve=auto_grant_approver, executor=_curation_executor()
-        )
-    )
-    assert result.execution_result.status == "failed"
-    assert _run_in(tmp_path, "e1")  # unmutated
+        assert result.execution_result.status == "failed"
+        assert _run_in(tmp_path, "e1")  # unmutated

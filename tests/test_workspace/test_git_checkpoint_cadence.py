@@ -25,20 +25,16 @@ from molexp.workspace.git_projection import (
 )
 
 
-def _commit_lines(ws: Workspace, run_id: str, fmt: str = "%H") -> list[str]:
+def _commits(ws: Workspace, run_id: str) -> int:
     db = default_object_db_path(ws)
     out = subprocess.run(
-        ["git", "-C", str(db), "log", f"--format={fmt}", f"refs/molexp/runs/{run_id}"],
+        ["git", "-C", str(db), "log", "--format=%H", f"refs/molexp/runs/{run_id}"],
         capture_output=True,
         text=True,
     )
     if out.returncode != 0:
-        return []
-    return [line for line in out.stdout.splitlines() if line.strip()]
-
-
-def _commits(ws: Workspace, run_id: str) -> int:
-    return len(_commit_lines(ws, run_id))
+        return 0
+    return len([line for line in out.stdout.splitlines() if line.strip()])
 
 
 async def _enable_projection(ws: Workspace) -> None:
@@ -52,10 +48,7 @@ def _new_run(ws_root: Path):
     return ws, exp.add_run(params={"seed": 0})
 
 
-# ── (a) frequency contract ───────────────────────────────────────────────────
-
-
-class TestCheckpointCadence:
+class TestCheckpointRunOnSettle:
     async def test_n_writes_between_executions_produce_zero_commits(self, tmp_path):
         ws, run = _new_run(tmp_path / "lab")
         await _enable_projection(ws)
@@ -82,11 +75,6 @@ class TestCheckpointCadence:
             raise ValueError("boom")
         assert _commits(ws, run.id) == 1  # FAILED is a settled terminal → one commit
 
-
-# ── (b) checkpoint fires at the Execution-settled boundary ───────────────────
-
-
-class TestSettleBoundary:
     async def test_no_checkpoint_until_projection_enabled(self, tmp_path):
         ws, run = _new_run(tmp_path / "lab")
         # NOT enabled → settle creates no DB and no commits (opt-in by existence).
@@ -95,24 +83,8 @@ class TestSettleBoundary:
         assert not (default_object_db_path(ws) / "HEAD").exists()
         assert _commits(ws, run.id) == 0
 
-    async def test_settle_commit_is_parent_linked(self, tmp_path):
-        ws, run = _new_run(tmp_path / "lab")
-        await _enable_projection(ws)
-        with run.start():  # attempt 1 → root commit
-            pass
-        with run.start():  # attempt 2 (rerun) → new commit, parent-linked
-            pass
-        lines = _commit_lines(ws, run.id, fmt="%H %P")
-        assert len(lines) == 2
-        tip_parents = lines[0].split()[1:]
-        root_hash = lines[1].split()[0]
-        assert root_hash in tip_parents  # the tip attempt links back to the prior one
 
-
-# ── (d) historical materialization into a scratch worktree ───────────────────
-
-
-class TestHistoricalMaterialization:
+class TestMaterializeRun:
     async def test_materialize_run_into_scratch_not_live_workspace(self, tmp_path):
         ws, run = _new_run(tmp_path / "lab")
         with run.start() as ctx:

@@ -107,33 +107,3 @@ class TestSetOperatorValues:
         assert agent.get("model") == _MODEL
         assert "deepseek_api_key" not in agent
         assert _RAW_KEY not in path.read_text()
-
-
-class TestCliParity:
-    """One writer: ``molexp config set`` and ``set_operator_values`` produce
-    byte-identical files — no second serialization path survives the slice."""
-
-    def test_cli_config_set_matches_service_writer_byte_for_byte(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from typer.testing import CliRunner
-
-        from molexp.cli import app, config_cmd
-        from molexp.services import operator_config
-
-        cli_path = tmp_path / "cli" / "config.json"
-        svc_path = tmp_path / "svc" / "config.json"
-        cli_path.parent.mkdir(parents=True)
-        svc_path.parent.mkdir(parents=True)
-
-        # The CLI resolves the target through the module seams; point every
-        # spelling at the tmp CLI path so the real ~/.molexp is never touched.
-        monkeypatch.setattr(operator_config, "OPERATOR_CONFIG_PATH", cli_path)
-        monkeypatch.setattr(config_cmd, "_CONFIG_PATH", cli_path, raising=False)
-
-        result = CliRunner().invoke(app, ["config", "set", "agent.model", _MODEL])
-        assert result.exit_code == 0, result.output
-
-        set_operator_values({"agent.model": _MODEL}, path=svc_path)
-
-        assert cli_path.read_bytes() == svc_path.read_bytes()

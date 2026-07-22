@@ -1,10 +1,11 @@
 """Lost-update protection for the ``run.json`` read-modify-write cycle.
 
 ``run.json`` is written by several uncoordinated writers (server process,
-foreground CLI, detached workers). ``Run._update_metadata`` must reload
-the on-disk state and apply the partial update under an advisory file
-lock, so two writers touching *distinct* fields never drop each other's
-updates.
+foreground CLI, detached workers). ``Run._update_metadata`` must reload the
+on-disk state and apply the partial update under an advisory file lock, so two
+writers touching *distinct* fields never drop each other's updates. (The
+``file_lock`` primitive itself — timeout / no-fcntl degradation — is owned by
+``tests/test_atomicio.py``.)
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ import json
 from pathlib import Path
 
 from molexp.workspace import Workspace
-from molexp.workspace._file_lock import file_lock
 
 
 def _read_run_json(run) -> dict:
@@ -30,17 +30,8 @@ def _second_handle(tmp_path, run):
     return other
 
 
-class TestFileLock:
-    def test_degrades_on_unwritable_path(self, tmp_path) -> None:
-        blocker = tmp_path / "blocker"
-        blocker.write_text("not a directory")
-        # Parent "directory" is a file → lock creation fails → no-op.
-        with file_lock(blocker / "x.lock"):
-            pass
-
-
 class TestRunMetadataRmw:
-    def test_update_reloads_other_writers_fields(self, tmp_path, run) -> None:
+    def test_concurrent_updates_to_distinct_fields_do_not_clobber(self, tmp_path, run) -> None:
         run.materialize()
         other = _second_handle(tmp_path, run)
 

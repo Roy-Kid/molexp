@@ -1,18 +1,12 @@
-"""Tests for the ``GenerateFinalReport`` stage (spec ``harness-run-mode-01-substrate``, T08).
+"""Tests for the ``GenerateFinalReport`` pipeline stage.
 
-Mirrors the ``GenerateWorkflowSource`` capture pattern
-(``tests/test_harness/test_generate_workflow_source.py``):
-- fail-fast ``StageExecutionError`` when ``ctx.agent_gateway`` is None;
-- the ``AgentCallSpec`` carries ``agent_name="final_report_writer"``, the
-  three upstream artifact ids in order (experiment_report, test_result,
-  execution_result — latest of each kind) and
-  ``FinalReport.model_json_schema()``;
-- returns the gateway's output artifact (kind ``"final_report"``) whose
-  ``parent_ids`` include all three inputs.
-
-``ExperimentReport`` / ``TestResult`` exist today; ``ExecutionResult`` and
-``FinalReport`` are new in this spec leg — their imports failing IS the
-intended RED.
+Owned behaviors (harness pipeline orchestration):
+- fail-fast :class:`StageExecutionError` when ``ctx.agent_gateway`` is None;
+- builds an :class:`AgentCallSpec` for ``final_report_writer`` whose ordered
+  inputs are the latest ``[experiment_report, test_result, execution_result]``
+  and whose ``output_schema`` is ``FinalReport.model_json_schema()``;
+- returns the gateway's ``output_artifact`` (kind ``final_report``) carrying
+  all three inputs in its ``parent_ids``.
 """
 
 from __future__ import annotations
@@ -127,61 +121,60 @@ def ctx_with_gw(tmp_path: Path):
     )
 
 
-def test_fail_fast_no_gateway(ctx_no_gw) -> None:
-    from molexp.harness import StageExecutionError
-    from molexp.harness.stages import GenerateFinalReport
+class TestGenerateFinalReport:
+    def test_fail_fast_when_no_gateway(self, ctx_no_gw) -> None:
+        from molexp.harness import StageExecutionError
+        from molexp.harness.stages import GenerateFinalReport
 
-    _seed_inputs(ctx_no_gw.artifact_store)
-    stage = GenerateFinalReport()
-    with pytest.raises(StageExecutionError) as exc:
-        asyncio.run(stage.run(ctx_no_gw))
-    assert "agent_gateway" in str(exc.value)
+        _seed_inputs(ctx_no_gw.artifact_store)
+        stage = GenerateFinalReport()
+        with pytest.raises(StageExecutionError) as exc:
+            asyncio.run(stage.run(ctx_no_gw))
+        assert "agent_gateway" in str(exc.value)
 
+    def test_builds_spec_with_ordered_inputs_and_schema(self, ctx_with_gw) -> None:
+        from molexp.harness.gateways.gateway import AgentGateway
+        from molexp.harness.schemas import AgentCallResult, AgentCallSpec, FinalReport
+        from molexp.harness.stages import GenerateFinalReport
 
-def test_builds_correct_spec(ctx_with_gw) -> None:
-    from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.schemas import AgentCallResult, AgentCallSpec, FinalReport
-    from molexp.harness.stages import GenerateFinalReport
+        er_ref, tr_ref, xr_ref = _seed_inputs(ctx_with_gw.artifact_store)
+        real_gw = ctx_with_gw.agent_gateway
+        real_gw.register(
+            agent_name="final_report_writer",
+            output=_final_report_canned(),
+            output_kind="final_report",
+        )
+        captured: list[AgentCallSpec] = []
 
-    er_ref, tr_ref, xr_ref = _seed_inputs(ctx_with_gw.artifact_store)
-    real_gw = ctx_with_gw.agent_gateway
-    real_gw.register(
-        agent_name="final_report_writer",
-        output=_final_report_canned(),
-        output_kind="final_report",
-    )
-    captured: list[AgentCallSpec] = []
+        class Cap:
+            async def call(self, spec: AgentCallSpec) -> AgentCallResult:
+                captured.append(spec)
+                return await real_gw.call(spec)
 
-    class Cap:
-        async def call(self, spec: AgentCallSpec) -> AgentCallResult:
-            captured.append(spec)
-            return await real_gw.call(spec)
+        object.__setattr__(ctx_with_gw, "_frozen", False)
+        ctx_with_gw.agent_gateway = cast(AgentGateway, Cap())
+        object.__setattr__(ctx_with_gw, "_frozen", True)
 
-    object.__setattr__(ctx_with_gw, "_frozen", False)
-    ctx_with_gw.agent_gateway = cast(AgentGateway, Cap())
-    object.__setattr__(ctx_with_gw, "_frozen", True)
+        asyncio.run(GenerateFinalReport().run(ctx_with_gw))
 
-    asyncio.run(GenerateFinalReport().run(ctx_with_gw))
+        assert len(captured) == 1
+        spec = captured[0]
+        assert spec.agent_name == "final_report_writer"
+        assert spec.input_artifact_ids == [er_ref.id, tr_ref.id, xr_ref.id]
+        assert spec.output_schema == FinalReport.model_json_schema()
 
-    assert len(captured) == 1
-    spec = captured[0]
-    assert spec.agent_name == "final_report_writer"
-    assert spec.input_artifact_ids == [er_ref.id, tr_ref.id, xr_ref.id]
-    assert spec.output_schema == FinalReport.model_json_schema()
+    def test_returns_final_report_with_input_lineage(self, ctx_with_gw) -> None:
+        from molexp.harness.stages import GenerateFinalReport
 
+        er_ref, tr_ref, xr_ref = _seed_inputs(ctx_with_gw.artifact_store)
+        ctx_with_gw.agent_gateway.register(
+            agent_name="final_report_writer",
+            output=_final_report_canned(),
+            output_kind="final_report",
+        )
+        ref = asyncio.run(GenerateFinalReport().run(ctx_with_gw))
 
-def test_returns_final_report_ref_with_lineage(ctx_with_gw) -> None:
-    from molexp.harness.stages import GenerateFinalReport
-
-    er_ref, tr_ref, xr_ref = _seed_inputs(ctx_with_gw.artifact_store)
-    ctx_with_gw.agent_gateway.register(
-        agent_name="final_report_writer",
-        output=_final_report_canned(),
-        output_kind="final_report",
-    )
-    ref = asyncio.run(GenerateFinalReport().run(ctx_with_gw))
-
-    assert ref.kind == "final_report"
-    assert er_ref.id in ref.parent_ids
-    assert tr_ref.id in ref.parent_ids
-    assert xr_ref.id in ref.parent_ids
+        assert ref.kind == "final_report"
+        assert er_ref.id in ref.parent_ids
+        assert tr_ref.id in ref.parent_ids
+        assert xr_ref.id in ref.parent_ids

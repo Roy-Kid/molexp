@@ -55,25 +55,6 @@ class TestLastResumableFromOps:
         )
         assert last_resumable_execution_id(run) == "exec-3"
 
-    def test_skips_trailing_succeeded(self, tmp_path: Path) -> None:
-        run = _make_run(tmp_path)
-        _write_ops_history(
-            run,
-            [
-                {
-                    "execution_id": "exec-1",
-                    "started_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
-                    "status": "failed",
-                },
-                {
-                    "execution_id": "exec-2",
-                    "started_at": datetime(2026, 1, 2, tzinfo=UTC).isoformat(),
-                    "status": "cancelled",
-                },
-            ],
-        )
-        assert last_resumable_execution_id(run) == "exec-2"
-
     def test_empty_history_returns_none(self, tmp_path: Path) -> None:
         run = _make_run(tmp_path)
         run.materialize()

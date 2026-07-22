@@ -1,9 +1,10 @@
-"""Server startup bridges the CLI operator config into ``molexp.config``.
+"""Loader + bridge for ``molexp.services.operator_config`` (owned here).
 
-The CLI documents ``molexp config set agent.model <id>`` (persisted to
-``~/.molexp/config.json``), but server routes resolve the model from the
-in-code ``molexp.config``. ``create_app`` must bridge the two — via the
-shared loader in :mod:`molexp.services.operator_config` — so a CLI-configured
+The services layer owns the config *writer* (``test_services/test_operator_config``);
+by that file's own charter the *loader/bridge* coverage lives here. The CLI
+documents ``molexp config set agent.model <id>`` (persisted to
+``~/.molexp/config.json``) while server routes resolve the model from the
+in-code ``molexp.config`` — ``create_app`` bridges the two so a CLI-configured
 operator does not hit a 503 from ``/api/agent-tasks``.
 """
 
@@ -14,7 +15,6 @@ import json
 import pytest
 
 import molexp
-from molexp.services import operator_config
 from molexp.services.operator_config import (
     AGENT_MODEL_KEY,
     LEGACY_AGENT_MODEL_KEY,
@@ -51,10 +51,10 @@ def config_file(tmp_path):
 
 
 class TestLoader:
-    def test_load_missing_file_is_empty(self, tmp_path):
+    def test_missing_file_loads_as_empty(self, tmp_path):
         assert load_operator_config(tmp_path / "nope.json") == {}
 
-    def test_load_bad_json_is_empty(self, tmp_path):
+    def test_corrupt_json_loads_as_empty(self, tmp_path):
         bad = tmp_path / "config.json"
         bad.write_text("{not json")
         assert load_operator_config(bad) == {}
@@ -63,7 +63,7 @@ class TestLoader:
         cfg = load_operator_config(config_file)
         assert configured_agent_model(cfg) == "deepseek:deepseek-chat"
 
-    def test_configured_agent_model_absent(self):
+    def test_configured_agent_model_absent_variants_return_none(self):
         assert configured_agent_model({}) is None
         assert configured_agent_model({"agent": {}}) is None
         assert configured_agent_model({"agent": "oops"}) is None
@@ -74,15 +74,10 @@ class TestBridge:
         bridge_operator_config(config_file)
         assert molexp.config.get(AGENT_MODEL_KEY) == "deepseek:deepseek-chat"
 
-    def test_in_code_value_wins(self, config_file):
+    def test_in_code_model_wins_over_file(self, config_file):
         molexp.config[AGENT_MODEL_KEY] = "in-code:model"
         bridge_operator_config(config_file)
         assert molexp.config.get(AGENT_MODEL_KEY) == "in-code:model"
-
-    def test_legacy_in_code_key_blocks_bridge(self, config_file):
-        molexp.config[LEGACY_AGENT_MODEL_KEY] = "legacy:model"
-        bridge_operator_config(config_file)
-        assert molexp.config.get(AGENT_MODEL_KEY) is None
 
     def test_no_file_is_a_noop(self, tmp_path):
         bridge_operator_config(tmp_path / "absent.json")
@@ -111,7 +106,7 @@ class TestApiKeyBridge:
         )
         return path
 
-    def test_configured_api_keys_extraction(self, keyed_config_file):
+    def test_configured_api_keys_ignores_non_key_and_empty_entries(self, keyed_config_file):
         from molexp.services.operator_config import configured_api_keys
 
         cfg = load_operator_config(keyed_config_file)
@@ -122,18 +117,11 @@ class TestApiKeyBridge:
         assert molexp.config.get("deepseek_api_key") == "sk-from-operator-config"
         assert molexp.config.get(AGENT_MODEL_KEY) == "deepseek:deepseek-v4-flash"
 
-    def test_model_precedence_does_not_block_keys(self, keyed_config_file):
+    def test_model_precedence_does_not_block_key_bridging(self, keyed_config_file):
         molexp.config[AGENT_MODEL_KEY] = "in-code:model"
         bridge_operator_config(keyed_config_file)
         assert molexp.config.get(AGENT_MODEL_KEY) == "in-code:model"
         assert molexp.config.get("deepseek_api_key") == "sk-from-operator-config"
-
-    def test_create_app_runs_the_bridge(self, config_file, monkeypatch):
-        monkeypatch.setattr(operator_config, "OPERATOR_CONFIG_PATH", config_file)
-        from molexp.server.app import create_app
-
-        create_app(serve_static=False)
-        assert molexp.config.get(AGENT_MODEL_KEY) == "deepseek:deepseek-chat"
 
 
 class TestRouteResolution:
@@ -143,7 +131,7 @@ class TestRouteResolution:
         bridge_operator_config(config_file)
         assert _configured_model() == "deepseek:deepseek-chat"
 
-    def test_agent_route_honours_legacy_key(self):
+    def test_agent_route_falls_back_to_legacy_key(self):
         from molexp.server.routes.agent import _configured_model
 
         molexp.config[LEGACY_AGENT_MODEL_KEY] = "legacy:model"

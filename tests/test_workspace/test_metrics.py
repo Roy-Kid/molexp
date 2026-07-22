@@ -1,4 +1,9 @@
-"""Tests for run-local metrics storage."""
+"""``molexp.workspace.metrics`` — run-local JSONL metrics store.
+
+``MetricsWriter`` (``ctx.metrics``) appends to ``metrics/metrics.jsonl`` and
+rebuilds the derived ``metrics/index.json`` on flush; ``read_run_metrics``
+queries the stream. Metrics are run-local data — never workspace assets.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +15,8 @@ import pytest
 from molexp.workspace.metrics import read_run_metrics
 
 
-class TestRunMetrics:
-    def test_scalar_writes_run_local_metrics_files(self, run):
+class TestMetricsWriter:
+    def test_scalar_writes_run_local_files(self, run):
         with run.start() as ctx:
             ctx.metrics.scalar("train/loss", 0.25, step=1)
 
@@ -27,7 +32,7 @@ class TestRunMetrics:
         assert index["series_count"] == 1
         assert index["series"]["train/loss"]["latest_step"] == 1
 
-    def test_metrics_are_not_assets(self, run):
+    def test_metrics_are_not_workspace_assets(self, run):
         with run.start() as ctx:
             ctx.metrics.scalar("train/loss", 0.25, step=1)
 
@@ -40,7 +45,7 @@ class TestRunMetrics:
         kinds = {entry["kind"] for entry in manifest["assets"].values()}
         assert "metrics" not in kinds
 
-    def test_multiple_writes_update_index(self, run):
+    def test_index_accumulates_across_writes_and_series(self, run):
         with run.start() as ctx:
             ctx.metrics.scalar("train/loss", 0.3, step=1)
             ctx.metrics.scalar("train/loss", 0.2, step=2)
@@ -52,7 +57,13 @@ class TestRunMetrics:
         assert index["series"]["train/loss"]["count"] == 2
         assert index["series"]["train/loss"]["latest_step"] == 2
 
-    def test_read_filters_and_since_line(self, run):
+    def test_invalid_scalar_value_rejected(self, run):
+        with run.start() as ctx, pytest.raises(ValueError, match="scalar metric value"):
+            ctx.metrics.scalar("train/loss", float("nan"), step=1)
+
+
+class TestReadRunMetrics:
+    def test_filters_by_type_key_and_since_line(self, run):
         with run.start() as ctx:
             ctx.metrics.scalar("train/loss", 0.3, step=1)
             ctx.metrics.text("note", "warmup", step=1)
@@ -67,7 +78,7 @@ class TestRunMetrics:
         assert result.records[0]["v"] == 0.2
         assert result.series[0]["key"] == "train/loss"
 
-    def test_bad_lines_are_skipped(self, run):
+    def test_unparseable_lines_are_skipped_and_counted(self, run):
         with run.start() as ctx:
             ctx.metrics.scalar("train/loss", 0.3, step=1)
 
@@ -82,7 +93,3 @@ class TestRunMetrics:
         assert result.parse_errors == 1
         assert [record["v"] for record in result.records] == [0.3, 0.2]
         assert result.next_line == 3
-
-    def test_invalid_scalar_rejected(self, run):
-        with run.start() as ctx, pytest.raises(ValueError, match="scalar metric value"):
-            ctx.metrics.scalar("train/loss", float("nan"), step=1)

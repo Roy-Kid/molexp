@@ -1,12 +1,17 @@
 """Invariant tests for the unified asset model.
 
-Covers the success criteria from ``docs/development/specs/unified-asset-model.md`` §8:
+Covers the asset-model classes (``Asset`` hierarchy, ``AssetManifest``,
+``AssetsView``, ``DataAssetLibrary``, ``parse_asset``) and their success
+criteria from ``docs/development/specs/unified-asset-model.md`` §8:
 
-- Run directories are portable (assets discoverable from on-disk manifests)
-- Manifest/disk stay consistent
-- Subclass dispatch survives round-trips
-- Typed accessors populate Producer correctly
-- Concurrent asset writes all land in the manifest
+- Run directories are portable (assets discoverable from on-disk manifests).
+- Manifest and disk stay consistent.
+- Subclass dispatch survives serialization round-trips.
+- Typed accessors populate ``Producer`` correctly.
+- Concurrent asset writes all land in the manifest.
+- The scope-bound ``AssetsView`` filters to its own scope; imports land there.
+
+(Cross-cutting ``scan.py`` query shapes are owned by ``test_asset_scan.py``.)
 """
 
 from __future__ import annotations
@@ -30,8 +35,6 @@ from molexp.workspace.assets import (
     scan,
 )
 
-# ── Helpers ────────────────────────────────────────────────────────────────
-
 
 def _seed_workspace(root: Path, n_runs: int = 2) -> Workspace:
     ws = Workspace(root=root, name="Test")
@@ -46,13 +49,10 @@ def _seed_workspace(root: Path, n_runs: int = 2) -> Workspace:
     return ws
 
 
-# ── Run portability ────────────────────────────────────────────────────────
-
-
 class TestRunPortability:
-    def test_move_run_dir_stays_queryable(self, tmp_path):
-        """A run directory moved under a new workspace stays queryable via the
-        authoritative manifests (scanner), no derived index to rebuild."""
+    def test_moved_run_dir_stays_queryable_via_manifests(self, tmp_path):
+        """A run directory copied under a *different* workspace stays queryable
+        via the authoritative manifests — no absolute paths, no index to rebuild."""
         _seed_workspace(tmp_path / "source", n_runs=1)
         src_exp_dir = tmp_path / "source" / "projects" / "demo" / "experiments"
         actual_src_exp = next(src_exp_dir.iterdir())
@@ -66,16 +66,12 @@ class TestRunPortability:
         dst_run_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src_run_dir, dst_run_dir)
 
-        # The moved run's assets are found by scanning the destination manifests.
         found = scan.scan_assets(dst_ws.root)
         assert len(found) >= 3  # artifact + log + checkpoint
 
 
-# ── Manifest <-> disk consistency ──────────────────────────────────────────
-
-
-class TestManifestConsistency:
-    def test_every_manifest_entry_points_to_existing_file(self, tmp_path):
+class TestAssetManifest:
+    def test_every_entry_points_to_an_existing_file(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab", n_runs=2)
         exp = ws.project("demo").experiment("baseline")
         for run in exp.list_runs():
@@ -86,12 +82,25 @@ class TestManifestConsistency:
                     f"missing: {asset.uri} -> {asset.path}"
                 )
 
+    def test_parallel_saves_all_register(self, tmp_path):
+        ws = Workspace(tmp_path / "lab", name="Test")
+        run = ws.add_project("p").add_experiment("e").add_run()
+        n = 20
+        with run.start() as ctx, ThreadPoolExecutor(max_workers=4) as pool:
+            futs = [pool.submit(ctx.artifact.save, f"a{i}.json", {"i": i}) for i in range(n)]
+            results = [f.result() for f in as_completed(futs)]
 
-# ── Subclass dispatch ──────────────────────────────────────────────────────
+        assert len(results) == n
+        scanned = scan.scan_assets(ws.root, kind="artifact", producer_run=run.id)
+        assert len(scanned) == n
+        manifest_artifacts = [
+            a for a in AssetManifest(Path(run.run_dir)).list() if a.kind == "artifact"
+        ]
+        assert len(manifest_artifacts) == n
 
 
-class TestSubclassDispatch:
-    def test_round_trip_preserves_type(self, tmp_path):
+class TestParseAsset:
+    def test_round_trip_preserves_each_subclass(self):
         scope = AssetScope(kind="run", ids=("p", "e", "run-1"))
         now = datetime.now()
         cases = [
@@ -146,17 +155,13 @@ class TestSubclassDispatch:
             ),
         ]
         for asset in cases:
-            dumped = json.loads(asset.model_dump_json())
-            revived = parse_asset(dumped)
+            revived = parse_asset(json.loads(asset.model_dump_json()))
             assert type(revived) is type(asset)
             assert revived.asset_id == asset.asset_id
 
 
-# ── Producer propagation ───────────────────────────────────────────────────
-
-
-class TestProducerPropagation:
-    def test_task_id_set_via_set_active_task(self, tmp_path):
+class TestProducer:
+    def test_active_task_sets_producer_task_id(self, tmp_path):
         ws = Workspace(tmp_path / "lab", name="Test")
         run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
@@ -165,50 +170,22 @@ class TestProducerPropagation:
         assert asset.producer.task_id == "train"
 
 
-# ── Concurrent writes within a run ─────────────────────────────────────────
-
-
-class TestConcurrentWrites:
-    def test_parallel_artifact_writes_all_registered(self, tmp_path):
-        ws = Workspace(tmp_path / "lab", name="Test")
-        run = ws.add_project("p").add_experiment("e").add_run()
-        N = 20
-        with run.start() as ctx, ThreadPoolExecutor(max_workers=4) as pool:
-            futs = [pool.submit(ctx.artifact.save, f"a{i}.json", {"i": i}) for i in range(N)]
-            results = [f.result() for f in as_completed(futs)]
-
-        assert len(results) == N
-        scanned = scan.scan_assets(ws.root, kind="artifact", producer_run=run.id)
-        assert len(scanned) == N
-        manifest_assets = AssetManifest(Path(run.run_dir)).list()
-        # manifest also contains the auto-created "run" log
-        artifact_in_manifest = [a for a in manifest_assets if a.kind == "artifact"]
-        assert len(artifact_in_manifest) == N
-
-
-# ── AssetsView scoping ─────────────────────────────────────────────────────
-
-
 class TestAssetsView:
-    def test_scope_filtering(self, tmp_path):
+    def test_scope_view_returns_only_its_own_scope(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab", n_runs=2)
         proj = ws.list_projects()[0]
         exp = proj.list_experiments()[0]
 
-        # Workspace scope should find zero produced assets (all are run-scoped)
+        # All produced assets are run-scoped: non-run scopes see nothing.
         assert ws.assets.list() == []
         assert proj.assets.list() == []
         assert exp.assets.list() == []
 
-        # Run scopes should each have artifact+log+ckpt
         for run in exp.list_runs():
-            view_assets = run.assets.list()
-            kinds = {a.kind for a in view_assets}
-            assert "artifact" in kinds
-            assert "log" in kinds
-            assert "checkpoint" in kinds
+            kinds = {a.kind for a in run.assets.list()}
+            assert {"artifact", "log", "checkpoint"} <= kinds
 
-    def test_data_asset_import_scope(self, tmp_path):
+    def test_imported_data_asset_lands_at_workspace_scope(self, tmp_path):
         ws = Workspace(tmp_path / "lab", name="Test")
         src = tmp_path / "input.txt"
         src.write_text("hello")
@@ -216,6 +193,6 @@ class TestAssetsView:
         assert isinstance(asset, DataAsset)
         assert asset.scope.kind == "workspace"
 
-        # Visible in the workspace view + the manifest scanner
+        # Visible through both the workspace view and the manifest scanner.
         assert ws.assets.get(asset.asset_id) is not None
         assert scan.get_asset(ws.root, asset.asset_id) is not None

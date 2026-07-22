@@ -1,15 +1,12 @@
-"""Tests for the ``GenerateAuditReport`` stage (spec ``harness-run-mode-01-substrate``, T08).
+"""Tests for the ``GenerateAuditReport`` pipeline stage.
 
-Contract under test (RED — the stage does not exist yet):
-- ``name == "generate_audit_report"``; wraps the existing pure function
-  ``generate_audit_report(run_id=ctx.run_id, event_log=ctx.event_log,
-  artifact_store=ctx.artifact_store, lineage_store=ctx.lineage_store)``
-  (``src/molexp/harness/audit/generate.py``);
-- persists the resulting ``AuditReport`` as an ``"audit_report"`` artifact
-  with ``created_by="GenerateAuditReport"`` and ``parent_ids=[]`` (a
-  run-level summary derives from the whole run, not one artifact);
-- the persisted JSON round-trips through ``molexp.harness.AuditReport``
-  with ``run_id == ctx.run_id``.
+Owned behaviors (harness pipeline orchestration):
+- persists the run-level :class:`AuditReport` as an ``"audit_report"``
+  artifact with ``created_by="GenerateAuditReport"`` and ``parent_ids=[]``
+  (a run-level summary derives from the whole event timeline, not one
+  upstream artifact);
+- the persisted payload round-trips through :class:`AuditReport` carrying
+  ``run_id == ctx.run_id``.
 """
 
 from __future__ import annotations
@@ -57,23 +54,23 @@ def _seed_some_artifacts(store) -> None:
     )
 
 
-def test_persists_audit_report_artifact(ctx) -> None:
-    from molexp.harness.stages import GenerateAuditReport
+class TestGenerateAuditReport:
+    def test_persists_run_level_report_with_empty_parents(self, ctx) -> None:
+        from molexp.harness.stages import GenerateAuditReport
 
-    _seed_some_artifacts(ctx.artifact_store)
-    ref = asyncio.run(GenerateAuditReport().run(ctx))
+        _seed_some_artifacts(ctx.artifact_store)
+        ref = asyncio.run(GenerateAuditReport().run(ctx))
 
-    assert ref.kind == "audit_report"
-    assert ref.parent_ids == []
-    assert ref.created_by == "GenerateAuditReport"
+        assert ref.kind == "audit_report"
+        assert ref.parent_ids == []
+        assert ref.created_by == "GenerateAuditReport"
 
+    def test_persisted_payload_round_trips_with_run_id(self, ctx) -> None:
+        from molexp.harness.schemas import AuditReport
+        from molexp.harness.stages import GenerateAuditReport
 
-def test_audit_report_round_trips_with_run_id(ctx) -> None:
-    from molexp.harness.schemas import AuditReport
-    from molexp.harness.stages import GenerateAuditReport
+        _seed_some_artifacts(ctx.artifact_store)
+        ref = asyncio.run(GenerateAuditReport().run(ctx))
 
-    _seed_some_artifacts(ctx.artifact_store)
-    ref = asyncio.run(GenerateAuditReport().run(ctx))
-
-    report = AuditReport.model_validate(json.loads(ctx.artifact_store.get(ref.id)))
-    assert report.run_id == ctx.run_id
+        report = AuditReport.model_validate(json.loads(ctx.artifact_store.get(ref.id)))
+        assert report.run_id == ctx.run_id

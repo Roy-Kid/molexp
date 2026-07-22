@@ -1,13 +1,12 @@
 """SubWorkflow nested execution must not clobber the outer ``workflow.json``.
 
-An inner run inherits the OUTER ``run_context`` (same run dir + active
-execution id); if it persisted, it would rewrite
-``executions/<exec_id>/workflow.json`` with the INNER spec's document —
-losing the outer graph/statuses, polluting resume seeds, and racing under
-``wf.parallel`` fan-out. Invariant pinned here: after a run containing
-SubWorkflows (including parallel fan-out, and after an inner failure),
-``executions/<exec_id>/workflow.json`` describes the OUTER graph only, with
-correct statuses, and resume seeding reads only outer-node outputs.
+An inner run inherits the OUTER ``run_context`` (same run dir + active execution
+id); if it persisted, it would rewrite ``executions/<exec_id>/workflow.json``
+with the INNER spec's document — losing the outer graph/statuses, polluting
+resume seeds, and racing under ``wf.parallel`` fan-out. Invariant pinned here:
+after a run containing SubWorkflows (including parallel fan-out, and after an
+inner failure), ``executions/<exec_id>/workflow.json`` describes the OUTER graph
+only, with correct statuses, and resume seeding reads only outer-node outputs.
 """
 
 from __future__ import annotations
@@ -74,95 +73,85 @@ def _task_statuses(doc: dict) -> dict[str, str]:
     return {t["task_id"]: t["status"] for t in doc["task_configs"]}
 
 
-# ── success: parent document is the OUTER graph, fully statused ──────────────
+class TestSubWorkflowPersistence:
+    @pytest.mark.asyncio
+    async def test_parent_doc_describes_outer_graph_after_success(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        outer = (
+            WorkflowCompiler(name="outer-doc")
+            .add(SubWorkflow(_build_inner()), name="sub")
+            .compile()
+        )
+        run = _new_run(tmp_path)
+        with run.start() as ctx:
+            result = await WorkflowRuntime().execute(outer, run_context=ctx)
 
+        assert result.status == "succeeded"
+        doc = _load_doc(run, result.execution_id)
+        # OUTER graph only — never the inner spec's document.
+        assert doc["workflow_name"] == "outer-doc"
+        statuses = _task_statuses(doc)
+        assert set(statuses) == {"sub"}
+        assert not (set(statuses) & INNER_TASKS)
+        assert statuses["sub"] == "completed"
+        assert doc["status"] == "succeeded"
 
-@pytest.mark.asyncio
-async def test_parent_workflow_json_describes_outer_graph_after_success(
-    tmp_path: pathlib.Path,
-) -> None:
-    outer = (
-        WorkflowCompiler(name="outer-doc").add(SubWorkflow(_build_inner()), name="sub").compile()
-    )
-    run = _new_run(tmp_path)
-    with run.start() as ctx:
-        result = await WorkflowRuntime().execute(outer, run_context=ctx)
+        # Resume seeding reads only outer-node outputs.
+        seeds = read_node_outputs(run.run_dir, result.execution_id)
+        assert set(seeds) == {"sub"}
+        assert seeds["sub"] == pytest.approx(1.75)
 
-    assert result.status == "succeeded"
-    doc = _load_doc(run, result.execution_id)
-    # OUTER graph only — never the inner spec's document.
-    assert doc["workflow_name"] == "outer-doc"
-    statuses = _task_statuses(doc)
-    assert set(statuses) == {"sub"}
-    assert not (set(statuses) & INNER_TASKS)
-    assert statuses["sub"] == "completed"
-    assert doc["status"] == "succeeded"
+    @pytest.mark.asyncio
+    async def test_parent_doc_intact_after_inner_failure(self, tmp_path: pathlib.Path) -> None:
+        outer = (
+            WorkflowCompiler(name="outer-doc-fail")
+            .add(SubWorkflow(_build_failing_inner()), name="sub")
+            .compile()
+        )
+        run = _new_run(tmp_path)
+        with run.start() as ctx:
+            result = await WorkflowRuntime().execute(outer, run_context=ctx)
 
-    # Resume seeding reads only outer-node outputs.
-    seeds = read_node_outputs(run.run_dir, result.execution_id)
-    assert set(seeds) == {"sub"}
-    assert seeds["sub"] == pytest.approx(1.75)
+        assert result.status == "failed"
+        doc = _load_doc(run, result.execution_id)
+        assert doc["workflow_name"] == "outer-doc-fail"
+        statuses = _task_statuses(doc)
+        assert set(statuses) == {"sub"}  # outer graph only, even mid-failure
+        assert statuses["sub"] == "failed"
+        assert doc["status"] == "failed"
 
+    @pytest.mark.asyncio
+    async def test_parallel_fanout_does_not_corrupt_parent_doc(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        wf = WorkflowCompiler(name="outer-doc-parallel", entry="emit")
 
-# ── inner failure: outer document survives and marks the node failed ─────────
+        @wf.task
+        async def emit() -> list[int]:
+            return [0, 1, 2, 3]
 
+        wf.add(SubWorkflow(_build_inner()), name="sub")
 
-@pytest.mark.asyncio
-async def test_parent_workflow_json_intact_after_inner_failure(
-    tmp_path: pathlib.Path,
-) -> None:
-    outer = (
-        WorkflowCompiler(name="outer-doc-fail")
-        .add(SubWorkflow(_build_failing_inner()), name="sub")
-        .compile()
-    )
-    run = _new_run(tmp_path)
-    with run.start() as ctx:
-        result = await WorkflowRuntime().execute(outer, run_context=ctx)
+        @wf.task
+        async def collect(values: list[float]) -> list[float]:
+            return list(values)
 
-    assert result.status == "failed"
-    doc = _load_doc(run, result.execution_id)
-    assert doc["workflow_name"] == "outer-doc-fail"
-    statuses = _task_statuses(doc)
-    assert set(statuses) == {"sub"}  # outer graph only, even mid-failure
-    assert statuses["sub"] == "failed"
-    assert doc["status"] == "failed"
+        wf.parallel(map_over="emit", body="sub", join="collect", max_concurrency=4)
 
+        run = _new_run(tmp_path)
+        with run.start() as ctx:
+            result = await WorkflowRuntime().execute(wf.compile(), run_context=ctx)
 
-# ── parallel fan-out of subworkflows does not corrupt the document ───────────
+        assert result.status == "succeeded"
+        doc = _load_doc(run, result.execution_id)
+        assert doc["workflow_name"] == "outer-doc-parallel"
+        statuses = _task_statuses(doc)
+        assert set(statuses) == {"emit", "sub", "collect"}
+        assert not (set(statuses) & INNER_TASKS)
+        assert statuses == {"emit": "completed", "sub": "completed", "collect": "completed"}
+        assert doc["status"] == "succeeded"
 
-
-@pytest.mark.asyncio
-async def test_parallel_subworkflow_fanout_does_not_corrupt_parent_doc(
-    tmp_path: pathlib.Path,
-) -> None:
-    wf = WorkflowCompiler(name="outer-doc-parallel", entry="enumerate")
-
-    @wf.task
-    async def enumerate() -> list[int]:
-        return [0, 1, 2, 3]
-
-    wf.add(SubWorkflow(_build_inner()), name="sub")
-
-    @wf.task
-    async def collect(values: list[float]) -> list[float]:
-        return list(values)
-
-    wf.parallel(map_over="enumerate", body="sub", join="collect", max_concurrency=4)
-
-    run = _new_run(tmp_path)
-    with run.start() as ctx:
-        result = await WorkflowRuntime().execute(wf.compile(), run_context=ctx)
-
-    assert result.status == "succeeded"
-    doc = _load_doc(run, result.execution_id)
-    assert doc["workflow_name"] == "outer-doc-parallel"
-    statuses = _task_statuses(doc)
-    assert set(statuses) == {"enumerate", "sub", "collect"}
-    assert not (set(statuses) & INNER_TASKS)
-    assert statuses == {"enumerate": "completed", "sub": "completed", "collect": "completed"}
-    assert doc["status"] == "succeeded"
-
-    seeds = read_node_outputs(run.run_dir, result.execution_id)
-    assert set(seeds) == {"enumerate", "sub", "collect"}
-    assert seeds["collect"] == pytest.approx([1.75, 1.75, 1.75, 1.75])
+        seeds = read_node_outputs(run.run_dir, result.execution_id)
+        assert set(seeds) == {"emit", "sub", "collect"}
+        assert seeds["collect"] == pytest.approx([1.75, 1.75, 1.75, 1.75])

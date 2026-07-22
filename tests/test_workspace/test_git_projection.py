@@ -62,10 +62,9 @@ def _append_execution(run, execution_id: str, started: datetime, finished: datet
     run.update_ops(_add)
 
 
-# ── (a) deterministic rebuild ────────────────────────────────────────────────
+class TestGitProjection:
+    # ── deterministic rebuild ────────────────────────────────────────────
 
-
-class TestDeterministicRebuild:
     async def test_rebuild_reproduces_byte_identical_oids(self, tmp_path):
         ws, _run_a, _run_b = _seed_two_runs(tmp_path / "lab")
         db = await ensure_object_db(tmp_path / "odb")
@@ -78,11 +77,8 @@ class TestDeterministicRebuild:
         assert first.workspace_tree.hex  # non-empty
         assert len(first.runs) == 2
 
+    # ── real-git interop ─────────────────────────────────────────────────
 
-# ── (b) real-git interop ─────────────────────────────────────────────────────
-
-
-class TestRealGitInterop:
     async def test_git_log_walks_the_execution_dag(self, tmp_path):
         ws = Workspace(root=tmp_path / "lab", name="Lab")
         exp = ws.add_project("demo").add_experiment("baseline", params={})
@@ -118,11 +114,8 @@ class TestRealGitInterop:
         assert "run.json" in diff
         assert "seed" in diff  # the differing param surfaces in the diff
 
+    # ── exclusion of hot state + derived indexes ─────────────────────────
 
-# ── (c) exclusion of hot state + derived indexes ─────────────────────────────
-
-
-class TestExclusion:
     async def test_hot_state_and_indexes_never_projected(self, tmp_path):
         ws, _a, _b = _seed_two_runs(tmp_path / "lab")
         db = await ensure_object_db(tmp_path / "odb")
@@ -137,11 +130,8 @@ class TestExclusion:
         # No children-index at a container level (e.g. demo/experiment.json).
         assert not any(p.endswith("/experiment.json") or p == "project.json" for p in paths)
 
+    # ── molexp.ids + cache keys untouched ────────────────────────────────
 
-# ── (d) molexp.ids + cache keys untouched ────────────────────────────────────
-
-
-class TestIdentityUntouched:
     async def test_projection_does_not_mutate_authoritative_files_or_hashes(self, tmp_path):
         ws, run_a, _b = _seed_two_runs(tmp_path / "lab")
         run_json = Path(str(run_a.run_dir)) / "run.json"
@@ -158,11 +148,8 @@ class TestIdentityUntouched:
         assert compute_content_hash(run_json) == before_hash
         assert "refs/molexp" not in before_bytes.decode()
 
+    # ── artifact blob-vs-pointer threshold ───────────────────────────────
 
-# ── (e) artifact blob-vs-pointer threshold ───────────────────────────────────
-
-
-class TestArtifactThreshold:
     async def test_large_artifact_is_pointer_small_is_blob(self, tmp_path):
         ws = Workspace(root=tmp_path / "lab", name="Lab")
         exp = ws.add_project("demo").add_experiment("baseline", params={})

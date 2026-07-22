@@ -62,74 +62,77 @@ def _counted_workflow():
     return wf.compile()
 
 
-@pytest.mark.asyncio
-async def test_bypass_cache_reruns_body(workspace: Workspace) -> None:
-    compiled = _counted_workflow()
-    cache = Caching(store=workspace.cache.as_cache_store())
+class TestBypassCache:
+    @pytest.mark.asyncio
+    async def test_bypass_cache_reruns_body_despite_warm_cache(self, workspace: Workspace) -> None:
+        """A warm cache would normally serve the body; ``bypass_cache=True``
+        forces it to run again (the control run proves the cache is warm)."""
+        compiled = _counted_workflow()
+        cache = Caching(store=workspace.cache.as_cache_store())
 
-    run1 = _new_run(workspace, "warm")
-    with run1.start() as ctx1:
-        await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache)
-    assert _COUNTERS["step"] == 1
+        run1 = _new_run(workspace, "warm")
+        with run1.start() as ctx1:
+            await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache)
+        assert _COUNTERS["step"] == 1
 
-    # Control: a plain second run is served from cache (body not re-run).
-    run2 = _new_run(workspace, "cached")
-    with run2.start() as ctx2:
-        await WorkflowRuntime().execute(compiled, run_context=ctx2, cache=cache)
-    assert _COUNTERS["step"] == 1
+        # Control: a plain second run is served from cache (body not re-run).
+        run2 = _new_run(workspace, "cached")
+        with run2.start() as ctx2:
+            await WorkflowRuntime().execute(compiled, run_context=ctx2, cache=cache)
+        assert _COUNTERS["step"] == 1
 
-    # bypass_cache=True: the body MUST run again despite the warm cache.
-    run3 = _new_run(workspace, "fresh")
-    with run3.start() as ctx3:
-        result = await WorkflowRuntime().execute(
-            compiled, run_context=ctx3, cache=cache, bypass_cache=True
-        )
-    assert result.outputs["step"] == 42
-    assert _COUNTERS["step"] == 2
+        # bypass_cache=True: the body MUST run again despite the warm cache.
+        run3 = _new_run(workspace, "fresh")
+        with run3.start() as ctx3:
+            result = await WorkflowRuntime().execute(
+                compiled, run_context=ctx3, cache=cache, bypass_cache=True
+            )
+        assert result.outputs["step"] == 42
+        assert _COUNTERS["step"] == 2
 
+    @pytest.mark.asyncio
+    async def test_bypass_cache_still_writes_result_to_cache(self, workspace: Workspace) -> None:
+        """Bypass skips the READ only — the fresh result still lands in the cache."""
+        compiled = _counted_workflow()
+        cache = Caching(store=workspace.cache.as_cache_store())
 
-@pytest.mark.asyncio
-async def test_bypass_cache_still_writes_cache(workspace: Workspace) -> None:
-    """Bypass skips the READ only — the fresh result still lands in the cache."""
-    compiled = _counted_workflow()
-    cache = Caching(store=workspace.cache.as_cache_store())
+        run1 = _new_run(workspace, "seed")
+        with run1.start() as ctx1:
+            await WorkflowRuntime().execute(
+                compiled, run_context=ctx1, cache=cache, bypass_cache=True
+            )
+        assert _COUNTERS["step"] == 1
 
-    run1 = _new_run(workspace, "seed")
-    with run1.start() as ctx1:
-        await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache, bypass_cache=True)
-    assert _COUNTERS["step"] == 1
+        # The bypassed run populated the cache: a later normal run hits it.
+        run2 = _new_run(workspace, "after")
+        with run2.start() as ctx2:
+            await WorkflowRuntime().execute(compiled, run_context=ctx2, cache=cache)
+        assert _COUNTERS["step"] == 1
 
-    # The bypassed run populated the cache: a later normal run hits it.
-    run2 = _new_run(workspace, "after")
-    with run2.start() as ctx2:
-        await WorkflowRuntime().execute(compiled, run_context=ctx2, cache=cache)
-    assert _COUNTERS["step"] == 1
+    @pytest.mark.asyncio
+    async def test_fresh_marker_forces_bypass_across_process_boundary(
+        self, workspace: Workspace
+    ) -> None:
+        """A persisted ``fresh.json`` marker requests the same bypass — the channel
+        the server rerun endpoint / molq worker path uses (no explicit kwarg)."""
+        compiled = _counted_workflow()
+        cache = Caching(store=workspace.cache.as_cache_store())
 
+        run1 = _new_run(workspace, "warm")
+        with run1.start() as ctx1:
+            await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache)
+        assert _COUNTERS["step"] == 1
 
-@pytest.mark.asyncio
-async def test_fresh_marker_triggers_bypass_across_process_boundary(
-    workspace: Workspace,
-) -> None:
-    """A persisted ``fresh.json`` marker requests the same bypass — the channel
-    the server rerun endpoint / molq worker path uses."""
-    compiled = _counted_workflow()
-    cache = Caching(store=workspace.cache.as_cache_store())
+        run2 = _new_run(workspace, "marked")
+        run_dir = Path(str(run2.run_dir))
+        execution_id = f"exec-{run2.id}"
+        marker = request_fresh_execution(run_dir, execution_id)
+        assert marker.exists()
+        assert fresh_requested(run_dir, execution_id)
 
-    run1 = _new_run(workspace, "warm")
-    with run1.start() as ctx1:
-        await WorkflowRuntime().execute(compiled, run_context=ctx1, cache=cache)
-    assert _COUNTERS["step"] == 1
-
-    run2 = _new_run(workspace, "marked")
-    run_dir = Path(str(run2.run_dir))
-    execution_id = f"exec-{run2.id}"
-    marker = request_fresh_execution(run_dir, execution_id)
-    assert marker.exists()
-    assert fresh_requested(run_dir, execution_id)
-
-    with run2.start(execution_id=execution_id) as ctx2:
-        await WorkflowRuntime().execute(
-            compiled, run_context=ctx2, cache=cache, execution_id=execution_id
-        )
-    # No explicit kwarg — the marker alone must force the body to re-run.
-    assert _COUNTERS["step"] == 2
+        with run2.start(execution_id=execution_id) as ctx2:
+            await WorkflowRuntime().execute(
+                compiled, run_context=ctx2, cache=cache, execution_id=execution_id
+            )
+        # No explicit kwarg — the marker alone must force the body to re-run.
+        assert _COUNTERS["step"] == 2

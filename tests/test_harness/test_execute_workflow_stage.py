@@ -1,19 +1,10 @@
-"""Tests for the ``ExecuteWorkflow`` stage (spec ``harness-run-mode-01-substrate``, T05).
+"""Tests for the ``ExecuteWorkflow`` stage.
 
-Contract under test (RED — the stage does not exist yet):
-- ``name == "execute_workflow"``; constructor-injected ``Executor`` plus a
-  keyword-only ``timeout_s`` defaulting to 3600.
-- Reads the latest ``workflow_source`` (for ``bound_workflow_id``) and
-  builds ``CommandSpec(cmd=[sys.executable, "run_workflow.py"],
-  cwd=<workspace_root>/generated, expected_outputs=["outputs.json"])``.
-- Persists an ``execution_result`` artifact (``ExecutionResult`` JSON,
-  parent = the ``workflow_source`` artifact id): ``status`` "succeeded" iff
-  exit 0, ``outputs`` parsed from the ``CommandResult.output_artifacts``
-  entry whose uri ends with ``outputs.json`` — missing/unparseable → ``{}``
-  without crashing.
-- On nonzero exit: persist the failed result FIRST, then raise
-  ``StagePersistedFailureError`` whose ``persisted_ref.kind ==
-  "execution_result"``.
+Mirrors ``molexp.harness.stages.execute_workflow``. The stage runs
+``python run_workflow.py`` in the run's ``generated/`` directory through an
+injected ``Executor`` (with ``expected_outputs=["outputs.json"]``), lifts the
+``CommandResult`` into an ``ExecutionResult`` artifact, and — on nonzero exit —
+persists the failed result first, then raises ``StagePersistedFailureError``.
 
 The drivers below are deliberately plain Python (no molexp import) so the
 subprocess stays fast and hermetic.
@@ -91,82 +82,74 @@ def _write_driver(ctx, driver_text: str) -> Path:
     return generated
 
 
-# ------------------------------------------------------------------ basics
+class TestExecuteWorkflow:
+    def test_command_spec_built_per_contract(self, ctx) -> None:
+        from molexp.harness import LocalExecutor
+        from molexp.harness.stages import ExecuteWorkflow
 
+        _seed_workflow_source(ctx.artifact_store)
+        generated = _write_driver(ctx, DRIVER_WRITES_OUTPUTS)
+        recorder = _RecordingExecutor(LocalExecutor())
 
-def test_command_spec_built_per_contract(ctx) -> None:
-    from molexp.harness import LocalExecutor
-    from molexp.harness.stages import ExecuteWorkflow
+        asyncio.run(ExecuteWorkflow(recorder).run(ctx))
 
-    _seed_workflow_source(ctx.artifact_store)
-    generated = _write_driver(ctx, DRIVER_WRITES_OUTPUTS)
-    recorder = _RecordingExecutor(LocalExecutor())
+        assert len(recorder.specs) == 1
+        spec = recorder.specs[0]
+        assert spec.cmd == [sys.executable, "run_workflow.py"]
+        assert spec.cwd == str(generated)
+        assert spec.timeout_s == 3600
+        assert spec.expected_outputs == ["outputs.json"]
 
-    asyncio.run(ExecuteWorkflow(recorder).run(ctx))
+    def test_green_run_persists_succeeded_result_with_parsed_outputs(self, ctx) -> None:
+        from molexp.harness import LocalExecutor
+        from molexp.harness.schemas import ExecutionResult
+        from molexp.harness.stages import ExecuteWorkflow
 
-    assert len(recorder.specs) == 1
-    spec = recorder.specs[0]
-    assert spec.cmd == [sys.executable, "run_workflow.py"]
-    assert spec.cwd == str(generated)
-    assert spec.timeout_s == 3600
-    assert spec.expected_outputs == ["outputs.json"]
+        ws_ref = _seed_workflow_source(ctx.artifact_store)
+        _write_driver(ctx, DRIVER_WRITES_OUTPUTS)
 
+        ref = asyncio.run(ExecuteWorkflow(LocalExecutor()).run(ctx))
 
-# --------------------------------------------- integration (real subprocess)
+        assert ref.kind == "execution_result"
+        assert ref.parent_ids == [ws_ref.id]
+        result = ExecutionResult.model_validate(json.loads(ctx.artifact_store.get(ref.id)))
+        assert result.status == "succeeded"
+        assert result.exit_code == 0
+        assert result.outputs == {"estimate_d": 0.25}
+        assert result.bound_workflow_id == "bw-1"
+        assert len(result.output_artifacts) >= 1
+        assert any(r.uri.endswith("outputs.json") for r in result.output_artifacts)
 
+    def test_nonzero_exit_persists_failed_result_then_raises(self, ctx) -> None:
+        from molexp.harness import LocalExecutor
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.schemas import ExecutionResult
+        from molexp.harness.stages import ExecuteWorkflow
 
-def test_green_run_persists_succeeded_execution_result(ctx) -> None:
-    from molexp.harness import LocalExecutor
-    from molexp.harness.schemas import ExecutionResult
-    from molexp.harness.stages import ExecuteWorkflow
+        _seed_workflow_source(ctx.artifact_store)
+        _write_driver(ctx, DRIVER_EXITS_NONZERO)
 
-    ws_ref = _seed_workflow_source(ctx.artifact_store)
-    _write_driver(ctx, DRIVER_WRITES_OUTPUTS)
+        with pytest.raises(StagePersistedFailureError) as exc_info:
+            asyncio.run(ExecuteWorkflow(LocalExecutor()).run(ctx))
 
-    ref = asyncio.run(ExecuteWorkflow(LocalExecutor()).run(ctx))
+        assert exc_info.value.persisted_ref.kind == "execution_result"
+        refs = ctx.artifact_store.list_by_kind("execution_result")
+        assert len(refs) == 1
+        result = ExecutionResult.model_validate(json.loads(ctx.artifact_store.get(refs[0].id)))
+        assert result.status == "failed"
+        assert result.exit_code == 3
+        assert result.outputs == {}
 
-    assert ref.kind == "execution_result"
-    assert ref.parent_ids == [ws_ref.id]
-    result = ExecutionResult.model_validate(json.loads(ctx.artifact_store.get(ref.id)))
-    assert result.status == "succeeded"
-    assert result.exit_code == 0
-    assert result.outputs == {"estimate_d": 0.25}
-    assert result.bound_workflow_id == "bw-1"
-    assert len(result.output_artifacts) >= 1
-    assert any(r.uri.endswith("outputs.json") for r in result.output_artifacts)
+    def test_missing_outputs_json_yields_empty_outputs_without_crashing(self, ctx) -> None:
+        from molexp.harness import LocalExecutor
+        from molexp.harness.schemas import ExecutionResult
+        from molexp.harness.stages import ExecuteWorkflow
 
+        _seed_workflow_source(ctx.artifact_store)
+        _write_driver(ctx, DRIVER_NO_OUTPUTS_FILE)
 
-def test_nonzero_exit_persists_failed_result_then_raises(ctx) -> None:
-    from molexp.harness import LocalExecutor
-    from molexp.harness.errors import StagePersistedFailureError
-    from molexp.harness.schemas import ExecutionResult
-    from molexp.harness.stages import ExecuteWorkflow
+        ref = asyncio.run(ExecuteWorkflow(LocalExecutor()).run(ctx))
 
-    _seed_workflow_source(ctx.artifact_store)
-    _write_driver(ctx, DRIVER_EXITS_NONZERO)
-
-    with pytest.raises(StagePersistedFailureError) as exc_info:
-        asyncio.run(ExecuteWorkflow(LocalExecutor()).run(ctx))
-
-    assert exc_info.value.persisted_ref.kind == "execution_result"
-    refs = ctx.artifact_store.list_by_kind("execution_result")
-    assert len(refs) == 1
-    result = ExecutionResult.model_validate(json.loads(ctx.artifact_store.get(refs[0].id)))
-    assert result.status == "failed"
-    assert result.exit_code == 3
-    assert result.outputs == {}
-
-
-def test_missing_outputs_json_yields_empty_outputs_without_crashing(ctx) -> None:
-    from molexp.harness import LocalExecutor
-    from molexp.harness.schemas import ExecutionResult
-    from molexp.harness.stages import ExecuteWorkflow
-
-    _seed_workflow_source(ctx.artifact_store)
-    _write_driver(ctx, DRIVER_NO_OUTPUTS_FILE)
-
-    ref = asyncio.run(ExecuteWorkflow(LocalExecutor()).run(ctx))
-
-    result = ExecutionResult.model_validate(json.loads(ctx.artifact_store.get(ref.id)))
-    assert result.status == "succeeded"
-    assert result.outputs == {}
+        result = ExecutionResult.model_validate(json.loads(ctx.artifact_store.get(ref.id)))
+        assert result.status == "succeeded"
+        assert result.outputs == {}

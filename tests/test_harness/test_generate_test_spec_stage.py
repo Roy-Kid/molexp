@@ -1,4 +1,17 @@
-"""Tests for GenerateTestSpec stage (Phase 8)."""
+"""Tests for the ``GenerateTestSpec`` pipeline stage.
+
+Owned behaviors (harness pipeline orchestration):
+- fail-fast :class:`StageExecutionError` when ``ctx.agent_gateway`` is None;
+- builds an :class:`AgentCallSpec` for ``test_spec_writer`` over the latest
+  ``bound_workflow`` and requesting a per-task ``TestSpecBundle``
+  (``output_schema == TestSpecBundle.model_json_schema()``);
+- returns the gateway's ``output_artifact`` (kind ``test_spec``) carrying the
+  bound_workflow in its ``parent_ids``.
+
+The stage is a pure gateway passthrough — it does NOT fan out per task (that
+is ``GenerateTestCode``); the bundle content is the agent's responsibility,
+locked here only via the requested ``output_schema``.
+"""
 
 from __future__ import annotations
 
@@ -83,8 +96,8 @@ def ctx_with_gw(tmp_path: Path):
     )
 
 
-class TestGenerateTestSpecStage:
-    def test_fail_fast_no_gateway(self, ctx_no_gw) -> None:
+class TestGenerateTestSpec:
+    def test_fail_fast_when_no_gateway(self, ctx_no_gw) -> None:
         from molexp.harness.errors import StageExecutionError
         from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 
@@ -94,7 +107,7 @@ class TestGenerateTestSpecStage:
             asyncio.run(stage.run(ctx_no_gw))
         assert "agent_gateway" in str(exc.value)
 
-    def test_builds_correct_spec(self, ctx_with_gw) -> None:
+    def test_builds_spec_requesting_test_spec_bundle(self, ctx_with_gw) -> None:
         from molexp.harness.gateways.gateway import AgentGateway
         from molexp.harness.schemas import AgentCallResult, AgentCallSpec, TestSpecBundle
         from molexp.harness.stages.generate_test_spec import GenerateTestSpec
@@ -122,10 +135,10 @@ class TestGenerateTestSpecStage:
         spec = captured[0]
         assert spec.agent_name == "test_spec_writer"
         assert spec.input_artifact_ids == [bw_ref.id]
-        # The stage now requests a per-task TestSpecBundle, not a bare TestSpec.
+        # The stage requests a per-task TestSpecBundle, not a bare TestSpec.
         assert spec.output_schema == TestSpecBundle.model_json_schema()
 
-    def test_returns_test_spec_ref(self, ctx_with_gw) -> None:
+    def test_returns_test_spec_with_bound_workflow_lineage(self, ctx_with_gw) -> None:
         from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 
         bw_ref = _seed_bw_ref(ctx_with_gw.artifact_store)
@@ -137,41 +150,3 @@ class TestGenerateTestSpecStage:
         ref = asyncio.run(GenerateTestSpec().run(ctx_with_gw))
         assert ref.kind == "test_spec"
         assert bw_ref.id in ref.parent_ids
-
-
-class TestGenerateTestSpecFanout:
-    """GenerateTestSpec emits a per-task TestSpecBundle."""
-
-    def test_emits_one_test_spec_per_bound_task(self, ctx_with_gw) -> None:
-        """ac-002 — the persisted test_spec is a TestSpecBundle with one spec
-        per BoundTask, each naming a distinct target task."""
-        from molexp.harness.schemas import TestSpecBundle
-        from molexp.harness.stages.generate_test_spec import GenerateTestSpec
-
-        _seed_bw_ref(ctx_with_gw.artifact_store)  # ids in the bundle below
-        task_ids = ["b-build", "b-relax"]
-        bundle = {
-            "id": "tsb-x",
-            "bound_workflow_id": "bw-x",
-            "specs": [
-                {
-                    "id": f"ts-{tid}",
-                    "name": f"dry-run {tid}",
-                    "kind": "dry_run_test",
-                    "target_task_id": tid,
-                    "description": f"verify task {tid} parses",
-                }
-                for tid in task_ids
-            ],
-        }
-        ctx_with_gw.agent_gateway.register(
-            agent_name="test_spec_writer",
-            output=bundle,
-            output_kind="test_spec",
-        )
-
-        ref = asyncio.run(GenerateTestSpec().run(ctx_with_gw))
-        parsed = TestSpecBundle.model_validate_json(ctx_with_gw.artifact_store.get(ref.id))
-        assert len(parsed.specs) == len(task_ids)
-        assert [s.target_task_id for s in parsed.specs] == task_ids
-        assert len({s.target_task_id for s in parsed.specs}) == len(task_ids)

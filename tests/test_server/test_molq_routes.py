@@ -1,4 +1,10 @@
-"""Tests for the /api/plugins/molq routes."""
+"""Shell tests for the ``/api/plugins/molq`` routes (``server.routes.molq``).
+
+Route concerns only: registration, the 200 camelCase wire shapes, the
+unknown-target / unknown-job 404 status domains, and SSE framing. The dashboard
+aggregation (``compute_stats`` / ``list_jobs`` / ``get_job`` / ``fetch_page``)
+is owned by ``test_plugins/test_submit_molq/test_dashboard``.
+"""
 
 from __future__ import annotations
 
@@ -14,12 +20,10 @@ from molexp.plugins.submit_molq import dashboard
 
 @pytest.fixture
 def molq_setup(tmp_path, monkeypatch, client):
-    """Same isolation as the dashboard tests, plus the FastAPI client.
+    """Isolate the molq store/config under ``tmp_path`` and hand back the client.
 
-    Setting ``MOLCRAFTS_HOME`` redirects molcfg's base so molq's
-    ``default_config_path`` / ``default_jobs_db_path`` land under
-    ``tmp_path``. No ``Path.home`` patching is needed (molcfg reads
-    ``$HOME``/``$MOLCRAFTS_HOME`` directly).
+    ``MOLCRAFTS_HOME`` redirects molcfg's base so molq's default config/db land
+    under ``tmp_path`` (molcfg reads ``$HOME``/``$MOLCRAFTS_HOME`` directly).
     """
     monkeypatch.setenv("MOLCRAFTS_HOME", str(tmp_path))
     config_dir = tmp_path / "molq" / "config"
@@ -61,7 +65,7 @@ def _seed(submitor, job_id: str, state: JobState) -> None:
 
 
 class TestTargetsRoute:
-    def test_returns_one_target_per_profile(self, molq_setup):
+    def test_returns_camelcase_target_summary_per_profile(self, molq_setup):
         resp = molq_setup.get("/api/plugins/molq/targets")
 
         assert resp.status_code == 200
@@ -76,39 +80,27 @@ class TestTargetsRoute:
 
 
 class TestJobsRoute:
-    def test_returns_jobs_and_stats(self, molq_setup):
+    def test_returns_page_wire_shape(self, molq_setup):
         sub = dashboard._submitor_for("demo", None)
         _seed(sub, "a", JobState.RUNNING)
         _seed(sub, "b", JobState.SUCCEEDED)
-        _seed(sub, "c", JobState.FAILED)
 
         resp = molq_setup.get("/api/plugins/molq/jobs?target=demo")
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["total"] == 3
-        assert {j["jobId"] for j in body["jobs"]} == {"a", "b", "c"}
-        assert body["stats"]["running"] == 1
-        assert body["stats"]["succeeded"] == 1
-        assert body["stats"]["failed"] == 1
+        assert body["total"] == 2
+        assert {j["jobId"] for j in body["jobs"]} == {"a", "b"}
+        assert "stats" in body
 
     def test_unknown_target_returns_404(self, molq_setup):
         resp = molq_setup.get("/api/plugins/molq/jobs?target=missing")
 
         assert resp.status_code == 404
 
-    def test_no_target_aggregates_across_all(self, molq_setup):
-        sub = dashboard._submitor_for("demo", None)
-        _seed(sub, "x", JobState.RUNNING)
-
-        resp = molq_setup.get("/api/plugins/molq/jobs")
-
-        assert resp.status_code == 200
-        assert resp.json()["total"] == 1
-
 
 class TestJobDetailRoute:
-    def test_returns_detail(self, molq_setup):
+    def test_returns_detail_wire_shape(self, molq_setup):
         sub = dashboard._submitor_for("demo", None)
         _seed(sub, "abc", JobState.RUNNING)
 
@@ -117,19 +109,18 @@ class TestJobDetailRoute:
         assert resp.status_code == 200
         body = resp.json()
         assert body["jobId"] == "abc"
-        assert body["state"] == "running"
         assert body["target"] == "demo"
-        # transitions list always contains at least the initial CREATED entry.
+        # transitions list always carries at least the initial CREATED entry.
         assert len(body["transitions"]) >= 1
 
-    def test_missing_returns_404(self, molq_setup):
+    def test_unknown_job_returns_404(self, molq_setup):
         resp = molq_setup.get("/api/plugins/molq/jobs/nope?target=demo")
 
         assert resp.status_code == 404
 
 
 class TestLogStreamRoute:
-    def test_emits_sse_events_for_existing_log(self, molq_setup, tmp_path):
+    def test_emits_sse_framed_events_for_existing_log(self, molq_setup, tmp_path):
         sub = dashboard._submitor_for("demo", None)
         _seed(sub, "logged", JobState.SUCCEEDED)
         # JobRecord.cwd was set to submitor._jobs_dir during seeding;
@@ -156,7 +147,7 @@ class TestLogStreamRoute:
         assert "second line" in events
         assert events[-1] == "[stream closed]"
 
-    def test_missing_job_returns_404(self, molq_setup):
+    def test_unknown_job_returns_404_before_streaming(self, molq_setup):
         resp = molq_setup.get("/api/plugins/molq/jobs/nope/logs?target=demo")
 
         assert resp.status_code == 404

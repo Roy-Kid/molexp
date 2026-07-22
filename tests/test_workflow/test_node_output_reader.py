@@ -1,13 +1,10 @@
-"""RED tests for ``read_node_outputs`` (continue-two-verbs-01-core, verb A).
+"""Unit tests for ``read_node_outputs`` (``molexp.workflow._engine.persistence``).
 
 ``read_node_outputs(run_dir, execution_id)`` reads
 ``<run_dir>/executions/<execution_id>/workflow.json`` and returns
 ``{task_name: outputs}`` for every task that is ``completed`` AND carries an
 ``"outputs"`` key. Task name is the task dict's ``"task_id"`` (fallback ``"id"``).
 It is non-raising: any missing / malformed / non-dict input yields ``{}``.
-
-Production code does not exist yet — these tests are expected to fail at import
-(``ImportError`` / ``AttributeError``) until ``read_node_outputs`` ships.
 """
 
 from __future__ import annotations
@@ -44,38 +41,27 @@ def _standard_document() -> dict:
     }
 
 
-# ── Basics: happy path ──────────────────────────────────────────────────────
+class TestReadNodeOutputs:
+    def test_returns_only_completed_tasks_that_recorded_outputs(self, tmp_path: Path) -> None:
+        """Exactly the two completed-with-outputs tasks come back, name->outputs."""
+        _write_workflow_json(tmp_path, "exec-x", _standard_document())
+        result = read_node_outputs(tmp_path, "exec-x")
+        assert result == {"good": "good-out", "warm": {"k": 1}}
 
+    def test_task_id_falls_back_to_id_key(self, tmp_path: Path) -> None:
+        """When ``task_id`` is absent the ``id`` key names the task."""
+        doc = {
+            "task_configs": [
+                {"id": "legacy", "status": "completed", "outputs": "via-id"},
+            ],
+            "links": [],
+        }
+        _write_workflow_json(tmp_path, "exec-x", doc)
+        assert read_node_outputs(tmp_path, "exec-x") == {"legacy": "via-id"}
 
-def test_happy_path_returns_only_completed_with_outputs(tmp_path: Path) -> None:
-    """Exactly the two completed-with-outputs tasks come back, name->outputs."""
-    _write_workflow_json(tmp_path, "exec-x", _standard_document())
-    result = read_node_outputs(tmp_path, "exec-x")
-    assert result == {"good": "good-out", "warm": {"k": 1}}
+    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
+        assert read_node_outputs(tmp_path, "exec-never-written") == {}
 
-
-# ── Edge cases: status filtering ────────────────────────────────────────────
-
-
-def test_task_id_fallback_to_id_key(tmp_path: Path) -> None:
-    """When ``task_id`` is absent the ``id`` key names the task."""
-    doc = {
-        "task_configs": [
-            {"id": "legacy", "status": "completed", "outputs": "via-id"},
-        ],
-        "links": [],
-    }
-    _write_workflow_json(tmp_path, "exec-x", doc)
-    assert read_node_outputs(tmp_path, "exec-x") == {"legacy": "via-id"}
-
-
-# ── Edge cases: non-raising on bad / missing input ──────────────────────────
-
-
-def test_missing_file_returns_empty(tmp_path: Path) -> None:
-    assert read_node_outputs(tmp_path, "exec-never-written") == {}
-
-
-def test_malformed_json_returns_empty(tmp_path: Path) -> None:
-    _write_workflow_json(tmp_path, "exec-x", "{not json")
-    assert read_node_outputs(tmp_path, "exec-x") == {}
+    def test_malformed_json_returns_empty(self, tmp_path: Path) -> None:
+        _write_workflow_json(tmp_path, "exec-x", "{not json")
+        assert read_node_outputs(tmp_path, "exec-x") == {}

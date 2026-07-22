@@ -281,7 +281,11 @@ class TestMcpStore:
         config.parent.mkdir(parents=True, exist_ok=True)
         config.write_text(
             json.dumps(
-                {"mcpServers": {"old": {"type": "streamable-http", "url": "https://old.example/mcp"}}}
+                {
+                    "mcpServers": {
+                        "old": {"type": "streamable-http", "url": "https://old.example/mcp"}
+                    }
+                }
             )
         )
         entry = store.get(McpScope.WORKSPACE, "old")

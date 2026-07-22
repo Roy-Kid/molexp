@@ -1,21 +1,18 @@
-"""Ledger eviction on validation rejection — the anti-deadlock contract.
+"""Ledger eviction on validation rejection — ``Mode``'s anti-deadlock contract.
 
-Production failure this guards against: an LLM generator stage succeeds and
-is recorded in the Mode completion ledger, then its *validator* stage rejects
-the generated artifact (``StagePersistedFailureError``) and the run fails.
-Without eviction, every subsequent ``Mode.run`` resume skips the generator
-(ledger hit pins the rejected artifact) and the deterministic validator
-re-fails in seconds — a permanent deadlock with no repair path.
+Production failure this guards against: an LLM generator stage succeeds and is
+recorded in the Mode completion ledger, then its *validator* stage rejects the
+generated artifact (``StagePersistedFailureError``) and the run fails. Without
+eviction every subsequent ``Mode.run`` resume skips the generator (ledger hit
+pins the rejected artifact) and the deterministic validator re-fails in
+seconds — a permanent deadlock with no repair path.
 
-The contract: when a stage fails with a *persisted* failure (a validation
-report whose ``parent_ids`` name the rejected artifact(s)), the ledger
-entries for the nearest recorded producers of those artifacts — and every
-ledger entry at a later pipeline position (a linear pipeline's downstream
-stages may have consumed the evicted output) — are evicted **persistently,
-in the ledger file, on the failure path**. The next run then regenerates the
-rejected artifact instead of re-failing forever. Generic (non-persisted)
-failures evict nothing: the failed stage itself was never recorded and
-simply re-runs, preserving the existing resume semantics.
+The contract (``Mode._evict_rejected_producers``): on a *persisted* failure,
+the ledger entries for the nearest recorded producers of the rejected
+artifact(s) — and every entry at a later pipeline position — are evicted
+persistently, in the ledger file, on the failure path, so the next run
+regenerates instead of re-failing forever. Generic (non-persisted) failures
+evict nothing: the failed stage was never recorded and simply re-runs.
 """
 
 from __future__ import annotations
@@ -90,8 +87,8 @@ class RejectStaleValidator(Stage):
 
     Mirrors the production validators (ValidateTestSpec / ValidateTestSource):
     the persisted report's ``parent_ids`` name the rejected artifact. Acceptance
-    keys on the *artifact content*, not on the validator's own call count, so it
-    models "the stale artifact is rejected; a regenerated one is valid".
+    keys on the *artifact content*, so it models "the stale artifact is
+    rejected; a regenerated one is valid".
     """
 
     name: ClassVar[str] = "validator"
@@ -121,134 +118,113 @@ class RejectStaleValidator(Stage):
         )
 
 
-# ─────────────────────────────── eviction is persisted on the failure path
+class TestModeLedgerEviction:
+    """``Mode`` evicts ledgered producers of a validator-rejected artifact."""
 
+    def test_rerun_after_rejection_regenerates_instead_of_deadlocking(self, run) -> None:
+        """The production deadlock, distilled: generator succeeds + is ledgered,
+        validator rejects, run fails. The NEXT run must re-invoke the generator
+        (regenerating the artifact) and succeed — not skip it and re-fail forever."""
+        counter: dict[str, int] = {}
+        stages = [
+            GeneratorStage("gen", counter, kind="thing"),
+            RejectStaleValidator("val", kind="thing", ok_from=2),
+        ]
+        mode = _make_mode(lambda _ui: stages)
+        user_input = {"goal": "no-deadlock"}
 
-def test_validator_rejection_evicts_producer_from_ledger_file(run) -> None:
-    """After a persisted validation failure, the rejected artifact's producer
-    is gone from the on-disk ledger — while unrelated earlier entries stay."""
-    counter: dict[str, int] = {}
-    stages = [
-        GeneratorStage("keep", counter, kind="log"),
-        GeneratorStage("gen", counter, kind="thing"),
-        RejectStaleValidator("val", kind="thing", ok_from=2),
-    ]
-    mode = _make_mode(lambda _ui: stages)
+        with pytest.raises(StagePersistedFailureError):
+            asyncio.run(mode.run(run=run, user_input=user_input))
+        assert counter["gen"] == 1
 
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(mode.run(run=run, user_input={"goal": "evict-me"}))
+        # Without eviction this second run skips "gen" (ledger hit) and re-fails
+        # on the same pinned artifact — the observed permanent deadlock.
+        result = asyncio.run(mode.run(run=run, user_input=user_input))
 
-    ledger = _read_ledger(run)
-    assert "keep" in ledger["stages"], "entries outside the rejected lineage must survive"
-    assert "gen" not in ledger["stages"], (
-        "the rejected artifact's producer must be evicted from the persisted ledger"
-    )
+        assert counter["gen"] == 2, "resume must regenerate the rejected artifact"
+        assert result.final_artifact is not None
 
+    def test_eviction_drops_producer_and_suffix_but_keeps_prefix(self, run) -> None:
+        """The eviction window: entries *before* the rejected producer survive,
+        while the producer and every entry at a later pipeline position are
+        evicted (a linear pipeline's downstream may have consumed the evicted
+        output) and re-run on resume."""
+        counter: dict[str, int] = {}
+        stages = [
+            GeneratorStage("keep", counter, kind="log"),
+            GeneratorStage("alpha", counter, kind="alpha"),
+            GeneratorStage("beta", counter, kind="beta"),
+            RejectStaleValidator("val", kind="alpha", ok_from=2),
+        ]
+        mode = _make_mode(lambda _ui: stages)
+        user_input = {"goal": "window"}
 
-def test_rerun_after_rejection_regenerates_instead_of_deadlocking(run) -> None:
-    """The production deadlock, distilled: generator succeeds + is ledgered,
-    validator rejects, run fails. The NEXT run must re-invoke the generator
-    (regenerating the artifact) and succeed — not skip it and re-fail forever."""
-    counter: dict[str, int] = {}
-    stages = [
-        GeneratorStage("gen", counter, kind="thing"),
-        RejectStaleValidator("val", kind="thing", ok_from=2),
-    ]
-    mode = _make_mode(lambda _ui: stages)
-    user_input = {"goal": "no-deadlock"}
+        with pytest.raises(StagePersistedFailureError):
+            asyncio.run(mode.run(run=run, user_input=user_input))
+        ledger = _read_ledger(run)
+        assert "keep" in ledger["stages"], "entries before the rejected producer must survive"
+        assert "alpha" not in ledger["stages"], "the rejected artifact's producer must be evicted"
+        assert "beta" not in ledger["stages"], "downstream entries must be evicted too"
 
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(mode.run(run=run, user_input=user_input))
-    assert counter["gen"] == 1
+        result = asyncio.run(mode.run(run=run, user_input=user_input))
+        assert counter == {"keep": 1, "alpha": 2, "beta": 2}, (
+            "the prefix must not re-run; producer + suffix must regenerate on resume"
+        )
+        assert result.final_artifact is not None
 
-    # Without eviction this second run skips "gen" (ledger hit) and re-fails
-    # on the same pinned artifact — the observed permanent deadlock.
-    result = asyncio.run(mode.run(run=run, user_input=user_input))
+    def test_eviction_walks_past_unledgered_intermediates(self, run) -> None:
+        """A rejected artifact may itself be unledgered (e.g. a repair-loop
+        attempt); eviction walks its ancestry to the nearest ledgered producer."""
+        counter: dict[str, int] = {}
 
-    assert counter["gen"] == 2, "resume must regenerate the rejected artifact"
-    assert result.final_artifact is not None
+        class RejectViaIntermediate(Stage):
+            name: ClassVar[str] = "loop"
 
+            async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
+                thing = ctx.artifact_store.latest_by_kind("thing")
+                assert thing is not None
+                attempt = ctx.artifact_store.put_json(
+                    kind="attempt",
+                    obj={"derived": True},
+                    created_by="loop",
+                    parent_ids=[thing.id],
+                )
+                report = ctx.artifact_store.put_json(
+                    kind="validation_report",
+                    obj={"passed": False, "violations": ["unknown_task_target"]},
+                    created_by="loop",
+                    parent_ids=[attempt.id],
+                )
+                raise StagePersistedFailureError(report, "exhausted repair attempts")
 
-def test_eviction_walks_past_unledgered_intermediates(run) -> None:
-    """A rejected artifact may itself be unledgered (e.g. a repair-loop attempt);
-    eviction walks its ancestry to the nearest ledger-recorded producer."""
-    counter: dict[str, int] = {}
+        stages = [GeneratorStage("gen", counter, kind="thing"), RejectViaIntermediate()]
+        mode = _make_mode(lambda _ui: stages)
 
-    class RejectViaIntermediate(Stage):
-        name: ClassVar[str] = "loop"
+        with pytest.raises(StagePersistedFailureError):
+            asyncio.run(mode.run(run=run, user_input={"goal": "walk"}))
 
-        async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
-            thing = ctx.artifact_store.latest_by_kind("thing")
-            assert thing is not None
-            attempt = ctx.artifact_store.put_json(
-                kind="attempt",
-                obj={"derived": True},
-                created_by="loop",
-                parent_ids=[thing.id],
-            )
-            report = ctx.artifact_store.put_json(
-                kind="validation_report",
-                obj={"passed": False, "violations": ["unknown_task_target"]},
-                created_by="loop",
-                parent_ids=[attempt.id],
-            )
-            raise StagePersistedFailureError(report, "exhausted repair attempts")
+        ledger = _read_ledger(run)
+        assert "gen" not in ledger["stages"], (
+            "eviction must walk through unledgered intermediate artifacts to the "
+            "nearest ledger-recorded producer"
+        )
 
-    stages = [GeneratorStage("gen", counter, kind="thing"), RejectViaIntermediate()]
-    mode = _make_mode(lambda _ui: stages)
+    def test_generic_failure_evicts_nothing(self, run) -> None:
+        """A non-persisted failure identifies no rejected artifact: completed
+        entries stay, preserving resume-from-the-failed-stage semantics."""
+        counter: dict[str, int] = {}
 
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(mode.run(run=run, user_input={"goal": "walk"}))
+        class Boom(Stage):
+            name: ClassVar[str] = "boom"
 
-    ledger = _read_ledger(run)
-    assert "gen" not in ledger["stages"], (
-        "eviction must walk through unledgered intermediate artifacts to the "
-        "nearest ledger-recorded producer"
-    )
+            async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
+                raise RuntimeError("transient")
 
+        stages = [GeneratorStage("gen", counter, kind="thing"), Boom()]
+        mode = _make_mode(lambda _ui: stages)
 
-def test_eviction_drops_downstream_entries_of_the_evicted_producer(run) -> None:
-    """Evicting a producer also evicts later-position entries: in a linear
-    pipeline they may have consumed the evicted output, and keeping them would
-    just pin a new generation of cross-stage drift."""
-    counter: dict[str, int] = {}
-    stages = [
-        GeneratorStage("alpha", counter, kind="alpha"),
-        GeneratorStage("beta", counter, kind="beta"),
-        RejectStaleValidator("val", kind="alpha", ok_from=2),
-    ]
-    mode = _make_mode(lambda _ui: stages)
-    user_input = {"goal": "suffix"}
+        with pytest.raises(StageExecutionError):
+            asyncio.run(mode.run(run=run, user_input={"goal": "generic"}))
 
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(mode.run(run=run, user_input=user_input))
-    ledger = _read_ledger(run)
-    assert "alpha" not in ledger["stages"]
-    assert "beta" not in ledger["stages"], (
-        "entries downstream of the evicted producer must be evicted too"
-    )
-
-    result = asyncio.run(mode.run(run=run, user_input=user_input))
-    assert counter == {"alpha": 2, "beta": 2}, "both evicted stages must re-run on resume"
-    assert result.final_artifact is not None
-
-
-def test_generic_failure_evicts_nothing(run) -> None:
-    """A non-persisted failure identifies no rejected artifact: completed
-    entries stay, preserving the existing resume-from-the-failed-stage law."""
-    counter: dict[str, int] = {}
-
-    class Boom(Stage):
-        name: ClassVar[str] = "boom"
-
-        async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
-            raise RuntimeError("transient")
-
-    stages = [GeneratorStage("gen", counter, kind="thing"), Boom()]
-    mode = _make_mode(lambda _ui: stages)
-
-    with pytest.raises(StageExecutionError):
-        asyncio.run(mode.run(run=run, user_input={"goal": "generic"}))
-
-    ledger = _read_ledger(run)
-    assert "gen" in ledger["stages"], "generic failures must not evict completed entries"
+        ledger = _read_ledger(run)
+        assert "gen" in ledger["stages"], "generic failures must not evict completed entries"

@@ -1,19 +1,10 @@
-"""Tests for the ``MaterializeExecution`` stage (spec ``harness-run-mode-01-substrate``, T05).
+"""Tests for the ``MaterializeExecution`` stage.
 
-Contract under test (RED — the stage does not exist yet):
-- ``name == "materialize_execution"``; reads the latest ``workflow_source``
-  + ``test_source`` + ``workflow_ir`` artifacts.
-- Writes EXACTLY three files under ``<ctx.workspace_root>/generated/``:
-  ``{WorkflowSource.module_name}.py`` (source verbatim),
-  ``{TestSource.module_name}.py`` (source verbatim), and ``run_workflow.py``
-  (driver rendered from a pure string template).
-- Driver text: ``ast.parse`` succeeds; imports ``WorkflowRuntime`` from
-  ``molexp``; imports ``build_workflow`` from the workflow module; embeds
-  ``PlanWorkflowIR.inputs`` values as ``json.dumps({...}, sort_keys=True)``;
-  mentions ``outputs.json``; decides its exit code from the ``"completed"``
-  workflow status.
-- Registers three ``input_file`` artifacts with exact lineage parents and
-  returns the DRIVER's ``PlanArtifactRef``.
+Contract: reads the latest ``workflow_source`` + ``test_source`` +
+``workflow_ir`` artifacts and writes the workflow module, the pytest module,
+and a ``run_workflow.py`` driver under ``<ctx.workspace_root>/generated/``;
+each written file is registered as an ``input_file`` artifact with lineage
+back to its source, and the stage returns the DRIVER's ``PlanArtifactRef``.
 """
 
 from __future__ import annotations
@@ -67,8 +58,7 @@ def _seed_workflow_source(store):
 
 
 def _seed_test_source(store):
-    # Plain dict on purpose: the TestSource schema is itself new in this
-    # spec leg; the stage reads the persisted JSON payload.
+    # Plain dict on purpose: the stage reads the persisted JSON payload.
     return store.put_json(
         kind="test_source",
         obj={
@@ -107,6 +97,20 @@ def _seed_all(store):
     return _seed_workflow_source(store), _seed_test_source(store), _seed_workflow_ir(store)
 
 
+def _seed_input_set(store, *, fixed_params=None):
+    obj = {
+        "id": "is-1",
+        "experiment_spec_id": "spec-1",
+        "title": "sweep",
+        "sweep_axes": [{"name": "n_steps", "values": [1000, 2000], "source": "user_provided"}],
+        "strategy": "grid",
+        "total_runs": 2,
+    }
+    if fixed_params is not None:
+        obj["fixed_params"] = fixed_params
+    return store.put_json(kind="input_set", obj=obj, created_by="seed", parent_ids=[])
+
+
 def _run(ctx):
     from molexp.harness.stages import MaterializeExecution
 
@@ -123,219 +127,151 @@ def _find_by_parents(refs, parent_ids: list[str]):
     return matches[0]
 
 
-# ------------------------------------------------------------------ basics
+class TestMaterializeExecution:
+    """Materializes the workflow module, test module, and driver under generated/."""
 
+    def test_writes_exactly_three_files_with_sources_verbatim(self, ctx) -> None:
+        """Single-file source → exactly three files; each generated .py keeps its
+        body verbatim behind a ``from __future__ import annotations`` header (so
+        in-function type annotations don't NameError at pytest collection)."""
+        _seed_all(ctx.artifact_store)
+        _run(ctx)
 
-def test_writes_exactly_three_files_with_sources_verbatim(ctx) -> None:
-    _seed_all(ctx.artifact_store)
-    _run(ctx)
+        generated = ctx.workspace_root / "generated"
+        names = sorted(p.name for p in generated.iterdir())
+        assert names == ["generated_workflow.py", "run_workflow.py", "test_generated_workflow.py"]
+        header = "from __future__ import annotations\n"
+        assert (generated / "generated_workflow.py").read_text() == header + WORKFLOW_SOURCE_TEXT
+        assert (generated / "test_generated_workflow.py").read_text() == header + TEST_SOURCE_TEXT
 
-    generated = ctx.workspace_root / "generated"
-    names = sorted(p.name for p in generated.iterdir())
-    assert names == ["generated_workflow.py", "run_workflow.py", "test_generated_workflow.py"]
-    # Each generated .py gets a `from __future__ import annotations` header so
-    # in-function-imported type annotations (`ctx: TaskContext`) don't NameError
-    # at pytest collection; the body follows verbatim.
-    header = "from __future__ import annotations\n"
-    assert (generated / "generated_workflow.py").read_text() == header + WORKFLOW_SOURCE_TEXT
-    assert (generated / "test_generated_workflow.py").read_text() == header + TEST_SOURCE_TEXT
+    def test_multifile_writes_package_with_injected_init_tests_and_driver(self, ctx) -> None:
+        """Multi-file source: per-task modules land under ``workflow/``; the
+        assembly (``source``) is injected as ``workflow/__init__.py`` when
+        ``files`` omit it; the test lands under ``tests/``; and the driver
+        imports the package by ``module_name``. Regression: a silent __init__
+        drop left generated/workflow/ without ``build_workflow``, breaking
+        CompileWorkflow with AttributeError."""
+        from molexp.harness.schemas import WorkflowSource
 
-
-def test_multi_file_writes_package_init_from_source_when_files_omit_it(ctx) -> None:
-    """``source`` is the assembly; materialize must not drop it when files[]
-    only lists per-task modules (production codegen shape)."""
-    from molexp.harness.schemas import WorkflowSource
-
-    assembly = (
-        "from molexp.workflow import WorkflowCompiler\n"
-        "from workflow.task_a import task_a\n\n"
-        "def build_workflow() -> WorkflowCompiler:\n"
-        '    wf = WorkflowCompiler(name="demo")\n'
-        "    wf.task(task_a)\n"
-        "    return wf\n"
-    )
-    task_body = "async def task_a() -> dict:\n    return {'ok': True}\n"
-    ws = WorkflowSource(
-        source=assembly,
-        module_name="workflow",
-        bound_workflow_id="bw-1",
-        symbols=(),
-        files=[{"path": "workflow/task_a.py", "source": task_body}],
-    )
-    ctx.artifact_store.put_json(
-        kind="workflow_source",
-        obj=json.loads(ws.model_dump_json()),
-        created_by="seed",
-        parent_ids=[],
-    )
-    _seed_test_source(ctx.artifact_store)
-    _seed_workflow_ir(ctx.artifact_store)
-    _run(ctx)
-
-    init = ctx.workspace_root / "generated" / "workflow" / "__init__.py"
-    assert init.is_file(), "assembly must land as workflow/__init__.py"
-    assert "def build_workflow" in init.read_text()
-    assert (ctx.workspace_root / "generated" / "workflow" / "task_a.py").is_file()
-
-
-# ------------------------------------------------------------------ driver
-
-
-def test_driver_rendered_per_contract(ctx) -> None:
-    """Parses; names the runtime surface; embeds sorted params JSON; mentions
-    outputs.json + the canonical terminal-success status; branches on
-    --compile-only (plan-step-7 dry run)."""
-    _seed_all(ctx.artifact_store)
-    _run(ctx)
-
-    driver = _driver_text(ctx)
-    ast.parse(driver)
-    assert "from molexp import WorkflowRuntime" in driver
-    assert "from generated_workflow import build_workflow" in driver
-    assert json.dumps({"n_steps": 500}, sort_keys=True) in driver
-    assert "outputs.json" in driver
-    # The canonical terminal-success status (workspace status law).
-    assert '== "succeeded"' in driver
-    assert "--compile-only" in driver
-
-
-# ----------------------------------------------------------------- lineage
-
-
-def test_registers_three_input_file_artifacts_with_lineage_and_returns_driver(ctx) -> None:
-    ws_ref, ts_ref, ir_ref = _seed_all(ctx.artifact_store)
-    ref = _run(ctx)
-
-    refs = ctx.artifact_store.list_by_kind("input_file")
-    assert len(refs) == 3
-    _find_by_parents(refs, [ws_ref.id])  # workflow module
-    _find_by_parents(refs, [ts_ref.id])  # test module
-    driver = _find_by_parents(refs, [ws_ref.id, ir_ref.id, ts_ref.id])  # driver
-    assert ref.kind == "input_file"
-    assert ref.id == driver.id
-
-
-# --------------------------------------------------------------- input_set
-
-
-def _seed_input_set(store, *, fixed_params=None):
-    obj = {
-        "id": "is-1",
-        "experiment_spec_id": "spec-1",
-        "title": "sweep",
-        "sweep_axes": [{"name": "n_steps", "values": [1000, 2000], "source": "user_provided"}],
-        "strategy": "grid",
-        "total_runs": 2,
-    }
-    if fixed_params is not None:
-        obj["fixed_params"] = fixed_params
-    return store.put_json(kind="input_set", obj=obj, created_by="seed", parent_ids=[])
-
-
-def test_input_set_first_cell_overlays_params(ctx) -> None:
-    """With an input_set, the driver params use the sweep's first cell."""
-    _seed_all(ctx.artifact_store)
-    _seed_input_set(ctx.artifact_store)
-    _run(ctx)
-    # First grid cell of n_steps=[1000,2000] is 1000, overlaying the IR default 500.
-    assert json.dumps({"n_steps": 1000}, sort_keys=True) in _driver_text(ctx)
-
-
-def test_input_set_fixed_params_pass_whole_values(ctx) -> None:
-    """``fixed_params`` land in the driver PARAMS verbatim — the channel for
-    list-valued root inputs the workflow scans internally. Regression: a real
-    ``--execute`` run swept ``sigma_values`` per-scalar and the task crashed
-    iterating a float."""
-    _seed_all(ctx.artifact_store)
-    _seed_input_set(ctx.artifact_store, fixed_params={"sigma_values": [0.9, 1.0]})
-    _run(ctx)
-    text = _driver_text(ctx)
-    assert json.dumps({"n_steps": 1000, "sigma_values": [0.9, 1.0]}, sort_keys=True) in text
-
-
-# --------------------------------------------------- multi-file (per-task) layout
-
-
-def _seed_multifile(store):
-    """Seed a multi-file workflow_source (package) + per-task test files."""
-    assembly = "from molexp.workflow import WorkflowCompiler\nfrom workflow.a import a\n\n\ndef build_workflow():\n    wf = WorkflowCompiler(name='m')\n    wf.task(a)\n    return wf\n"
-    store.put_json(
-        kind="workflow_source",
-        obj={
-            "source": assembly,
-            "module_name": "workflow",
-            "bound_workflow_id": "bw-1",
-            "symbols": [],
-            "files": [
-                {"path": "workflow/__init__.py", "source": assembly},
-                {"path": "workflow/a.py", "source": "async def a() -> dict:\n    return {}\n"},
-            ],
-        },
-        created_by="seed",
-        parent_ids=[],
-    )
-    store.put_json(
-        kind="test_source",
-        obj={
-            "source": "from workflow import build_workflow\n\n\ndef test_a():\n    assert build_workflow().compile() is not None\n",
-            "module_name": "test_a",
-            "test_spec_id": "ts-1",
-            "bound_workflow_id": "bw-1",
-            "symbols": [],
-            "files": [
+        assembly = (
+            "from molexp.workflow import WorkflowCompiler\n"
+            "from workflow.task_a import task_a\n\n"
+            "def build_workflow() -> WorkflowCompiler:\n"
+            '    wf = WorkflowCompiler(name="demo")\n'
+            "    wf.task(task_a)\n"
+            "    return wf\n"
+        )
+        ws = WorkflowSource(
+            source=assembly,
+            module_name="workflow",
+            bound_workflow_id="bw-1",
+            symbols=(),
+            files=[
                 {
-                    "path": "tests/test_a.py",
-                    "source": "from workflow import build_workflow\n\n\ndef test_a():\n    assert build_workflow().compile() is not None\n",
+                    "path": "workflow/task_a.py",
+                    "source": "async def task_a() -> dict:\n    return {'ok': True}\n",
                 }
             ],
-        },
-        created_by="seed",
-        parent_ids=[],
-    )
-    _seed_workflow_ir(store)
-
-
-def test_multifile_writes_package_and_tests_dir(ctx) -> None:
-    _seed_multifile(ctx.artifact_store)
-    _run(ctx)
-    g = ctx.workspace_root / "generated"
-    assert (g / "workflow" / "__init__.py").is_file()
-    assert (g / "workflow" / "a.py").is_file()
-    assert (g / "tests" / "test_a.py").is_file()
-    # Driver imports the package entrypoint (module_name="workflow").
-    assert "from workflow import build_workflow" in _driver_text(ctx)
-    # An input_file artifact per written file (2 workflow + 1 test) + the driver.
-    assert len(ctx.artifact_store.list_by_kind("input_file")) == 4
-
-
-def test_multifile_rejects_path_escaping_generated(ctx) -> None:
-    from molexp.harness.errors import StageExecutionError
-
-    store = ctx.artifact_store
-    store.put_json(
-        kind="workflow_source",
-        obj={
-            "source": "x",
-            "module_name": "workflow",
-            "bound_workflow_id": "bw-1",
-            "symbols": [],
-            "files": [{"path": "../escape.py", "source": "x = 1\n"}],
-        },
-        created_by="seed",
-        parent_ids=[],
-    )
-    _seed_test_source(store)
-    _seed_workflow_ir(store)
-    with pytest.raises(StageExecutionError, match="escapes"):
+        )
+        ctx.artifact_store.put_json(
+            kind="workflow_source",
+            obj=json.loads(ws.model_dump_json()),
+            created_by="seed",
+            parent_ids=[],
+        )
+        test_body = "from workflow import build_workflow\n\n\ndef test_a():\n    assert build_workflow().compile() is not None\n"
+        ctx.artifact_store.put_json(
+            kind="test_source",
+            obj={
+                "source": test_body,
+                "module_name": "test_a",
+                "test_spec_id": "ts-1",
+                "bound_workflow_id": "bw-1",
+                "symbols": [],
+                "files": [{"path": "tests/test_a.py", "source": test_body}],
+            },
+            created_by="seed",
+            parent_ids=[],
+        )
+        _seed_workflow_ir(ctx.artifact_store)
         _run(ctx)
-    assert not (ctx.workspace_root.parent / "escape.py").exists()
 
+        g = ctx.workspace_root / "generated"
+        init = g / "workflow" / "__init__.py"
+        assert init.is_file(), "assembly must land as workflow/__init__.py"
+        assert "def build_workflow" in init.read_text()
+        assert (g / "workflow" / "task_a.py").is_file()
+        assert (g / "tests" / "test_a.py").is_file()
+        assert "from workflow import build_workflow" in _driver_text(ctx)
+        # One input_file per distinct written file: workflow/__init__.py +
+        # task_a.py + the test (whose injected __init__ dedups by content) + driver.
+        assert len(ctx.artifact_store.list_by_kind("input_file")) == 4
 
-def test_driver_mounts_scratch_root_for_ctx_workdir(ctx) -> None:
-    """The driver's bare execution must mount scratch_root so ctx.workdir is
-    available to task bodies (the workflow-source contract tells them to use
-    it). Regression: real execution crashed with `NoneType / str` in a
-    generated verify task."""
-    _seed_all(ctx.artifact_store)
-    _run(ctx)
-    assert 'scratch_root=".materialize"' in _driver_text(ctx)
+    def test_driver_rendered_per_contract(self, ctx) -> None:
+        """Driver parses; names the runtime surface; embeds sorted params JSON;
+        mentions outputs.json + the canonical terminal-success status; branches
+        on --compile-only; mounts scratch_root so ``ctx.workdir`` is available
+        to task bodies (regression: bare execution crashed on NoneType/str)."""
+        _seed_all(ctx.artifact_store)
+        _run(ctx)
+
+        driver = _driver_text(ctx)
+        ast.parse(driver)
+        assert "from molexp import WorkflowRuntime" in driver
+        assert "from generated_workflow import build_workflow" in driver
+        assert json.dumps({"n_steps": 500}, sort_keys=True) in driver
+        assert "outputs.json" in driver
+        assert '== "succeeded"' in driver
+        assert "--compile-only" in driver
+        assert 'scratch_root=".materialize"' in driver
+
+    def test_registers_input_file_artifacts_with_lineage_and_returns_driver(self, ctx) -> None:
+        """Three ``input_file`` artifacts with exact lineage parents; the stage
+        returns the driver's ref (single-ref contract)."""
+        ws_ref, ts_ref, ir_ref = _seed_all(ctx.artifact_store)
+        ref = _run(ctx)
+
+        refs = ctx.artifact_store.list_by_kind("input_file")
+        assert len(refs) == 3
+        _find_by_parents(refs, [ws_ref.id])  # workflow module
+        _find_by_parents(refs, [ts_ref.id])  # test module
+        driver = _find_by_parents(refs, [ws_ref.id, ir_ref.id, ts_ref.id])  # driver
+        assert ref.kind == "input_file"
+        assert ref.id == driver.id
+
+    def test_input_set_overlays_fixed_params_and_sweep_first_cell(self, ctx) -> None:
+        """``fixed_params`` land in the driver PARAMS verbatim (whole values —
+        the channel for list-valued root inputs), and the sweep's first cell
+        overlays the IR default (n_steps 500 → 1000). Regression: a real
+        ``--execute`` run swept ``sigma_values`` per-scalar and crashed
+        iterating a float."""
+        _seed_all(ctx.artifact_store)
+        _seed_input_set(ctx.artifact_store, fixed_params={"sigma_values": [0.9, 1.0]})
+        _run(ctx)
+        assert json.dumps(
+            {"n_steps": 1000, "sigma_values": [0.9, 1.0]}, sort_keys=True
+        ) in _driver_text(ctx)
+
+    def test_rejects_generated_file_path_escaping_sandbox(self, ctx) -> None:
+        """A generated file whose path escapes ``generated/`` is refused (source
+        is agent-generated), and nothing is written outside the sandbox."""
+        from molexp.harness.errors import StageExecutionError
+
+        store = ctx.artifact_store
+        store.put_json(
+            kind="workflow_source",
+            obj={
+                "source": "x",
+                "module_name": "workflow",
+                "bound_workflow_id": "bw-1",
+                "symbols": [],
+                "files": [{"path": "../escape.py", "source": "x = 1\n"}],
+            },
+            created_by="seed",
+            parent_ids=[],
+        )
+        _seed_test_source(store)
+        _seed_workflow_ir(store)
+        with pytest.raises(StageExecutionError, match="escapes"):
+            _run(ctx)
+        assert not (ctx.workspace_root.parent / "escape.py").exists()

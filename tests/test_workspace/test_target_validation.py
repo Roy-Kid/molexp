@@ -3,8 +3,8 @@
 ``RunMetadata.target`` / ``ExperimentMetadata.default_target`` name a compute
 target that must exist in the workspace's ``WorkspaceMetadata.targets``
 registry (models.py: "Validated against WorkspaceMetadata.targets at write
-time"). When the registry is non-empty, ``add_run`` / ``add_experiment`` now
-reject an unregistered target name. A registry-less workspace keeps accepting
+time"). When the registry is non-empty, ``add_run`` / ``add_experiment`` reject
+an unregistered target name; a registry-less workspace keeps accepting
 free-form target strings (back-compat).
 """
 
@@ -22,28 +22,27 @@ def ws(tmp_path):
     return Workspace(root=tmp_path / "lab", name="lab")
 
 
-def test_unregistered_target_rejected_when_registry_nonempty(ws):
-    add_target(ws, ComputeTarget(name="laptop", scratch_root="/tmp/molexp"))
-    exp = ws.add_project("p").add_experiment("e")
+class TestTargetReferenceValidation:
+    def test_add_run_accepts_registered_and_rejects_unregistered_target(self, ws):
+        add_target(ws, ComputeTarget(name="laptop", scratch_root="/tmp/molexp"))
+        exp = ws.add_project("p").add_experiment("e")
 
-    # Registered target is accepted.
-    r = exp.add_run(target="laptop")
-    assert r.metadata.target == "laptop"
+        # Registered target is accepted.
+        r = exp.add_run(target="laptop")
+        assert r.metadata.target == "laptop"
 
-    # Unregistered target is rejected.
-    with pytest.raises(ValueError, match="compute target"):
-        exp.add_run(target="cluster")
+        # Unregistered target is rejected once the registry is non-empty.
+        with pytest.raises(ValueError, match="compute target"):
+            exp.add_run(target="cluster")
 
+    def test_add_experiment_rejects_unregistered_default_target(self, ws):
+        add_target(ws, ComputeTarget(name="laptop", scratch_root="/tmp/molexp"))
+        proj = ws.add_project("p")
+        with pytest.raises(ValueError, match="compute target"):
+            proj.add_experiment("bad", default_target="ghost")
 
-def test_default_target_validated_on_add_experiment(ws):
-    add_target(ws, ComputeTarget(name="laptop", scratch_root="/tmp/molexp"))
-    proj = ws.add_project("p")
-    with pytest.raises(ValueError, match="compute target"):
-        proj.add_experiment("bad", default_target="ghost")
-
-
-def test_freeform_target_allowed_when_registry_empty(ws):
-    # No targets registered → free-form target accepted (back-compat).
-    exp = ws.add_project("p").add_experiment("e")
-    r = exp.add_run(target="adhoc")
-    assert r.metadata.target == "adhoc"
+    def test_freeform_target_allowed_when_registry_empty(self, ws):
+        # No targets registered → free-form target accepted (back-compat).
+        exp = ws.add_project("p").add_experiment("e")
+        r = exp.add_run(target="adhoc")
+        assert r.metadata.target == "adhoc"

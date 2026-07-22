@@ -52,7 +52,7 @@ def seeded_workspace(tmp_path):
 
 
 class TestBuildTree:
-    def test_structure(self, seeded_workspace):
+    def test_builds_hierarchy_with_count_hints_and_execution_children(self, seeded_workspace):
         root = build_tree(seeded_workspace)
         assert root.kind == "workspace"
         assert [c.kind for c in root.children] == ["project", "project"]

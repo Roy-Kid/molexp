@@ -297,7 +297,9 @@ class TestAgentRunner:
         test_model = TestModel()
 
         runner_a = AgentRunner(
-            loop=ChatLoop(config=ChatLoopConfig()), model=test_model, workspace=workspace  # type: ignore[arg-type]
+            loop=ChatLoop(config=ChatLoopConfig()),
+            model=test_model,
+            workspace=workspace,  # type: ignore[arg-type]
         )
         session_a = runner_a.session("chat-with-roy")
         assert session_a.path_to_root() == ()
@@ -306,7 +308,9 @@ class TestAgentRunner:
         assert entries_after_first > 0
 
         runner_b = AgentRunner(
-            loop=ChatLoop(config=ChatLoopConfig()), model=test_model, workspace=workspace  # type: ignore[arg-type]
+            loop=ChatLoop(config=ChatLoopConfig()),
+            model=test_model,
+            workspace=workspace,  # type: ignore[arg-type]
         )
         session_b = runner_b.session("chat-with-roy")
         assert len(session_b.path_to_root()) == entries_after_first

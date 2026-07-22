@@ -138,9 +138,7 @@ class TestTieredResourceStore:
 
     # ── Shadow / scope resolution ──────────────────────────────────────
 
-    def test_shadow_resolves_workspace_over_user_over_registrations(
-        self, tmp_path: Path
-    ) -> None:
+    def test_shadow_resolves_workspace_over_user_over_registrations(self, tmp_path: Path) -> None:
         """``list_all`` shows all layers; ``get`` resolves workspace > user > reg."""
         DummyStore.register(_make_spec("X", name="from-code"))
 
@@ -160,9 +158,7 @@ class TestTieredResourceStore:
         losers = [s for s in all_entries if s.scope != Scope.WORKSPACE]
         assert all(loser.shadowed is True for loser in losers)
 
-    def test_get_at_returns_only_named_scope_without_shadow_climb(
-        self, tmp_path: Path
-    ) -> None:
+    def test_get_at_returns_only_named_scope_without_shadow_climb(self, tmp_path: Path) -> None:
         """``get_at`` returns the literal layer and ``None`` when that layer is empty."""
         DummyStore.register(_make_spec("X", name="from-code"))
 
@@ -237,9 +233,7 @@ class TestTieredResourceStore:
 
     # ── Concurrency + atomicity ────────────────────────────────────────
 
-    def test_concurrent_creates_serialize_without_torn_writes(
-        self, tmp_path: Path
-    ) -> None:
+    def test_concurrent_creates_serialize_without_torn_writes(self, tmp_path: Path) -> None:
         """``_lock`` serializes concurrent ``create`` to exactly N entries."""
         store = _make_store(tmp_path)
 
@@ -251,7 +245,7 @@ class TestTieredResourceStore:
             try:
                 barrier.wait(timeout=5)
                 store.create(scope=Scope.WORKSPACE, id=f"id-{idx}", name=f"name-{idx}")
-            except BaseException as exc:  # noqa: BLE001
+            except BaseException as exc:
                 errors.append(exc)
 
         threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
@@ -263,9 +257,7 @@ class TestTieredResourceStore:
         assert errors == [], f"worker errors: {errors!r}"
         workspace_entries = store.list_scope(Scope.WORKSPACE)
         assert len(workspace_entries) == n
-        assert sorted(s.id for s in workspace_entries) == sorted(
-            f"id-{i}" for i in range(n)
-        )
+        assert sorted(s.id for s in workspace_entries) == sorted(f"id-{i}" for i in range(n))
 
     def test_failed_replace_leaves_original_and_no_stale_tmp(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -280,7 +272,7 @@ class TestTieredResourceStore:
 
         real_replace = os.replace
 
-        def boom(src, dst, *args, **kwargs):  # noqa: ANN002, ANN003, ANN001
+        def boom(src, dst, *args, **kwargs):  # noqa: ANN002, ANN003
             raise OSError("simulated replace failure")
 
         monkeypatch.setattr(os, "replace", boom)

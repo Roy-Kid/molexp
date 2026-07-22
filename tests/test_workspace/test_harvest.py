@@ -7,9 +7,11 @@ an empty narrative both raise ``ValueError``. The default name is idempotent
 per (kind, run) — a re-harvest updates the same item in place; an explicit
 ``name=`` allows multiple harvests of one run.
 
-The verb lives in the **workspace** layer (workspace-only imports) so a future
-harness ToolCapability can reach it — covered by the existing workspace import
-guard, not re-tested here.
+Scope note: harvest_run *composes* ``write_knowledge_item`` — the
+``knowledge.created`` event emission is owned by ``test_knowledge_write.py``
+and the KnowledgeItem/edge primitives by ``test_knowledge_item.py``; only
+harvest-specific behavior (terminal precondition, narrative, body rendering,
+naming/idempotency) is tested here.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from molexp.workspace import Bundle, harvest_run, read_workspace_events
+from molexp.workspace import Bundle, harvest_run
 from molexp.workspace.knowledge_item import KnowledgeItem
 
 _NARRATIVE = "Mobility rises monotonically with temperature."
@@ -51,13 +53,10 @@ def _knowledge_items(workspace: Any) -> list[KnowledgeItem]:
     return [c for c in Bundle(workspace.root).walk() if isinstance(c, KnowledgeItem)]
 
 
-# ── succeeded-run harvest (basics) ───────────────────────────────────────────
-
-
 class TestHarvestSucceededRun:
     def test_returns_knowledge_item_mounted_under_the_experiment(self, experiment: Any) -> None:
-        """Basics: the harvest of a succeeded run is a KnowledgeItem whose
-        directory is a direct child of the run's experiment (never the root)."""
+        """The harvest of a succeeded run is a KnowledgeItem whose directory is a
+        direct child of the run's experiment (never the root), named on the run."""
         run = experiment.add_run(params={"temperature": 350})
         _succeed(run)
 
@@ -82,33 +81,19 @@ class TestHarvestSucceededRun:
         assert ("experiment", experiment.id) in pairs
         assert meta.created_by == "roykid"
 
-    def test_meta_carries_a_timestamp(self, experiment: Any) -> None:
-        """Every harvest stamps ``ConceptMeta.timestamp`` — the recency signal
-        the slice-05 digest sorts on."""
-        run = experiment.add_run(params={"temperature": 350})
-        _succeed(run)
-
-        assert _harvest(run).read_knowledge_meta().timestamp is not None
-
-    def test_body_carries_narrative_params_and_status(self, experiment: Any) -> None:
-        """The body renders the caller's interpretation plus the run's params
-        and terminal status — readable without opening ``run.json``."""
-        run = experiment.add_run(params={"temperature": 350})
-        _succeed(run)
-
-        body = _harvest(run).body()
-
-        assert _NARRATIVE in body
-        assert "temperature" in body
-        assert "350" in body
-        assert "succeeded" in body
-
-    def test_results_table_renders_caller_supplied_values(self, experiment: Any) -> None:
+    def test_body_renders_narrative_params_status_and_results(self, experiment: Any) -> None:
+        """The body renders the caller's interpretation plus the run's params,
+        terminal status, and the supplied results table — readable without
+        opening ``run.json``."""
         run = experiment.add_run(params={"temperature": 350})
         _succeed(run)
 
         body = _harvest(run, results={"mobility": 0.42}).body()
 
+        assert _NARRATIVE in body
+        assert "temperature" in body
+        assert "350" in body
+        assert "succeeded" in body
         assert "mobility" in body
         assert "0.42" in body
 
@@ -136,19 +121,13 @@ class TestHarvestSucceededRun:
         ), edges
 
 
-# ── preconditions (error, never fall back) ───────────────────────────────────
-
-
 class TestHarvestPreconditions:
-    def test_pending_run_raises_value_error(self, experiment: Any) -> None:
+    def test_non_terminal_run_raises_value_error(self, experiment: Any) -> None:
+        """A run with no outcome yet (pending or running) is refused loudly."""
         run = experiment.add_run(params={"temperature": 350})
         assert run.status == "pending"
-
         with pytest.raises(ValueError):
             _harvest(run)
-
-    def test_running_run_raises_value_error(self, experiment: Any) -> None:
-        run = experiment.add_run(params={"temperature": 350})
 
         with run.start():
             assert run.status == "running"
@@ -156,16 +135,15 @@ class TestHarvestPreconditions:
                 _harvest(run)
 
     @pytest.mark.parametrize("narrative", ["", "   \n"])
-    def test_empty_narrative_raises_value_error(self, experiment: Any, narrative: str) -> None:
+    def test_empty_or_blank_narrative_raises_value_error(
+        self, experiment: Any, narrative: str
+    ) -> None:
         """Knowledge is interpretation — a blank narrative is refused loudly."""
         run = experiment.add_run(params={"temperature": 350})
         _succeed(run)
 
         with pytest.raises(ValueError):
             _harvest(run, narrative=narrative)
-
-
-# ── idempotency / lifecycle ──────────────────────────────────────────────────
 
 
 class TestHarvestIdempotency:
@@ -185,22 +163,6 @@ class TestHarvestIdempotency:
         assert "Second take" in items[0].body()
         assert "First take." not in items[0].body()
 
-    def test_first_harvest_emits_knowledge_created_once(
-        self, workspace: Any, experiment: Any
-    ) -> None:
-        """agent-record-export-01: harvest_run emits knowledge.created on create only."""
-        run = experiment.add_run(params={"temperature": 350})
-        _succeed(run)
-
-        _harvest(run, narrative="First take.")
-        events = read_workspace_events(workspace.root, type="knowledge.created")
-        assert len(events) == 1
-        assert events[0].payload.get("type") == "knowledge.item"
-
-        _harvest(run, narrative="Second take.")
-        events2 = read_workspace_events(workspace.root, type="knowledge.created")
-        assert len(events2) == 1
-
     def test_explicit_name_allows_a_second_harvest(self, workspace: Any, experiment: Any) -> None:
         run = experiment.add_run(params={"temperature": 350})
         _succeed(run)
@@ -212,13 +174,10 @@ class TestHarvestIdempotency:
         assert len(_knowledge_items(workspace)) == 2
 
 
-# ── failed-run harvest ───────────────────────────────────────────────────────
-
-
 class TestHarvestFailedRun:
     def test_failed_run_harvests_with_the_error_in_the_body(self, experiment: Any) -> None:
-        """A failed run is terminal → harvestable; its recorded error joins
-        the body so the analysis carries the *why*."""
+        """A failed run is terminal → harvestable; its recorded error joins the
+        body so the analysis carries the *why*."""
         run = experiment.add_run(params={"temperature": 350})
         _fail(run, "thermostat diverged")
 

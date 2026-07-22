@@ -1,16 +1,9 @@
-"""RED tests for ``molexp.workspace.curation`` inventory scanning.
+"""Tests for ``molexp.workspace.curation.inventory`` tree scanning.
 
-Pins ``scan_workspace`` and the frozen ``*Inventory`` pydantic models.
-
-Until the ``molexp.workspace.curation`` package exists these tests fail at
-collection with ``ModuleNotFoundError`` — the intended RED state. Once the
-subpackage ships they pin the inventory contract:
-
-* counts are totals across the whole ``Workspace → Project → Experiment →
-  Run`` tree;
-* ``asset_count`` is sourced from scanning the authoritative manifests
-  (``scan.scan_assets`` — run-scoped artifacts/logs/checkpoints);
-* every returned model is frozen.
+Pins ``scan_workspace``: counts are totals across the whole ``Workspace ->
+Project -> Experiment -> Run`` tree; ``asset_count`` is sourced from scanning
+the authoritative manifests (``scan.scan_assets``); the nested ``*Inventory``
+models carry each run's id and lifecycle status.
 """
 
 from __future__ import annotations
@@ -37,19 +30,14 @@ def _seed_two_run_tree(root: Path) -> Workspace:
     return ws
 
 
-# ── Basics: tree-wide counts ─────────────────────────────────────────────────
-
-
-class TestScanWorkspaceBasics:
+class TestScanWorkspace:
     def test_counts_are_tree_totals(self, tmp_path: Path) -> None:
-        ws = _seed_two_run_tree(tmp_path / "lab")
-        inv = scan_workspace(ws)
+        inv = scan_workspace(_seed_two_run_tree(tmp_path / "lab"))
         assert inv.project_count == 1
         assert inv.experiment_count == 1
         assert inv.run_count == 2
 
-    def test_asset_count_matches_scan(self, tmp_path: Path) -> None:
-        """``asset_count`` equals the manifest scan total (authoritative source)."""
+    def test_asset_count_matches_manifest_scan(self, tmp_path: Path) -> None:
         from molexp.workspace.assets import scan
 
         ws = _seed_two_run_tree(tmp_path / "lab")
@@ -57,31 +45,16 @@ class TestScanWorkspaceBasics:
         assert inv.asset_count == len(scan.scan_assets(ws.root))
         assert inv.asset_count >= 1  # the succeeded run's artifact is persisted
 
-
-# ── Basics: nested model shape ───────────────────────────────────────────────
-
-
-class TestInventoryShape:
-    def test_run_ids_match_on_disk_runs(self, tmp_path: Path) -> None:
+    def test_nested_inventory_carries_run_id_and_status(self, tmp_path: Path) -> None:
         ws = _seed_two_run_tree(tmp_path / "lab")
         inv = scan_workspace(ws)
-        exp_inv = inv.projects[0].experiments[0]
+        runs = inv.projects[0].experiments[0].runs
 
-        actual = {r.id for r in ws.list_projects()[0].list_experiments()[0].list_runs()}
-        assert {r.id for r in exp_inv.runs} == actual
+        on_disk = {r.id for r in ws.list_projects()[0].list_experiments()[0].list_runs()}
+        assert {r.id for r in runs} == on_disk
+        assert sorted(r.status for r in runs) == ["pending", "succeeded"]
 
-    def test_per_run_status_recorded(self, tmp_path: Path) -> None:
-        ws = _seed_two_run_tree(tmp_path / "lab")
-        inv = scan_workspace(ws)
-        statuses = sorted(r.status for r in inv.projects[0].experiments[0].runs)
-        assert statuses == ["pending", "succeeded"]
-
-
-# ── Edge case: empty workspace ───────────────────────────────────────────────
-
-
-class TestScanWorkspaceEdgeCases:
-    def test_empty_workspace_yields_empty_inventory(self, tmp_path: Path) -> None:
+    def test_empty_workspace_yields_zeroed_inventory(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "empty", name="Empty Lab")
         ws.materialize()
         inv = scan_workspace(ws)

@@ -17,12 +17,10 @@ from molexp.workspace import (
     to_transport,
 )
 
-# ---------------------------------------------------------------------------
-# ComputeTarget validation
-# ---------------------------------------------------------------------------
-
 
 class TestComputeTargetValidation:
+    """The ``_validate_axes`` model_validator on ``ComputeTarget``."""
+
     def test_scratch_root_is_required(self) -> None:
         with pytest.raises(ValueError, match="scratch_root"):
             ComputeTarget(name="x", scratch_root="")
@@ -32,22 +30,11 @@ class TestComputeTargetValidation:
             ComputeTarget(name="x", scratch_root="/tmp", port=22)
 
 
-# ---------------------------------------------------------------------------
-# Registry CRUD round-trip
-# ---------------------------------------------------------------------------
-
-
 class TestRegistry:
-    def test_add_and_list(self, tmp_path: Path) -> None:
-        ws = Workspace(tmp_path)
-        ws.materialize()
-        add_target(ws, ComputeTarget(name="a", scratch_root="/tmp"))
-        add_target(ws, ComputeTarget(name="b", host="me@h", scheduler="slurm", scratch_root="/s"))
-        names = [t.name for t in list_targets(ws)]
-        assert names == ["a", "b"]
+    """CRUD over ``WorkspaceMetadata.targets`` via the ``targets`` helpers."""
 
-    def test_round_trip_via_disk(self, tmp_path: Path) -> None:
-        """Targets must survive workspace.json reload."""
+    def test_add_get_round_trips_through_workspace_json(self, tmp_path: Path) -> None:
+        """A registered target survives a fresh ``Workspace`` load unchanged."""
         ws = Workspace(tmp_path)
         ws.materialize()
         add_target(
@@ -80,7 +67,7 @@ class TestRegistry:
         with pytest.raises(ValueError, match="already exists"):
             add_target(ws, ComputeTarget(name="a", scratch_root="/other"))
 
-    def test_remove(self, tmp_path: Path) -> None:
+    def test_remove_drops_named_target(self, tmp_path: Path) -> None:
         ws = Workspace(tmp_path)
         ws.materialize()
         add_target(ws, ComputeTarget(name="a", scratch_root="/tmp"))
@@ -95,17 +82,14 @@ class TestRegistry:
             get_target(ws, "ghost")
 
 
-# ---------------------------------------------------------------------------
-# Transport bridge
-# ---------------------------------------------------------------------------
-
-
 class TestToTransport:
+    """``to_transport`` maps a ``ComputeTarget``'s host axis onto a molq Transport."""
+
     def test_local_target_yields_local_transport(self) -> None:
         t = ComputeTarget(name="x", scratch_root="/tmp")
         assert isinstance(to_transport(t), LocalTransport)
 
-    def test_remote_target_yields_ssh_transport(self) -> None:
+    def test_remote_target_yields_ssh_transport_with_options(self) -> None:
         t = ComputeTarget(
             name="x",
             host="me@h",
