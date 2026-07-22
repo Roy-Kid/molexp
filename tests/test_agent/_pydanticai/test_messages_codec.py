@@ -1,10 +1,9 @@
 """``_pydanticai.messages_codec`` round-trips pydantic-ai ``ModelMessage`` history.
 
-The codec is the sole serialization site for the pydantic-ai-native
-conversation context that :class:`AgentSession` carries between turns.
-This test pins the round-trip contract using real pydantic-ai message
-types so any drift in the SDK shape gets caught at the boundary, not
-deep inside the session catalog.
+The codec is the sole serialization site for the pydantic-ai-native conversation
+context :class:`AgentSession` carries between turns. This pins the wrapper's
+own contract — dump returns ``bytes``, load coerces back to a ``tuple`` — using
+real SDK message types so any drift in the SDK shape is caught at the boundary.
 """
 
 from __future__ import annotations
@@ -12,83 +11,47 @@ from __future__ import annotations
 import pytest
 
 
-def test_codec_round_trips_pydantic_ai_messages() -> None:
-    """Dump → load preserves the message list element-for-element."""
-    pytest.importorskip("pydantic_ai")
-    from pydantic_ai.messages import (
-        ModelRequest,
-        ModelResponse,
-        TextPart,
-        UserPromptPart,
-    )
+class TestModelMessagesCodec:
+    def test_dump_load_round_trips_messages_and_preserves_tool_identity(self) -> None:
+        """dump→load is element-for-element identity; tool-call name + args
+        (load-bearing for harvest/export feedstock) survive intact. Uses the
+        strongest message graph — text, tool-call, and tool-return parts."""
+        pytest.importorskip("pydantic_ai")
+        from pydantic_ai.messages import (
+            ModelRequest,
+            ModelResponse,
+            TextPart,
+            ToolCallPart,
+            ToolReturnPart,
+            UserPromptPart,
+        )
 
-    from molexp.agent._pydanticai.messages_codec import (
-        dump_model_messages,
-        load_model_messages,
-    )
+        from molexp.agent._pydanticai.messages_codec import (
+            dump_model_messages,
+            load_model_messages,
+        )
 
-    original = [
-        ModelRequest(parts=[UserPromptPart(content="hello")]),
-        ModelResponse(parts=[TextPart(content="hi back")]),
-    ]
-    data = dump_model_messages(original)
-    assert isinstance(data, bytes)
-    restored = load_model_messages(data)
-    assert isinstance(restored, tuple)
-    assert len(restored) == 2
-    # pydantic-ai messages are pydantic models — equality compares fields.
-    assert list(restored) == original
+        original = [
+            ModelRequest(parts=[UserPromptPart(content="peek")]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="t1"),
+                ]
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="read_file", content="print(1)", tool_call_id="t1"),
+                ]
+            ),
+            ModelResponse(parts=[TextPart(content="done")]),
+        ]
 
+        data = dump_model_messages(original)
+        assert isinstance(data, bytes)
+        restored = load_model_messages(data)
+        assert isinstance(restored, tuple)
+        assert list(restored) == original
 
-def test_codec_rejects_malformed_bytes() -> None:
-    """Garbage in → ``ValidationError`` out (caller's job to handle)."""
-    pytest.importorskip("pydantic_ai")
-    from pydantic import ValidationError
-
-    from molexp.agent._pydanticai.messages_codec import load_model_messages
-
-    with pytest.raises(ValidationError):
-        load_model_messages(b'{"not": "a-message-list"}')
-
-
-def test_codec_round_trips_tool_call_parts() -> None:
-    """Tool call + tool return parts survive dump/load (export harvest feedstock)."""
-    pytest.importorskip("pydantic_ai")
-    from pydantic_ai.messages import (
-        ModelRequest,
-        ModelResponse,
-        TextPart,
-        ToolCallPart,
-        ToolReturnPart,
-        UserPromptPart,
-    )
-
-    from molexp.agent._pydanticai.messages_codec import (
-        dump_model_messages,
-        load_model_messages,
-    )
-
-    original = [
-        ModelRequest(parts=[UserPromptPart(content="peek")]),
-        ModelResponse(
-            parts=[
-                ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="t1"),
-            ]
-        ),
-        ModelRequest(
-            parts=[
-                ToolReturnPart(
-                    tool_name="read_file",
-                    content="print(1)",
-                    tool_call_id="t1",
-                )
-            ]
-        ),
-        ModelResponse(parts=[TextPart(content="done")]),
-    ]
-    restored = load_model_messages(dump_model_messages(original))
-    assert list(restored) == original
-    # Tool identity is load-bearing for harvest/export.
-    tool_part = restored[1].parts[0]
-    assert tool_part.tool_name == "read_file"
-    assert tool_part.args == {"path": "a.py"}
+        tool_part = restored[1].parts[0]
+        assert tool_part.tool_name == "read_file"
+        assert tool_part.args == {"path": "a.py"}

@@ -1,10 +1,11 @@
-"""Agent folders route ALL I/O through their injectable workspace FileSystem.
+"""Agent Concept folders route I/O through their injectable workspace fs.
 
-After the OKF rehome, ``Agent`` / ``AgentSession`` are ``molexp.workspace.Folder``
-Concepts (flat layout: ``<agent>/<session>/``). This test instruments a
-workspace ``LocalFileSystem`` with a call-recording spy and asserts the agent
-layer routes through ``fs`` (so a non-local backend would work) rather than
-touching ``pathlib`` directly.
+After the OKF rehome, ``Agent`` / ``AgentSession`` are
+``molexp.workspace.Folder`` Concepts. This locks the backend-agnostic
+invariant: their overrides go through the injected ``FileSystem``
+(so a non-local backend works) rather than touching ``pathlib`` directly.
+The observable outcomes of these methods are owned by ``test_folders.py``;
+here we assert only the fs-routing.
 """
 
 from __future__ import annotations
@@ -45,23 +46,12 @@ def spy_agent(tmp_path):
     return agent, fs
 
 
-def _ops_for_path(calls: list[tuple[str, str]], rel: str) -> set[str]:
-    return {op for op, path in calls if rel in path}
-
-
-def test_agent_materialize_routes_through_fs(spy_agent):
-    agent, fs = spy_agent
-    agent.materialize()
-    ops = _ops_for_path(fs.calls, "reviewer")
-    assert "mkdir" in ops, f"materialize must mkdir via fs; ops were {ops!r}"
-    assert "atomic_write_text" in ops, f"materialize must write meta.yaml via fs; ops were {ops!r}"
-
-
-def test_write_messages_empty_removes_via_fs(spy_agent):
-    agent, fs = spy_agent
-    session = agent.add_session("chat-1")
-    fs.write_bytes(session.messages_path, b"{}\n")
-    fs.calls.clear()
-    session.write_messages(())  # empty → remove via fs
-    ops = _ops_for_path(fs.calls, "messages.jsonl")
-    assert "remove" in ops, f"write_messages(empty) must remove via fs.remove; ops were {ops!r}"
+class TestAgent:
+    def test_materialize_routes_io_through_injectable_fs(self, spy_agent) -> None:
+        agent, fs = spy_agent
+        agent.materialize()
+        ops = {op for op, path in fs.calls if "reviewer" in path}
+        assert "mkdir" in ops, f"materialize must mkdir via fs; ops were {ops!r}"
+        assert "atomic_write_text" in ops, (
+            f"materialize must write meta.yaml via fs; ops were {ops!r}"
+        )

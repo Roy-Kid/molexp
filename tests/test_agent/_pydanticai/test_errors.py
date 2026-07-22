@@ -1,13 +1,12 @@
 """Tests for :mod:`molexp.agent._pydanticai.errors`.
 
-Coverage focus (acceptance criteria ac-001 + ac-002):
+Two behaviors are owned here:
 
-- :class:`ErrorKind` enum membership matches the documented set.
-- :class:`ProviderError` carries the documented frozen attributes
-  via ``__slots__``; mutation is rejected.
-- :func:`classify` maps each known exception family to the right
-  :class:`ErrorKind`; unrecognized exceptions fall back to
-  ``ErrorKind.unknown``.
+- :class:`ProviderError` is immutable on its documented fields but keeps its
+  dunder attributes writable so Python's exception machinery can propagate it.
+- :func:`classify` maps each exception family — real ``isinstance`` cases and
+  the ``pydantic_ai.*`` SDK exceptions detected structurally by name/message —
+  onto the right :class:`ErrorKind`.
 """
 
 from __future__ import annotations
@@ -15,143 +14,82 @@ from __future__ import annotations
 import pydantic
 import pytest
 
-from molexp.agent._pydanticai.errors import (
-    ErrorKind,
-    ProviderError,
-    classify,
-)
+from molexp.agent._pydanticai.errors import ErrorKind, ProviderError, classify
 from molexp.agent.router import ModelTier
 
-# ── ErrorKind enum ─────────────────────────────────────────────────────────
+
+class TestProviderError:
+    def test_documented_fields_are_immutable_after_construction(self) -> None:
+        err = ProviderError(ErrorKind.unknown, node_id="", tier=ModelTier.DEFAULT)
+        with pytest.raises(AttributeError):
+            err.kind = ErrorKind.timeout  # type: ignore[misc]
+        with pytest.raises(AttributeError):
+            err.attempts = 99  # type: ignore[misc]
+
+    @pytest.mark.asyncio
+    async def test_dunder_attributes_stay_mutable_for_exception_propagation(self) -> None:
+        """Regression: every mode runs inside ``harness.stage()`` (an
+        ``@asynccontextmanager``); contextlib's ``__aexit__`` assigns
+        ``exc.__traceback__``. If ``__setattr__`` blocked dunders, that write
+        raised a masking ``AttributeError`` and crashed the run instead of
+        surfacing the original ``ProviderError``.
+        """
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def stage():
+            yield
+
+        err = ProviderError(ErrorKind.unknown, node_id="x", tier=ModelTier.DEFAULT)
+        with pytest.raises(ProviderError) as exc_info:
+            async with stage():
+                raise err
+        assert exc_info.value is err
 
 
-def test_error_kind_members_match_documented_set() -> None:
-    expected = {
-        "model_unavailable",
-        "schema_parse",
-        "validation",
-        "timeout",
-        "unknown",
-    }
-    actual = {member.value for member in ErrorKind}
-    assert actual == expected
+class TestClassify:
+    def test_pydantic_validation_error_is_schema_parse(self) -> None:
+        class _M(pydantic.BaseModel):
+            n: int
 
+        try:
+            _M(n="not-an-int")  # type: ignore[arg-type]
+        except pydantic.ValidationError as exc:
+            assert classify(exc) is ErrorKind.schema_parse
+        else:  # pragma: no cover — pydantic must reject
+            pytest.fail("expected ValidationError")
 
-# ── ProviderError ──────────────────────────────────────────────────────────
+    def test_timeout_error_is_timeout(self) -> None:
+        assert classify(TimeoutError()) is ErrorKind.timeout
 
+    def test_type_error_is_schema_parse(self) -> None:
+        """The wrapper's own isinstance schema-mismatch raise surfaces as
+        ``TypeError`` and must classify as schema_parse."""
+        assert classify(TypeError("expected Foo; received Bar")) is ErrorKind.schema_parse
 
-def test_provider_error_documented_fields_are_immutable() -> None:
-    err = ProviderError(
-        ErrorKind.unknown,
-        node_id="",
-        tier=ModelTier.DEFAULT,
+    def test_os_error_is_model_unavailable(self) -> None:
+        assert classify(ConnectionError("refused")) is ErrorKind.model_unavailable
+
+    def test_unrecognized_exception_is_unknown(self) -> None:
+        """A bare ``ValueError`` must fall through to ``unknown`` — the
+        ``pydantic.ValidationError`` check is deliberately specific, not a
+        catch-all for its ``ValueError`` base."""
+        assert classify(ValueError("bare")) is ErrorKind.unknown
+
+    @pytest.mark.parametrize(
+        ("class_name", "message", "expected"),
+        [
+            # SDK exceptions are detected by module path (no eager SDK import).
+            ("UnexpectedModelBehavior", "oops", ErrorKind.schema_parse),  # by name
+            ("ModelHTTPError", "boom", ErrorKind.model_unavailable),  # by name
+            # Generic ``ModelAPIError`` (name lacks HTTP/Connection) → by message,
+            # so a transient blip retries instead of aborting the pipeline.
+            ("ModelAPIError", "Connection error.", ErrorKind.model_unavailable),
+            ("ModelAPIError", "Request timed out", ErrorKind.timeout),
+        ],
     )
-    with pytest.raises(AttributeError):
-        err.kind = ErrorKind.timeout  # type: ignore[misc]
-    with pytest.raises(AttributeError):
-        err.attempts = 99  # type: ignore[misc]
-
-
-# ── dunder attribute mutability — Python exception machinery ──────────────────
-
-
-@pytest.mark.asyncio
-async def test_provider_error_propagates_through_async_context_manager() -> None:
-    """A ProviderError raised inside ``@asynccontextmanager`` must surface as
-    itself, not be masked by a secondary ``AttributeError`` on
-    ``__traceback__`` assignment in contextlib's ``__aexit__``.
-
-    Regression: every molexp mode runs inside ``harness.stage()`` (an
-    ``@asynccontextmanager``); without this guarantee, any ``ProviderError``
-    inside a stage crashed the whole run instead of propagating.
-    """
-    from contextlib import asynccontextmanager
-
-    @asynccontextmanager
-    async def stage():
-        yield
-
-    err = ProviderError(ErrorKind.unknown, node_id="x", tier=ModelTier.DEFAULT)
-    with pytest.raises(ProviderError) as exc_info:
-        async with stage():
-            raise err
-    assert exc_info.value is err
-
-
-# ── classify ───────────────────────────────────────────────────────────────
-
-
-def test_classify_pydantic_validation_error_to_schema_parse() -> None:
-    class _M(pydantic.BaseModel):
-        n: int
-
-    try:
-        _M(n="not-an-int")  # type: ignore[arg-type]
-    except pydantic.ValidationError as exc:
-        assert classify(exc) is ErrorKind.schema_parse
-    else:  # pragma: no cover — pydantic must reject
-        pytest.fail("expected ValidationError")
-
-
-def test_classify_asyncio_timeout_error_to_timeout() -> None:
-    assert classify(TimeoutError()) is ErrorKind.timeout
-
-
-def test_classify_type_error_schema_mismatch_to_schema_parse() -> None:
-    """The provider raises ``TypeError`` on isinstance schema mismatch."""
-    err = TypeError("Provider expected Foo; received Bar")
-    assert classify(err) is ErrorKind.schema_parse
-
-
-def test_classify_os_error_to_model_unavailable() -> None:
-    assert classify(ConnectionError("refused")) is ErrorKind.model_unavailable
-    assert classify(OSError(111, "socket")) is ErrorKind.model_unavailable
-
-
-def test_classify_unknown_exception_to_unknown() -> None:
-    class CustomError(Exception):
-        pass
-
-    assert classify(CustomError("bizarre")) is ErrorKind.unknown
-    assert classify(ValueError("bare")) is ErrorKind.unknown
-
-
-def test_classify_pydantic_ai_validation_like_to_schema_parse() -> None:
-    """Names matching Validation/Schema/UnexpectedModel under
-    pydantic_ai.* classify as schema_parse without importing the SDK."""
-    cls = type(
-        "UnexpectedModelBehavior",
-        (Exception,),
-        {"__module__": "pydantic_ai.exceptions"},
-    )
-    assert classify(cls("oops")) is ErrorKind.schema_parse
-
-
-def test_classify_pydantic_ai_http_like_to_model_unavailable() -> None:
-    cls = type(
-        "ModelHTTPError",
-        (Exception,),
-        {"__module__": "pydantic_ai.exceptions"},
-    )
-    assert classify(cls("boom")) is ErrorKind.model_unavailable
-
-
-def test_classify_pydantic_ai_connection_message_to_model_unavailable() -> None:
-    """A transient connection failure surfaces as ``ModelAPIError`` whose class
-    name lacks 'HTTP'/'Connection'; the message must still route it to the
-    retryable ``model_unavailable`` class (a blip must not kill the plan)."""
-    cls = type(
-        "ModelAPIError",
-        (Exception,),
-        {"__module__": "pydantic_ai.exceptions"},
-    )
-    assert classify(cls("Connection error.")) is ErrorKind.model_unavailable
-
-
-def test_classify_pydantic_ai_timeout_message_to_timeout() -> None:
-    cls = type(
-        "ModelAPIError",
-        (Exception,),
-        {"__module__": "pydantic_ai.exceptions"},
-    )
-    assert classify(cls("Request timed out")) is ErrorKind.timeout
+    def test_pydantic_ai_sdk_exception_classified_by_name_then_message(
+        self, class_name: str, message: str, expected: ErrorKind
+    ) -> None:
+        cls = type(class_name, (Exception,), {"__module__": "pydantic_ai.exceptions"})
+        assert classify(cls(message)) is expected

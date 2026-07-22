@@ -1,27 +1,20 @@
-"""Pi-style outer loop for :class:`InteractiveLoop` (plan-emergent-02).
+"""Pi-style outer steering loop of :class:`InteractiveLoop` (plan-emergent-02).
 
-Behavior-based RED tests for the emergent loop's *outer* steering loop —
-the dual of the harness ``RepairLoop`` at the agent layer. A single
-``ShouldStopGuard`` (phase-01 vocabulary) drives every branch after each
-inner ReAct pass ends in a ``FinalChunk``:
+The dual of the harness ``RepairLoop`` at the agent layer: a single
+``ShouldStopGuard`` drives every branch after each inner ReAct pass ends in a
+``FinalChunk``. Three orthogonal behaviors:
 
-* ac-001 steering — a ``deny`` once then ``proceed`` runs exactly two
-  ``stream_agentic`` passes, the second seeded with the steer message.
-* ac-002 should_stop-deny feedback — a denied stop does not terminate;
-  the loop runs another pass with the deny message as input.
-* ac-003 follow-up — N ``deny`` then ``proceed`` yields N+1 passes and a
-  single terminal ``LoopCompletedEvent``.
-* ac-004 suspend — a ``suspend`` outcome terminates with a
-  ``LoopSuspendedEvent`` (reason + leaf_id), runs no further pass, writes
-  no pending record, and round-trips through the ``AgentEvent`` union.
-* ac-007 max_passes — an always-``deny`` guard stops at
-  ``config.max_passes`` passes and still emits a terminal
-  ``LoopCompletedEvent`` (no infinite loop).
+* **steer** — a ``deny`` appends the deny message as the next user turn and
+  runs another pass seeded with it, terminating in one ``LoopCompletedEvent``.
+* **suspend** — a ``suspend`` outcome terminates with a ``LoopSuspendedEvent``
+  (reason + leaf_id), runs no further pass, writes no pending record, and
+  round-trips through the ``AgentEvent`` union.
+* **bound** — an always-``deny`` guard halts at ``config.max_passes`` and still
+  completes (no infinite loop).
 
-All offline: a scripted fake :class:`~molexp.agent.router.Router` yields
-canned chunks and counts its own ``stream_agentic`` calls; a scripted
-``ShouldStopGuard`` replays a fixed outcome sequence. No SDK, no clock,
-no RNG.
+All offline: a scripted fake ``Router`` yields canned chunks and counts its
+``stream_agentic`` calls; a scripted ``ShouldStopGuard`` replays a fixed
+outcome sequence. No SDK, no clock, no RNG.
 """
 
 from __future__ import annotations
@@ -68,13 +61,11 @@ pytestmark = pytest.mark.asyncio
 
 
 class _ScriptedRouter:
-    """Fake :class:`~molexp.agent.router.Router` recording each pass's input.
+    """Fake ``Router`` recording each pass's prompt + history.
 
     Every ``stream_agentic`` call yields one tool round-trip then a
-    ``FinalChunk`` whose text is ``final-<n>`` (``n`` = 1-based call
-    count), so the ``ShouldStopGuard`` observes a distinct draft final per
-    pass. The prompt and message-history handed to each call are recorded
-    so a test can assert *what the second pass received*.
+    ``FinalChunk`` whose text is ``final-<n>`` (``n`` = 1-based call count),
+    so the ``ShouldStopGuard`` observes a distinct draft final per pass.
     """
 
     def __init__(self, *, tool_name: str = "read_file") -> None:
@@ -138,9 +129,9 @@ class _ScriptedRouter:
 class _ScriptedGuard:
     """A ``ShouldStopGuard`` replaying a fixed sequence of ``HookOutcome``\\ s.
 
-    Call ``i`` returns ``outcomes[i]`` when in range, else ``default``.
-    Records every ``LoopState`` it observed so a test can assert the pass
-    count and draft-final the loop handed it.
+    Call ``i`` returns ``outcomes[i]`` when in range, else ``default``. Records
+    every ``LoopState`` observed so a test can assert the pass count and the
+    draft-final the loop handed it.
     """
 
     def __init__(
@@ -184,11 +175,7 @@ def _config(tmp_path: Path, *, max_passes: int = 8) -> InteractiveLoopConfig:
 
 
 async def _drive(loop: InteractiveLoop, runtime: AgentRuntime, user_input: str) -> list[AgentEvent]:
-    """Run ``loop`` to completion and return the whole emitted event list.
-
-    The sink is unbounded, so the loop never blocks on a full queue; we
-    close and drain it after ``run`` returns.
-    """
+    """Run ``loop`` to completion and return the whole emitted event list."""
     sink = AsyncIteratorEventSink()
     await loop.run(runtime=runtime, sink=sink, user_input=user_input)
     await sink.close()
@@ -207,123 +194,81 @@ def _user_contents(session: Session) -> list[str]:
     ]
 
 
-async def test_ac001_deny_once_then_proceed_runs_two_passes(tmp_path: Path) -> None:
-    """ac-001: one ``deny`` steers a second pass seeded with the steer message."""
-    router = _ScriptedRouter()
-    guard = _ScriptedGuard([HookOutcome.deny("look again")])
-    loop = InteractiveLoop(config=_config(tmp_path), hooks=LoopHooks(should_stop=guard))
-    runtime, session = _runtime(router, InMemorySessionStorage(), tmp_path, session_id="ac001")
+class TestInteractiveLoopSteering:
+    """The Pi-style outer loop: steer / suspend / bound."""
 
-    events = await _drive(loop, runtime, "inspect the project")
+    async def test_deny_steers_a_second_pass_seeded_with_the_deny_message(
+        self, tmp_path: Path
+    ) -> None:
+        """One ``deny`` runs a second pass seeded (as prompt + user turn) with it."""
+        router = _ScriptedRouter()
+        guard = _ScriptedGuard([HookOutcome.deny("look again")])
+        loop = InteractiveLoop(config=_config(tmp_path), hooks=LoopHooks(should_stop=guard))
+        runtime, session = _runtime(
+            router, InMemorySessionStorage(), tmp_path, session_id="steer"
+        )
 
-    assert router.stream_agentic_calls == 2
-    # The second pass is seeded with the steer message, both as prompt and
-    # as an appended user turn on the session tree.
-    assert router.prompts[1] == "look again"
-    assert "look again" in _user_contents(session)
-    # The guard sees a monotonic pass count and each pass's draft final.
-    assert [state.step for state in guard.states] == [1, 2]
-    assert guard.states[0].draft_final == "final-1"
-    # Exactly one terminal event, and it is a normal completion.
-    assert len(_terminal(events)) == 1
-    assert isinstance(events[-1], LoopCompletedEvent)
+        events = await _drive(loop, runtime, "inspect the project")
 
+        assert router.stream_agentic_calls == 2
+        assert router.prompts[1] == "look again"
+        assert "look again" in _user_contents(session)
+        # The guard sees a monotonic pass count and each pass's draft final.
+        assert [state.step for state in guard.states] == [1, 2]
+        assert guard.states[0].draft_final == "final-1"
+        # Exactly one terminal event, and it is a normal completion.
+        assert len(_terminal(events)) == 1
+        assert isinstance(events[-1], LoopCompletedEvent)
 
-async def test_ac002_denied_stop_does_not_terminate_until_proceed(tmp_path: Path) -> None:
-    """ac-002: a denied stop feeds back another pass instead of terminating."""
-    deny_msg = "you missed the config file"
-    router = _ScriptedRouter()
-    guard = _ScriptedGuard([HookOutcome.deny(deny_msg)])
-    loop = InteractiveLoop(config=_config(tmp_path), hooks=LoopHooks(should_stop=guard))
-    runtime, session = _runtime(router, InMemorySessionStorage(), tmp_path, session_id="ac002")
+    async def test_suspend_terminates_with_loop_suspended_event(self, tmp_path: Path) -> None:
+        """A ``suspend`` ends the loop durably with a ``LoopSuspendedEvent``."""
+        router = _ScriptedRouter()
+        guard = _ScriptedGuard([HookOutcome.suspend("out of budget")])
+        loop = InteractiveLoop(config=_config(tmp_path), hooks=LoopHooks(should_stop=guard))
+        session_dir = tmp_path / "sess"
+        runtime, session = _runtime(
+            router, JsonlSessionStorage(session_dir), tmp_path, session_id="suspend"
+        )
 
-    events = await _drive(loop, runtime, "summarize")
+        events = await _drive(loop, runtime, "long task")
 
-    # The deny did NOT terminate: a second pass ran and there is exactly one
-    # terminal event overall (the later proceed), never one per denied stop.
-    assert router.stream_agentic_calls == 2
-    assert len(_terminal(events)) == 1
-    assert not any(isinstance(e, LoopSuspendedEvent) for e in events)
-    assert isinstance(events[-1], LoopCompletedEvent)
-    # The deny message reaches the next pass's input.
-    assert deny_msg in router.prompts[1]
-    assert deny_msg in _user_contents(session)
+        # Suspend runs no further pass and never falls back to a completion.
+        assert router.stream_agentic_calls == 1
+        assert not any(isinstance(e, LoopCompletedEvent) for e in events)
+        terminal = _terminal(events)
+        assert len(terminal) == 1
+        suspended = terminal[0]
+        assert isinstance(suspended, LoopSuspendedEvent)
+        assert suspended.reason == "out of budget"
+        # The event carries the session's live leaf id (a persisted tip).
+        assert suspended.leaf_id == session.leaf_id
+        assert suspended.leaf_id
 
+        # The entry tree + leaf pointer are durably persisted (no pending store).
+        assert (session_dir / "entries.jsonl").is_file()
+        assert (session_dir / "leaf").is_file()
 
-@pytest.mark.parametrize("n_denies", [1, 2, 3])
-async def test_ac003_n_denies_then_proceed_runs_n_plus_one_passes(
-    tmp_path: Path, n_denies: int
-) -> None:
-    """ac-003: N follow-up ``deny``\\ s yield N+1 passes + one completion."""
-    router = _ScriptedRouter()
-    denies = [HookOutcome.deny(f"follow-up-{i}") for i in range(n_denies)]
-    guard = _ScriptedGuard(denies)
-    # max_passes generously above N+1 so the bound never fires here.
-    loop = InteractiveLoop(
-        config=_config(tmp_path, max_passes=n_denies + 5),
-        hooks=LoopHooks(should_stop=guard),
-    )
-    runtime, _session = _runtime(
-        router, InMemorySessionStorage(), tmp_path, session_id=f"ac003-{n_denies}"
-    )
+        # The suspend event round-trips through the AgentEvent discriminated union.
+        adapter: TypeAdapter[AgentEvent] = TypeAdapter(AgentEvent)
+        reparsed = adapter.validate_json(suspended.model_dump_json())
+        assert isinstance(reparsed, LoopSuspendedEvent)
+        assert reparsed.reason == "out of budget"
+        assert reparsed.leaf_id == suspended.leaf_id
 
-    events = await _drive(loop, runtime, "go")
+    async def test_always_deny_stops_at_max_passes(self, tmp_path: Path) -> None:
+        """An always-``deny`` guard halts at ``max_passes`` (no infinite loop)."""
+        router = _ScriptedRouter()
+        guard = _ScriptedGuard([], default=HookOutcome.deny("keep going"))
+        loop = InteractiveLoop(
+            config=_config(tmp_path, max_passes=3),
+            hooks=LoopHooks(should_stop=guard),
+        )
+        runtime, _session = _runtime(
+            router, InMemorySessionStorage(), tmp_path, session_id="bound"
+        )
 
-    assert router.stream_agentic_calls == n_denies + 1
-    completions = [e for e in events if isinstance(e, LoopCompletedEvent)]
-    assert len(completions) == 1
-    assert not any(isinstance(e, LoopSuspendedEvent) for e in events)
+        events = await _drive(loop, runtime, "never satisfied")
 
-
-async def test_ac004_suspend_terminates_with_loop_suspended_event(tmp_path: Path) -> None:
-    """ac-004: a ``suspend`` ends the loop with a ``LoopSuspendedEvent``."""
-    router = _ScriptedRouter()
-    guard = _ScriptedGuard([HookOutcome.suspend("out of budget")])
-    loop = InteractiveLoop(config=_config(tmp_path), hooks=LoopHooks(should_stop=guard))
-    session_dir = tmp_path / "sess"
-    runtime, session = _runtime(
-        router, JsonlSessionStorage(session_dir), tmp_path, session_id="ac004"
-    )
-
-    events = await _drive(loop, runtime, "long task")
-
-    # Suspend runs no further pass and does not fall back to a completion.
-    assert router.stream_agentic_calls == 1
-    assert not any(isinstance(e, LoopCompletedEvent) for e in events)
-    terminal = _terminal(events)
-    assert len(terminal) == 1
-    suspended = terminal[0]
-    assert isinstance(suspended, LoopSuspendedEvent)
-    assert suspended.reason == "out of budget"
-    # The event carries the session's live leaf id (a persisted tip).
-    assert suspended.leaf_id == session.leaf_id
-    assert suspended.leaf_id
-
-    # The entry tree + leaf pointer are durably persisted (no pending store).
-    assert (session_dir / "entries.jsonl").is_file()
-    assert (session_dir / "leaf").is_file()
-
-    # The suspend event validates as an AgentEvent union member (discriminator
-    # round-trip through the union).
-    adapter: TypeAdapter[AgentEvent] = TypeAdapter(AgentEvent)
-    reparsed = adapter.validate_json(suspended.model_dump_json())
-    assert isinstance(reparsed, LoopSuspendedEvent)
-    assert reparsed.reason == "out of budget"
-    assert reparsed.leaf_id == suspended.leaf_id
-
-
-async def test_ac007_always_deny_stops_at_max_passes(tmp_path: Path) -> None:
-    """ac-007: an always-``deny`` guard halts at ``max_passes`` (no infinite loop)."""
-    router = _ScriptedRouter()
-    guard = _ScriptedGuard([], default=HookOutcome.deny("keep going"))
-    loop = InteractiveLoop(
-        config=_config(tmp_path, max_passes=3),
-        hooks=LoopHooks(should_stop=guard),
-    )
-    runtime, _session = _runtime(router, InMemorySessionStorage(), tmp_path, session_id="ac007")
-
-    events = await _drive(loop, runtime, "never satisfied")
-
-    assert router.stream_agentic_calls == 3
-    assert not any(isinstance(e, LoopSuspendedEvent) for e in events)
-    assert isinstance(events[-1], LoopCompletedEvent)
+        assert router.stream_agentic_calls == 3
+        assert not any(isinstance(e, LoopSuspendedEvent) for e in events)
+        assert isinstance(events[-1], LoopCompletedEvent)

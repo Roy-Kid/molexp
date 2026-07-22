@@ -1,4 +1,10 @@
-"""InteractiveLoop opens McpStore entries and passes toolsets to stream_agentic."""
+"""InteractiveLoop wires McpStore entries into ``stream_agentic(toolsets=...)``.
+
+Owns the loop↔MCP seam only: a valid store entry becomes an opened toolset
+handed to the router (happy path), and a build failure is best-effort
+non-fatal (boundary). Tool-mounting and chunk translation are owned by
+``test_loop.py``; ``readonly_tools`` confinement by ``test_tools.py``.
+"""
 
 from __future__ import annotations
 
@@ -24,11 +30,10 @@ from molexp.agent.types import UsageBreakdown
 
 
 class _CaptureToolsetsRouter:
-    """Scripted router that records ``toolsets`` / ``tools`` kwargs."""
+    """Scripted router that records the ``toolsets`` kwarg it was handed."""
 
     def __init__(self) -> None:
         self.last_toolsets: tuple[Any, ...] = ()
-        self.last_tools: tuple[Any, ...] = ()
         self.stream_agentic_calls = 0
 
     async def stream_agentic(
@@ -41,9 +46,8 @@ class _CaptureToolsetsRouter:
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
     ) -> AsyncIterator[AgenticChunk]:
-        del prompt, system, tier, message_history
+        del prompt, system, tools, tier, message_history
         self.stream_agentic_calls += 1
-        self.last_tools = tools
         self.last_toolsets = toolsets
         yield TextDeltaChunk(text="ok")
         yield FinalChunk(text="ok")
@@ -64,108 +68,72 @@ class _CaptureToolsetsRouter:
 def _write_workspace_mcp(workspace: Path, *, name: str = "demo") -> None:
     payload = {
         "mcpServers": {
-            name: {
-                "type": "stdio",
-                "command": "python",
-                "args": ["-c", "pass"],
-            }
+            name: {"type": "stdio", "command": "python", "args": ["-c", "pass"]}
         }
     }
     (workspace / "mcp.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-@pytest.mark.asyncio
-async def test_interactive_loop_opens_mcp_store_toolsets(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AC-003: valid unshadowed entry → build_mcp_server once, toolsets len 1."""
-    built: list[str] = []
-    sentinel = object()
-
-    def _fake_build_mcp_server(**kwargs: Any) -> object:
-        built.append(str(kwargs.get("name", "")))
-        return sentinel
-
-    monkeypatch.setattr(
-        "molexp.agent._pydanticai.mcp.build_mcp_server",
-        _fake_build_mcp_server,
-    )
-    # Isolate user home so platform seed does not add extra servers.
-    monkeypatch.setattr(
-        "molexp.agent.mcp.store.USER_DIR",
-        tmp_path / "user_home",
-    )
-    # Prevent seed writing into real HOME if path still resolves oddly.
-    monkeypatch.setattr(
-        "molexp.agent.mcp.defaults.seed_user_defaults",
-        lambda *_a, **_k: False,
-    )
-
-    _write_workspace_mcp(tmp_path)
-    router = _CaptureToolsetsRouter()
-    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
-    runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
-    session = Session(storage=InMemorySessionStorage(), session_id="mcp-wire")
-
-    events = [ev async for ev in runner.run_events(session, "list tools")]
-
-    assert router.stream_agentic_calls == 1
-    assert built == ["demo"]
-    assert router.last_toolsets == (sentinel,)
-    assert any(t.__name__ == "code_write" for t in router.last_tools)
-    assert isinstance(events[-1], LoopCompletedEvent)
-
-
-@pytest.mark.asyncio
-async def test_mcp_build_failure_is_non_fatal(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AC-004: build_mcp_server raises → turn still completes."""
-
-    def _boom(**_kwargs: Any) -> object:
-        raise RuntimeError("mcp unavailable")
-
-    monkeypatch.setattr(
-        "molexp.agent._pydanticai.mcp.build_mcp_server",
-        _boom,
-    )
+def _isolate_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Point the store at an empty user home so no platform seed leaks in."""
     monkeypatch.setattr("molexp.agent.mcp.store.USER_DIR", tmp_path / "user_home")
     monkeypatch.setattr(
-        "molexp.agent.mcp.defaults.seed_user_defaults",
-        lambda *_a, **_k: False,
+        "molexp.agent.mcp.defaults.seed_user_defaults", lambda *_a, **_k: False
     )
 
-    _write_workspace_mcp(tmp_path)
-    router = _CaptureToolsetsRouter()
-    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
-    runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
-    session = Session(storage=InMemorySessionStorage(), session_id="mcp-fail")
 
-    events = [ev async for ev in runner.run_events(session, "still works")]
+class TestInteractiveLoopMcpWiring:
+    """The loop's best-effort MCP-toolset seam."""
 
-    assert router.stream_agentic_calls == 1
-    assert router.last_toolsets == ()
-    assert isinstance(events[-1], LoopCompletedEvent)
-    assert events[-1].text == "ok"
+    @pytest.mark.asyncio
+    async def test_valid_store_entry_is_opened_and_passed_to_stream_agentic(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A valid, unshadowed entry builds one toolset that reaches the router."""
+        built: list[str] = []
+        sentinel = object()
 
+        def _fake_build_mcp_server(**kwargs: Any) -> object:
+            built.append(str(kwargs.get("name", "")))
+            return sentinel
 
-@pytest.mark.asyncio
-async def test_empty_mcp_store_passes_empty_toolsets(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("molexp.agent.mcp.store.USER_DIR", tmp_path / "user_home")
-    monkeypatch.setattr(
-        "molexp.agent.mcp.defaults.seed_user_defaults",
-        lambda *_a, **_k: False,
-    )
-    router = _CaptureToolsetsRouter()
-    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
-    runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
-    session = Session(storage=InMemorySessionStorage(), session_id="mcp-empty")
+        monkeypatch.setattr(
+            "molexp.agent._pydanticai.mcp.build_mcp_server", _fake_build_mcp_server
+        )
+        _isolate_store(monkeypatch, tmp_path)
+        _write_workspace_mcp(tmp_path)
 
-    _ = [ev async for ev in runner.run_events(session, "hi")]
+        router = _CaptureToolsetsRouter()
+        loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
+        runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
+        session = Session(storage=InMemorySessionStorage(), session_id="mcp-wire")
 
-    assert router.last_toolsets == ()
+        events = [ev async for ev in runner.run_events(session, "list tools")]
+
+        assert built == ["demo"]
+        assert router.last_toolsets == (sentinel,)
+        assert isinstance(events[-1], LoopCompletedEvent)
+
+    @pytest.mark.asyncio
+    async def test_build_failure_is_non_fatal_and_yields_empty_toolsets(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A raising ``build_mcp_server`` is swallowed; the turn still completes."""
+
+        def _boom(**_kwargs: Any) -> object:
+            raise RuntimeError("mcp unavailable")
+
+        monkeypatch.setattr("molexp.agent._pydanticai.mcp.build_mcp_server", _boom)
+        _isolate_store(monkeypatch, tmp_path)
+        _write_workspace_mcp(tmp_path)
+
+        router = _CaptureToolsetsRouter()
+        loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
+        runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
+        session = Session(storage=InMemorySessionStorage(), session_id="mcp-fail")
+
+        events = [ev async for ev in runner.run_events(session, "still works")]
+
+        assert router.last_toolsets == ()
+        assert isinstance(events[-1], LoopCompletedEvent)
+        assert events[-1].text == "ok"

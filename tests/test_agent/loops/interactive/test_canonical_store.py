@@ -1,9 +1,9 @@
 """Entry tree is canonical; the model-messages blob is a reconcilable cache.
 
-Behavior-based RED tests for ac-005 of ``plan-emergent-02-loop-refactor``.
 The session entry tree (``entries.jsonl``) is the authoritative history;
 the lossless pydantic-ai ``model_messages`` blob beside it
-(``messages.jsonl``) is a *cache* reconciled against the active leaf:
+(``messages.jsonl``) is a *cache* reconciled against the active leaf by
+``InteractiveLoop`` (``_load_model_history`` / ``_save_model_history``):
 
 * (a) linear continuation, matching leaf stamp -> feed the lossless blob
   (it carries tool-call detail the semantic ``build_context()`` drops).
@@ -13,10 +13,10 @@ the lossless pydantic-ai ``model_messages`` blob beside it
 * (c) ``messages.jsonl`` deleted -> the loop still reconstructs context
   from the entry tree (no crash), history rebuilt from ``build_context()``.
 
-The loop is driven with ``hooks=None`` (today's single-pass behavior) so
-each ``loop.run`` is exactly one ReAct pass; two/three runs give the
-successive passes these tests inspect. A scripted fake Router lets each
-pass plant a controlled ``FinalChunk.model_messages_json`` blob. A real
+The loop is driven with ``hooks=None`` (single-pass behavior) so each
+``loop.run`` is exactly one ReAct pass; two/three runs give the successive
+passes these tests inspect. A scripted fake Router lets each pass plant a
+controlled ``FinalChunk.model_messages_json`` blob. A real
 ``JsonlSessionStorage`` in ``tmp_path`` backs the entry tree.
 """
 
@@ -152,8 +152,7 @@ class _BlobRouter:
 
 
 def _loop(tmp_path: Path) -> InteractiveLoop:
-    # hooks=None -> single-pass (today's behavior); compaction off for a
-    # deterministic build_context().
+    # hooks=None -> single-pass; compaction off for a deterministic build_context().
     config = InteractiveLoopConfig(
         workspace_root=tmp_path, compaction=CompactionSettings(enabled=False)
     )
@@ -188,92 +187,91 @@ def _first_user_entry_id(session: Session, content: str) -> str:
     raise AssertionError(f"no user entry with content {content!r} on the active branch")
 
 
-async def test_ac005a_linear_continuation_reuses_lossless_blob(tmp_path: Path) -> None:
-    """(a) A matching leaf stamp feeds the lossless blob, not a semantic rebuild."""
-    blob_a = _blob_with_tool("first", "resp1", "a")
-    router = _BlobRouter([blob_a, None])
-    session = Session(storage=JsonlSessionStorage(tmp_path / "sess"), session_id="lin")
-    runtime = _runtime(router, session, tmp_path)
-    loop = _loop(tmp_path)
+class TestInteractiveLoopHistoryReconciliation:
+    async def test_linear_continuation_reuses_lossless_blob(self, tmp_path: Path) -> None:
+        """(a) A matching leaf stamp feeds the lossless blob, not a semantic rebuild."""
+        blob_a = _blob_with_tool("first", "resp1", "a")
+        router = _BlobRouter([blob_a, None])
+        session = Session(storage=JsonlSessionStorage(tmp_path / "sess"), session_id="lin")
+        runtime = _runtime(router, session, tmp_path)
+        loop = _loop(tmp_path)
 
-    await _one_pass(loop, runtime, "first")
-    await _one_pass(loop, runtime, "second")
+        await _one_pass(loop, runtime, "first")
+        await _one_pass(loop, runtime, "second")
 
-    # The second (linear) pass was fed the exact lossless blob from pass one.
-    assert router.stream_agentic_calls == 2
-    fed = dump_model_messages(router.histories[1])
-    assert _PLANTED_TOOL.encode() in fed
-    assert tuple(router.histories[1]) == load_model_messages(blob_a)
-    # The planted tool detail is genuinely absent from a semantic rebuild —
-    # proving the blob (not build_context()) supplied it.
-    rebuilt = dump_model_messages(model_messages_from_messages(session.build_context()))
-    assert _PLANTED_TOOL.encode() not in rebuilt
+        # The second (linear) pass was fed the exact lossless blob from pass one.
+        assert router.stream_agentic_calls == 2
+        fed = dump_model_messages(router.histories[1])
+        assert _PLANTED_TOOL.encode() in fed
+        assert tuple(router.histories[1]) == load_model_messages(blob_a)
+        # The planted tool detail is genuinely absent from a semantic rebuild —
+        # proving the blob (not build_context()) supplied it.
+        rebuilt = dump_model_messages(model_messages_from_messages(session.build_context()))
+        assert _PLANTED_TOOL.encode() not in rebuilt
 
+    async def test_branch_discards_stale_blob_and_reseeds_from_tree(self, tmp_path: Path) -> None:
+        """(b) A sibling branch discards the stale blob and reseeds from the tree."""
+        blobs = [
+            _blob_with_tool("first", "resp1", "a"),
+            _blob_with_tool("second", "resp2", "b"),
+            None,
+        ]
+        router = _BlobRouter(blobs)
+        session = Session(storage=JsonlSessionStorage(tmp_path / "sess"), session_id="br")
+        runtime = _runtime(router, session, tmp_path)
+        loop = _loop(tmp_path)
 
-async def test_ac005b_branch_discards_stale_blob_and_reseeds(tmp_path: Path) -> None:
-    """(b) A sibling branch discards the stale blob and reseeds from the tree."""
-    blobs = [
-        _blob_with_tool("first", "resp1", "a"),
-        _blob_with_tool("second", "resp2", "b"),
-        None,
-    ]
-    router = _BlobRouter(blobs)
-    session = Session(storage=JsonlSessionStorage(tmp_path / "sess"), session_id="br")
-    runtime = _runtime(router, session, tmp_path)
-    loop = _loop(tmp_path)
+        await _one_pass(loop, runtime, "first")
+        await _one_pass(loop, runtime, "second")
 
-    await _one_pass(loop, runtime, "first")
-    await _one_pass(loop, runtime, "second")
+        # Fork off the very first user turn; the latest blob belongs to the OTHER
+        # branch and its leaf stamp cannot be on this branch's path.
+        session.branch(_first_user_entry_id(session, "first"))
+        await _one_pass(loop, runtime, "third")
 
-    # Fork off the very first user turn; the latest blob belongs to the OTHER
-    # branch and its leaf stamp cannot be on this branch's path.
-    session.branch(_first_user_entry_id(session, "first"))
-    await _one_pass(loop, runtime, "third")
-
-    assert router.stream_agentic_calls == 3
-    fed = router.histories[2]
-    # The sibling branch's model history (its planted tool) is not inherited.
-    assert _PLANTED_TOOL.encode() not in dump_model_messages(fed)
-    # History is reseeded straight from the active branch's entry tree.
-    expected = model_messages_from_messages(
-        (
-            Message(role="user", content="first"),
-            Message(role="user", content="third"),
+        assert router.stream_agentic_calls == 3
+        fed = router.histories[2]
+        # The sibling branch's model history (its planted tool) is not inherited.
+        assert _PLANTED_TOOL.encode() not in dump_model_messages(fed)
+        # History is reseeded straight from the active branch's entry tree.
+        expected = model_messages_from_messages(
+            (
+                Message(role="user", content="first"),
+                Message(role="user", content="third"),
+            )
         )
-    )
-    assert tuple(fed) == tuple(expected)
+        assert tuple(fed) == tuple(expected)
 
+    async def test_deleted_blob_reconstructs_history_from_entry_tree(self, tmp_path: Path) -> None:
+        """(c) A missing ``messages.jsonl`` still reconstructs history from the tree."""
+        blob_a = _blob_with_tool("first", "resp1", "a")
+        router = _BlobRouter([blob_a, None])
+        session_dir = tmp_path / "sess"
+        session = Session(storage=JsonlSessionStorage(session_dir), session_id="del")
+        runtime = _runtime(router, session, tmp_path)
+        loop = _loop(tmp_path)
 
-async def test_ac005c_deleted_blob_reconstructs_from_entry_tree(tmp_path: Path) -> None:
-    """(c) A missing ``messages.jsonl`` still reconstructs history from the tree."""
-    blob_a = _blob_with_tool("first", "resp1", "a")
-    router = _BlobRouter([blob_a, None])
-    session_dir = tmp_path / "sess"
-    session = Session(storage=JsonlSessionStorage(session_dir), session_id="del")
-    runtime = _runtime(router, session, tmp_path)
-    loop = _loop(tmp_path)
+        await _one_pass(loop, runtime, "first")
 
-    await _one_pass(loop, runtime, "first")
+        # Drop the lossless cache; the entry tree remains authoritative.
+        blob_path = session_dir / MESSAGES_FILENAME
+        assert blob_path.is_file()
+        blob_path.unlink()
 
-    # Drop the lossless cache; the entry tree remains authoritative.
-    blob_path = session_dir / MESSAGES_FILENAME
-    assert blob_path.is_file()
-    blob_path.unlink()
+        events = await _one_pass(loop, runtime, "second")
 
-    events = await _one_pass(loop, runtime, "second")
-
-    # No crash: the turn completes normally.
-    assert isinstance(events[-1], LoopCompletedEvent)
-    assert router.stream_agentic_calls == 2
-    fed = router.histories[1]
-    # With the blob gone, the planted tool cannot appear; history is the
-    # semantic rebuild of the active branch.
-    assert _PLANTED_TOOL.encode() not in dump_model_messages(fed)
-    expected = model_messages_from_messages(
-        (
-            Message(role="user", content="first"),
-            Message(role="assistant", content="resp1"),
-            Message(role="user", content="second"),
+        # No crash: the turn completes normally.
+        assert isinstance(events[-1], LoopCompletedEvent)
+        assert router.stream_agentic_calls == 2
+        fed = router.histories[1]
+        # With the blob gone, the planted tool cannot appear; history is the
+        # semantic rebuild of the active branch.
+        assert _PLANTED_TOOL.encode() not in dump_model_messages(fed)
+        expected = model_messages_from_messages(
+            (
+                Message(role="user", content="first"),
+                Message(role="assistant", content="resp1"),
+                Message(role="user", content="second"),
+            )
         )
-    )
-    assert tuple(fed) == tuple(expected)
+        assert tuple(fed) == tuple(expected)

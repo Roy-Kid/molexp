@@ -1,8 +1,16 @@
-"""``ChatLoop`` unit tests — plain async + sink-driven (spec 03b)."""
+"""``ChatLoop`` unit tests — the one-turn LLM loop (mirrors ``loops/chat.py``).
+
+Loop-level ownership: ChatLoop's own contract — the sink-event sequence it
+emits, the turns it records on the session entry tree, and the config
+``system_prompt`` it hands to the router. ``AgentRunner`` orchestration of
+ChatLoop lives in ``test_runner.py``; the compaction seam lives in
+``test_compaction_wiring.py``.
+"""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -12,15 +20,14 @@ from molexp.agent.events import (
     LoopCompletedEvent,
     LoopStartedEvent,
 )
+from molexp.agent.execution_env import LocalExecutionEnv
 from molexp.agent.loops import ChatLoop, ChatLoopConfig
-from molexp.agent.router import AgenticChunk, ModelTier, RouterTextResult
+from molexp.agent.router import ModelTier, RouterTextResult
 from molexp.agent.runtime import AgentRuntime
 from molexp.agent.session import Session
 from molexp.agent.session_entry import MessageEntry
 from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
-
-# ── test doubles ───────────────────────────────────────────────────────────
 
 
 class _CapturingRouter:
@@ -45,21 +52,6 @@ class _CapturingRouter:
     async def complete_structured(self, **_: object) -> object:
         raise AssertionError("ChatLoop never reaches complete_structured")
 
-    def stream_agentic(
-        self,
-        *,
-        prompt: str,
-        system: str = "",
-        tools: tuple[Any, ...] = (),
-        tier: ModelTier = ModelTier.DEFAULT,
-        message_history: tuple[Any, ...] = (),
-    ) -> AsyncIterator[AgenticChunk]:
-        async def _empty() -> AsyncIterator[AgenticChunk]:
-            if False:  # pragma: no cover
-                yield  # type: ignore[unreachable]
-
-        return _empty()
-
     def clear_usage(self) -> None:
         return None
 
@@ -67,15 +59,9 @@ class _CapturingRouter:
         return UsageBreakdown()
 
 
-def _runtime(router: object, tmp_path_factory: Any = None) -> tuple[AgentRuntime, Session]:
+def _runtime(router: object, scratch: Path) -> tuple[AgentRuntime, Session]:
     """Build a minimal :class:`AgentRuntime` for a ChatLoop run."""
-    import tempfile
-    from pathlib import Path
-
-    from molexp.agent.execution_env import LocalExecutionEnv
-
     session = Session(storage=InMemorySessionStorage(), session_id="chat")
-    scratch = Path(tempfile.mkdtemp(prefix="chat_test_"))
     runtime = AgentRuntime(
         session=session,
         router=router,  # type: ignore[arg-type]
@@ -84,41 +70,37 @@ def _runtime(router: object, tmp_path_factory: Any = None) -> tuple[AgentRuntime
     return runtime, session
 
 
-# ── ChatLoop emits the expected sink-event sequence ────────────────────────
+class TestChatLoop:
+    @pytest.mark.asyncio
+    async def test_run_emits_started_then_completed_with_answer(self, tmp_path: Path) -> None:
+        router = _CapturingRouter(responses=["the answer"])
+        runtime, _ = _runtime(router, tmp_path)
+        sink = AsyncIteratorEventSink()
+        await ChatLoop().run(runtime=runtime, sink=sink, user_input="ping")
+        await sink.close()
+        events = [ev async for ev in sink]
+        assert isinstance(events[0], LoopStartedEvent)
+        assert isinstance(events[-1], LoopCompletedEvent)
+        assert events[-1].text == "the answer"
 
+    @pytest.mark.asyncio
+    async def test_run_records_user_and_assistant_turns_in_session(self, tmp_path: Path) -> None:
+        router = _CapturingRouter(responses=["a reply"])
+        runtime, session = _runtime(router, tmp_path)
+        sink = AsyncIteratorEventSink()
+        await ChatLoop().run(runtime=runtime, sink=sink, user_input="a question")
+        await sink.close()
+        messages = [e.message for e in session.path_to_root() if isinstance(e, MessageEntry)]
+        roles_contents = [(m.role, m.content) for m in messages]
+        assert ("user", "a question") in roles_contents
+        assert ("assistant", "a reply") in roles_contents
 
-@pytest.mark.asyncio
-async def test_chat_loop_emits_started_then_completed() -> None:
-    router = _CapturingRouter(responses=["the answer"])
-    runtime, _ = _runtime(router)
-    sink = AsyncIteratorEventSink()
-    await ChatLoop().run(runtime=runtime, sink=sink, user_input="ping")
-    await sink.close()
-    events = [ev async for ev in sink]
-    assert isinstance(events[0], LoopStartedEvent)
-    assert isinstance(events[-1], LoopCompletedEvent)
-    assert events[-1].text == "the answer"
-
-
-@pytest.mark.asyncio
-async def test_chat_loop_records_turns_in_session_tree() -> None:
-    router = _CapturingRouter(responses=["a reply"])
-    runtime, session = _runtime(router)
-    sink = AsyncIteratorEventSink()
-    await ChatLoop().run(runtime=runtime, sink=sink, user_input="a question")
-    await sink.close()
-    messages = [e.message for e in session.path_to_root() if isinstance(e, MessageEntry)]
-    roles_contents = [(m.role, m.content) for m in messages]
-    assert ("user", "a question") in roles_contents
-    assert ("assistant", "a reply") in roles_contents
-
-
-@pytest.mark.asyncio
-async def test_chat_loop_passes_system_prompt() -> None:
-    router = _CapturingRouter()
-    runtime, _ = _runtime(router)
-    sink = AsyncIteratorEventSink()
-    loop = ChatLoop(config=ChatLoopConfig(system_prompt="be terse"))
-    await loop.run(runtime=runtime, sink=sink, user_input="hi")
-    await sink.close()
-    assert router.calls[0]["system"] == "be terse"
+    @pytest.mark.asyncio
+    async def test_run_passes_config_system_prompt_to_router(self, tmp_path: Path) -> None:
+        router = _CapturingRouter()
+        runtime, _ = _runtime(router, tmp_path)
+        sink = AsyncIteratorEventSink()
+        loop = ChatLoop(config=ChatLoopConfig(system_prompt="be terse"))
+        await loop.run(runtime=runtime, sink=sink, user_input="hi")
+        await sink.close()
+        assert router.calls[0]["system"] == "be terse"

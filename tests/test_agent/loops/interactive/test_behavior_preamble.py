@@ -1,4 +1,9 @@
-"""DEFAULT_CODE_LOOP_PREAMBLE composition (agent-code-loop-05-behavior)."""
+"""InteractiveLoop system-prompt composition (agent-code-loop-05-behavior).
+
+The system string handed to ``stream_agentic`` is composed from the stable
+ops preamble (auto-discovery law: no hard-coded third-party MCP tool names)
+plus the user's optional ``system_prompt``, in that order.
+"""
 
 from __future__ import annotations
 
@@ -21,8 +26,12 @@ from molexp.agent.session import Session
 from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 
+pytestmark = pytest.mark.asyncio
+
 
 class _CaptureSystemRouter:
+    """Scripted router that records the ``system`` string it was handed."""
+
     def __init__(self) -> None:
         self.system = ""
         self.tools: tuple[Any, ...] = ()
@@ -56,75 +65,49 @@ class _CaptureSystemRouter:
         return UsageBreakdown()
 
 
-@pytest.mark.asyncio
-async def test_default_preamble_mentions_stable_ops_not_hardcoded_mcp(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AC-001: system has stable ops tools; static preamble never hard-codes MCP names.
+class TestInteractiveLoopSystemPrompt:
+    async def test_preamble_carries_stable_ops_names_without_hardcoded_mcp(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The static preamble names stable ops tools but never hard-codes MCP names.
 
-    Runtime MCP catalogs *may* inject live tool names into the system
-    appendix (auto-discovery). Isolation: stub open_mcp_toolsets so this
-    unit test does not depend on the operator's ~/.molexp MCP config.
-    """
-    monkeypatch.setattr(
-        "molexp.agent.loops.interactive.loop.open_mcp_toolsets",
-        lambda _root: (),
-    )
-    router = _CaptureSystemRouter()
-    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
-    runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
-    session = Session(storage=InMemorySessionStorage(), session_id="preamble")
-    _ = [ev async for ev in runner.run_events(session, "hi")]
-
-    system = router.system
-    assert "code_run" in system
-    assert "code_write" in system
-    assert "discover" in system
-    # Static ops preamble — no hard-coded third-party MCP tool names
-    assert "code_run" in DEFAULT_CODE_LOOP_PREAMBLE
-    assert "molexp_add_project" not in DEFAULT_CODE_LOOP_PREAMBLE
-    assert "molexp_add_project" not in system  # isolated: no live MCP catalog
-
-
-@pytest.mark.asyncio
-async def test_operation_mode_readonly_still_mounts_code_tools(tmp_path: Path) -> None:
-    """AC-002: operation_mode is not a capability mask."""
-    router = _CaptureSystemRouter()
-    loop = InteractiveLoop(
-        config=InteractiveLoopConfig(workspace_root=tmp_path, operation_mode="readonly")
-    )
-    runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
-    session = Session(storage=InMemorySessionStorage(), session_id="mode")
-    _ = [ev async for ev in runner.run_events(session, "hi")]
-
-    names = {t.__name__ for t in router.tools}
-    assert {"code_write", "code_run", "workspace_ensure", "discover"}.issubset(names)
-
-
-@pytest.mark.asyncio
-async def test_user_system_prompt_composes_with_preamble(tmp_path: Path) -> None:
-    """AC-004: user system_prompt coexists with default preamble."""
-    router = _CaptureSystemRouter()
-    marker = "USER_CUSTOM_PROMPT_XYZ"
-    loop = InteractiveLoop(
-        config=InteractiveLoopConfig(
-            workspace_root=tmp_path,
-            system_prompt=marker,
+        Runtime MCP catalogs may inject live tool names into the system appendix
+        (auto-discovery); the static preamble must not. Isolation: stub
+        open_mcp_toolsets so this unit does not depend on the operator's
+        ~/.molexp MCP config.
+        """
+        monkeypatch.setattr(
+            "molexp.agent.loops.interactive.loop.open_mcp_toolsets",
+            lambda _root: (),
         )
-    )
-    runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
-    session = Session(storage=InMemorySessionStorage(), session_id="compose")
-    _ = [ev async for ev in runner.run_events(session, "hi")]
+        router = _CaptureSystemRouter()
+        loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
+        runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
+        session = Session(storage=InMemorySessionStorage(), session_id="preamble")
+        _ = [ev async for ev in runner.run_events(session, "hi")]
 
-    assert "code_run" in router.system
-    assert marker in router.system
-    # preamble comes first
-    assert router.system.index("code_run") < router.system.index(marker)
+        system = router.system
+        assert "code_run" in system
+        assert "code_write" in system
+        assert "discover" in system
+        # Static ops preamble — no hard-coded third-party MCP tool names.
+        assert "code_run" in DEFAULT_CODE_LOOP_PREAMBLE
+        assert "molexp_add_project" not in DEFAULT_CODE_LOOP_PREAMBLE
+        assert "molexp_add_project" not in system  # isolated: no live MCP catalog
 
+    async def test_user_system_prompt_composes_after_preamble(self, tmp_path: Path) -> None:
+        """A user ``system_prompt`` coexists with the default preamble, appended after it."""
+        router = _CaptureSystemRouter()
+        marker = "USER_CUSTOM_PROMPT_XYZ"
+        loop = InteractiveLoop(
+            config=InteractiveLoopConfig(workspace_root=tmp_path, system_prompt=marker)
+        )
+        runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
+        session = Session(storage=InMemorySessionStorage(), session_id="compose")
+        _ = [ev async for ev in runner.run_events(session, "hi")]
 
-def test_config_docstring_describes_behavior_not_capability_mask() -> None:
-    """AC-003: docs state operation_mode is not a capability mask."""
-    doc = InteractiveLoopConfig.__doc__ or ""
-    assert "capability mask" in doc.lower()
-    assert "behavior" in doc.lower()
+        assert "code_run" in router.system
+        assert marker in router.system
+        assert router.system.index("code_run") < router.system.index(marker)

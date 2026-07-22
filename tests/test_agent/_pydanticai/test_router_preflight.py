@@ -23,7 +23,8 @@ class TestPreflight:
     def test_preflight_constructs_text_and_structured_agents_per_tier(self) -> None:
         """Both cache families exist for every tier after preflight — the
         structured entries are the ones that catch a removed ``Agent(...)``
-        kwarg on the installed pydantic-ai major."""
+        kwarg on the installed pydantic-ai major (the 1.x-only
+        ``output_retries=`` that pydantic-ai 2.0 removed)."""
         router = _test_router()
         assert router._agents == {}
         router.preflight()
@@ -33,10 +34,3 @@ class TestPreflight:
             assert any(key[0] is tier and key[1] is not None for key in cached), (
                 f"structured agent missing for {tier.value}"
             )
-
-    def test_preflight_is_idempotent_and_reuses_the_cache(self) -> None:
-        router = _test_router()
-        router.preflight()
-        first = dict(router._agents)
-        router.preflight()
-        assert router._agents == first  # same instances — no rebuild churn

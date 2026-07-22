@@ -1,16 +1,15 @@
-"""Knowledge tools for InteractiveLoop (vision-loop-05, spec RED set).
+"""Knowledge tools for InteractiveLoop (mirrors ``interactive/knowledge_tools.py``).
 
 The knowledge→agent channel's agent-side contract: ``search_knowledge`` /
-``read_knowledge`` wrap the workspace ``Bundle`` verbs, confined to the
-workspace root with the same escape rejection as the file tools, and
-``InteractiveLoop`` binds file tools + knowledge tools (five total).
+``read_knowledge`` wrap the workspace ``Bundle`` verbs (body-aware search,
+path-as-identity read, edges + backlinks), confined to the workspace root with
+the same escape rejection as the file tools. Loop tool binding is owned by
+``ops/test_ops_surface.py`` + ``loops/interactive/test_loop.py``.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -98,51 +97,3 @@ class TestReadKnowledge:
             read("../outside")
         with pytest.raises(ValueError, match=r"escape|outside"):
             read("/etc/passwd")
-
-
-class TestLoopBinding:
-    @pytest.mark.asyncio
-    async def test_interactive_loop_hands_ops_tools_to_router(self, tmp_path: Path) -> None:
-        """InteractiveLoop binds the stable ops tool surface (6 names)."""
-        from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
-        from molexp.agent.ops import OPS_TOOL_NAMES
-        from molexp.agent.router import FinalChunk
-        from molexp.agent.runner import AgentRunner
-        from molexp.agent.session import Session
-        from molexp.agent.session_storage import InMemorySessionStorage
-        from molexp.agent.types import UsageBreakdown
-
-        captured: dict[str, tuple[Any, ...]] = {}
-
-        class _CapturingRouter:
-            async def stream_agentic(
-                self,
-                *,
-                prompt: str,
-                system: str = "",
-                tools: tuple[Any, ...] = (),
-                **_: Any,
-            ) -> AsyncIterator[Any]:
-                captured["tools"] = tools
-                yield FinalChunk(text="ok")
-
-            async def complete_text(self, **_: Any) -> Any:
-                raise AssertionError("unused")
-
-            async def complete_structured(self, **_: Any) -> Any:
-                raise AssertionError("unused")
-
-            def clear_usage(self) -> None:
-                return None
-
-            def snapshot_usage(self) -> UsageBreakdown:
-                return UsageBreakdown()
-
-        loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
-        runner = AgentRunner(loop=loop, router=_CapturingRouter())  # type: ignore[arg-type]
-        session = Session(storage=InMemorySessionStorage(), session_id="bind")
-        async for _ in runner.run_events(session, "hello"):
-            pass
-
-        names = {tool.__name__ for tool in captured["tools"]}
-        assert names == OPS_TOOL_NAMES

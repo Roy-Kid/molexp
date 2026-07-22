@@ -1,11 +1,13 @@
-"""Compaction wiring tests — the loops trigger compaction at the seam.
+"""Compaction seam wiring — ``loops/_compact.py::maybe_compact``.
 
-Both shipped loops call :func:`molexp.agent.loops._compact.maybe_compact`
-after appending the user message and before the model call. These tests
-prove: below the trigger budget the session is untouched; above it the
-session is compacted, the loop still completes, and the invariants
-:mod:`molexp.agent.compaction` promises (recent window kept verbatim,
-``build_context`` swaps the old span for one system summary) hold.
+Both shipped loops (:class:`ChatLoop`, :class:`InteractiveLoop`) call
+``maybe_compact`` at the one seam they share: after appending the user
+message, before the model call. This file owns the *wiring* at that seam
+— below the trigger the session is untouched; above it a cut is recorded,
+a :class:`CompactionPerformedEvent` fires, the loop still completes, and a
+recompaction folds the prior summary forward. The pure cut-point math is
+owned by ``harness/test_compaction.py``; ``build_context`` rendering of a
+cut by ``harness/test_session.py``.
 """
 
 from __future__ import annotations
@@ -116,100 +118,93 @@ def _compaction_entries(session: Session) -> list[CompactionEntry]:
     return [e for e in session.path_to_root() if isinstance(e, CompactionEntry)]
 
 
-# ── below threshold: untouched ─────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_chat_loop_below_threshold_leaves_session_untouched(tmp_path: Any) -> None:
-    router = _FakeRouter(responses=["the answer"])
-    runtime, session = _runtime(router, tmp_path)
-    sink = AsyncIteratorEventSink()
-    loop = ChatLoop(config=ChatLoopConfig(compaction=_SMALL_BUDGET))
-    await loop.run(runtime=runtime, sink=sink, user_input="short question")
-    await sink.close()
-    events = [ev async for ev in sink]
-    assert not _compaction_entries(session)
-    assert not [ev for ev in events if isinstance(ev, CompactionPerformedEvent)]
-    # only the answering call reached the router — no summary call.
-    assert len(router.text_calls) == 1
-    assert events[-1].text == "the answer"  # type: ignore[union-attr]
-
-
-# ── above threshold: compacted, loop still functions ───────────────────────
-
-
-@pytest.mark.asyncio
-async def test_chat_loop_above_threshold_compacts_and_completes(tmp_path: Any) -> None:
-    router = _FakeRouter(responses=["a tidy summary", "the answer"])
-    runtime, session = _runtime(router, tmp_path)
-    _seed_history(session, turns=4)
-    sink = AsyncIteratorEventSink()
-    loop = ChatLoop(config=ChatLoopConfig(compaction=_SMALL_BUDGET))
-    await loop.run(runtime=runtime, sink=sink, user_input="new question")
-    await sink.close()
-    events = [ev async for ev in sink]
-
-    cuts = _compaction_entries(session)
-    assert len(cuts) == 1
-    assert cuts[0].summary == "a tidy summary"
-    assert cuts[0].tokens_before > 0
-
-    fired = [ev for ev in events if isinstance(ev, CompactionPerformedEvent)]
-    assert len(fired) == 1
-    assert fired[0].entries_summarized > 0
-
-    # the loop still functions: terminal event carries the answer.
-    completed = events[-1]
-    assert isinstance(completed, LoopCompletedEvent)
-    assert completed.text == "the answer"
-
-    # the summary call used the CHEAP tier and saw the old content.
-    summary_call = router.text_calls[0]
-    assert summary_call["tier"] is ModelTier.CHEAP
-    assert "u0" in str(summary_call["prompt"])
-
-
-@pytest.mark.asyncio
-async def test_chat_loop_recompaction_folds_in_prior_summary(tmp_path: Any) -> None:
-    """A second cut summarizes only the post-cut span, carrying the old summary."""
-    router = _FakeRouter(responses=["summary one", "answer one", "summary two", "answer two"])
-    runtime, session = _runtime(router, tmp_path)
-    _seed_history(session, turns=4)
-    loop = ChatLoop(config=ChatLoopConfig(compaction=_SMALL_BUDGET))
-    for prompt in ("q one " + _BIG_MESSAGE, "q two " + _BIG_MESSAGE):
+class TestMaybeCompact:
+    @pytest.mark.asyncio
+    async def test_below_trigger_leaves_session_untouched(self, tmp_path: Any) -> None:
+        router = _FakeRouter(responses=["the answer"])
+        runtime, session = _runtime(router, tmp_path)
         sink = AsyncIteratorEventSink()
-        await loop.run(runtime=runtime, sink=sink, user_input=prompt)
+        loop = ChatLoop(config=ChatLoopConfig(compaction=_SMALL_BUDGET))
+        await loop.run(runtime=runtime, sink=sink, user_input="short question")
         await sink.close()
+        events = [ev async for ev in sink]
+        assert not _compaction_entries(session)
+        assert not [ev for ev in events if isinstance(ev, CompactionPerformedEvent)]
+        # only the answering call reached the router — no summary call.
+        assert len(router.text_calls) == 1
+        assert events[-1].text == "the answer"  # type: ignore[union-attr]
 
-    cuts = _compaction_entries(session)
-    assert len(cuts) == 2
-    # the second summary call carried the first summary forward.
-    second_summary_prompt = str(router.text_calls[2]["prompt"])
-    assert "[earlier summary] summary one" in second_summary_prompt
-    # only the most recent cut shapes the rebuilt context.
-    context = session.build_context()
-    assert context[0].role == "system"
-    assert "summary two" in context[0].content
+    @pytest.mark.asyncio
+    async def test_above_trigger_compacts_on_cheap_tier_and_completes(self, tmp_path: Any) -> None:
+        router = _FakeRouter(responses=["a tidy summary", "the answer"])
+        runtime, session = _runtime(router, tmp_path)
+        _seed_history(session, turns=4)
+        sink = AsyncIteratorEventSink()
+        loop = ChatLoop(config=ChatLoopConfig(compaction=_SMALL_BUDGET))
+        await loop.run(runtime=runtime, sink=sink, user_input="new question")
+        await sink.close()
+        events = [ev async for ev in sink]
 
+        cuts = _compaction_entries(session)
+        assert len(cuts) == 1
+        assert cuts[0].summary == "a tidy summary"
+        assert cuts[0].tokens_before > 0
 
-@pytest.mark.asyncio
-async def test_interactive_loop_above_threshold_compacts_and_completes(tmp_path: Any) -> None:
-    router = _FakeRouter(responses=["a tidy summary"], final_text="tool-loop answer")
-    runtime, session = _runtime(router, tmp_path)
-    _seed_history(session, turns=4)
-    sink = AsyncIteratorEventSink()
-    loop = InteractiveLoop(
-        config=InteractiveLoopConfig(compaction=_SMALL_BUDGET, workspace_root=tmp_path)
-    )
-    await loop.run(runtime=runtime, sink=sink, user_input="new question")
-    await sink.close()
-    events = [ev async for ev in sink]
+        fired = [ev for ev in events if isinstance(ev, CompactionPerformedEvent)]
+        assert len(fired) == 1
+        assert fired[0].entries_summarized > 0
 
-    assert len(_compaction_entries(session)) == 1
-    assert [ev for ev in events if isinstance(ev, CompactionPerformedEvent)]
-    completed = events[-1]
-    assert isinstance(completed, LoopCompletedEvent)
-    assert completed.text == "tool-loop answer"
-    # the new turn is recorded after the cut.
-    messages = [e.message for e in session.path_to_root() if isinstance(e, MessageEntry)]
-    assert ("assistant", "tool-loop answer") in [(m.role, m.content) for m in messages]
+        # the loop still functions: terminal event carries the answer.
+        completed = events[-1]
+        assert isinstance(completed, LoopCompletedEvent)
+        assert completed.text == "the answer"
+
+        # the summary call used the CHEAP tier and saw the old content.
+        summary_call = router.text_calls[0]
+        assert summary_call["tier"] is ModelTier.CHEAP
+        assert "u0" in str(summary_call["prompt"])
+
+    @pytest.mark.asyncio
+    async def test_recompaction_folds_prior_summary_into_next_prompt(self, tmp_path: Any) -> None:
+        """A second cut summarizes the post-cut span, carrying the old summary.
+
+        Sole owner of ``_compact._render_transcript``'s prior-summary folding.
+        """
+        router = _FakeRouter(
+            responses=["summary one", "answer one", "summary two", "answer two"]
+        )
+        runtime, session = _runtime(router, tmp_path)
+        _seed_history(session, turns=4)
+        loop = ChatLoop(config=ChatLoopConfig(compaction=_SMALL_BUDGET))
+        for prompt in ("q one " + _BIG_MESSAGE, "q two " + _BIG_MESSAGE):
+            sink = AsyncIteratorEventSink()
+            await loop.run(runtime=runtime, sink=sink, user_input=prompt)
+            await sink.close()
+
+        cuts = _compaction_entries(session)
+        assert len(cuts) == 2
+        # the second summary call carried the first summary forward.
+        second_summary_prompt = str(router.text_calls[2]["prompt"])
+        assert "[earlier summary] summary one" in second_summary_prompt
+
+    @pytest.mark.asyncio
+    async def test_interactive_loop_wires_seam_above_trigger(self, tmp_path: Any) -> None:
+        router = _FakeRouter(responses=["a tidy summary"], final_text="tool-loop answer")
+        runtime, session = _runtime(router, tmp_path)
+        _seed_history(session, turns=4)
+        sink = AsyncIteratorEventSink()
+        loop = InteractiveLoop(
+            config=InteractiveLoopConfig(compaction=_SMALL_BUDGET, workspace_root=tmp_path)
+        )
+        await loop.run(runtime=runtime, sink=sink, user_input="new question")
+        await sink.close()
+        events = [ev async for ev in sink]
+
+        assert len(_compaction_entries(session)) == 1
+        assert [ev for ev in events if isinstance(ev, CompactionPerformedEvent)]
+        completed = events[-1]
+        assert isinstance(completed, LoopCompletedEvent)
+        assert completed.text == "tool-loop answer"
+        # the new turn is recorded after the cut.
+        messages = [e.message for e in session.path_to_root() if isinstance(e, MessageEntry)]
+        assert ("assistant", "tool-loop answer") in [(m.role, m.content) for m in messages]

@@ -1,4 +1,4 @@
-"""``stream_agentic`` forwards ``toolsets=`` into pydantic-ai ``Agent``."""
+"""``PydanticAIRouter.stream_agentic`` forwards ``toolsets=`` into ``Agent``."""
 
 from __future__ import annotations
 
@@ -67,34 +67,38 @@ def _reset_spy() -> None:
     _AgentSpy.last_kwargs = None
 
 
-@pytest.mark.asyncio
-async def test_stream_agentic_forwards_toolsets(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("molexp.agent._pydanticai.router.Agent", _AgentSpy)
-    router = PydanticAIRouter(models=_models_all("x"))
-    fake_toolset = object()
+class TestStreamAgenticToolsets:
+    @pytest.mark.asyncio
+    async def test_toolsets_forwarded_as_list_and_final_carries_output(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("molexp.agent._pydanticai.router.Agent", _AgentSpy)
+        router = PydanticAIRouter(models=_models_all("x"))
+        fake_toolset = object()
 
-    chunks = [
-        c
-        async for c in router.stream_agentic(
-            prompt="hi",
-            toolsets=(fake_toolset,),
-        )
-    ]
+        chunks = [
+            c
+            async for c in router.stream_agentic(
+                prompt="hi",
+                toolsets=(fake_toolset,),
+            )
+        ]
 
-    captured = _AgentSpy.last_kwargs
-    assert captured is not None
-    assert captured["toolsets"] == [fake_toolset]
-    assert isinstance(chunks[-1], FinalChunk)
-    assert chunks[-1].text == "done"
+        captured = _AgentSpy.last_kwargs
+        assert captured is not None
+        assert captured["toolsets"] == [fake_toolset]
+        assert isinstance(chunks[-1], FinalChunk)
+        assert chunks[-1].text == "done"
 
+    @pytest.mark.asyncio
+    async def test_empty_toolsets_omits_toolsets_kwarg(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("molexp.agent._pydanticai.router.Agent", _AgentSpy)
+        router = PydanticAIRouter(models=_models_all("x"))
 
-@pytest.mark.asyncio
-async def test_stream_agentic_omits_empty_toolsets(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("molexp.agent._pydanticai.router.Agent", _AgentSpy)
-    router = PydanticAIRouter(models=_models_all("x"))
+        _ = [c async for c in router.stream_agentic(prompt="hi")]
 
-    _ = [c async for c in router.stream_agentic(prompt="hi")]
-
-    captured = _AgentSpy.last_kwargs
-    assert captured is not None
-    assert "toolsets" not in captured
+        captured = _AgentSpy.last_kwargs
+        assert captured is not None
+        assert "toolsets" not in captured

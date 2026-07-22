@@ -1,13 +1,15 @@
-"""Public-surface contract for ``molexp.agent`` (post spec 03b).
+"""Public-surface locks for the ``molexp.agent`` facade.
 
-The agent layer is a pydantic-ai facade. Surface contract:
+The agent layer is a pydantic-ai facade. Two ``__all__`` contracts are
+frozen here:
 
-* Loop-orchestration core: :class:`AgentRunner`, :class:`AgentLoop`,
-  :class:`AgentRunResult`, :class:`AgentRuntime`, :class:`AgentSession`.
+* :mod:`molexp.agent` — the loop-orchestration core (five names).
+* :mod:`molexp.agent.loops` — the two shipping loops (:class:`ChatLoop` /
+  :class:`InteractiveLoop`) plus the SDK-free tool/hook vocabulary the
+  emergent loop and harness-injected gates reuse.
 
-Loops contract — only :class:`ChatLoop` (one round-trip) and the
-emergent :class:`InteractiveLoop` ship; the prior pipeline modes
-(Plan / Author / Run / Review) moved to :mod:`molexp.harness`.
+The prior pipeline modes (Plan / Author / Run / Review) moved to
+:mod:`molexp.harness` and must never reappear in either surface.
 """
 
 from __future__ import annotations
@@ -16,9 +18,8 @@ import molexp.agent as agent
 import molexp.agent.loops as loops
 
 
-def test_agent_all_is_the_public_contract() -> None:
+def test_agent_public_surface_is_the_five_name_core() -> None:
     assert set(agent.__all__) == {
-        # Loop orchestration core.
         "AgentRunner",
         "AgentLoop",
         "AgentRunResult",
@@ -27,15 +28,7 @@ def test_agent_all_is_the_public_contract() -> None:
     }
 
 
-def test_loops_all_is_loops_plus_hook_vocabulary() -> None:
-    """``molexp.agent.loops`` re-exports the two shipping loops (ChatLoop +
-    InteractiveLoop, +configs) plus the SDK-free neutral tool/hook vocabulary
-    (``HookOutcome`` / ``HookDecision`` / ``LoopState`` / the three hook
-    Protocols / the ``invoke_*`` helpers) that phase-02's emergent loop and
-    harness-injected gates reuse (spec ``plan-emergent-01-agent-hooks``), plus
-    the ``LoopHooks`` bundle the outer emergent loop consumes (spec
-    ``plan-emergent-02-loop-refactor``). The prior pipeline modes moved to
-    :mod:`molexp.harness`."""
+def test_loops_public_surface_is_loops_plus_hook_vocabulary() -> None:
     assert set(loops.__all__) == {
         # Shipping loops.
         "ChatLoop",

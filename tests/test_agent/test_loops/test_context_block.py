@@ -1,8 +1,10 @@
-"""``InteractiveLoopConfig.context_block`` → ``stream_agentic(system=…)``.
+"""``InteractiveLoopConfig.context_block`` composition (mirrors ``interactive/loop.py``).
 
-Composition order: ops preamble → user ``system_prompt`` →
-``context_block``. The loop never sources the block itself — that is
-the services builder's job (``molexp.services.agent_context``).
+The loop composes ``preamble → user system_prompt → context_block`` and never
+sources the block itself (that is ``molexp.services.agent_context``'s job). This
+file owns the *context_block* slot only: it lands after the user prompt, and an
+empty block injects nothing. The preamble-before-user-prompt ordering is owned
+by ``loops/interactive/test_behavior_preamble.py``.
 """
 
 from __future__ import annotations
@@ -61,27 +63,23 @@ async def _captured_system(config: InteractiveLoopConfig) -> str:
     return router.system
 
 
-async def test_context_block_composed_after_base_prompt(tmp_path: Path) -> None:
-    config = InteractiveLoopConfig(
-        system_prompt=_BASE_PROMPT,
-        workspace_root=tmp_path,
-        context_block=_CONTEXT_BLOCK,
-    )
-    system = await _captured_system(config)
-    assert _BASE_PROMPT in system
-    assert _CONTEXT_BLOCK in system
-    assert system.index(_BASE_PROMPT) < system.index(_CONTEXT_BLOCK)
-    # ops preamble precedes user prompt
-    assert "code_run" in system
-    assert system.index("code_run") < system.index(_BASE_PROMPT)
+class TestContextBlockComposition:
+    async def test_context_block_lands_after_user_system_prompt(self, tmp_path: Path) -> None:
+        config = InteractiveLoopConfig(
+            system_prompt=_BASE_PROMPT,
+            workspace_root=tmp_path,
+            context_block=_CONTEXT_BLOCK,
+        )
+        system = await _captured_system(config)
+        assert _BASE_PROMPT in system
+        assert _CONTEXT_BLOCK in system
+        assert system.index(_BASE_PROMPT) < system.index(_CONTEXT_BLOCK)
 
-
-async def test_empty_context_block_still_has_ops_preamble(tmp_path: Path) -> None:
-    config = InteractiveLoopConfig(
-        system_prompt=_BASE_PROMPT,
-        workspace_root=tmp_path,
-    )
-    system = await _captured_system(config)
-    assert _BASE_PROMPT in system
-    assert "code_run" in system
-    assert _CONTEXT_BLOCK not in system
+    async def test_empty_context_block_injects_nothing(self, tmp_path: Path) -> None:
+        config = InteractiveLoopConfig(
+            system_prompt=_BASE_PROMPT,
+            workspace_root=tmp_path,
+        )
+        system = await _captured_system(config)
+        assert _BASE_PROMPT in system
+        assert _CONTEXT_BLOCK not in system

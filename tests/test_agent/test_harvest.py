@@ -1,4 +1,9 @@
-"""agent-record-export-05 — harvest_session + export_session_zip."""
+"""Session harvest + export — :mod:`molexp.agent.harvest`.
+
+``harvest_session`` turns an on-disk :class:`AgentSession` into a sourced
+``KnowledgeItem`` (via the workspace knowledge-write spine); ``export_session_zip``
+archives the session folder.
+"""
 
 from __future__ import annotations
 
@@ -25,47 +30,48 @@ def agent_session(tmp_path: Path) -> tuple[Workspace, Agent, AgentSession]:
     return ws, agent, session
 
 
-def test_harvest_session_writes_knowledge_and_emits(
-    agent_session: tuple[Workspace, Agent, AgentSession],
-) -> None:
-    ws, _agent, session = agent_session
-    item = harvest_session(
-        session,
-        kind="Observation",
-        narrative="User explored the workspace.",
-        created_by="tester",
-        host=ws,  # knowledge + event spine live on the workspace root
-    )
-    assert isinstance(item, KnowledgeItem)
-    assert "explored" in item.body()
-    events = read_workspace_events(ws.root, type="knowledge.created")
-    assert len(events) == 1
-
-
-def test_harvest_session_empty_narrative_raises(
-    agent_session: tuple[Workspace, Agent, AgentSession],
-) -> None:
-    _ws, agent, session = agent_session
-    with pytest.raises(ValueError):
-        harvest_session(
+class TestHarvestSession:
+    def test_writes_knowledge_item_and_emits_event(
+        self, agent_session: tuple[Workspace, Agent, AgentSession]
+    ) -> None:
+        ws, _agent, session = agent_session
+        item = harvest_session(
             session,
             kind="Observation",
-            narrative="  ",
+            narrative="User explored the workspace.",
             created_by="tester",
-            host=agent,
+            host=ws,  # knowledge + event spine live on the workspace root
         )
+        assert isinstance(item, KnowledgeItem)
+        assert "explored" in item.body()
+        events = read_workspace_events(ws.root, type="knowledge.created")
+        assert len(events) == 1
+
+    def test_empty_narrative_raises(
+        self, agent_session: tuple[Workspace, Agent, AgentSession]
+    ) -> None:
+        _ws, agent, session = agent_session
+        with pytest.raises(ValueError):
+            harvest_session(
+                session,
+                kind="Observation",
+                narrative="  ",
+                created_by="tester",
+                host=agent,
+            )
 
 
-def test_export_session_zip_uses_archive(
-    agent_session: tuple[Workspace, Agent, AgentSession],
-) -> None:
-    _ws, _agent, session = agent_session
-    # drop a file the zip must include
-    path = Path(session.resolve()) / "entries.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("{}\n", encoding="utf-8")
+class TestExportSessionZip:
+    def test_archives_session_folder_contents(
+        self, agent_session: tuple[Workspace, Agent, AgentSession]
+    ) -> None:
+        _ws, _agent, session = agent_session
+        # Drop a file the archive must include.
+        path = Path(session.resolve()) / "entries.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n", encoding="utf-8")
 
-    data = export_session_zip(session)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        names = zf.namelist()
-        assert any(n.endswith("entries.jsonl") or n == "entries.jsonl" for n in names)
+        data = export_session_zip(session)
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            names = zf.namelist()
+            assert any(n.endswith("entries.jsonl") for n in names)

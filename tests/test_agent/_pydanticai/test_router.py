@@ -1,10 +1,10 @@
 """Tests for the unified :class:`PydanticAIRouter`.
 
 Drives the router against an in-memory stub of ``pydantic_ai.Agent``
-(monkeypatched into the router's ``(tier, schema|None)`` cache so the
-real SDK ``Agent`` is never constructed). Covers the structured path's
-retry / event hardening (ported from the deleted
-``test_provider_hardening``) plus the new text path.
+(pre-populated into the router's ``(tier, schema|None)`` cache so the real SDK
+``Agent`` is never constructed). Covers construction validation, the structured
+and text paths, the shared transport-retry shim, provider-event emission, hook
+resilience, and :class:`Router` protocol conformance.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ class _Out(BaseModel):
 
 
 class _StubAgentResult:
-    """Mimics the ``.output``-bearing object returned by ``pydantic_ai.Agent.run``."""
+    """Mimics the ``.output``-bearing object ``pydantic_ai.Agent.run`` returns."""
 
     def __init__(self, output: object) -> None:
         self.output = output
@@ -35,10 +35,9 @@ class _StubAgentResult:
 class _StubAgent:
     """In-memory replacement for ``pydantic_ai.Agent``.
 
-    Each call to :meth:`run` consumes the next behavior from
-    ``script``: a :class:`BaseException` instance is raised, anything
-    else is wrapped in :class:`_StubAgentResult` and returned. The
-    last user-supplied prompt is recorded for assertion.
+    Each :meth:`run` consumes the next behavior from ``script``: a
+    :class:`BaseException` instance is raised, anything else is wrapped in
+    :class:`_StubAgentResult` and returned. Prompts are recorded for assertion.
     """
 
     def __init__(self, script: list[object]) -> None:
@@ -57,337 +56,179 @@ class _StubAgent:
 
 
 def _models_all(model: object) -> dict[ModelTier, object]:
-    return {
-        ModelTier.CHEAP: model,
-        ModelTier.DEFAULT: model,
-        ModelTier.HEAVY: model,
-    }
+    return {ModelTier.CHEAP: model, ModelTier.DEFAULT: model, ModelTier.HEAVY: model}
 
 
 def _install_structured_stub(
-    router: PydanticAIRouter,
-    tier: ModelTier,
-    schema: type[BaseModel],
-    stub: _StubAgent,
+    router: PydanticAIRouter, tier: ModelTier, schema: type[BaseModel], stub: _StubAgent
 ) -> None:
     """Bypass ``_structured_agent`` by pre-populating the cache."""
     router._agents[(tier, schema)] = stub  # type: ignore[assignment]
 
 
-def _install_text_stub(
-    router: PydanticAIRouter,
-    tier: ModelTier,
-    stub: _StubAgent,
-) -> None:
+def _install_text_stub(router: PydanticAIRouter, tier: ModelTier, stub: _StubAgent) -> None:
     """Bypass ``_text_agent`` by pre-populating the cache."""
     router._agents[(tier, None)] = stub  # type: ignore[assignment]
 
 
-# ── Construction validation ────────────────────────────────────────────────
+class TestPydanticAIRouter:
+    def test_construction_requires_all_tiers(self) -> None:
+        with pytest.raises(ValueError, match="must cover every ModelTier"):
+            PydanticAIRouter(models={ModelTier.DEFAULT: "x"})
 
-
-def test_router_construction_requires_all_tiers() -> None:
-    with pytest.raises(ValueError, match="must cover every ModelTier"):
-        PydanticAIRouter(models={ModelTier.DEFAULT: "x"})
-
-
-# ── complete_structured: happy path ────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_complete_structured_happy_path_one_attempt() -> None:
-    starts: list[ProviderEvent] = []
-    ends: list[ProviderEvent] = []
-    router = PydanticAIRouter(
-        models=_models_all("x"),
-        on_invoke_start=starts.append,
-        on_invoke_end=ends.append,
-    )
-    stub = _StubAgent([_Out(payload="ok")])
-    _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
-
-    result = await router.complete_structured(
-        tier=ModelTier.DEFAULT,
-        system="sys",
-        user="hello",
-        schema=_Out,
-        node_id="ingest",
-    )
-    assert result == _Out(payload="ok")
-    assert stub.calls == ["hello"]
-    assert len(starts) == 1
-    assert starts[0].outcome is Outcome.ok
-    assert starts[0].attempt == 1
-    assert len(ends) == 1
-    assert ends[0].outcome is Outcome.ok
-    assert ends[0].attempt == 1
-
-
-# ── complete_structured: retry on schema parse / timeout ──────────────────
-
-
-@pytest.mark.asyncio
-async def test_complete_structured_retries_two_failures_then_succeeds(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    sleeps: list[float] = []
-
-    async def _fake_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-
-    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
-
-    starts: list[ProviderEvent] = []
-    ends: list[ProviderEvent] = []
-    router = PydanticAIRouter(
-        models=_models_all("x"),
-        retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.1),
-        on_invoke_start=starts.append,
-        on_invoke_end=ends.append,
-    )
-    stub = _StubAgent(
-        [
-            TimeoutError(),
-            TimeoutError(),
-            _Out(payload="finally"),
-        ]
-    )
-    _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
-
-    result = await router.complete_structured(
-        tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out
-    )
-    assert result == _Out(payload="finally")
-    assert len(starts) == 3
-    assert [s.attempt for s in starts] == [1, 2, 3]
-    assert [e.outcome for e in ends] == [Outcome.retry, Outcome.retry, Outcome.ok]
-    assert len(sleeps) == 2
-
-
-# ── complete_structured: retry exhaustion ─────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_complete_structured_retry_exhaustion_raises_provider_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def _fake_sleep(seconds: float) -> None:
-        del seconds
-
-    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
-
-    underlying = ConnectionError("refused")
-    router = PydanticAIRouter(
-        models=_models_all("x"),
-        retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.0),
-    )
-    stub = _StubAgent([underlying, underlying, underlying])
-    _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
-
-    with pytest.raises(ProviderError) as exc_info:
-        await router.complete_structured(
-            tier=ModelTier.DEFAULT,
-            system="sys",
-            user="hi",
-            schema=_Out,
-            node_id="ingest",
+    @pytest.mark.asyncio
+    async def test_complete_structured_happy_path_emits_ok_events(self) -> None:
+        starts: list[ProviderEvent] = []
+        ends: list[ProviderEvent] = []
+        router = PydanticAIRouter(
+            models=_models_all("x"),
+            on_invoke_start=starts.append,
+            on_invoke_end=ends.append,
         )
-    err = exc_info.value
-    assert err.kind is ErrorKind.model_unavailable
-    assert err.attempts == 3
-    assert err.node_id == "ingest"
-    assert err.tier is ModelTier.DEFAULT
-    assert err.cause is underlying
+        stub = _StubAgent([_Out(payload="ok")])
+        _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
 
+        result = await router.complete_structured(
+            tier=ModelTier.DEFAULT, system="sys", user="hello", schema=_Out, node_id="ingest"
+        )
+        assert result == _Out(payload="ok")
+        assert stub.calls == ["hello"]
+        assert [s.outcome for s in starts] == [Outcome.ok]
+        assert starts[0].attempt == 1
+        assert [e.outcome for e in ends] == [Outcome.ok]
+        assert ends[0].attempt == 1
 
-# ── Hook resilience ────────────────────────────────────────────────────────
+    @pytest.mark.asyncio
+    async def test_complete_structured_retries_transient_failures_then_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sleeps: list[float] = []
 
+        async def _fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
 
-@pytest.mark.asyncio
-async def test_hook_callback_raising_does_not_break_invoke() -> None:
-    def _bad_end(_event: ProviderEvent) -> None:
-        raise RuntimeError("telemetry sink failed")
+        monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
 
-    router = PydanticAIRouter(models=_models_all("x"), on_invoke_end=_bad_end)
-    stub = _StubAgent([_Out(payload="ok")])
-    _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
+        starts: list[ProviderEvent] = []
+        ends: list[ProviderEvent] = []
+        router = PydanticAIRouter(
+            models=_models_all("x"),
+            retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.1),
+            on_invoke_start=starts.append,
+            on_invoke_end=ends.append,
+        )
+        stub = _StubAgent([TimeoutError(), TimeoutError(), _Out(payload="finally")])
+        _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
 
-    # Contract: a faulty telemetry sink must not poison the LLM call
-    # path. The router catches and logs the hook exception; the call
-    # must still return the schema-typed result.
-    result = await router.complete_structured(
-        tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out
-    )
-    assert result == _Out(payload="ok")
-
-
-# ── Cache hits across calls ────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_structured_agent_cached_per_tier_schema_pair() -> None:
-    """Two calls at the same (tier, schema) must reuse one Agent."""
-    router = PydanticAIRouter(models=_models_all("x"))
-    stub = _StubAgent([_Out(payload="a"), _Out(payload="b")])
-    _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
-
-    out1 = await router.complete_structured(
-        tier=ModelTier.DEFAULT, system="sys", user="1", schema=_Out
-    )
-    out2 = await router.complete_structured(
-        tier=ModelTier.DEFAULT, system="sys", user="2", schema=_Out
-    )
-    assert out1.payload == "a"
-    assert out2.payload == "b"
-    assert stub.calls == ["1", "2"]
-
-
-# ── complete_text: text path ──────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_complete_text_returns_router_text_result() -> None:
-    router = PydanticAIRouter(models=_models_all("x"))
-    stub = _StubAgent(["hello back"])
-    _install_text_stub(router, ModelTier.DEFAULT, stub)
-
-    result = await router.complete_text(prompt="hi")
-    assert isinstance(result, RouterTextResult)
-    assert result.text == "hello back"
-    assert stub.calls == ["hi"]
-
-
-@pytest.mark.asyncio
-async def test_complete_text_uses_requested_tier() -> None:
-    """Each tier has its own cache slot; routing the call hits the right stub."""
-    router = PydanticAIRouter(models=_models_all("x"))
-    cheap_stub = _StubAgent(["cheap reply"])
-    heavy_stub = _StubAgent(["heavy reply"])
-    _install_text_stub(router, ModelTier.CHEAP, cheap_stub)
-    _install_text_stub(router, ModelTier.HEAVY, heavy_stub)
-
-    cheap_out = await router.complete_text(prompt="hi", tier=ModelTier.CHEAP)
-    heavy_out = await router.complete_text(prompt="hi", tier=ModelTier.HEAVY)
-    assert cheap_out.text == "cheap reply"
-    assert heavy_out.text == "heavy reply"
-    assert cheap_stub.calls == ["hi"]
-    assert heavy_stub.calls == ["hi"]
-
-
-# ── Transport-retry hardening: complete_text resilience (ac-001) ───────────
-
-
-@pytest.mark.asyncio
-async def test_complete_text_recovers_from_first_attempt_transport_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """ac-001 — RED-first driver for the one new behavior.
-
-    The text path must recover from a first-attempt transport failure
-    exactly as ``complete_structured`` already does. ``TimeoutError``
-    is classified by :func:`classify` as :attr:`ErrorKind.timeout`,
-    which is in the default :class:`RetryPolicy.retry_on`, so attempt
-    #1 retries and attempt #2 succeeds.
-
-    Fails today: ``complete_text`` issues a single ``agent.run`` and
-    re-raises, so only one call is recorded and the exception
-    propagates instead of recovering.
-    """
-
-    async def _fake_sleep(seconds: float) -> None:
-        del seconds
-
-    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
-
-    router = PydanticAIRouter(
-        models=_models_all("x"),
-        retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.0),
-    )
-    stub = _StubAgent([TimeoutError(), "recovered"])
-    _install_text_stub(router, ModelTier.DEFAULT, stub)
-
-    result = await router.complete_text(prompt="hi")
-    assert isinstance(result, RouterTextResult)
-    assert result.text == "recovered"
-    assert stub.calls == ["hi", "hi"]
-
-
-# ── Transport-retry hardening: parse/validation not multiplied (ac-004) ────
-
-
-@pytest.mark.asyncio
-async def test_schema_parse_not_multiplied_by_router_loop() -> None:
-    """ac-004 — prod-incident regression lock.
-
-    A wrong-typed structured output triggers the router's own
-    ``TypeError`` schema-mismatch raise, which :func:`classify` maps to
-    :attr:`ErrorKind.schema_parse`. Since ``schema_parse`` is absent
-    from the default ``RetryPolicy.retry_on``, the router must NOT
-    retry: exactly one ``run()`` call, then a terminal
-    ``ProviderError(kind=schema_parse, attempts=1)``.
-    """
-    router = PydanticAIRouter(models=_models_all("x"))
-    # Returning a non-``_Out`` value makes the router's isinstance check
-    # raise TypeError -> classify -> schema_parse.
-    stub = _StubAgent(["a bare string, not an _Out instance"])
-    _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
-
-    with pytest.raises(ProviderError) as exc_info:
-        await router.complete_structured(
+        result = await router.complete_structured(
             tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out
         )
-    assert exc_info.value.kind is ErrorKind.schema_parse
-    assert exc_info.value.attempts == 1
-    assert stub.calls == ["hi"]
+        assert result == _Out(payload="finally")
+        assert [s.attempt for s in starts] == [1, 2, 3]
+        assert [e.outcome for e in ends] == [Outcome.retry, Outcome.retry, Outcome.ok]
+        assert len(sleeps) == 2
 
+    @pytest.mark.asyncio
+    async def test_complete_structured_retry_exhaustion_raises_provider_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def _fake_sleep(seconds: float) -> None:
+            del seconds
 
-# ── Transport-retry hardening: validation/unknown no retry (ac-006) ────────
+        monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
 
+        underlying = ConnectionError("refused")
+        router = PydanticAIRouter(
+            models=_models_all("x"),
+            retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.0),
+        )
+        stub = _StubAgent([underlying, underlying, underlying])
+        _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
 
-@pytest.mark.asyncio
-async def test_unknown_error_propagates_without_retry_text(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """ac-006 — an unknown-classified error propagates as
-    ``ProviderError`` with ``attempts == 1`` and a single ``run()``
-    call (no retry sleep) on the text path.
+        with pytest.raises(ProviderError) as exc_info:
+            await router.complete_structured(
+                tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out, node_id="ingest"
+            )
+        err = exc_info.value
+        assert err.kind is ErrorKind.model_unavailable
+        assert err.attempts == 3
+        assert err.node_id == "ingest"
+        assert err.tier is ModelTier.DEFAULT
+        assert err.cause is underlying
 
-    NOTE on the discrepancy (see report): no exception in
-    :func:`classify` ever maps to :attr:`ErrorKind.validation` — it is
-    a defined-but-never-produced member. The acceptance text pairs
-    "validation- and unknown-classified". This test exercises the
-    ``unknown`` path behaviorally; the policy-level fact that
-    ``validation`` is non-retryable is locked by
-    :func:`test_validation_kind_is_not_retryable`.
-    """
-    sleeps: list[float] = []
+    @pytest.mark.asyncio
+    async def test_hook_exception_does_not_break_invoke(self) -> None:
+        """A faulty telemetry sink must not poison the LLM call path: the
+        router catches and logs the hook exception and still returns the
+        schema-typed result."""
 
-    async def _fake_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
+        def _bad_end(_event: ProviderEvent) -> None:
+            raise RuntimeError("telemetry sink failed")
 
-    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
+        router = PydanticAIRouter(models=_models_all("x"), on_invoke_end=_bad_end)
+        stub = _StubAgent([_Out(payload="ok")])
+        _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
 
-    class _Mystery(Exception):
-        pass
+        result = await router.complete_structured(
+            tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out
+        )
+        assert result == _Out(payload="ok")
 
-    router = PydanticAIRouter(
-        models=_models_all("x"),
-        retry_policy=RetryPolicy(max_attempts=3),
-    )
-    stub = _StubAgent([_Mystery("nope")])
-    _install_text_stub(router, ModelTier.DEFAULT, stub)
+    @pytest.mark.asyncio
+    async def test_complete_text_returns_router_text_result(self) -> None:
+        router = PydanticAIRouter(models=_models_all("x"))
+        stub = _StubAgent(["hello back"])
+        _install_text_stub(router, ModelTier.DEFAULT, stub)
 
-    with pytest.raises(ProviderError) as exc_info:
-        await router.complete_text(prompt="hi")
-    assert exc_info.value.kind is ErrorKind.unknown
-    assert exc_info.value.attempts == 1
-    assert stub.calls == ["hi"]
-    assert sleeps == []
+        result = await router.complete_text(prompt="hi")
+        assert isinstance(result, RouterTextResult)
+        assert result.text == "hello back"
+        assert stub.calls == ["hi"]
 
+    @pytest.mark.asyncio
+    async def test_complete_text_recovers_from_transport_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ac-001 — the text path must recover from a first-attempt transport
+        failure exactly as the structured path does (both share
+        ``_run_with_transport_retry``). ``TimeoutError`` classifies as
+        ``timeout``, which is retryable, so attempt #2 succeeds."""
 
-# ── Protocol conformance ──────────────────────────────────────────────────
+        async def _fake_sleep(seconds: float) -> None:
+            del seconds
 
+        monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
 
-def test_pydantic_ai_router_satisfies_protocol() -> None:
-    """Structural conformance to the :class:`Router` protocol."""
-    assert isinstance(PydanticAIRouter(models=_models_all("x")), Router)
+        router = PydanticAIRouter(
+            models=_models_all("x"),
+            retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.0),
+        )
+        stub = _StubAgent([TimeoutError(), "recovered"])
+        _install_text_stub(router, ModelTier.DEFAULT, stub)
+
+        result = await router.complete_text(prompt="hi")
+        assert result.text == "recovered"
+        assert stub.calls == ["hi", "hi"]
+
+    @pytest.mark.asyncio
+    async def test_schema_parse_not_retried_by_router_loop(self) -> None:
+        """ac-004 — prod-incident lock. A wrong-typed structured output makes
+        the router raise ``TypeError`` (→ ``schema_parse``), which is absent
+        from the default ``retry_on``: exactly one ``run()`` call, then a
+        terminal ``ProviderError(kind=schema_parse, attempts=1)``."""
+        router = PydanticAIRouter(models=_models_all("x"))
+        stub = _StubAgent(["a bare string, not an _Out instance"])
+        _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
+
+        with pytest.raises(ProviderError) as exc_info:
+            await router.complete_structured(
+                tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out
+            )
+        assert exc_info.value.kind is ErrorKind.schema_parse
+        assert exc_info.value.attempts == 1
+        assert stub.calls == ["hi"]
+
+    def test_conforms_to_router_protocol(self) -> None:
+        """The sanctioned harness→agent edge depends on this concrete impl
+        satisfying the :class:`Router` protocol structurally."""
+        assert isinstance(PydanticAIRouter(models=_models_all("x")), Router)
