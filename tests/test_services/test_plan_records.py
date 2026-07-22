@@ -318,18 +318,65 @@ class TestFailureAnalysisRecord:
         assert entry is not None, entries
         assert entry.status == "failed"
         assert entry.plan_mode is True
+        assert entry.project_id == experiment.project.id
+        assert entry.experiment_id == experiment.id
+        assert entry.run_id == run.id
 
-    def test_failure_path_writes_no_success_records(self, run: Any, experiment: Any) -> None:
-        """The verbs stay disjoint: a failure materialization never writes the
-        Decision/Finding/workflow-IR success records."""
+    def test_failure_session_transcript_carries_error_reason(
+        self, workspace: Workspace, run: Any, experiment: Any
+    ) -> None:
+        """Agents chat must surface the failure reason, not a green 'plan ready'."""
+        from molexp.services.agent_task_store import read_agent_task_events
+
+        _seed(run, "experiment_report", _EXPERIMENT_REPORT)
+        _materialize(
+            run,
+            experiment,
+            failure=PlanFailure(stage="execute_tests", error="pytest exit 2 — Frame missing"),
+        )
+
+        events = read_agent_task_events(str(workspace.root), f"plan-{run.id}")
+        types = [e["type"] for e in events]
+        assert "error" in types, events
+        err = next(e for e in events if e["type"] == "error")
+        assert "Frame missing" in err["payload"]["message"]
+        assert err["payload"]["stage"] == "execute_tests"
+        completed = [e for e in events if e["type"] == "loop_completed"]
+        assert completed, events
+        last = completed[-1]
+        assert last["payload"].get("failed") is True
+        assert "Frame missing" in last["payload"]["text"]
+        assert "plan ready" not in last["payload"]["text"].lower()
+
+    def test_failure_path_writes_no_decision_or_finding(self, run: Any, experiment: Any) -> None:
+        """Failure materialization never writes Decision/Finding (success-only).
+
+        Workflow IR is partial product of earlier stages — when the artifact
+        exists it still lands on the experiment so the UI graph is not blank.
+        """
         _seed(run, "experiment_report", _EXPERIMENT_REPORT)
         _seed(run, "final_report", _FINAL_REPORT)
+        _seed(run, "workflow_source", _WORKFLOW_SOURCE)
 
         outcome = _materialize(run, experiment, failure=PlanFailure(stage=None, error="boom"))
 
-        assert outcome.workflow_persisted is False
+        assert outcome.workflow_persisted is True
+        assert "workflow_ir" in outcome.written
         assert "experiment_record" not in outcome.written
         assert "finding" not in outcome.written
+        # Bound for UI: in-memory IR and/or externalized workflow.json on save.
+        from molexp.workspace.experiment import WORKFLOW_DOC_FILENAME
+
+        doc = Path(experiment.experiment_dir) / WORKFLOW_DOC_FILENAME
+        assert experiment.metadata.workflow_source is not None or doc.is_file()
+
+    def test_failure_without_workflow_source_skips_ir(self, run: Any, experiment: Any) -> None:
+        """No workflow_source artifact → failure path does not invent an IR error."""
+        outcome = _materialize(run, experiment, failure=PlanFailure(stage=None, error="early boom"))
+
+        assert outcome.workflow_persisted is False
+        assert "workflow_ir" not in outcome.written
+        assert not any(e.record == "workflow_ir" for e in outcome.errors)
 
 
 # ── CLI caller (failure materializes; suspension never does) ─────────────────
@@ -348,7 +395,7 @@ def _patch_cli_stubs(
     def _fake_preflight(*, model: str) -> Any:
         return None
 
-    def _fake_gateway(*, model: str, run: Any, router: Any = None) -> Any:
+    def _fake_gateway(*, model: str, run: Any, router: Any = None, **_kwargs: Any) -> Any:
         from molexp.harness.gateways.stub import StubAgentGateway
         from molexp.harness.store.file_artifact_store import FileArtifactStore
 

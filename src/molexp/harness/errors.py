@@ -18,6 +18,7 @@ __all__ = [
     "ArtifactNotFoundError",
     "CapabilityAlreadyRegisteredError",
     "CapabilityCallValidationError",
+    "CapabilityGapError",
     "CapabilityNotFoundError",
     "CapabilityResolutionError",
     "EventSeqConflictError",
@@ -149,6 +150,32 @@ class CapabilityResolutionError(HarnessError):
     names an unimportable module, references a missing attribute, or resolves
     to a non-callable object. There is no silent fallback — every dispatch
     failure surfaces as this typed error."""
+
+
+class CapabilityGapError(StageExecutionError):
+    """A plan step needs a molcrafts capability/API that molmcp cannot find.
+
+    Not retryable by re-sampling the LLM: the operator must update the plan
+    (pick an available capability) or update molpy/molmcp and re-index. Raised
+    by repair loops when diagnosis reports a capability gap so attempts are
+    not burned inventing missing symbols.
+
+    Attributes:
+        code: Stable machine code (e.g. ``unknown_capability``,
+            ``api_symbol_missing``, ``molmcp_unavailable``).
+        symbol: Optional dotted symbol / capability id.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "capability_missing",
+        symbol: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.symbol = symbol
 
 
 class UnhandledHighRiskOpError(HarnessError):

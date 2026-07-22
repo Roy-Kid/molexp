@@ -1393,6 +1393,9 @@ export const SLASH_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 // Provider config — read/write the workspace's LLM provider settings.
 export type ApiProviderName = "anthropic" | "openai" | "google" | "deepseek" | "openai-compatible";
 
+export type ApiModelTier = "cheap" | "default" | "heavy";
+export type ApiTierModels = Record<ApiModelTier, string>;
+
 export interface ApiAgentProvider {
   provider: ApiProviderName;
   model: string;
@@ -1401,14 +1404,14 @@ export interface ApiAgentProvider {
   apiKeySet: boolean;
   instructions: string;
   supportedProviders: ApiProviderName[];
+  /** Global cheap/default/heavy table — full ``provider:model`` ids; may cross providers. */
+  models: ApiTierModels;
   configurations: ApiProviderConfiguration[];
 }
 
-export type ApiModelTier = "cheap" | "default" | "heavy";
-export type ApiTierModels = Record<ApiModelTier, string>;
-
 export interface ApiProviderConfiguration {
   provider: ApiProviderName;
+  /** Legacy per-provider tier map; prefer top-level ``models``. */
   models: ApiTierModels;
   baseUrl: string;
   apiKeyPreview: string;

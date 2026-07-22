@@ -54,9 +54,10 @@ from mollog import get_logger
 from molexp.harness.core.fingerprint import stage_fingerprint
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
-from molexp.harness.core.stage_runner import run_stage_bracketed
+from molexp.harness.core.stage_runner import run_stage_bracketed, take_stage_duration
 from molexp.harness.errors import ArtifactNotFoundError, StagePersistedFailureError
 from molexp.harness.schemas import ModeResult, PlanArtifactRef
+from molexp.harness.schemas.mode_result import StageTiming
 from molexp.harness.store.approval_store import SQLiteApprovalStore
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
@@ -141,10 +142,15 @@ class Mode(ABC):
         ctx = self._build_ctx(run, gateway, capability_registry)
         ledger_path = self._ledger_path(run, user_input)
         completed: dict[str, _LedgerEntry] = self._load_ledger(ledger_path)
+        timings: list[StageTiming] = []
 
         for stage in stages:
             fingerprint = stage_fingerprint(stage)
             if self._entry_valid(ctx, completed.get(stage.name), stage.name, fingerprint):
+                timings.append(
+                    StageTiming(stage=stage.name, duration_s=0.0, status="skipped")
+                )
+                _LOG.info(f"stage skip name={stage.name} reason=ledger_hit")
                 continue  # verified cache hit / resume — skip the stage body
             completed.pop(stage.name, None)
             try:
@@ -161,20 +167,64 @@ class Mode(ABC):
                     rejected_ref=exc.persisted_ref,
                 ):
                     self._write_ledger(ledger_path, completed, run_id=run.id)
+                # Best-effort duration for the failed stage (may be absent).
+                fail_dt = take_stage_duration() or 0.0
+                timings.append(
+                    StageTiming(stage=stage.name, duration_s=fail_dt, status="failed")
+                )
+                self._log_timing_summary(timings)
                 raise
+            except Exception:
+                fail_dt = take_stage_duration() or 0.0
+                if fail_dt:
+                    timings.append(
+                        StageTiming(stage=stage.name, duration_s=fail_dt, status="failed")
+                    )
+                self._log_timing_summary(timings)
+                raise
+            dt = take_stage_duration() or 0.0
+            timings.append(StageTiming(stage=stage.name, duration_s=dt, status="ok"))
             completed[stage.name] = {"artifact": ref.id, "fingerprint": fingerprint}
             self._write_ledger(ledger_path, completed, run_id=run.id)
 
         stage_artifacts: tuple[PlanArtifactRef, ...] = tuple(
             ctx.artifact_store.get_ref(completed[stage.name]["artifact"]) for stage in stages
         )
-        return ModeResult(
+        result = ModeResult(
             mode_name=self.name,
             run_id=run.id,
             execution_id=derive_execution_id(run.id, run.run_dir / "executions"),
             stage_artifacts=stage_artifacts,
             final_artifact=stage_artifacts[-1] if stage_artifacts else None,
+            stage_timings=tuple(timings),
         )
+        self._log_timing_summary(timings)
+        return result
+
+    def _log_timing_summary(self, timings: list[StageTiming]) -> None:
+        """Log stages sorted by duration so operators see the hot path.
+
+        Includes ``ok`` *and* ``failed`` stages (skipped stay at 0 and are
+        listed last). A failed sequential codegen that burned 30 min must
+        appear in the summary — not vanish because status != ok.
+        """
+        if not timings:
+            return
+        timed = [t for t in timings if t.status in ("ok", "failed")]
+        total = sum(t.duration_s for t in timed)
+        skipped = sum(1 for t in timings if t.status == "skipped")
+        failed = sum(1 for t in timings if t.status == "failed")
+        _LOG.info(
+            f"mode timing summary mode={self.name} stages={len(timings)} "
+            f"ok={sum(1 for t in timings if t.status == 'ok')} "
+            f"failed={failed} skipped={skipped} total_s={total:.2f}"
+        )
+        for t in sorted(timed, key=lambda x: x.duration_s, reverse=True):
+            pct = (100.0 * t.duration_s / total) if total > 0 else 0.0
+            _LOG.info(
+                f"  timing stage={t.stage} status={t.status} "
+                f"duration_s={t.duration_s:.2f} pct={pct:.0f}"
+            )
 
     # ----------------------------------------------------------- internals
 

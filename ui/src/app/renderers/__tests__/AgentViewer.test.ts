@@ -37,6 +37,7 @@ const KINDS = [
   "error",
   "thinking_delta",
   "token_delta",
+  "llm_call",
 ];
 
 describe("agent mode switching", () => {

@@ -220,7 +220,16 @@ class PlanRuntime:
         return preflight_plan_router(model=model)
 
     @staticmethod
-    def build_gateway(*, model: str, run: Run, router: Router | None = None) -> AgentGateway:
+    def build_gateway(
+        *,
+        model: str,
+        run: Run,
+        router: Router | None = None,
+        workspace_root: str | Path | None = None,
+        task_id: str | None = None,
+        draft: str | None = None,
+        turn_id: str | None = None,
+    ) -> AgentGateway:
         """Build the production gateway for ``run`` from the resolved ``model``.
 
         Delegates to the shared service builder
@@ -228,10 +237,21 @@ class PlanRuntime:
         and the server construct the exact same gateway; ``router`` reuses the
         instance :meth:`preflight` already validated. A seam: tests
         monkeypatch this to inject a ``StubAgentGateway`` instead.
+
+        Pass ``workspace_root`` + ``task_id`` (+ optional ``draft``) so each
+        LLM call is projected into the Agents-tab session cache.
         """
         from molexp.services.plan_runtime import build_plan_gateway
 
-        return build_plan_gateway(model=model, run=run, router=router)
+        return build_plan_gateway(
+            model=model,
+            run=run,
+            router=router,
+            workspace_root=workspace_root,
+            task_id=task_id,
+            draft=draft,
+            turn_id=turn_id,
+        )
 
     @staticmethod
     def build_executor() -> Executor:
@@ -404,7 +424,15 @@ def plan(
             chain = " -> ".join(stage.name for stage in group.stages)
             rprint(f"    {label} {group.title:<24} {chain}")
 
-    gateway = PlanRuntime.build_gateway(model=resolved_model, run=run, router=router)
+    plan_task_id = f"plan-{run.id}"
+    gateway = PlanRuntime.build_gateway(
+        model=resolved_model,
+        run=run,
+        router=router,
+        workspace_root=str(workspace_root),
+        task_id=plan_task_id,
+        draft=draft_text,
+    )
     capability_registry = _resolve_grounding(workspace_root, ground=ground, task=draft_text)
     from molexp.services.plan_runtime import drive_plan_mode
 
@@ -449,7 +477,7 @@ def plan(
             run=run,
             experiment=exp,
             workspace_root=str(workspace_root),
-            task_id=f"plan-{run.id}",
+            task_id=plan_task_id,
             draft=draft_text,
             model=resolved_model,
             failure=PlanFailure(stage=None, error=str(exc)),
@@ -459,12 +487,24 @@ def plan(
 
     rprint(f"\n[green]OK[/green] all {len(plan_steps)} steps{tail_note} completed")
     artifacts = iter(result.stage_artifacts)
+    timing_by_stage = {t.stage: t for t in result.stage_timings}
     for label, group in _numbered(groups):
         refs = [next(artifacts) for _ in group.stages]
-        rprint(f"  {label} {group.title:<24} {len(refs)} artifact{'s' if len(refs) != 1 else ''}")
+        group_s = sum(
+            timing_by_stage[s.name].duration_s
+            for s in group.stages
+            if s.name in timing_by_stage and timing_by_stage[s.name].status == "ok"
+        )
+        rprint(
+            f"  {label} {group.title:<24} {len(refs)} artifact"
+            f"{'s' if len(refs) != 1 else ''}  [dim]{group_s:.1f}s[/dim]"
+        )
         if verbose:
             for stage, ref in zip(group.stages, refs, strict=True):
-                rprint(f"       {stage.name:<26} {ref.kind:<20} {ref.id}")
+                t = timing_by_stage.get(stage.name)
+                dt = f"{t.duration_s:.1f}s" if t and t.status == "ok" else (t.status if t else "")
+                rprint(f"       {stage.name:<26} {ref.kind:<20} {ref.id}  [dim]{dt}[/dim]")
+    _print_timing_table(result)
 
     # Materialize the SAME UI-facing records the server's `POST /plan-tasks`
     # writes — persist the workflow IR onto the experiment + record the Agents
@@ -472,17 +512,16 @@ def plan(
     # produced here is identical, in the UI, to one generated from the web app.
     from molexp.services.plan_runtime import materialize_plan_records
 
-    task_id = f"plan-{run.id}"
     outcome = materialize_plan_records(
         run=run,
         experiment=exp,
         workspace_root=str(workspace_root),
-        task_id=task_id,
+        task_id=plan_task_id,
         draft=draft_text,
         model=resolved_model,
     )
     _print_record_errors(outcome)
-    rprint(f"  ui session: [bold]{task_id}[/bold] (open the Agents tab to see this plan)")
+    rprint(f"  ui session: [bold]{plan_task_id}[/bold] (open the Agents tab to see this plan)")
 
     if execute:
         _print_final_report(run, result)
@@ -506,6 +545,24 @@ def _numbered(groups: list[PlanStep]) -> list[tuple[str, PlanStep]]:
             step_no += 1
             labeled.append((f"{step_no}.", group))
     return labeled
+
+
+def _print_timing_table(result: ModeResult) -> None:
+    """Print stages sorted by wall time (hottest first)."""
+    from molexp.cli._common import rprint
+
+    ran = [t for t in result.stage_timings if t.status == "ok" and t.duration_s > 0]
+    if not ran:
+        return
+    total = sum(t.duration_s for t in ran)
+    rprint(f"\n[bold]Stage timing[/bold] (total {total:.1f}s, hottest first)")
+    for t in sorted(ran, key=lambda x: x.duration_s, reverse=True):
+        pct = 100.0 * t.duration_s / total if total else 0.0
+        bar = "█" * max(1, int(pct / 5))
+        rprint(f"  {t.duration_s:7.1f}s  {pct:3.0f}%  {bar:<20}  {t.stage}")
+    skipped = sum(1 for t in result.stage_timings if t.status == "skipped")
+    if skipped:
+        rprint(f"  [dim]{skipped} stage(s) skipped (ledger resume)[/dim]")
 
 
 def _print_final_report(run: Run, result: ModeResult) -> None:

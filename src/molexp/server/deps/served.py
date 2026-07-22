@@ -14,8 +14,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from molexp.server.deps.workspace_state import _SAFE_METHODS, _active_workspace_key
+
+if TYPE_CHECKING:
+    from molexp.server.workspace_targets import WorkspaceTarget
 
 
 @dataclass(frozen=True)
@@ -27,7 +31,12 @@ class ServedWorkspace:
         label: Human-facing description (a path, or ``user@host:/path``).
         is_remote: True for an SSH-backed remote workspace.
         path: Absolute local root, or ``None`` when remote.
-        target_name: Registered :class:`WorkspaceTarget` name, or ``None`` when local.
+        target_name: Workspace-target name used as the remote active-workspace
+            identifier (registry name or process-scoped slug from CLI SCP).
+        remote_target: Optional inline :class:`WorkspaceTarget` for CLI
+            ``-ws user@host:/path`` so serve does not have to persist into
+            ``~/.molexp/workspace_targets.json``. When set, resolution prefers
+            this over the on-disk registry.
     """
 
     key: str
@@ -35,6 +44,7 @@ class ServedWorkspace:
     is_remote: bool
     path: str | None = None
     target_name: str | None = None
+    remote_target: WorkspaceTarget | None = None
 
 
 _served_workspaces: list[ServedWorkspace] = []
@@ -57,6 +67,31 @@ def _served_by_key(key: str) -> ServedWorkspace | None:
         if sw.key == key:
             return sw
     return None
+
+
+def resolve_served_remote_target(identifier: str) -> WorkspaceTarget:
+    """Resolve a remote :class:`WorkspaceTarget` by active-workspace id.
+
+    Prefers an inline descriptor on the served set (CLI ``-ws user@host:/path``)
+    so serve need not write the on-disk registry. Falls back to the process
+    :class:`WorkspaceTargetRegistry`.
+
+    Raises:
+        KeyError: no served inline match and the registry has no such name.
+    """
+    from molexp.server.workspace_targets import WorkspaceTarget as _WT
+
+    for sw in _served_workspaces:
+        if (
+            sw.is_remote
+            and (sw.target_name or sw.key) == identifier
+            and sw.remote_target is not None
+        ):
+            return sw.remote_target
+    from molexp.server.deps.targets import get_workspace_target_registry
+
+    target: _WT = get_workspace_target_registry().get(identifier)
+    return target
 
 
 def active_served_key() -> str | None:

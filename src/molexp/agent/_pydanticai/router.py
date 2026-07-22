@@ -53,6 +53,7 @@ from pydantic_ai.tools import Tool
 from molexp.agent.router import (
     AgenticChunk,
     FinalChunk,
+    McpToolSpec,
     ModelTier,
     RouterTextResult,
     TextDeltaChunk,
@@ -174,6 +175,13 @@ class PydanticAIRouter:
         # the text path so structured + text agents at the same tier
         # do not collide.
         self._agents: dict[tuple[ModelTier, type[BaseModel] | None], Agent[None, Any]] = {}
+        # Shared MCP toolsets for the router lifetime (keep_alive=True). Keyed
+        # by (name, command, args, env) so a whole plan reuses one molmcp
+        # stdio session instead of cold-starting per complete_structured call.
+        self._mcp_toolsets: dict[
+            tuple[str, str, tuple[str, ...], tuple[tuple[str, str], ...]],
+            Any,
+        ] = {}
         # Per-call usage records, cleared by ``clear_usage`` at mode start.
         self._usage_log: list[CallUsage] = []
         self._usage_started: float | None = None
@@ -372,6 +380,66 @@ class PydanticAIRouter:
             self._agents[key] = cast("Agent[None, Any]", agent)
         return self._agents[key]  # type: ignore[return-value]
 
+    def _mcp_toolsets_for(
+        self, mcp_tools: tuple[McpToolSpec, ...]
+    ) -> list[Any]:
+        """Return keep-alive MCP toolsets, creating each at most once.
+
+        Plan codegen used to cold-start molmcp on every structured call
+        (12+ FastMCP banners per e2e). Caching the toolset instances with
+        ``keep_alive=True`` reuses one stdio session for the whole plan.
+        Agents are still built per-call (system prompt + schema vary); only
+        the subprocess is shared.
+        """
+        from molexp.agent._pydanticai.mcp import build_mcp_server
+
+        toolsets: list[Any] = []
+        for spec in mcp_tools:
+            key = (spec.name, spec.command, spec.args, spec.env)
+            cached = self._mcp_toolsets.get(key)
+            if cached is None:
+                cached = build_mcp_server(
+                    transport="stdio",
+                    name=spec.name,
+                    command=spec.command,
+                    args=spec.args,
+                    env=dict(spec.env) or None,
+                    keep_alive=True,
+                )
+                self._mcp_toolsets[key] = cached
+                _LOG.info(
+                    f"[router] mcp toolset start name={spec.name!r} "
+                    f"command={spec.command!r} keep_alive=True"
+                )
+            toolsets.append(cached)
+        return toolsets
+
+    def _structured_agent_with_mcp(
+        self,
+        tier: ModelTier,
+        schema: type[SchemaT],
+        system: str,
+        mcp_tools: tuple[McpToolSpec, ...],
+    ) -> Agent[None, SchemaT]:
+        """Build a structured agent that reuses plan-scoped MCP toolsets.
+
+        Toolsets are cached on the router (one molmcp process per plan);
+        the Agent itself is not cached because system prompt and schema
+        differ per call.
+        """
+        toolsets = self._mcp_toolsets_for(mcp_tools)
+        model = self._tier_models[tier]
+        return cast(
+            "Agent[None, SchemaT]",
+            Agent(  # ty: ignore[no-matching-overload]
+                model=model,
+                output_type=schema,
+                system_prompt=system,
+                toolsets=toolsets,
+                retries={"output": 2},
+            ),
+        )
+
     def _fire(self, hook: EventCallback, event: ProviderEvent) -> None:
         """Fire a hook callback, swallowing-and-logging any exception.
 
@@ -452,8 +520,13 @@ class PydanticAIRouter:
         user: str,
         schema: type[SchemaT],
         node_id: str = "",
+        mcp_tools: tuple[McpToolSpec, ...] = (),
     ) -> SchemaT:
         """Invoke the LLM with retry + normalized error handling.
+
+        When ``mcp_tools`` is non-empty the agent is built with those MCP
+        servers attached as toolsets, so it can consult them (e.g. molmcp's
+        code intelligence) mid-run before emitting the structured answer.
 
         Returns:
             The parsed ``schema`` instance from a successful attempt.
@@ -462,7 +535,11 @@ class PydanticAIRouter:
             ProviderError: When all attempts have failed (retry
                 exhaustion) or a non-retryable failure occurred.
         """
-        agent = self._structured_agent(tier, schema, system)
+        agent = (
+            self._structured_agent_with_mcp(tier, schema, system, mcp_tools)
+            if mcp_tools
+            else self._structured_agent(tier, schema, system)
+        )
 
         async def _run_once(attempt: int) -> SchemaT:
             self._fire(
@@ -728,6 +805,7 @@ def _coerce_model_value(value: object) -> PydanticAiModel:
     if isinstance(value, str):
         provider_name, sep, model_name = value.partition(":")
         if sep and provider_name == "deepseek":
+            import httpx
             from pydantic_ai.models.openai import OpenAIChatModel
             from pydantic_ai.providers.deepseek import DeepSeekProvider
 
@@ -740,6 +818,18 @@ def _coerce_model_value(value: object) -> PydanticAiModel:
                     'Set molexp.config["deepseek_api_key"] = ... first '
                     "(molexp does not read DEEPSEEK_API_KEY from the environment)."
                 )
-            return OpenAIChatModel(model_name, provider=DeepSeekProvider(api_key=api_key))
+            # trust_env=False → DEEPSEEK IS REACHED DIRECTLY, never through a
+            # system/env HTTP(S) proxy. A stale local proxy (e.g. a Clash/VPN
+            # tool at 127.0.0.1:7897 left in macOS network settings but no
+            # longer running) otherwise makes every LLM call fail with
+            # "Connection refused" — httpx honors the system proxy while curl
+            # does not, so the failures look like an intermittent DeepSeek
+            # outage. DeepSeek's API is directly reachable; the proxy is for
+            # other traffic and must not intercept it.
+            http_client = httpx.AsyncClient(trust_env=False, timeout=600)
+            return OpenAIChatModel(
+                model_name,
+                provider=DeepSeekProvider(api_key=api_key, http_client=http_client),
+            )
 
     return value  # ty: ignore[invalid-return-type]  — opaque pydantic-ai model value

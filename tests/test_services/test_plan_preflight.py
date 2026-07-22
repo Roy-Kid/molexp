@@ -131,6 +131,28 @@ class TestPreflightSuccess:
             ModelTier.HEAVY: "deepseek-reasoner",
         }
 
+    def test_default_bumps_heavy_tier_to_pro_for_flash_base(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no explicit models map, HEAVY resolves to the pro counterpart.
+
+        The flash base fills CHEAP / DEFAULT; the codegen (HEAVY) tier gets
+        deepseek-v4-pro so ``workflow_source_writer`` runs on the stronger
+        model without changing the default everywhere.
+        """
+        import molexp
+        from molexp.agent.router import ModelTier
+
+        monkeypatch.setitem(molexp.config, "deepseek_api_key", "test-key")
+        router = preflight_plan_router(model="deepseek:deepseek-v4-flash")
+        resolved = {  # type: ignore[attr-defined]
+            tier: configured.model_name
+            for tier, configured in router._tier_models.items()
+        }
+        assert resolved[ModelTier.CHEAP] == "deepseek-v4-flash"
+        assert resolved[ModelTier.DEFAULT] == "deepseek-v4-flash"
+        assert resolved[ModelTier.HEAVY] == "deepseek-v4-pro"
+
     def test_configured_deepseek_model_passes_and_returns_the_router(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

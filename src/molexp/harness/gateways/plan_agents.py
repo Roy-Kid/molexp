@@ -19,7 +19,15 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
-__all__ = ["plan_agent_responses", "plan_output_kinds", "plan_system_prompts"]
+    from molexp.agent.router import ModelTier
+
+__all__ = [
+    "plan_agent_mcp_servers",
+    "plan_agent_responses",
+    "plan_agent_tiers",
+    "plan_output_kinds",
+    "plan_system_prompts",
+]
 
 
 def plan_agent_responses() -> dict[str, type[BaseModel]]:
@@ -45,11 +53,70 @@ def plan_agent_responses() -> dict[str, type[BaseModel]]:
         "workflow_ir_extractor": PlanWorkflowIR,
         "bound_workflow_binder": BoundWorkflow,
         "workflow_source_writer": WorkflowSource,
+        # Per-task variant: GenerateWorkflowSource fans one call per bound task
+        # so each pro codegen stays small and consults molmcp for just that task.
+        "workflow_source_file_writer": WorkflowSource,
         "input_set_generator": InputSet,
         "plan_reviewer": PlanReview,
         "test_spec_writer": TestSpecBundle,
         "test_code_writer": TestSource,
+        # Per-file variant: GenerateTestCode fans one call per task so each
+        # v4-pro codegen stays small (the whole-suite call times out on pro).
+        "test_code_file_writer": TestSource,
         "final_report_writer": FinalReport,
+    }
+
+
+def plan_agent_tiers() -> dict[str, ModelTier]:
+    """Map each plan ``agent_name`` to the model tier it must run at.
+
+    **No gateway fallback.** Every agent registered in
+    :func:`plan_agent_responses` MUST appear here; the gateway refuses
+    unmapped agents instead of silently using a default tier.
+
+    **Policy:** everything that *writes* plan content runs **HEAVY (pro)** —
+    report, spec, IR, bind, codegen (first pass *and* repair), input set,
+    final report. Only the **critic** (``plan_reviewer``) is DEFAULT.
+    Validators and structural checks are not LLM agents.
+    """
+    from molexp.agent.router import ModelTier
+
+    heavy = ModelTier.HEAVY
+    default = ModelTier.DEFAULT
+    return {
+        "experiment_report_writer": heavy,
+        "experiment_spec_generator": heavy,
+        "capability_selector": heavy,
+        "workflow_ir_extractor": heavy,
+        "bound_workflow_binder": heavy,
+        "input_set_generator": heavy,
+        "test_spec_writer": heavy,
+        "final_report_writer": heavy,
+        # Codegen authors — always HEAVY (including first pass).
+        "workflow_source_writer": heavy,
+        "workflow_source_file_writer": heavy,
+        "test_code_writer": heavy,
+        "test_code_file_writer": heavy,
+        # Critic only → DEFAULT.
+        "plan_reviewer": default,
+    }
+
+
+def plan_agent_mcp_servers() -> dict[str, tuple[str, ...]]:
+    """Map each plan ``agent_name`` to the MCP servers it **requires** while running.
+
+    Code-writing agents must consult **molmcp** (``molcrafts_search`` /
+    ``molcrafts_describe`` / ``molcrafts_explore`` / ``molcrafts_usage``) so
+    they resolve real molcrafts APIs mid-generation. The application layer
+    resolves each name to a concrete stdio spec; a missing molmcp is a
+    **hard preflight failure** for these agents (no silent catalog-only
+    fallback — guessing APIs is how plans invent symbols).
+    """
+    return {
+        "workflow_source_writer": ("molmcp",),
+        "workflow_source_file_writer": ("molmcp",),
+        "test_code_writer": ("molmcp",),
+        "test_code_file_writer": ("molmcp",),
     }
 
 
@@ -62,10 +129,16 @@ def plan_output_kinds() -> dict[str, str]:
         "workflow_ir_extractor": "workflow_ir",
         "bound_workflow_binder": "bound_workflow",
         "workflow_source_writer": "workflow_source",
+        # Per-task partials land under their own kind; the merged workflow_source
+        # GenerateWorkflowSource assembles stays the single latest.
+        "workflow_source_file_writer": "workflow_source_file",
         "input_set_generator": "input_set",
         "plan_reviewer": "plan_review",
         "test_spec_writer": "test_spec",
         "test_code_writer": "test_source",
+        # Per-file partials land under their own kind so the merged
+        # ``test_source`` GenerateTestCode assembles stays the single latest.
+        "test_code_file_writer": "test_source_file",
         "final_report_writer": "final_report",
     }
 
@@ -73,11 +146,22 @@ def plan_output_kinds() -> dict[str, str]:
 def plan_system_prompts() -> dict[str, str]:
     """Map each plan ``agent_name`` to its shipped system prompt."""
     from molexp.harness.prompts import prompts_by_agent
+    from molexp.harness.prompts.test_code import SYSTEM_PROMPT as TEST_CODE_SYSTEM_PROMPT
+    from molexp.harness.prompts.test_code_file import (
+        SYSTEM_PROMPT as TEST_CODE_FILE_SYSTEM_PROMPT,
+    )
     from molexp.harness.prompts.workflow_source import (
         SYSTEM_PROMPT as WORKFLOW_SOURCE_SYSTEM_PROMPT,
+    )
+    from molexp.harness.prompts.workflow_source_file import (
+        SYSTEM_PROMPT as WORKFLOW_SOURCE_FILE_SYSTEM_PROMPT,
     )
 
     return {
         **prompts_by_agent(),
         "workflow_source_writer": WORKFLOW_SOURCE_SYSTEM_PROMPT,
+        # Per-task writers: short system + YAML user payload (codegen_prompt).
+        "workflow_source_file_writer": WORKFLOW_SOURCE_FILE_SYSTEM_PROMPT,
+        "test_code_writer": TEST_CODE_SYSTEM_PROMPT,
+        "test_code_file_writer": TEST_CODE_FILE_SYSTEM_PROMPT,
     }

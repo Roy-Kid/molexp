@@ -54,6 +54,7 @@ def build_mcp_server(
     url: str = "",
     http_client: httpx.AsyncClient | None = None,
     headers: dict[str, str] | None = None,
+    keep_alive: bool = True,
 ) -> PrefixedToolset[Any]:
     """Map a resolved transport spec onto a pydantic-ai ``MCPToolset``.
 
@@ -64,6 +65,11 @@ def build_mcp_server(
     The caller passes either ``http_client`` or ``headers`` (never both);
     when ``http_client`` is given it is authoritative and ``headers`` are
     ignored, matching the v1 builder's precedence.
+
+    ``keep_alive`` defaults to ``True`` so a plan that reuses the same
+    toolset instance (see :class:`PydanticAIRouter` MCP cache) does not
+    cold-start molmcp on every LLM call. Handshake probes pass
+    ``keep_alive=False`` so the child actually exits.
     """
     from pydantic_ai.mcp import (
         MCPToolset,
@@ -73,10 +79,9 @@ def build_mcp_server(
     )
 
     if transport == "stdio":
-        # keep_alive=False restores v1 ``MCPServerStdio`` lifecycle: the
-        # subprocess is terminated when the toolset context exits (fastmcp
-        # defaults to keeping it alive for session reuse).
-        stdio = StdioTransport(command=command, args=list(args), env=env, keep_alive=False)
+        stdio = StdioTransport(
+            command=command, args=list(args), env=env, keep_alive=keep_alive
+        )
         return MCPToolset(stdio, id=name).prefixed(name)
 
     if transport in ("http", "sse"):

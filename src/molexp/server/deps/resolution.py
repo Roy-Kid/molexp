@@ -12,7 +12,6 @@ from pathlib import Path
 from fastapi import Request
 
 from molexp.server.deps.served import _served_by_key
-from molexp.server.deps.targets import get_workspace_target_registry
 from molexp.server.deps.workspace_state import (
     _SAFE_METHODS,
     _active_workspace_key,
@@ -73,18 +72,21 @@ def get_active_workspace():  # noqa: ANN201
     The cache key is ``(kind, identifier)`` — local-vs-remote workspaces
     coexist without collision. This is the request-free core used by
     :func:`get_workspace` and by direct callers that have no request.
+
+    Local roots open without requiring ``workspace.json`` (plain folders are
+    valid; index views stay empty until the layout is present).
     """
     kind, identifier = _active_workspace_key()
     cache_key = (kind, identifier)
     if cache_key not in _workspace_cache:
         if kind == "remote":
+            from molexp.server.deps.served import resolve_served_remote_target
             from molexp.server.workspace_targets import (
                 target_to_filesystem_for_workspace_target,
             )
 
-            registry = get_workspace_target_registry()
             try:
-                target = registry.get(identifier)
+                target = resolve_served_remote_target(identifier)
             except KeyError as exc:
                 raise KeyError(
                     f"active workspace target {identifier!r} no longer registered"
@@ -113,13 +115,14 @@ def get_workspace_by_key(key: str):  # noqa: ANN201
         target_name = sw.target_name or sw.key
         cache_key = ("remote", target_name)
         if cache_key not in _workspace_cache:
+            from molexp.server.deps.served import resolve_served_remote_target
             from molexp.server.exceptions import RemoteWorkspaceUnreachableError
             from molexp.server.workspace_targets import (
                 target_to_filesystem_for_workspace_target,
             )
 
             try:
-                target = get_workspace_target_registry().get(target_name)
+                target = resolve_served_remote_target(target_name)
                 fs = target_to_filesystem_for_workspace_target(target)
                 _workspace_cache[cache_key] = Workspace(target.root_path, fs=fs)
             except Exception as exc:  # connection / auth / unknown target

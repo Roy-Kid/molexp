@@ -129,6 +129,31 @@ def test_remote_workspace_served_read_through(
     assert [p["id"] for p in r.json()] == ["prod"]
 
 
+def test_inline_remote_target_without_registry(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """CLI-style inline remote_target must resolve without a registry entry."""
+    remote_root = tmp_path / "remote"
+    _local_ws_with_project(remote_root, "inline-proj")
+    inline = WorkspaceTarget(name="cli-scp", host="me@h", root_path=str(remote_root))
+    _stub_reachable_remote(monkeypatch)
+    set_served_workspaces(
+        [
+            ServedWorkspace(
+                key="remote-cli-scp",
+                label="me@h:/remote",
+                is_remote=True,
+                target_name="cli-scp",
+                remote_target=inline,
+            )
+        ]
+    )
+
+    r = client.get("/api/workspaces/remote-cli-scp/projects")
+    assert r.status_code == 200, r.text
+    assert [p["id"] for p in r.json()] == ["inline-proj"]
+
+
 def test_remote_workspace_rejects_writes(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

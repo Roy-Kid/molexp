@@ -30,6 +30,7 @@ the real workflow (the ``--execute`` tail / RunMode-equivalent).
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import ClassVar, TypeVar
 
@@ -109,6 +110,13 @@ class MaterializeExecution(Stage):
         ir = self._parse(ctx, ir_ref.id, PlanWorkflowIR, "workflow_ir")
 
         generated = ctx.workspace_root / "generated"
+        # Wipe first: this stage rewrites the entire tree (workflow/ + tests/ +
+        # run_workflow.py) from the current artifacts, and a RepairLoop
+        # re-materializes each attempt. Stale files from a prior attempt — a
+        # renamed/removed test module, a `__pycache__/*.pyc`, or an
+        # earlier-shape leftover — otherwise linger and break pytest collection
+        # ("import file mismatch" on a same-stem basename).
+        shutil.rmtree(generated, ignore_errors=True)
         generated.mkdir(parents=True, exist_ok=True)
 
         # Workflow + tests: multi-file (one module per task under workflow/,
@@ -154,7 +162,22 @@ class MaterializeExecution(Stage):
         escaping it (``..``, absolute) is rejected, since the source is
         agent-generated.
         """
-        targets = files or [GeneratedFile(path=f"{name}.py", source=source)]
+        # Multi-file packages: ``files`` holds per-task modules; the assembly
+        # ``build_workflow`` program lives in ``source`` and MUST land at
+        # ``{name}/__init__.py`` when the writer omitted it from ``files``
+        # (the contract in workflow_source_writer: source = assembly). A silent
+        # drop left generated/workflow/ without build_workflow → import works
+        # but CompileWorkflow / display IR both fail with AttributeError.
+        targets = list(files) if files else []
+        if not targets:
+            targets = [GeneratedFile(path=f"{name}.py", source=source)]
+        elif source and source.strip():
+            init_path = f"{name}/__init__.py"
+            has_init = any(
+                f.path == init_path or f.path.rstrip("/").endswith("__init__.py") for f in targets
+            )
+            if not has_init:
+                targets = [*targets, GeneratedFile(path=init_path, source=source)]
         root = generated.resolve()
         for f in targets:
             path = (generated / f.path).resolve()
@@ -164,7 +187,7 @@ class MaterializeExecution(Stage):
                     "generated/ directory; refusing to write outside the sandbox"
                 )
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f.source, encoding="utf-8")
+            path.write_text(_with_future_annotations(f.path, f.source), encoding="utf-8")
             ctx.artifact_store.put_file(
                 kind="input_file",
                 path=path,
@@ -214,3 +237,20 @@ class MaterializeExecution(Stage):
                 f"stage {self.name!r} could not parse the {kind!r} artifact "
                 f"{artifact_id!r}: {exc!r}"
             ) from exc
+
+
+def _with_future_annotations(path: str, source: str) -> str:
+    """Prepend ``from __future__ import annotations`` to a generated .py module.
+
+    Generated task bodies annotate parameters with molexp/molpy types
+    (``ctx: TaskContext``, ``frame: Frame``) but import those inside the
+    function (the codegen contract keeps module top level import-light), so at
+    module import time — which pytest does when collecting the tests — the
+    bare annotation raises ``NameError``. Making annotations lazy strings with
+    the future import removes that whole failure class deterministically,
+    regardless of what the model emitted. No-op for non-.py files or when the
+    import is already present.
+    """
+    if not path.endswith(".py") or "from __future__ import annotations" in source:
+        return source
+    return "from __future__ import annotations\n" + source

@@ -78,6 +78,8 @@ export const EVENT_META: Record<string, EventMeta> = {
   error: { icon: XCircle, label: "Error", colorClass: "text-destructive" },
   thinking_delta: { icon: Bot, label: "Thinking", colorClass: "text-muted-foreground" },
   token_delta: { icon: Bot, label: "Response", colorClass: "text-muted-foreground" },
+  // Plan/gateway LLM call projected into the agent-task session (cache — pruned).
+  llm_call: { icon: Bot, label: "LLM call", colorClass: "text-info" },
 };
 
 /**
@@ -166,6 +168,9 @@ export const turnDurationSeconds = (turn: ConversationTurn): number | null => {
 
 const isResultEvent = (event: ApiSessionEvent): boolean =>
   event.type === "loop_completed" ||
+  // Terminal plan failure (message + detail) — treat as the turn answer so the
+  // chat never ends with a green "plan ready" when status is failed.
+  event.type === "error" ||
   // plan_emitted IS the agent's answer for a plan-mode turn — the user reviews
   // and approves it as the headline; a later loop_completed overrides it.
   event.type === "plan_emitted";

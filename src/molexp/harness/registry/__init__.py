@@ -19,7 +19,20 @@ package supplies its capability catalog.
 
 from __future__ import annotations
 
+from molexp.harness.registry.bindable import (
+    PLAN_SCIENCE_PACKAGE_ROOTS,
+    is_bindable_capability,
+    is_bindable_capability_id,
+    is_bindable_kind,
+)
 from molexp.harness.registry.capability_registry import CapabilityRegistry
 from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
 
-__all__ = ["CapabilityRegistry", "InMemoryCapabilityRegistry"]
+__all__ = [
+    "PLAN_SCIENCE_PACKAGE_ROOTS",
+    "CapabilityRegistry",
+    "InMemoryCapabilityRegistry",
+    "is_bindable_capability",
+    "is_bindable_capability_id",
+    "is_bindable_kind",
+]

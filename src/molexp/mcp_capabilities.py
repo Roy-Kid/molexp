@@ -52,7 +52,8 @@ DEFAULT_SERVER_NAME = "molmcp"
 #: no longer ships a domain-specific polymer/LAMMPS query table. Pass
 #: ``task=`` (the experiment draft) or an explicit ``queries=`` sequence;
 #: discovery tool **names** are chosen from the live MCP ``list_tools``
-#: catalog (auto-discovery law).
+#: catalog (auto-discovery law). Package routing lives in **molmcp**
+#: (``molcrafts_guide``), never as a molexp hard-coded package menu.
 DEFAULT_CAPABILITY_QUERIES: tuple[str, ...] = ()
 
 _SKIP_PARAMS = frozenset({"self", "cls"})
@@ -147,6 +148,32 @@ def synthesize_input_schema(signature: str | None) -> dict[str, object]:
 # ── Node → ToolCapability mapping (pure) ───────────────────────────────────
 
 
+def _node_qualname(node: Mapping[str, object]) -> str | None:
+    """Extract the dotted qualname from either molmcp node shape.
+
+    The legacy ``find_capability`` node carries an explicit ``qualname``. The
+    live ``molcrafts_search`` / ``molcrafts_explore`` hit instead exposes the
+    dotted path as ``title`` and the full node id (``file#qualname#kind``) under
+    ``provenance.node_id`` — so the qualname is the middle ``#`` segment.
+    """
+    from collections.abc import Mapping as _Mapping
+
+    qualname = node.get("qualname")
+    if isinstance(qualname, str) and qualname:
+        return qualname
+    title = node.get("title")
+    if isinstance(title, str) and title:
+        return title
+    provenance = node.get("provenance")
+    if isinstance(provenance, _Mapping):
+        node_id = provenance.get("node_id")
+        if isinstance(node_id, str) and "#" in node_id:
+            parts = node_id.split("#")
+            if len(parts) >= 2 and parts[1]:
+                return parts[1]
+    return None
+
+
 def capability_from_node(
     node: Mapping[str, object],
     *,
@@ -154,31 +181,64 @@ def capability_from_node(
 ) -> ToolCapability | None:
     """Map one molmcp discovery ``node`` to a harness :class:`ToolCapability`.
 
-    ``None`` when the node carries no ``qualname`` (nothing to bind to). The
+    ``None`` when the node carries no ``qualname``, is docs/notes/test noise, or
+    fails the bindable gate (:mod:`molexp.harness.registry.bindable`). The
     dotted ``qualname`` is both the capability ``id`` and its ``callable_path``;
     ``package`` is its first segment; ``input_schema`` is synthesized from the
     node's rendered ``signature``; ``version`` records molmcp's snapshot commit
     for provenance.
     """
+    from molexp.harness.registry.bindable import (
+        is_bindable_capability_id,
+        is_bindable_kind,
+    )
     from molexp.harness.schemas import ToolCapability
 
-    qualname = node.get("qualname")
-    if not isinstance(qualname, str) or not qualname:
+    qualname = _node_qualname(node)
+    if not qualname:
+        return None
+    kind = node.get("kind")
+    kind_s = kind if isinstance(kind, str) else ""
+    if not is_bindable_kind(kind_s):
+        return None
+    if not is_bindable_capability_id(qualname):
+        return None
+    # Explicit non-executable evidence (notes / HTML / tests) — never bind.
+    if node.get("executable") is False and kind_s.lower() in {
+        "example",
+        "section",
+        "test",
+        "note",
+        "doc",
+        "html",
+        "markdown",
+    }:
+        return None
+    if str(node.get("execution_status") or "") == "not_executable" and kind_s.lower() in {
+        "example",
+        "section",
+        "test",
+        "note",
+        "doc",
+    }:
         return None
     name = node.get("name")
     summary = node.get("summary")
-    kind = node.get("kind")
     signature = node.get("signature")
+    # Never put HTML / fence-y summaries in the binder catalog.
+    desc = summary if isinstance(summary, str) else ""
+    if desc.lstrip().startswith(("<", "```", "#")):
+        desc = ""
     return ToolCapability(
         id=qualname,
         package=qualname.split(".", 1)[0],
         name=name if isinstance(name, str) and name else qualname.rsplit(".", 1)[-1],
-        description=summary if isinstance(summary, str) else "",
+        description=desc,
         input_schema=synthesize_input_schema(signature if isinstance(signature, str) else None),
         output_schema={},
         callable_path=qualname,
         supported_backends=["local"],
-        tags=[kind] if isinstance(kind, str) and kind else [],
+        tags=[kind_s] if kind_s else [],
         version=snapshot_commit,
     )
 
@@ -213,7 +273,7 @@ def _iter_nodes(
                 if node is not None:
                     yield node, commit
         return
-    for key in ("results", "symbols", "nodes"):
+    for key in ("results", "hits", "top_hits", "symbols", "nodes"):
         items = payload.get(key)
         if isinstance(items, list):
             for item in items:
@@ -227,12 +287,19 @@ def _iter_nodes(
 def capabilities_from_payloads(
     payloads: Iterable[Mapping[str, object]],
 ) -> list[ToolCapability]:
-    """Map molmcp tool-result payloads to a capability list, deduped by id."""
+    """Map molmcp tool-result payloads to a capability list, deduped by id.
+
+    Applies the harness bindable gate (science packages only; no notes/tests/UI).
+    """
+    from molexp.harness.registry.bindable import is_bindable_capability
+
     by_id: dict[str, ToolCapability] = {}
     for payload in payloads:
         for node, commit in _iter_nodes(payload):
             cap = capability_from_node(node, snapshot_commit=commit)
-            if cap is not None and cap.id not in by_id:
+            if cap is None or not is_bindable_capability(cap):
+                continue
+            if cap.id not in by_id:
                 by_id[cap.id] = cap
     return list(by_id.values())
 
@@ -286,8 +353,11 @@ def _call_args_for_discovery_tool(
 ) -> dict[str, object]:
     """Build best-effort kwargs for a discovery tool (schema varies by server)."""
     lower = tool_name.lower()
-    if "find_capability" in lower or "explore" in lower:
+    if "find_capability" in lower:
         return {"task": query, "budget_chars": 16000, "max_results": max_results}
+    if "explore" in lower:
+        # molcrafts_explore takes task + budget_chars only (no max_results).
+        return {"task": query, "budget_chars": 16000}
     if "outline" in lower:
         return {"source": query} if query and not query.startswith("public") else {}
     return {"query": query, "limit": max_results}
@@ -331,20 +401,14 @@ async def fetch_molmcp_capabilities(
     if spec.transport != "stdio" or not spec.command:
         raise LookupError(f"MCP server {server_name!r} is not a stdio server")
 
-    if queries:
-        query_list = [q.strip() for q in queries if q and str(q).strip()]
-    elif task and task.strip():
-        query_list = [task.strip()]
-    else:
-        # Single domain-agnostic probe — not a hand-maintained science menu.
-        query_list = ["public package APIs and executable capabilities"]
-
     params = StdioServerParameters(
         command=spec.command,
         args=list(spec.args),
         env=dict(spec.env) or None,
     )
     payloads: list[Mapping[str, object]] = []
+    guide_payload: Mapping[str, object] | None = None
+    allowed_packages: set[str] = set()
     # Route the server's stderr (FastMCP startup banner + logs) to /dev/null so
     # it never bleeds into the CLI's own output.
     with Path(os.devnull).open("w", encoding="utf-8") as errlog:
@@ -359,15 +423,45 @@ async def fetch_molmcp_capabilities(
                 tool_names = [
                     t.name for t in listed if hasattr(t, "name") and isinstance(t.name, str)
                 ]
+            # 1) Routing guide from molmcp (no molexp package hardcodes).
+            guide_tool = next((n for n in tool_names if "guide" in n.lower()), None)
+            if guide_tool and task and task.strip():
+                try:
+                    g_result = await session.call_tool(guide_tool, {"task": task.strip()})
+                    guide_payload = _payload_from_result(g_result)
+                except Exception as exc:
+                    _LOG.debug(f"[mcp_capabilities] guide failed: {exc!r}")
+            if queries:
+                query_list = [q.strip() for q in queries if q and str(q).strip()]
+            else:
+                query_list = _queries_from_guide(guide_payload, task)
+
+            # Packages that molmcp says are available (for noise filtering).
+            allowed_packages = _packages_from_guide(guide_payload)
+            if not allowed_packages and guide_payload is None:
+                # Fall back: molcrafts_info source names only.
+                info_tool = next((n for n in tool_names if n.lower().endswith("_info")), None)
+                if info_tool:
+                    try:
+                        i_result = await session.call_tool(info_tool, {})
+                        info_payload = _payload_from_result(i_result)
+                        allowed_packages = _packages_from_info(info_payload)
+                    except Exception as exc:
+                        _LOG.debug(f"[mcp_capabilities] info failed: {exc!r}")
+
             candidates = _rank_discovery_tools(tool_names)
             if not candidates:
                 _LOG.warning(
                     "[mcp_capabilities] no discovery-shaped tools in MCP catalog; "
                     f"tools={tool_names[:20]!r}"
                 )
-            for tool_name in candidates[:4]:
+            for tool_name in candidates[:3]:
                 for query in query_list:
-                    args = _call_args_for_discovery_tool(tool_name, query, max_results=max_results)
+                    args = _call_args_for_discovery_tool(
+                        tool_name, query, max_results=max(max_results, 20)
+                    )
+                    if "search" in tool_name.lower() and "mode" not in args:
+                        args = {**args, "mode": "all"}
                     try:
                         result = await session.call_tool(tool_name, args)
                     except Exception as exc:
@@ -376,7 +470,113 @@ async def fetch_molmcp_capabilities(
                     payload = _payload_from_result(result)
                     if payload is not None:
                         payloads.append(payload)
-    return capabilities_from_payloads(payloads)
+
+    # Do **not** append guide_payload as a capability source — guide/top_hits
+    # routinely embed workspace notes (``.claude/notes::…``) and narrative
+    # examples (``molpy.build_polymer``) that are not registry ids. Guide is
+    # only used for query routing + package allowlists above.
+
+    raw = capabilities_from_payloads(payloads)
+    # Keep only packages present in molmcp's live inventory (or unfiltered if unknown).
+    # Intersect with the science allowlist so "workspace" / "mollog" never pass.
+    from molexp.harness.registry.bindable import PLAN_SCIENCE_PACKAGE_ROOTS
+
+    science_allowed = {p.lower() for p in PLAN_SCIENCE_PACKAGE_ROOTS}
+    if allowed_packages:
+        # Prefer guide inventory ∩ science roots; fall back to science roots alone.
+        inv = {a.lower() for a in allowed_packages}
+        package_filter = inv & science_allowed or science_allowed
+        caps = [c for c in raw if _cap_in_packages(c.id, package_filter)]
+    else:
+        caps = [c for c in raw if _cap_in_packages(c.id, science_allowed)]
+    if not caps and raw:
+        # Last resort: science-filtered raw (never re-open notes/workspace junk).
+        _LOG.warning(
+            f"[mcp_capabilities] inventory filter empty "
+            f"(allowed={sorted(allowed_packages)[:12]!r}); "
+            f"keeping {len(raw)} science-scoped hits"
+        )
+        caps = list(raw)
+    for warning in _guide_warnings(guide_payload):
+        _LOG.warning(f"[mcp_capabilities] {warning}")
+    _LOG.info(
+        f"[mcp_capabilities] catalog n={len(caps)} "
+        f"(raw={len(raw)} science_roots={sorted(science_allowed)})"
+    )
+    return caps
+
+
+def _queries_from_guide(
+    guide: Mapping[str, object] | None, task: str | None
+) -> list[str]:
+    """Build search queries from molcrafts_guide output (or the draft alone)."""
+    out: list[str] = []
+    if task and task.strip():
+        out.append(task.strip())
+    if isinstance(guide, dict):
+        suggested = guide.get("suggested_queries")
+        if isinstance(suggested, list):
+            out.extend(str(q) for q in suggested if q)
+        for item in guide.get("checklist") or []:
+            if isinstance(item, dict) and item.get("search_query"):
+                out.append(str(item["search_query"]))
+    if not out:
+        out = ["public package APIs and executable capabilities"]
+    return list(dict.fromkeys(out))
+
+
+def _packages_from_guide(guide: Mapping[str, object] | None) -> set[str]:
+    """Package/source roots molmcp considers available for this task."""
+    if not isinstance(guide, dict):
+        return set()
+    roots: set[str] = set()
+    for name in guide.get("preferred_packages") or []:
+        if isinstance(name, str) and name:
+            roots.add(name.split(".", 1)[0].lower())
+            roots.add(name.lower())
+    for entry in guide.get("available_sources") or []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("status") not in (None, "ok"):
+            # still allow name for filtering if present
+            pass
+        name = entry.get("name")
+        if isinstance(name, str) and name:
+            roots.add(name.lower())
+            # distribution-style names: molcrafts-molpack → molpack
+            for part in name.lower().replace("_", "-").split("-"):
+                if part and part not in {"molcrafts", "pkg"}:
+                    roots.add(part)
+    return roots
+
+
+def _packages_from_info(info: Mapping[str, object] | None) -> set[str]:
+    if not isinstance(info, dict):
+        return set()
+    sources = info.get("sources")
+    if not isinstance(sources, dict):
+        return set()
+    return _packages_from_guide({"available_sources": [
+        {"name": k, "status": (v or {}).get("status") if isinstance(v, dict) else "ok"}
+        for k, v in sources.items()
+    ]})
+
+
+def _cap_in_packages(cap_id: str, allowed: set[str]) -> bool:
+    root = cap_id.split(".", 1)[0].lower()
+    if root in allowed:
+        return True
+    # e.g. allowed has "molpack" and cap is molpack.Molpack
+    return any(root == a or root.endswith(a) or a.endswith(root) for a in allowed)
+
+
+def _guide_warnings(guide: Mapping[str, object] | None) -> list[str]:
+    if not isinstance(guide, dict):
+        return []
+    raw = guide.get("warnings")
+    if not isinstance(raw, list):
+        return []
+    return [str(w) for w in raw if w]
 
 
 def _log_notice(message: str) -> None:

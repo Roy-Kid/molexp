@@ -155,4 +155,12 @@ def classify(exc: BaseException) -> ErrorKind:
             return ErrorKind.schema_parse
         if "HTTP" in name or "Connection" in name:
             return ErrorKind.model_unavailable
+        # A transient transport failure often surfaces as the generic
+        # ``ModelAPIError`` (name lacks HTTP/Connection) — classify by its
+        # message so a network blip retries instead of aborting the pipeline.
+        text = str(exc).lower()
+        if "timeout" in text or "timed out" in text:
+            return ErrorKind.timeout
+        if "connection" in text or "connect" in text:
+            return ErrorKind.model_unavailable
     return ErrorKind.unknown

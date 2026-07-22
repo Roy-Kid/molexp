@@ -117,6 +117,23 @@ class ValidateWorkflowSource(Stage):
         # execs the multi-module program in-process.
         if ws.files:
             violations: list[ValidationViolation] = []
+            # Assembly must be present: either as workflow/__init__.py in files
+            # or as the top-level ``source`` field (materialize writes it).
+            has_init_file = any(
+                f.path.endswith("__init__.py") and "build_workflow" in (f.source or "")
+                for f in ws.files
+            )
+            if not has_init_file and not _defines_build_workflow(ws.source or ""):
+                violations.append(
+                    ValidationViolation(
+                        code="missing_build_workflow",
+                        message=(
+                            "multi-file WorkflowSource must define build_workflow() in "
+                            "source (package assembly) or in a files[] __init__.py"
+                        ),
+                        severity="error",
+                    )
+                )
             for f in ws.files:
                 violations.extend(
                     WorkflowSourceValidator.validate(f.source, target_id=target).violations

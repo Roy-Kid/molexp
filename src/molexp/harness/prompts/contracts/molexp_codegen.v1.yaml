@@ -1,0 +1,67 @@
+# molexp codegen contract v1 — L0 primitive surface for plan task writers.
+# Source of truth for embedded prompts; keep short (must fit every call).
+# Domain science APIs (molpy/molpack) come from molmcp / capability catalog.
+version: "1"
+kind: molexp.codegen_contract
+
+workflow:
+  imports:
+    - molexp.workflow.WorkflowCompiler
+    - molexp.workflow.TaskContext
+    - molexp.workflow.RegisterArtifact
+    - molexp.workflow.RegisterMetric
+  task_module:
+    # One file: workflow/<slug>.py with a single async def named <slug>
+    emit: single_task_function_only
+    no_emit:
+      - WorkflowCompiler
+      - build_workflow
+      - __init__.py
+      - "@wf.task decorator"
+    imports_inside_function: true
+  task_context:
+    optional: true
+    fields: [workdir]
+    forbid: [inputs, config]
+  dataflow:
+    mode: by_parameter_name
+    # Upstream return dict keys become this task's parameter names (engine).
+    return: dict_of_output_keys
+    rules:
+      - Match bound task inputs/outputs keys exactly
+      - >-
+          Do not re-nest return values (e.g. nested monomer.frame)
+          unless bound outputs explicitly require that shape
+      - Whole objects (Frame, ForceField) pass by name — do not re-serialize
+  register_metric:
+    ctor: "RegisterMetric(key, value)"
+    fields: [key, value, step, tags]
+    forbid_attrs: [name]
+  register_artifact:
+    ctor: "RegisterArtifact(path, mime=?)"
+    notes:
+      - path under ctx.workdir
+      - do not Path(RegisterArtifact) / open(RegisterArtifact)
+
+domain:
+  # Public Python surface only (molmcp must not push molrs.* for Python agents)
+  frame: molpy.Frame
+  block: molpy.Block
+  forbid_imports: [molrs]
+  resolve_via: [capability_catalog, molmcp_open]
+
+tests:
+  call_real_body: true
+  mock_only_imported_symbols: true
+  import_any: "from unittest.mock import ANY, patch"
+  offline: true
+  prefer_assert:
+    - return_dict_keys
+    - workdir_files_exist
+    - metric_key_value
+
+workspace_primitives:
+  # Rarely needed inside task bodies; listed for completeness.
+  hierarchy: [Workspace, Project, Experiment, Run]
+  run_verbs: [run, resume, rerun, cancel]
+  identity: config_hash_is_run_identity

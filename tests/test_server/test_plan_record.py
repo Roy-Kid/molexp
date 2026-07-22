@@ -59,6 +59,9 @@ def test_materialize_plan_records_writes_agent_session(workspace, experiment):
     assert plan_tasks[0].plan_mode is True
     assert plan_tasks[0].title == "Melt plan"
     assert plan_tasks[0].goal == "build a melt"
+    assert plan_tasks[0].project_id == experiment.project.id
+    assert plan_tasks[0].experiment_id == experiment.id
+    assert plan_tasks[0].run_id == run.id
 
 
 def test_plan_record_is_sourced_knowledge_item(workspace, experiment):

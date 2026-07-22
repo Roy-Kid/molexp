@@ -19,7 +19,7 @@ real gateway will also need to honor.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -51,6 +51,9 @@ class StubAgentGateway:
         self._artifacts = artifact_store
         self._registry: dict[str, _RegisteredResponse] = {}
         self._sequences: dict[str, deque[_RegisteredResponse]] = {}
+        self._responders: dict[
+            str, Callable[[AgentCallSpec, ArtifactStore], _RegisteredResponse]
+        ] = {}
 
     def register(
         self,
@@ -100,10 +103,41 @@ class StubAgentGateway:
             for output in outputs
         )
 
+    def register_responder(
+        self,
+        agent_name: str,
+        responder: Callable[[AgentCallSpec, ArtifactStore], _RegisteredResponse],
+    ) -> None:
+        """Install a per-call responder that derives the output from the input.
+
+        For fan-out stages (e.g. per-task ``workflow_source_file_writer``) a
+        single canned response can't vary by task; the responder reads the
+        call's input slice from the store and returns the matching module.
+        Use :meth:`make_response` to build its return value. Takes precedence
+        over a plain ``register``; a ``register_sequence`` still wins.
+        """
+        self._responders[agent_name] = responder
+
+    @staticmethod
+    def make_response(
+        output: dict[str, Any],
+        output_kind: ArtifactKind,
+        *,
+        raw_text: str = "",
+        model: str = "stub-model",
+    ) -> _RegisteredResponse:
+        """Build a responder's return value (a canned response)."""
+        return _RegisteredResponse(
+            output=output, output_kind=output_kind, raw_text=raw_text, model=model
+        )
+
     async def call(self, spec: AgentCallSpec) -> AgentCallResult:
         queue = self._sequences.get(spec.agent_name)
+        responder = self._responders.get(spec.agent_name)
         if queue is not None:
             canned = queue.popleft() if len(queue) > 1 else queue[0]
+        elif responder is not None:
+            canned = responder(spec, self._artifacts)
         else:
             try:
                 canned = self._registry[spec.agent_name]

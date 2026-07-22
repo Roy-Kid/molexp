@@ -104,6 +104,7 @@ def test_command_spec_built_per_contract(ctx) -> None:
         "pytest",
         "test_generated_workflow.py",
         "-q",
+        "--import-mode=importlib",
         "-o",
         "asyncio_mode=auto",
     ]

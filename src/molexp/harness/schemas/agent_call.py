@@ -36,6 +36,14 @@ class AgentCallSpec(BaseModel):
     output_schema: dict
     temperature: float = 0.2
     metadata: dict[str, str] = Field(default_factory=dict)
+    #: Explicit per-call tier override (``"cheap"`` / ``"default"`` / ``"heavy"``).
+    #: When set, wins over the agent registry map. Never implicit — stages that
+    #: need HEAVY for repair must pass this field.
+    tier: str | None = None
+    #: When ``False``, strip MCP toolsets for this call (catalog / compose-only).
+    #: When ``True``, require the agent's configured MCP servers. ``None`` keeps
+    #: the agent registry default (codegen agents get molmcp).
+    use_mcp: bool | None = None
 
 
 class AgentCallResult(BaseModel):

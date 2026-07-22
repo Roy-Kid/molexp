@@ -136,6 +136,8 @@ class TestSourceValidator:
                     )
                 )
 
+        violations.extend(_contract_violations(tree, source))
+
         try:
             compile(source, "<test_source>", "exec")
         except (SyntaxError, ValueError) as exc:
@@ -152,3 +154,86 @@ class TestSourceValidator:
             target_id=target_id,
             violations=violations,
         )
+
+
+def _contract_violations(tree: ast.Module, source: str) -> list[ValidationViolation]:
+    """Catch frozen molexp API mistakes that always fail at pytest time.
+
+    These are design-level invariants of generated tests — fixing them in the
+    static gate stops the plan from burning an ExecuteTests cycle on a
+    guaranteed red run.
+    """
+    violations: list[ValidationViolation] = []
+
+    # Bare ANY without an import from unittest.mock → NameError at collect/run.
+    imported_names = _imported_names(tree)
+    if "ANY" not in imported_names:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "ANY":
+                violations.append(
+                    ValidationViolation(
+                        code="undefined_any",
+                        message=(
+                            "test source uses bare ANY without importing it — "
+                            "add `from unittest.mock import ANY` (or drop ANY)"
+                        ),
+                        severity="error",
+                    )
+                )
+                break
+
+    # RegisterMetric has .key / .value — never .name (frozen public surface).
+    if "RegisterMetric" in source or "register_metric" in source.lower():
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "name"
+                and isinstance(node.value, ast.Name)
+            ):
+                # Heuristic: attribute access on a local named *metric*
+                if "metric" in node.value.id.lower():
+                    violations.append(
+                        ValidationViolation(
+                            code="register_metric_name_attr",
+                            message=(
+                                "RegisterMetric has no `.name` field — use `.key` "
+                                f"(found `{node.value.id}.name`)"
+                            ),
+                            severity="error",
+                        )
+                    )
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "hasattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value == "name"
+            ):
+                violations.append(
+                    ValidationViolation(
+                        code="register_metric_name_attr",
+                        message=(
+                            'do not assert hasattr(..., "name") on RegisterMetric — '
+                            "the field is `.key`"
+                        ),
+                        severity="error",
+                    )
+                )
+
+    return violations
+
+
+def _imported_names(tree: ast.Module) -> set[str]:
+    """Names bound by top-level import statements (including aliases)."""
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                names.add(alias.asname or alias.name)
+    return names

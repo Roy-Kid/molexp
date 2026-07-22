@@ -200,7 +200,18 @@ def start_plan_task(
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
-    gateway = build_plan_gateway(model=model, models=models, run=run)
+    # Agents-tab session id: chat parent task when nested, else plan-<run_id>.
+    # Live PlanTask id stays unique (plan-<generate_id>) for the registry.
+    session_task_id = record_task_id or f"plan-{run.id}"
+    gateway = build_plan_gateway(
+        model=model,
+        models=models,
+        run=run,
+        workspace_root=str(workspace.root),
+        task_id=session_task_id,
+        draft=draft,
+        turn_id=turn_id,
+    )
     task = get_plan_runtime().create(
         workspace_root=str(workspace.root),
         task_id=f"plan-{generate_id()}",
@@ -213,7 +224,7 @@ def start_plan_task(
         ground=request.ground,
         execute=request.execute,
         compute_target=compute_target,
-        record_task_id=record_task_id,
+        record_task_id=session_task_id,
         turn_id=turn_id,
     )
     return _to_response(task, project_id=project_id, experiment_id=experiment_id)

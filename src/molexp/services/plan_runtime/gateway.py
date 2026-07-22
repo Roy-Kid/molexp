@@ -45,6 +45,66 @@ logger = get_logger(__name__)
 # Test seam (mirrors routes/agent.py's _runner_factory): a factory(run, model).
 _gateway_factory: PlanGatewayFactory | None = None
 
+#: Known base model → HEAVY counterpart used only when ``agent.models`` is
+#: absent. Stages still must declare tiers explicitly; this is operator-side
+#: model-id wiring, not a gateway tier fallback.
+_HEAVY_COUNTERPART: dict[str, str] = {
+    "deepseek:deepseek-v4-flash": "deepseek:deepseek-v4-pro",
+}
+
+
+def _resolve_tier_models(*, model: str, models: dict[str, str] | None) -> dict:
+    """Resolve cheap/default/heavy model ids for the plan router.
+
+    Preference: explicit ``models=`` arg → bridged ``agent.models`` → disk
+    ``agent.models`` → derive from ``agent.model`` (flash→pro when known).
+    Stage→tier mapping is separate and never falls back (see plan_agent_tiers).
+    """
+    from molexp.agent.router import ModelTier
+
+    if models is not None:
+        missing = [
+            t.value for t in ModelTier if t.value not in models or not models[t.value]
+        ]
+        if missing:
+            raise PlanPreflightError(
+                "plan models map is incomplete — configure agent.models for "
+                f"every tier; missing: {missing}"
+            )
+        return {tier: models[tier.value] for tier in ModelTier}
+
+    import molexp
+    from molexp.services.operator_config import (
+        AGENT_MODELS_KEY,
+        configured_agent_models,
+        load_operator_config,
+    )
+
+    bridged = molexp.config.get(AGENT_MODELS_KEY)
+    if (
+        bridged is not None
+        and callable(getattr(bridged, "get", None))
+        and all(
+            isinstance(bridged.get(t), str) and bridged.get(t)
+            for t in ("cheap", "default", "heavy")
+        )
+    ):
+        return {tier: str(bridged.get(tier.value)) for tier in ModelTier}
+
+    from_disk = configured_agent_models(load_operator_config())
+    if from_disk is not None and all(from_disk.get(t.value) for t in ModelTier):
+        return {tier: from_disk[tier.value] for tier in ModelTier}
+
+    # Derive from single agent.model. Known bases (flash) upgrade HEAVY to
+    # pro; others use the same id for all three slots until agent.models is
+    # set. Stage→tier assignment remains fully explicit (plan_agent_tiers).
+    heavy = _HEAVY_COUNTERPART.get(model, model)
+    return {
+        ModelTier.CHEAP: model,
+        ModelTier.DEFAULT: model,
+        ModelTier.HEAVY: heavy,
+    }
+
 
 class PlanPreflightError(RuntimeError):
     """The agent stack cannot run this plan — a short, human-readable reason.
@@ -95,18 +155,13 @@ def preflight_plan_router(*, model: str, models: dict[str, str] | None = None) -
     bridge_operator_config()
     try:
         from molexp.agent import PydanticAIRouter
-        from molexp.agent.router import ModelTier
     except ModuleNotFoundError as exc:
         raise PlanPreflightError(
             f"PlanMode needs the LLM agent stack, but {exc.name!r} is not installed — "
             'install it with: pip install "molexp[agent]"'
         ) from exc
     try:
-        tier_models = (
-            {tier: models[tier.value] for tier in ModelTier}
-            if models is not None
-            else dict.fromkeys(ModelTier, model)
-        )
+        tier_models = _resolve_tier_models(model=model, models=models)
         router = PydanticAIRouter(models=tier_models)
         _prime_credentials(router)
     except Exception as exc:
@@ -185,8 +240,70 @@ def _prime_credentials(router: object) -> None:
         )
 
 
+def _resolve_agent_mcp_tools(
+    servers_by_agent: dict[str, tuple[str, ...]],
+    workspace_root: str | Path,
+) -> dict[str, tuple[object, ...]]:
+    """Resolve per-agent MCP server *names* into concrete ``McpToolSpec``s.
+
+    Reads the same MCP config (`~/.molexp/mcp.json` + workspace `.mcp.json`)
+    the capability prefetch uses. Only stdio servers are attachable as codegen
+    tools. A missing server is omitted from the return map; the caller
+    (:func:`build_plan_gateway`) fail-closes for agents that *require* molmcp.
+    Never raises — resolution errors become absent tools.
+    """
+    from molexp.agent.mcp import McpScope, McpStore
+    from molexp.agent.router import McpToolSpec
+
+    resolved: dict[str, tuple[object, ...]] = {}
+    store: McpStore | None = None
+    cache: dict[str, McpToolSpec | None] = {}
+
+    def spec_for(name: str) -> McpToolSpec | None:
+        nonlocal store
+        if name in cache:
+            return cache[name]
+        try:
+            if store is None:
+                store = McpStore(workspace_root)
+            entry = store.get(McpScope.WORKSPACE, name) or store.get(McpScope.USER, name)
+            if entry is None:
+                cache[name] = None
+                return None
+            spec = store.resolve(entry)
+            if spec.transport != "stdio" or not spec.command:
+                cache[name] = None
+                return None
+            tool = McpToolSpec(
+                name=name,
+                command=spec.command,
+                args=tuple(spec.args),
+                env=tuple(spec.env.items()),
+            )
+        except Exception as exc:  # never let MCP config break gateway build
+            logger.warning(f"MCP tool {name!r} not attached to codegen agents: {exc!r}")
+            cache[name] = None
+            return None
+        cache[name] = tool
+        return tool
+
+    for agent_name, names in servers_by_agent.items():
+        tools = tuple(t for t in (spec_for(n) for n in names) if t is not None)
+        if tools:
+            resolved[agent_name] = tools
+    return resolved
+
+
 def build_plan_gateway(
-    *, model: str, run: Run, router: Router | None = None, models: dict[str, str] | None = None
+    *,
+    model: str,
+    run: Run,
+    router: Router | None = None,
+    models: dict[str, str] | None = None,
+    workspace_root: str | Path | None = None,
+    task_id: str | None = None,
+    draft: str | None = None,
+    turn_id: str | None = None,
 ) -> AgentGateway:
     """Build the production ``RouterBackedAgentGateway`` (or the test stub).
 
@@ -195,13 +312,20 @@ def build_plan_gateway(
     ``router`` returned by :func:`preflight_plan_router` to reuse the already
     validated (and agent-primed) instance; without one, the router is built —
     and preflighted — here.
+
+    When ``workspace_root`` + ``task_id`` are set, each LLM call is projected
+    into that agent-task session as a cacheable ``llm_call`` event (full bodies
+    under ``llm_cache/``, pruned by age/size). ``draft`` seeds a single
+    ``loop_started`` so the Agents chat groups mid-plan calls under one turn.
     """
     if _gateway_factory is not None:
         return _gateway_factory(run, model)
 
     from molexp.harness import RouterBackedAgentGateway
     from molexp.harness.gateways import (
+        plan_agent_mcp_servers,
         plan_agent_responses,
+        plan_agent_tiers,
         plan_output_kinds,
         plan_system_prompts,
     )
@@ -210,11 +334,62 @@ def build_plan_gateway(
     if router is None:
         router = preflight_plan_router(model=model, models=models)
     store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
+    required_mcp = plan_agent_mcp_servers()
+    mcp_tools_by_agent = _resolve_agent_mcp_tools(
+        required_mcp, workspace_root or run.run_dir
+    )
+    # Fail-closed: codegen agents that declare molmcp must actually get tools.
+    # Silent catalog-only fallback invents APIs; raise before the plan starts.
+    missing = [
+        agent
+        for agent, names in required_mcp.items()
+        if names and not mcp_tools_by_agent.get(agent)
+    ]
+    if missing:
+        raise PlanPreflightError(
+            "Plan codegen requires the molmcp MCP server, but it is not configured "
+            f"for agent(s): {sorted(missing)}. Install/configure molmcp "
+            "(e.g. `molexp` MCP settings or `~/.molexp/mcp.json`) so writers can "
+            "look up real molcrafts APIs — do not proceed with invented symbols."
+        )
+
+    on_llm_call = None
+    if workspace_root is not None and task_id:
+        from molexp.services.agent_task_llm_cache import (
+            ensure_plan_session_started,
+            make_llm_call_observer,
+            prune_agent_task_llm_cache,
+        )
+
+        # Retention before a new plan starts — drop stale cache from prior runs.
+        try:
+            prune_agent_task_llm_cache(workspace_root)
+        except Exception as exc:  # never block gateway construction
+            logger.warning(f"llm cache prune at plan start failed: {exc!r}")
+        if draft is not None:
+            ensure_plan_session_started(
+                workspace_root, task_id, draft=draft, turn_id=turn_id
+            )
+        on_llm_call = make_llm_call_observer(
+            workspace_root, task_id, turn_id=turn_id
+        )
+
+    responses = plan_agent_responses()
+    tiers = plan_agent_tiers()
+    missing_tiers = set(responses) - set(tiers)
+    if missing_tiers:
+        raise PlanPreflightError(
+            "plan_agent_tiers() must list every plan agent (no default-tier "
+            f"fallback); missing: {sorted(missing_tiers)!r}"
+        )
     return RouterBackedAgentGateway(
         router=router,
         artifact_store=store,
-        agent_responses=plan_agent_responses(),
+        agent_responses=responses,
         output_kind_by_agent=plan_output_kinds(),
         system_prompt_by_agent=plan_system_prompts(),
+        tier_by_agent=tiers,
+        mcp_tools_by_agent=mcp_tools_by_agent,
         model=model,
+        on_llm_call=on_llm_call,
     )

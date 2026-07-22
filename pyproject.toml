@@ -171,4 +171,5 @@ where = ["src"]
 molexp = [
     "openapi.json",
     "dist/**",
+    "harness/prompts/contracts/*.yaml",
 ]

@@ -223,6 +223,28 @@ def _full_gateway(run) -> _CountingGateway:
     gw.register("workflow_ir_extractor", _WORKFLOW_IR, output_kind="workflow_ir")
     gw.register("bound_workflow_binder", _BOUND_WORKFLOW, output_kind="bound_workflow")
     gw.register("workflow_source_writer", _WORKFLOW_SOURCE, output_kind="workflow_source")
+    # Per-task workflow codegen fans one call per bound task; return the slice's
+    # matching module (the assembly is synthesized by the stage).
+    _TASK_MODULE = {"make_data": _TASK_MAKE_DATA, "summarize": _TASK_SUMMARIZE}
+
+    def _wf_file_responder(spec, store):
+        from molexp.harness.schemas import BoundWorkflow
+
+        slice_wf = BoundWorkflow.model_validate_json(store.get(spec.input_artifact_ids[0]))
+        task = slice_wf.tasks[0]
+        src = _TASK_MODULE[task.ir_task_id]
+        return gw.make_response(
+            {
+                "source": src,
+                "module_name": task.ir_task_id,
+                "bound_workflow_id": slice_wf.id,
+                "symbols": [],
+                "files": [{"path": f"workflow/{task.ir_task_id}.py", "source": src}],
+            },
+            output_kind="workflow_source_file",
+        )
+
+    gw.register_responder("workflow_source_file_writer", _wf_file_responder)
     gw.register(
         "plan_reviewer",
         {"passed": True, "findings": [], "summary": "faithful"},
@@ -230,6 +252,8 @@ def _full_gateway(run) -> _CountingGateway:
     )
     gw.register("test_spec_writer", _TEST_SPEC, output_kind="test_spec")
     gw.register("test_code_writer", _TEST_SOURCE, output_kind="test_source")
+    # Multi-task suites fan out per file; register the per-file writer too.
+    gw.register("test_code_file_writer", _TEST_SOURCE, output_kind="test_source_file")
     gw.register("input_set_generator", _INPUT_SET, output_kind="input_set")
     return gw
 
@@ -330,9 +354,10 @@ class TestGrantThenRedrive:
         # Ledger resume: no pre-gate LLM stage ran twice …
         assert gateway.calls["experiment_report_writer"] == 1
         assert gateway.calls["experiment_spec_generator"] == 1
-        # … while the post-gate pipeline really ran.
+        # … while the post-gate pipeline really ran. Workflow codegen fans one
+        # call per bound task (two here: make_data + summarize).
         assert gateway.calls["workflow_ir_extractor"] == 1
-        assert gateway.calls["workflow_source_writer"] == 1
+        assert gateway.calls["workflow_source_file_writer"] == 2
 
         # 3. Granting the review too completes the plan; SUCCEEDED clears error.
         [review_request] = store.pending(run.id)

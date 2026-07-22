@@ -51,12 +51,15 @@ Call flow (mirrors :class:`StubAgentGateway` shape):
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Mapping
 
+from mollog import get_logger
 from pydantic import BaseModel
 
-from molexp.agent.router import ModelTier, Router
+from molexp.agent.router import McpToolSpec, ModelTier, Router
 from molexp.harness.errors import AgentResponseNotRegisteredError
+from molexp.harness.gateways.llm_trace import LlmCallObserver, LlmCallTrace
 from molexp.harness.schemas import (
     AgentCallResult,
     AgentCallSpec,
@@ -65,6 +68,8 @@ from molexp.harness.schemas import (
 from molexp.harness.store.artifact_store import ArtifactStore
 
 __all__ = ["RouterBackedAgentGateway"]
+
+_LOG = get_logger(__name__)
 
 
 class RouterBackedAgentGateway:
@@ -79,7 +84,10 @@ class RouterBackedAgentGateway:
         output_kind_by_agent: Mapping[str, str],
         system_prompt_by_agent: Mapping[str, str] | None = None,
         tier: ModelTier = ModelTier.DEFAULT,
+        tier_by_agent: Mapping[str, ModelTier] | None = None,
+        mcp_tools_by_agent: Mapping[str, tuple[McpToolSpec, ...]] | None = None,
         model: str = "router-backed",
+        on_llm_call: LlmCallObserver | None = None,
     ) -> None:
         missing_kind = set(agent_responses) - set(output_kind_by_agent)
         extra_kind = set(output_kind_by_agent) - set(agent_responses)
@@ -89,13 +97,19 @@ class RouterBackedAgentGateway:
                 f"same agent_name set; missing kind for {sorted(missing_kind)!r}, "
                 f"extra kind for {sorted(extra_kind)!r}"
             )
+        # Enforce full tier coverage at call-time (see _resolve_tier) so tests
+        # can deliberately construct a partial map and assert the hard error.
+        # Production build_plan_gateway always passes plan_agent_tiers().
         self._router = router
         self._artifacts = artifact_store
         self._agent_responses = dict(agent_responses)
         self._output_kinds = dict(output_kind_by_agent)
         self._system_prompts = dict(system_prompt_by_agent or {})
         self._tier = tier
+        self._tier_by_agent = dict(tier_by_agent or {})
+        self._mcp_tools_by_agent = dict(mcp_tools_by_agent or {})
         self._model_name = model
+        self._on_llm_call = on_llm_call
 
     async def call(self, spec: AgentCallSpec) -> AgentCallResult:
         try:
@@ -107,6 +121,14 @@ class RouterBackedAgentGateway:
 
         output_kind = self._output_kinds[spec.agent_name]
         system_prompt = self._system_prompts.get(spec.agent_name, "")
+        tier = self._resolve_tier(spec)
+        mcp_tools = self._resolve_mcp_tools(spec)
+        model_label = self._model_label_for_tier(tier)
+        _LOG.info(
+            f"[gateway] agent={spec.agent_name!r} tier={tier.value} "
+            f"model={model_label} "
+            f"mcp_tools={[getattr(t, 'name', t) for t in mcp_tools]}"
+        )
         # Reading input artifacts is blocking filesystem I/O — offload it so
         # the event loop stays responsive (matches the StageRunner boundary).
         prompt = await asyncio.to_thread(self._compose_prompt, spec)
@@ -133,12 +155,29 @@ class RouterBackedAgentGateway:
         # retries={"output": N}) rather than complete_text + manual model_validate_json:
         # a real model wrapping its answer in prose/markdown no longer crashes
         # the harness — the SDK enforces the schema and returns an instance.
-        instance = await self._router.complete_structured(
-            tier=self._tier,
-            system=system_prompt,
-            user=prompt,
-            schema=schema,
-            node_id=spec.agent_name,
+        t0 = time.monotonic()
+        try:
+            instance = await self._router.complete_structured(
+                tier=tier,
+                system=system_prompt,
+                user=prompt,
+                schema=schema,
+                node_id=spec.agent_name,
+                mcp_tools=mcp_tools,
+            )
+        except Exception:
+            llm_s = time.monotonic() - t0
+            _LOG.error(
+                f"[gateway] agent={spec.agent_name!r} tier={tier.value} "
+                f"model={model_label} llm_duration_s={llm_s:.2f} status=failed "
+                f"prompt_chars={len(prompt)}"
+            )
+            raise
+        llm_s = time.monotonic() - t0
+        _LOG.info(
+            f"[gateway] agent={spec.agent_name!r} tier={tier.value} "
+            f"model={model_label} llm_duration_s={llm_s:.2f} status=ok "
+            f"prompt_chars={len(prompt)}"
         )
 
         # §10.2 audit invariant: persist the raw response BEFORE the parsed
@@ -160,12 +199,94 @@ class RouterBackedAgentGateway:
             parent_ids=lineage_parents,
         )
 
-        return AgentCallResult(
+        result = AgentCallResult(
             output_artifact=output_ref,
             raw_response_artifact=raw_ref,
-            model=self._model_name,
+            model=model_label,
             usage={},
         )
+        self._notify_llm_call(
+            agent_name=spec.agent_name,
+            model=model_label,
+            prompt=prompt,
+            raw=instance.model_dump_json(),
+            prompt_artifact_id=prompt_ref.id,
+            raw_artifact_id=raw_ref.id,
+        )
+        return result
+
+    def _resolve_tier(self, spec: AgentCallSpec) -> ModelTier:
+        """Resolve the model tier for *spec* — no silent default fallback.
+
+        Order: per-call ``spec.tier`` → registry ``tier_by_agent[agent]``.
+        Missing registry entry raises (every plan agent must be listed).
+        """
+        if spec.tier is not None:
+            try:
+                return ModelTier(spec.tier)
+            except ValueError as exc:
+                raise AgentResponseNotRegisteredError(
+                    f"invalid AgentCallSpec.tier={spec.tier!r} for "
+                    f"agent_name={spec.agent_name!r}; "
+                    f"expected one of {[t.value for t in ModelTier]}"
+                ) from exc
+        if spec.agent_name not in self._tier_by_agent:
+            raise AgentResponseNotRegisteredError(
+                f"no model tier registered for agent_name={spec.agent_name!r}; "
+                "every plan agent must appear in plan_agent_tiers() — "
+                "no gateway default-tier fallback"
+            )
+        return self._tier_by_agent[spec.agent_name]
+
+    def _resolve_mcp_tools(self, spec: AgentCallSpec) -> tuple[McpToolSpec, ...]:
+        """Resolve MCP toolsets for *spec* (registry default, overridable)."""
+        registered = self._mcp_tools_by_agent.get(spec.agent_name, ())
+        if spec.use_mcp is False:
+            return ()
+        if spec.use_mcp is True and not registered:
+            raise AgentResponseNotRegisteredError(
+                f"AgentCallSpec.use_mcp=True but agent_name={spec.agent_name!r} "
+                "has no MCP servers in plan_agent_mcp_servers()"
+            )
+        return registered
+
+    def _model_label_for_tier(self, tier: ModelTier) -> str:
+        """Best-effort concrete model id for logs / audit (falls back to gateway label)."""
+        models = getattr(self._router, "_tier_models", None)
+        if isinstance(models, dict) and tier in models:
+            m = models[tier]
+            name = getattr(m, "model_name", None) or getattr(m, "model_id", None)
+            if name:
+                return str(name)
+            return str(m)
+        return self._model_name
+
+    def _notify_llm_call(
+        self,
+        *,
+        agent_name: str,
+        prompt: str,
+        raw: str,
+        prompt_artifact_id: str,
+        raw_artifact_id: str,
+        model: str | None = None,
+    ) -> None:
+        """Best-effort session-cache projection — never fails the call path."""
+        if self._on_llm_call is None:
+            return
+        try:
+            self._on_llm_call(
+                LlmCallTrace(
+                    agent_name=agent_name,
+                    model=model or self._model_name,
+                    prompt=prompt,
+                    raw=raw,
+                    prompt_artifact_id=prompt_artifact_id,
+                    raw_artifact_id=raw_artifact_id,
+                )
+            )
+        except Exception as exc:  # observer is UX cache, never load-bearing
+            _LOG.warning(f"llm_call observer failed for agent={agent_name!r}: {exc!r}")
 
     def _compose_prompt(self, spec: AgentCallSpec) -> str:
         """Concatenate the input + prompt artifact bytes (decoded as text).

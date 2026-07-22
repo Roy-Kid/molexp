@@ -84,7 +84,10 @@ def materialize_plan_records(
     Failure path (``failure`` given): the Agents-tab entry lands with status
     ``failed`` (a failed plan is finally visible) and a ``FailureAnalysis``
     KnowledgeItem records the failed stage, the error, what completed, and
-    how to resume.
+    how to resume. **Partial products still surface**: when a
+    ``workflow_source`` artifact already exists (the plan died later — e.g.
+    dry-run tests), its IR is still compiled onto the experiment so the UI
+    graph is not blank. Decision / Finding remain success-only.
 
     Returns:
         A :class:`PlanRecordOutcome` naming every record written and every
@@ -103,18 +106,21 @@ def materialize_plan_records(
         else:
             written.append(label)
 
-    workflow_persisted = False
-    if failure is None:
-        workflow_persisted = persist_plan_workflow_to_experiment(run, experiment)
-        if workflow_persisted:
-            written.append("workflow_ir")
-        else:
-            errors.append(
-                PlanRecordError(
-                    record="workflow_ir",
-                    error="workflow IR could not be compiled/persisted onto the experiment",
-                )
+    # Always attempt when a workflow_source artifact exists — including the
+    # failure path. A plan that generated tasks then died at compile/tests
+    # must still bind the graph onto the experiment (UI reads experiment.workflow).
+    # Missing artifact → not an error on failure (nothing to show); on success
+    # it is an error (the pipeline claimed to finish without a workflow).
+    workflow_persisted = persist_plan_workflow_to_experiment(run, experiment)
+    if workflow_persisted:
+        written.append("workflow_ir")
+    elif failure is None:
+        errors.append(
+            PlanRecordError(
+                record="workflow_ir",
+                error="workflow IR could not be compiled/persisted onto the experiment",
             )
+        )
 
     failed = failure is not None
     _attempt(
@@ -132,6 +138,8 @@ def materialize_plan_records(
             task_id=task_id,
             draft=draft,
             turn_id=turn_id,
+            failure_stage=failure.stage if failure is not None else None,
+            failure_error=failure.error if failure is not None else None,
         ),
     )
     if failure is None:

@@ -143,7 +143,7 @@ class TestProviderGet:
 
 
 class TestProviderPut:
-    def test_put_persists_provider_local_tier_models_and_bridges_runtime(
+    def test_put_persists_global_tier_models_and_bridges_runtime(
         self, client: TestClient, operator_config_path: Path
     ) -> None:
         response = client.put(
@@ -159,6 +159,13 @@ class TestProviderPut:
         )
         assert response.status_code == 200
         saved = json.loads(operator_config_path.read_text())
+        # Global table is the source of truth (full provider:model ids).
+        assert saved["agent"]["models"] == {
+            "cheap": "anthropic:claude-haiku-4-5",
+            "default": "anthropic:claude-sonnet-4-6",
+            "heavy": "anthropic:claude-opus-4-6",
+        }
+        # Same-provider maps are still mirrored under the legacy section.
         assert saved["agent"]["providers"]["anthropic"]["models"] == {
             "cheap": "claude-haiku-4-5",
             "default": "claude-sonnet-4-6",
@@ -178,10 +185,33 @@ class TestProviderPut:
             "default": "anthropic:claude-sonnet-4-6",
             "heavy": "anthropic:claude-opus-4-6",
         }
+        body = response.json()
+        assert body["models"]["heavy"] == "anthropic:claude-opus-4-6"
         anthropic = next(
-            item for item in response.json()["configurations"] if item["provider"] == "anthropic"
+            item for item in body["configurations"] if item["provider"] == "anthropic"
         )
         assert anthropic["models"]["heavy"] == "claude-opus-4-6"
+
+    def test_put_accepts_cross_provider_tier_table(
+        self, client: TestClient, operator_config_path: Path
+    ) -> None:
+        response = client.put(
+            "/api/agent/provider",
+            json={
+                "models": {
+                    "cheap": "deepseek:deepseek-v4-flash",
+                    "default": "openai:gpt-4o-mini",
+                    "heavy": "anthropic:claude-sonnet-4-6",
+                },
+            },
+        )
+        assert response.status_code == 200
+        saved = json.loads(operator_config_path.read_text())
+        assert saved["agent"]["models"]["cheap"] == "deepseek:deepseek-v4-flash"
+        assert saved["agent"]["models"]["default"] == "openai:gpt-4o-mini"
+        assert saved["agent"]["models"]["heavy"] == "anthropic:claude-sonnet-4-6"
+        assert saved["agent"]["model"] == "openai:gpt-4o-mini"
+        assert response.json()["models"]["heavy"] == "anthropic:claude-sonnet-4-6"
 
     def test_put_persists_model_and_key_to_config_file(
         self, client: TestClient, operator_config_path: Path

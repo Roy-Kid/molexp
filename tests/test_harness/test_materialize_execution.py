@@ -133,8 +133,49 @@ def test_writes_exactly_three_files_with_sources_verbatim(ctx) -> None:
     generated = ctx.workspace_root / "generated"
     names = sorted(p.name for p in generated.iterdir())
     assert names == ["generated_workflow.py", "run_workflow.py", "test_generated_workflow.py"]
-    assert (generated / "generated_workflow.py").read_text() == WORKFLOW_SOURCE_TEXT
-    assert (generated / "test_generated_workflow.py").read_text() == TEST_SOURCE_TEXT
+    # Each generated .py gets a `from __future__ import annotations` header so
+    # in-function-imported type annotations (`ctx: TaskContext`) don't NameError
+    # at pytest collection; the body follows verbatim.
+    header = "from __future__ import annotations\n"
+    assert (generated / "generated_workflow.py").read_text() == header + WORKFLOW_SOURCE_TEXT
+    assert (generated / "test_generated_workflow.py").read_text() == header + TEST_SOURCE_TEXT
+
+
+def test_multi_file_writes_package_init_from_source_when_files_omit_it(ctx) -> None:
+    """``source`` is the assembly; materialize must not drop it when files[]
+    only lists per-task modules (production codegen shape)."""
+    from molexp.harness.schemas import WorkflowSource
+
+    assembly = (
+        "from molexp.workflow import WorkflowCompiler\n"
+        "from workflow.task_a import task_a\n\n"
+        "def build_workflow() -> WorkflowCompiler:\n"
+        '    wf = WorkflowCompiler(name="demo")\n'
+        "    wf.task(task_a)\n"
+        "    return wf\n"
+    )
+    task_body = "async def task_a() -> dict:\n    return {'ok': True}\n"
+    ws = WorkflowSource(
+        source=assembly,
+        module_name="workflow",
+        bound_workflow_id="bw-1",
+        symbols=(),
+        files=[{"path": "workflow/task_a.py", "source": task_body}],
+    )
+    ctx.artifact_store.put_json(
+        kind="workflow_source",
+        obj=json.loads(ws.model_dump_json()),
+        created_by="seed",
+        parent_ids=[],
+    )
+    _seed_test_source(ctx.artifact_store)
+    _seed_workflow_ir(ctx.artifact_store)
+    _run(ctx)
+
+    init = ctx.workspace_root / "generated" / "workflow" / "__init__.py"
+    assert init.is_file(), "assembly must land as workflow/__init__.py"
+    assert "def build_workflow" in init.read_text()
+    assert (ctx.workspace_root / "generated" / "workflow" / "task_a.py").is_file()
 
 
 # ------------------------------------------------------------------ driver

@@ -65,6 +65,7 @@ class _StubRouter:
         user: str,
         schema: type[BaseModel],
         node_id: str = "",
+        mcp_tools: tuple[Any, ...] = (),
     ) -> BaseModel:
         return schema.model_validate_json(self._response_text)
 
@@ -125,6 +126,7 @@ class _RecordingRouter:
         user: str,
         schema: type[BaseModel],
         node_id: str = "",
+        mcp_tools: tuple[Any, ...] = (),
     ) -> BaseModel:
         self.structured_calls.append(
             {
@@ -133,6 +135,7 @@ class _RecordingRouter:
                 "user": user,
                 "schema": schema,
                 "node_id": node_id,
+                "mcp_tools": mcp_tools,
             }
         )
         return self._instance
@@ -206,6 +209,7 @@ class TestRouterBackedGateway:
             artifact_store=store,
             agent_responses={"tiny_writer": _TinyReport},
             output_kind_by_agent={"tiny_writer": "experiment_report"},
+            tier_by_agent={"tiny_writer": ModelTier.DEFAULT},
         )
 
         parent = store.put_text(
@@ -247,6 +251,54 @@ class TestRouterBackedGateway:
         # Result metadata: ``model`` field is non-empty for audit citations.
         assert result.model
 
+    @pytest.mark.asyncio
+    async def test_call_notifies_optional_llm_observer(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Optional on_llm_call receives prompt + raw + artifact ids (cache projection)."""
+        from molexp.harness.gateways.llm_trace import LlmCallTrace
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        _assert_stub_is_router()
+        canned_payload = {"title": "ok", "score": 1}
+        router = _StubRouter(response_text=json.dumps(canned_payload))
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        seen: list[LlmCallTrace] = []
+
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"tiny_writer": _TinyReport},
+            output_kind_by_agent={"tiny_writer": "experiment_report"},
+            tier_by_agent={"tiny_writer": ModelTier.DEFAULT},
+            model="test-model",
+            on_llm_call=seen.append,
+        )
+        parent = store.put_text(
+            kind="user_plan",
+            text="observe me",
+            created_by="test",
+            parent_ids=[],
+        )
+        result = await gateway.call(
+            AgentCallSpec(
+                agent_name="tiny_writer",
+                input_artifact_ids=[parent.id],
+                output_schema=_TinyReport.model_json_schema(),
+            )
+        )
+        assert len(seen) == 1
+        trace = seen[0]
+        assert trace.agent_name == "tiny_writer"
+        assert trace.model == "test-model"
+        assert "observe me" in trace.prompt
+        assert json.loads(trace.raw) == canned_payload
+        assert trace.prompt_artifact_id
+        assert trace.raw_artifact_id == result.raw_response_artifact.id
+
     # ── ac-001: gateway uses complete_structured, never complete_text ─────────
 
     @pytest.mark.asyncio
@@ -272,6 +324,7 @@ class TestRouterBackedGateway:
             artifact_store=store,
             agent_responses={"tiny_writer": _TinyReport},
             output_kind_by_agent={"tiny_writer": "experiment_report"},
+            tier_by_agent={"tiny_writer": ModelTier.DEFAULT},
         )
 
         await gateway.call(
@@ -287,6 +340,173 @@ class TestRouterBackedGateway:
         assert router.structured_calls[0]["schema"] is _TinyReport
         # node_id is forwarded as the agent_name for traceability.
         assert router.structured_calls[0]["node_id"] == "tiny_writer"
+
+    async def test_tier_by_agent_is_required_no_fallback(self, tmp_path: Path) -> None:
+        """Every agent must appear in tier_by_agent — no silent default tier."""
+        from molexp.harness.errors import AgentResponseNotRegisteredError
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        instance = _TinyReport(title="ok", score=1)
+        router = _RecordingRouter(instance=instance)
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"heavy_one": _TinyReport, "light_one": _TinyReport},
+            output_kind_by_agent={
+                "heavy_one": "experiment_report",
+                "light_one": "experiment_report",
+            },
+            tier_by_agent={
+                "heavy_one": ModelTier.HEAVY,
+                "light_one": ModelTier.DEFAULT,
+            },
+        )
+
+        for name in ("heavy_one", "light_one"):
+            await gateway.call(
+                AgentCallSpec(
+                    agent_name=name,
+                    input_artifact_ids=[],
+                    output_schema=_TinyReport.model_json_schema(),
+                )
+            )
+
+        by_node = {c["node_id"]: c["tier"] for c in router.structured_calls}
+        assert by_node["heavy_one"] == ModelTier.HEAVY
+        assert by_node["light_one"] == ModelTier.DEFAULT
+
+        # Unmapped agent raises (no fallback to gateway default tier).
+        bare = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"orphan": _TinyReport},
+            output_kind_by_agent={"orphan": "experiment_report"},
+            tier_by_agent={},  # explicit empty — must not fall back
+        )
+        with pytest.raises(AgentResponseNotRegisteredError, match="no model tier"):
+            await bare.call(
+                AgentCallSpec(
+                    agent_name="orphan",
+                    input_artifact_ids=[],
+                    output_schema=_TinyReport.model_json_schema(),
+                )
+            )
+
+    async def test_spec_tier_override_and_use_mcp(
+        self, tmp_path: Path
+    ) -> None:
+        """Per-call AgentCallSpec.tier / use_mcp override the registry."""
+        from molexp.agent.router import McpToolSpec
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        instance = _TinyReport(title="ok", score=1)
+        router = _RecordingRouter(instance=instance)
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        molmcp = McpToolSpec(name="molmcp", command="molmcp")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"coder": _TinyReport},
+            output_kind_by_agent={"coder": "experiment_report"},
+            tier_by_agent={"coder": ModelTier.DEFAULT},
+            mcp_tools_by_agent={"coder": (molmcp,)},
+        )
+        # First pass: default tier, no MCP.
+        await gateway.call(
+            AgentCallSpec(
+                agent_name="coder",
+                input_artifact_ids=[],
+                output_schema=_TinyReport.model_json_schema(),
+                tier="default",
+                use_mcp=False,
+            )
+        )
+        # Repair: heavy + MCP.
+        await gateway.call(
+            AgentCallSpec(
+                agent_name="coder",
+                input_artifact_ids=[],
+                output_schema=_TinyReport.model_json_schema(),
+                tier="heavy",
+                use_mcp=True,
+            )
+        )
+        assert router.structured_calls[0]["tier"] == ModelTier.DEFAULT
+        assert router.structured_calls[0]["mcp_tools"] == ()
+        assert router.structured_calls[1]["tier"] == ModelTier.HEAVY
+        assert router.structured_calls[1]["mcp_tools"] == (molmcp,)
+
+    async def test_mcp_tools_by_agent_forwarded_to_complete_structured(
+        self, tmp_path: Path
+    ) -> None:
+        """A per-agent MCP-tool map reaches the router; unmapped agents get none."""
+        from molexp.agent.router import McpToolSpec
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        instance = _TinyReport(title="ok", score=1)
+        router = _RecordingRouter(instance=instance)
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        molmcp = McpToolSpec(name="molmcp", command="molmcp")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"coder": _TinyReport, "reader": _TinyReport},
+            output_kind_by_agent={
+                "coder": "experiment_report",
+                "reader": "experiment_report",
+            },
+            tier_by_agent={
+                "coder": ModelTier.DEFAULT,
+                "reader": ModelTier.DEFAULT,
+            },
+            mcp_tools_by_agent={"coder": (molmcp,)},
+        )
+
+        for name in ("coder", "reader"):
+            await gateway.call(
+                AgentCallSpec(
+                    agent_name=name,
+                    input_artifact_ids=[],
+                    output_schema=_TinyReport.model_json_schema(),
+                )
+            )
+
+        by_node = {c["node_id"]: c["mcp_tools"] for c in router.structured_calls}
+        assert by_node["coder"] == (molmcp,)
+        assert by_node["reader"] == ()
+
+    def test_plan_agent_mcp_servers_covers_code_writers(self) -> None:
+        """The codegen agents are wired to consult molmcp; readers are not."""
+        from molexp.harness.gateways import plan_agent_mcp_servers, plan_agent_responses
+
+        servers = plan_agent_mcp_servers()
+        assert set(servers) <= set(plan_agent_responses())
+        for coder in ("workflow_source_writer", "test_code_file_writer"):
+            assert servers[coder] == ("molmcp",)
+        assert "plan_reviewer" not in servers
+
+    def test_plan_agent_tiers_covers_every_agent_explicitly(self) -> None:
+        """Every registered agent has an explicit tier — no omissions.
+
+        Authors (including codegen) are HEAVY; only plan_reviewer is DEFAULT.
+        """
+        from molexp.harness.gateways import plan_agent_responses, plan_agent_tiers
+
+        responses = plan_agent_responses()
+        tiers = plan_agent_tiers()
+        # Full coverage: no gateway fallback for missing agents.
+        assert set(tiers) == set(responses)
+        assert tiers["plan_reviewer"] == ModelTier.DEFAULT
+        authors = set(responses) - {"plan_reviewer"}
+        assert {a for a in authors if tiers[a] == ModelTier.HEAVY} == authors
+        assert all(tiers[a] == ModelTier.HEAVY for a in authors)
 
     # ── ac-004: unknown agent_name still raises ───────────────────────────────
 
@@ -309,6 +529,7 @@ class TestRouterBackedGateway:
             artifact_store=store,
             agent_responses={"tiny_writer": _TinyReport},
             output_kind_by_agent={"tiny_writer": "experiment_report"},
+            tier_by_agent={"tiny_writer": ModelTier.DEFAULT},
         )
 
         with pytest.raises(AgentResponseNotRegisteredError) as exc_info:
@@ -348,6 +569,7 @@ class TestRouterBackedGateway:
             artifact_store=store,
             agent_responses={agent_name: _TinyReport},
             output_kind_by_agent={agent_name: "experiment_report"},
+            tier_by_agent={agent_name: ModelTier.DEFAULT},
             system_prompt_by_agent=prompts,
         )
 
@@ -392,6 +614,7 @@ class TestRouterBackedAgentGatewayPromptProvenance:
             artifact_store=store,
             agent_responses={"tiny_writer": _TinyReport},
             output_kind_by_agent={"tiny_writer": "experiment_report"},
+            tier_by_agent={"tiny_writer": ModelTier.DEFAULT},
         )
 
         parent = store.put_text(

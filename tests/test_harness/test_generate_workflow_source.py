@@ -195,3 +195,87 @@ def test_persists_workflow_source_artifact_with_lineage(ctx_with_gw) -> None:
     assert ref.kind == "workflow_source"
     assert bw_ref.id in ref.parent_ids
     assert spec_ref.id in ref.parent_ids
+
+
+def _seed_two_task_bw(artifact_store):
+    """A 2-task bound workflow (build -> pack) that triggers per-task fan-out."""
+
+    def _task(tid, ir):
+        return {
+            "id": tid,
+            "ir_task_id": ir,
+            "capability_id": "molpy.x",
+            "package": "molpy",
+            "callable": "x",
+            "parameters": {},
+            "inputs": {},
+            "outputs": {"out": "any"},
+        }
+
+    return artifact_store.put_json(
+        kind="bound_workflow",
+        obj={
+            "id": "bw-2",
+            "workflow_ir_id": "wf-2",
+            "tasks": [_task("b-build", "build_monomer"), _task("b-pack", "pack_box")],
+            "edges": [{"source_task_id": "b-build", "target_task_id": "b-pack"}],
+            "execution_backend": "local",
+            "environment": {},
+            "resource_policy": {
+                "backend": "local",
+                "max_runtime_s": 3600,
+                "denied_paths": ["/", "~/.ssh"],
+            },
+        },
+        created_by="seed",
+        parent_ids=[],
+    )
+
+
+def test_multi_task_fans_out_per_task_and_synthesizes_assembly(ctx_with_gw) -> None:
+    """A >1-task bound workflow drives one workflow_source_file_writer call per
+    task and assembles a deterministic ``workflow/__init__.py`` from the IR."""
+    from molexp.harness.schemas import BoundWorkflow, WorkflowSource
+    from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSource
+
+    bw_ref = _seed_two_task_bw(ctx_with_gw.artifact_store)
+    _seed_spec_ref(ctx_with_gw.artifact_store)
+    gw = ctx_with_gw.agent_gateway
+
+    def _responder(spec, store):
+        slice_wf = BoundWorkflow.model_validate_json(store.get(spec.input_artifact_ids[0]))
+        task = slice_wf.tasks[0]
+        # The model names the function differently on purpose — the stage MUST
+        # rename it to the slug, so the assembly wiring still resolves.
+        src = f"async def whatever_{task.ir_task_id}(ctx) -> dict:\n    return {{}}\n"
+        return gw.make_response(
+            {
+                "source": src,
+                "module_name": task.ir_task_id,
+                "bound_workflow_id": slice_wf.id,
+                "symbols": [],
+                "files": [{"path": f"workflow/{task.ir_task_id}.py", "source": src}],
+            },
+            output_kind="workflow_source_file",
+        )
+
+    gw.register_responder("workflow_source_file_writer", _responder)
+
+    ref = asyncio.run(GenerateWorkflowSource().run(ctx_with_gw))
+    assert ref.kind == "workflow_source"
+    merged = WorkflowSource.model_validate_json(ctx_with_gw.artifact_store.get(ref.id))
+
+    # One module per task, named by slug; function renamed to the slug.
+    paths = {f.path for f in merged.files}
+    assert paths == {"workflow/build_monomer.py", "workflow/pack_box.py"}
+    by_path = {f.path: f.source for f in merged.files}
+    assert "def build_monomer(" in by_path["workflow/build_monomer.py"]
+    assert "def pack_box(" in by_path["workflow/pack_box.py"]
+
+    # The synthesized assembly imports both (topo order) + wires the dependency.
+    asm = merged.source
+    assert "from workflow.build_monomer import build_monomer" in asm
+    assert "from workflow.pack_box import pack_box" in asm
+    assert "wf.task(build_monomer)" in asm
+    assert "wf.task(depends_on=['build_monomer'])(pack_box)" in asm
+    assert bw_ref.id in ref.parent_ids

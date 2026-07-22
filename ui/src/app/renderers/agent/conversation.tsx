@@ -106,7 +106,59 @@ const EventRow = ({
           </div>
         )}
 
-        {expanded && hasDetail && (
+        {event.type === "llm_call" && (
+          <div className="space-y-1 text-xs text-muted-foreground">
+            {Boolean(payload.agent_name) && (
+              <p>
+                <span className="font-medium text-foreground">agent</span>{" "}
+                <span className="font-mono">{String(payload.agent_name)}</span>
+                {Boolean(payload.model) && (
+                  <span className="text-muted-foreground"> · {String(payload.model)}</span>
+                )}
+              </p>
+            )}
+            {!expanded && Boolean(payload.prompt_preview) && (
+              <p className="line-clamp-2 font-mono text-[11px] text-muted-foreground/90">
+                {String(payload.prompt_preview).slice(0, 200)}
+              </p>
+            )}
+          </div>
+        )}
+
+        {expanded && event.type === "llm_call" && (
+          <div className="space-y-2">
+            {Boolean(payload.prompt_preview) && (
+              <div>
+                <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Prompt
+                  {typeof payload.prompt_chars === "number" ? ` · ${payload.prompt_chars} chars` : ""}
+                </p>
+                <pre className="max-h-48 overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap">
+                  {String(payload.prompt_preview)}
+                </pre>
+              </div>
+            )}
+            {Boolean(payload.raw_preview) && (
+              <div>
+                <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Response
+                  {typeof payload.raw_chars === "number" ? ` · ${payload.raw_chars} chars` : ""}
+                </p>
+                <pre className="max-h-48 overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap">
+                  {String(payload.raw_preview)}
+                </pre>
+              </div>
+            )}
+            {payload.cache === true && (
+              <p className="text-[10px] text-muted-foreground/80">
+                Cached session projection (pruned by age/size); audit originals live on the run
+                artifacts.
+              </p>
+            )}
+          </div>
+        )}
+
+        {expanded && hasDetail && event.type !== "llm_call" && (
           <pre className="overflow-x-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
             {JSON.stringify(payload, null, 2)}
           </pre>
@@ -149,10 +201,53 @@ const TurnAnswer = ({
 
   if (result.type === "loop_completed") {
     const summary = typeof payload.text === "string" ? payload.text : "";
-    return summary ? (
+    const failed = payload.failed === true;
+    if (!summary) {
+      return (
+        <p className="text-sm italic text-muted-foreground">Session ended without a summary.</p>
+      );
+    }
+    if (failed) {
+      return (
+        <div className="space-y-2">
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Plan failed
+            {typeof payload.stage === "string" && payload.stage
+              ? ` · stage ${payload.stage}`
+              : ""}
+          </div>
+          <MarkdownContent text={linkIndex ? linkifyEntityTokens(summary, linkIndex) : summary} />
+        </div>
+      );
+    }
+    return (
       <MarkdownContent text={linkIndex ? linkifyEntityTokens(summary, linkIndex) : summary} />
-    ) : (
-      <p className="text-sm italic text-muted-foreground">Session ended without a summary.</p>
+    );
+  }
+
+  if (result.type === "error") {
+    const message =
+      typeof payload.message === "string"
+        ? payload.message
+        : typeof payload.error === "string"
+          ? payload.error
+          : "Unknown error";
+    const detail = typeof payload.detail === "string" ? payload.detail : "";
+    const stage = typeof payload.stage === "string" ? payload.stage : "";
+    return (
+      <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2">
+        <p className="text-sm font-medium text-destructive">
+          {stage ? `Error at ${stage}` : "Error"}
+        </p>
+        <p className="whitespace-pre-wrap text-sm text-destructive [overflow-wrap:anywhere]">
+          {message}
+        </p>
+        {detail ? (
+          <pre className="max-h-64 overflow-auto rounded bg-background/60 px-2 py-1.5 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap">
+            {detail.slice(0, 4000)}
+          </pre>
+        ) : null}
+      </div>
     );
   }
 

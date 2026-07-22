@@ -65,6 +65,24 @@ def list_tools() -> AgentToolListResponse:
     return AgentToolListResponse()
 
 
+class TierModelsResponse(BaseModel):
+    """Concrete model ids for the router's three semantic cost tiers."""
+
+    cheap: str = ""
+    default: str = ""
+    heavy: str = ""
+
+
+class ProviderConfigurationResponse(BaseModel):
+    """One provider's credentials (+ legacy per-provider tier models)."""
+
+    provider: str
+    models: TierModelsResponse = Field(default_factory=TierModelsResponse)
+    baseUrl: str = ""
+    apiKeyPreview: str = ""
+    apiKeySet: bool = False
+
+
 class ProviderResponse(BaseModel):
     """The Settings page's provider view — never carries a key value."""
 
@@ -75,29 +93,19 @@ class ProviderResponse(BaseModel):
     apiKeySet: bool
     instructions: str
     supportedProviders: list[str] = Field(default_factory=lambda: list(SUPPORTED_PROVIDERS))
+    #: Global cheap/default/heavy table (full ``provider:model`` ids). Tiers may
+    #: come from different providers; this is the Router's source of truth.
+    models: TierModelsResponse = Field(default_factory=TierModelsResponse)
     configurations: list[ProviderConfigurationResponse] = Field(default_factory=list)
 
 
-class TierModelsResponse(BaseModel):
-    """Concrete model ids for the router's three semantic cost tiers."""
-
-    cheap: str = ""
-    default: str = ""
-    heavy: str = ""
-
-
-class ProviderConfigurationResponse(BaseModel):
-    """One provider's independently persisted credentials and tier models."""
-
-    provider: str
-    models: TierModelsResponse = Field(default_factory=TierModelsResponse)
-    baseUrl: str = ""
-    apiKeyPreview: str = ""
-    apiKeySet: bool = False
-
-
 class ProviderUpdateRequest(BaseModel):
-    """PUT body — only submitted fields are written."""
+    """PUT body — only submitted fields are written.
+
+    ``models`` is the **global** tier table: each value should be a full
+    ``provider:model`` id (or a bare id + ``provider`` for same-provider legacy).
+    Credential fields still use ``provider`` + ``api_key`` / ``base_url``.
+    """
 
     provider: str | None = None
     model: str | None = None
@@ -146,7 +154,7 @@ def _agent_section(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _provider_response() -> ProviderResponse:
-    from molexp.services.operator_config import load_operator_config
+    from molexp.services.operator_config import configured_agent_models, load_operator_config
 
     agent = _agent_section(load_operator_config())
     raw_model = agent.get("model")
@@ -154,14 +162,19 @@ def _provider_response() -> ProviderResponse:
     provider = _provider_of(model, agent.get("provider"))
     raw_providers = agent.get("providers")
     provider_sections = raw_providers if isinstance(raw_providers, dict) else {}
+    resolved = configured_agent_models({"agent": agent}) or {}
+    global_models = TierModelsResponse(
+        cheap=str(resolved.get("cheap") or model or ""),
+        default=str(resolved.get("default") or model or ""),
+        heavy=str(resolved.get("heavy") or model or ""),
+    )
     configurations: list[ProviderConfigurationResponse] = []
     for name in SUPPORTED_PROVIDERS:
         raw_section = provider_sections.get(name)
         section = raw_section if isinstance(raw_section, dict) else {}
         raw_models = section.get("models")
         models = raw_models if isinstance(raw_models, dict) else {}
-        # A legacy single model represented every tier. Surface that migration
-        # only for its active provider; the next save writes the tier map.
+        # Legacy single model → fill only the active provider's card.
         legacy = model if name == provider else ""
         key_name = f"{name.replace('-', '_')}_api_key"
         key = agent.get(key_name)
@@ -186,11 +199,12 @@ def _provider_response() -> ProviderResponse:
     active = next((item for item in configurations if item.provider == provider), None)
     return ProviderResponse(
         provider=provider,
-        model=model or "",
+        model=model or global_models.default or "",
         baseUrl=active.baseUrl if active is not None else "",
         apiKeyPreview=active.apiKeyPreview if active is not None else "",
         apiKeySet=active.apiKeySet if active is not None else False,
         instructions=agent.get("instructions") or "",
+        models=global_models,
         configurations=configurations,
     )
 
@@ -249,12 +263,35 @@ def update_provider(request: ProviderUpdateRequest) -> ProviderResponse:
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"missing model tiers: {sorted(missing_tiers)}",
             )
-        if not provider:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "models require a provider")
+        # Global tier table: each value may already be ``provider:model``
+        # (cross-provider). Bare ids still need a fallback ``provider``.
+        qualified: dict[str, str] = {}
         for tier, tier_model in request.models.items():
-            updates[f"agent.providers.{provider}.models.{tier}"] = tier_model
-        # Keep the legacy default-model surface working for plan/CLI callers.
-        updates["agent.model"] = _qualified_model(provider, request.models["default"])
+            text = str(tier_model).strip()
+            if ":" in text:
+                qualified[tier] = text
+            elif provider:
+                qualified[tier] = _qualified_model(provider, text)
+            else:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    f"tier {tier!r} model {text!r} needs a provider: prefix "
+                    "or a top-level provider field",
+                )
+            updates[f"agent.models.{tier}"] = qualified[tier]
+        # Legacy default-model surface + default-provider marker for CLI.
+        default_id = qualified["default"]
+        updates["agent.model"] = default_id
+        updates["agent.provider"] = _provider_of(default_id, None) or provider or ""
+        # Mirror under the default provider's legacy section so older readers
+        # still see a complete map when all three share that provider.
+        default_provider = updates["agent.provider"]
+        if default_provider and all(
+            q.startswith(f"{default_provider}:") for q in qualified.values()
+        ):
+            for tier, qid in qualified.items():
+                local = qid.split(":", 1)[1]
+                updates[f"agent.providers.{default_provider}.models.{tier}"] = local
         touched_config_keys.extend((AGENT_MODEL_KEY, AGENT_MODELS_KEY))
     if request.api_key is not None:
         if not provider:

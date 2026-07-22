@@ -134,3 +134,24 @@ def test_classify_pydantic_ai_http_like_to_model_unavailable() -> None:
         {"__module__": "pydantic_ai.exceptions"},
     )
     assert classify(cls("boom")) is ErrorKind.model_unavailable
+
+
+def test_classify_pydantic_ai_connection_message_to_model_unavailable() -> None:
+    """A transient connection failure surfaces as ``ModelAPIError`` whose class
+    name lacks 'HTTP'/'Connection'; the message must still route it to the
+    retryable ``model_unavailable`` class (a blip must not kill the plan)."""
+    cls = type(
+        "ModelAPIError",
+        (Exception,),
+        {"__module__": "pydantic_ai.exceptions"},
+    )
+    assert classify(cls("Connection error.")) is ErrorKind.model_unavailable
+
+
+def test_classify_pydantic_ai_timeout_message_to_timeout() -> None:
+    cls = type(
+        "ModelAPIError",
+        (Exception,),
+        {"__module__": "pydantic_ai.exceptions"},
+    )
+    assert classify(cls("Request timed out")) is ErrorKind.timeout

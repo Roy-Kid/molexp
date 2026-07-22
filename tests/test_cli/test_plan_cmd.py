@@ -142,7 +142,7 @@ def _patch_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_preflight(*, model: str) -> Any:
         return None  # stub router: the stub gateway never touches an LLM
 
-    def _fake_make_gateway(*, model: str, run: Any, router: Any = None) -> Any:
+    def _fake_make_gateway(*, model: str, run: Any, router: Any = None, **_kwargs: Any) -> Any:
         from molexp.harness.gateways.stub import StubAgentGateway
         from molexp.harness.store.file_artifact_store import FileArtifactStore
 

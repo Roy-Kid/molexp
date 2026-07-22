@@ -16,7 +16,7 @@ a descriptive execution report, in nine visible steps:
                          -> GenerateTestSpec -> ValidateTestSpec
                          -> GenerateTestCode -> ValidateTestSource
     6. Input set         GenerateInputSet -> ValidateInputSet
-    7. Compile/dry-run   MaterializeExecution -> ExecuteTests -> CompileWorkflow
+    7. Compile/dry-run   MaterializeAndExecuteTests (repair) -> CompileWorkflow
     8. Review            ApprovalGate(final_report)
     9. Execution report  GenerateExecutionReport
 
@@ -61,7 +61,6 @@ from molexp.harness.stages import (
     AssembleKnowledgeContext,
     BindMolcraftsTasks,
     CompileWorkflow,
-    ExecuteTests,
     ExecuteWorkflow,
     ExtractWorkflowIR,
     GenerateAuditReport,
@@ -70,10 +69,6 @@ from molexp.harness.stages import (
     GenerateExperimentSpec,
     GenerateFinalReport,
     GenerateInputSet,
-    GenerateTestCode,
-    GenerateTestSpec,
-    GenerateWorkflowSource,
-    MaterializeExecution,
     RepairLoop,
     ResolveCapabilities,
     ReviewPlan,
@@ -82,8 +77,6 @@ from molexp.harness.stages import (
     ValidateBoundWorkflow,
     ValidateExperimentSpec,
     ValidateInputSet,
-    ValidateTestSource,
-    ValidateTestSpec,
     ValidateWorkflowIR,
     ValidateWorkflowSource,
 )
@@ -91,11 +84,17 @@ from molexp.harness.stages.review_pack_builders import (
     build_experiment_spec_review_pack,
     build_plan_review_pack,
 )
+from molexp.harness.stages.sequential_task_build import SequentialTaskBuild
 
 if TYPE_CHECKING:
     from molexp.workspace.models import ComputeTarget
 
-__all__ = ["PlanMode", "PlanStep"]
+__all__ = ["DEFAULT_REPAIR_ATTEMPTS", "PlanMode", "PlanStep"]
+
+#: Outer repair budget for every author generate→check loop. Raising this is
+#: not a quality strategy — fix diagnosis / evidence (molmcp) instead of
+#: lottery-retrying. Operators may override via PlanMode(repair_attempts=…).
+DEFAULT_REPAIR_ATTEMPTS = 3
 
 
 class PlanStep:
@@ -126,11 +125,15 @@ class PlanMode(Mode):
         *,
         execute: bool = False,
         compute_target: ComputeTarget | None = None,
+        repair_attempts: int = DEFAULT_REPAIR_ATTEMPTS,
     ) -> None:
+        if repair_attempts < 1:
+            raise ValueError("PlanMode repair_attempts must be >= 1")
         self._approver = approver
         self._executor: Executor = executor if executor is not None else LocalExecutor()
         self._execute = execute
         self._compute_target = compute_target
+        self._repair_attempts = repair_attempts
 
     def step_groups(self, user_input: Any) -> list[PlanStep]:  # noqa: ANN401 — the NL draft
         """The nine documented steps (plus the opt-in ``--execute`` tail).
@@ -140,12 +143,14 @@ class PlanMode(Mode):
         the user-facing "nine steps" and the executed stage sequence can
         never drift apart.
         """
+        n = self._repair_attempts
         # Shared so StepAuditLoop can re-run the generator after reject/revise.
         spec_generate_loop = RepairLoop(
             name="generate_experiment_spec",
             generate=GenerateExperimentSpec(),
             validators=[ValidateExperimentSpec()],
             feedback_kind="experiment_spec_feedback",
+            attempts=n,
         )
         groups: list[PlanStep] = [
             # 1. Draft proposal — capture the request, draft a human-readable report.
@@ -191,10 +196,14 @@ class PlanMode(Mode):
                         generate=ExtractWorkflowIR(),
                         validators=[ValidateWorkflowIR()],
                         feedback_kind="workflow_ir_feedback",
+                        attempts=n,
                     ),
                 ],
             ),
-            # 5. Tasks + per-task tests — bind, codegen, and a unit test per task.
+            # 5. Bind + sequential task build: ONE task at a time
+            #    (codegen → unit test → pytest) so dry-run failures cannot
+            #    wait until the whole suite is written. ReviewPlan still
+            #    gates the assembled source after all tasks are green.
             PlanStep(
                 "Tasks + per-task tests",
                 [
@@ -203,28 +212,15 @@ class PlanMode(Mode):
                         generate=BindMolcraftsTasks(),
                         validators=[ValidateBoundWorkflow()],
                         feedback_kind="bound_workflow_feedback",
+                        attempts=n,
                     ),
-                    RepairLoop(
-                        name="generate_workflow_source",
-                        generate=GenerateWorkflowSource(),
-                        validators=[ValidateWorkflowSource(), ReviewPlan()],
-                        feedback_kind="workflow_source_feedback",
-                        attempts=4,
+                    SequentialTaskBuild(
+                        self._executor, attempts=self._repair_attempts
                     ),
-                    RepairLoop(
-                        name="generate_test_spec",
-                        generate=GenerateTestSpec(),
-                        validators=[ValidateTestSpec()],
-                        feedback_kind="test_spec_feedback",
-                        attempts=4,
-                    ),
-                    RepairLoop(
-                        name="generate_test_code",
-                        generate=GenerateTestCode(),
-                        validators=[ValidateTestSource()],
-                        feedback_kind="test_code_feedback",
-                        attempts=4,
-                    ),
+                    # Assembly already green under per-task pytest; structural
+                    # + semantic gates only (no full rewrite of sequential work).
+                    ValidateWorkflowSource(),
+                    ReviewPlan(),
                 ],
             ),
             # 6. Input set — the parameter-space sweep the workflow runs over.
@@ -236,15 +232,14 @@ class PlanMode(Mode):
                         generate=GenerateInputSet(),
                         validators=[ValidateInputSet()],
                         feedback_kind="input_set_feedback",
+                        attempts=self._repair_attempts,
                     ),
                 ],
             ),
-            # 7. Compile / dry-run — materialize, run per-task tests, compile (no science).
+            # 7. Compile-only dry-run (per-task pytest already passed in step 5).
             PlanStep(
                 "Compile / dry-run",
                 [
-                    MaterializeExecution(),
-                    ExecuteTests(self._executor),
                     CompileWorkflow(self._executor),
                 ],
             ),

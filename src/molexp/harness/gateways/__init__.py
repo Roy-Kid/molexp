@@ -13,8 +13,11 @@ will fail loudly.
 from __future__ import annotations
 
 from molexp.harness.gateways.gateway import AgentGateway
+from molexp.harness.gateways.llm_trace import LlmCallObserver, LlmCallTrace
 from molexp.harness.gateways.plan_agents import (
+    plan_agent_mcp_servers,
     plan_agent_responses,
+    plan_agent_tiers,
     plan_output_kinds,
     plan_system_prompts,
 )
@@ -22,8 +25,12 @@ from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
 
 __all__ = [
     "AgentGateway",
+    "LlmCallObserver",
+    "LlmCallTrace",
     "RouterBackedAgentGateway",
+    "plan_agent_mcp_servers",
     "plan_agent_responses",
+    "plan_agent_tiers",
     "plan_output_kinds",
     "plan_system_prompts",
 ]

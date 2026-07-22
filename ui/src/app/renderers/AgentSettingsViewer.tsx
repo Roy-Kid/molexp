@@ -293,11 +293,14 @@ const AgentsOverview = (): JSX.Element => (
 
 // ─── Provider tab ──────────────────────────────────────────────────────────
 //
+// Two orthogonal surfaces:
+//   1. Global Model tiers (cheap / default / heavy) — full provider:model ids,
+//      may come from *different* manufacturers.
+//   2. Per-provider credentials (API key / base URL) — independent of tiers.
+//
 // Field schema, labels, and per-provider hints are owned by
-// `providerRegistry.ts` (registry-driven per spec §7.1 / ac-005). This
-// file holds no provider-name literals as switching keys; new providers
-// are introduced by shipping a model plugin and updating the registry,
-// not by editing this component.
+// `providerRegistry.ts`. This file holds no provider-name literals as
+// switching keys.
 
 const providerLabel = (registry: ProviderRegistryResponse, name: string): string =>
   findRegistryEntry(registry, name)?.label ?? name;
@@ -310,12 +313,32 @@ const MODEL_TIERS: readonly {
   label: string;
   description: string;
 }[] = [
-  { tier: "cheap", label: "Cheap", description: "Parsing, routing, and lightweight tasks" },
-  { tier: "default", label: "Default", description: "Normal chat and general agent work" },
-  { tier: "heavy", label: "Heavy", description: "Complex planning and deep reasoning" },
+  { tier: "cheap", label: "Cheap", description: "Routing, light parse, non-author work" },
+  { tier: "default", label: "Default", description: "Chat, review, general agent work" },
+  { tier: "heavy", label: "Heavy", description: "Authoring: specs, IR, codegen, bind" },
 ];
 
 const emptyTierModels = (): ApiTierModels => ({ cheap: "", default: "", heavy: "" });
+
+/** Split ``provider:model``; bare ids use ``fallbackProvider``. */
+const parseQualifiedModel = (
+  value: string,
+  fallbackProvider: ApiProviderName | "",
+): { provider: ApiProviderName | ""; modelId: string } => {
+  const text = value.trim();
+  if (text.includes(":")) {
+    const [p, ...rest] = text.split(":");
+    return { provider: p as ApiProviderName, modelId: rest.join(":") };
+  }
+  return { provider: fallbackProvider, modelId: text };
+};
+
+const qualifyModel = (provider: string, modelId: string): string => {
+  const id = modelId.trim();
+  if (!id) return "";
+  if (id.includes(":")) return id;
+  return provider ? `${provider}:${id}` : id;
+};
 
 const ProviderTab = (): JSX.Element => {
   const registry = DEFAULT_PROVIDER_REGISTRY;
@@ -364,41 +387,57 @@ const ProviderTab = (): JSX.Element => {
     config?.supportedProviders ??
     (registry.providers.map((entry) => entry.name) as ApiProviderName[]);
   const configurations = config?.configurations ?? [];
+  const globalModels = config?.models ?? emptyTierModels();
 
   return (
     <ScrollArea className="h-full">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 pb-10 pt-3">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 pb-10 pt-3">
         <div>
-          <h2 className="text-base font-semibold">Model providers</h2>
+          <h2 className="text-base font-semibold">Models</h2>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Configure each provider independently. The router selects Cheap, Default, or Heavy
-            according to the task; saving a provider also makes it the active provider.
+            The agent router has three semantic tiers. Each tier can use a model from a
+            different provider — set the global table first, then store credentials for
+            every provider you reference.
           </p>
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
+
+        <TierTableCard
+          supported={supported}
+          initial={globalModels}
+          fallbackProvider={(config?.provider as ApiProviderName) || supported[0] || "deepseek"}
+          registry={registry}
+          onChanged={setConfig}
+        />
+
+        <div>
+          <h3 className="text-sm font-semibold">Provider credentials</h3>
+          <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
+            API keys and optional base URLs. Independent of the tier table — only the
+            providers used by a tier need a key.
+          </p>
+        </div>
         <div className="space-y-3">
           {supported.map((provider) => {
             const stored = configurations.find((entry) => entry.provider === provider);
-            const legacyModels =
-              config?.provider === provider && config.model
-                ? { cheap: config.model, default: config.model, heavy: config.model }
-                : emptyTierModels();
             return (
-              <ProviderCard
+              <CredentialCard
                 key={provider}
                 provider={provider}
-                active={config?.provider === provider}
+                usedByTiers={MODEL_TIERS.filter(({ tier }) =>
+                  (globalModels[tier] || "").startsWith(`${provider}:`),
+                ).map(({ label }) => label)}
                 initial={
                   stored ?? {
                     provider,
-                    models: legacyModels,
-                    baseUrl: config?.provider === provider ? config.baseUrl : "",
-                    apiKeyPreview: config?.provider === provider ? config.apiKeyPreview : "",
-                    apiKeySet: config?.provider === provider ? config.apiKeySet : false,
+                    models: emptyTierModels(),
+                    baseUrl: "",
+                    apiKeyPreview: "",
+                    apiKeySet: false,
                   }
                 }
                 registry={registry}
-                onChanged={(next) => setConfig(next)}
+                onChanged={setConfig}
               />
             );
           })}
@@ -408,57 +447,63 @@ const ProviderTab = (): JSX.Element => {
   );
 };
 
-const ProviderCard = ({
-  provider,
-  active,
+/** Global cheap/default/heavy table — cross-provider. */
+const TierTableCard = ({
+  supported,
   initial,
+  fallbackProvider,
   registry,
   onChanged,
 }: {
-  provider: ApiProviderName;
-  active: boolean;
-  initial: ApiProviderConfiguration;
+  supported: ApiProviderName[];
+  initial: ApiTierModels;
+  fallbackProvider: ApiProviderName;
   registry: ProviderRegistryResponse;
   onChanged: (config: ApiAgentProvider) => void;
 }): JSX.Element => {
-  const [expanded, setExpanded] = useState(active);
-  const [models, setModels] = useState<ApiTierModels>(initial.models);
-  const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
-  const [apiKey, setApiKey] = useState("");
-  const [revealKey, setRevealKey] = useState(false);
+  const [rows, setRows] = useState(() =>
+    Object.fromEntries(
+      MODEL_TIERS.map(({ tier }) => {
+        const parsed = parseQualifiedModel(initial[tier] || "", fallbackProvider);
+        return [tier, parsed];
+      }),
+    ) as Record<ApiModelTier, { provider: ApiProviderName | ""; modelId: string }>,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [testResult, setTestResult] = useState<ApiAgentProviderTestResult | null>(null);
-  const [confirmClearKey, setConfirmClearKey] = useState(false);
-  const showBaseUrl = supportsBaseUrl(registry, provider);
 
   useEffect(() => {
-    setModels(initial.models);
-    setBaseUrl(initial.baseUrl);
-  }, [initial]);
+    setRows(
+      Object.fromEntries(
+        MODEL_TIERS.map(({ tier }) => {
+          const parsed = parseQualifiedModel(initial[tier] || "", fallbackProvider);
+          return [tier, parsed];
+        }),
+      ) as Record<ApiModelTier, { provider: ApiProviderName | ""; modelId: string }>,
+    );
+  }, [initial, fallbackProvider]);
 
-  const submit = async (mode: "save" | "test" | "clear"): Promise<void> => {
+  const models: ApiTierModels = {
+    cheap: qualifyModel(rows.cheap.provider, rows.cheap.modelId),
+    default: qualifyModel(rows.default.provider, rows.default.modelId),
+    heavy: qualifyModel(rows.heavy.provider, rows.heavy.modelId),
+  };
+  const complete = MODEL_TIERS.every(({ tier }) => models[tier].includes(":"));
+
+  const submit = async (mode: "save" | "test"): Promise<void> => {
     setBusy(true);
     setError(null);
     setSaved(false);
     setTestResult(null);
     try {
-      const input: ProviderUpdateInput = {
-        provider,
-        models,
-        baseUrl: baseUrl.trim(),
-      };
-      if (mode === "clear") input.apiKey = "";
-      else if (apiKey !== "") input.apiKey = apiKey;
+      const input: ProviderUpdateInput = { models };
       if (mode === "test") {
         setTestResult(await agentAdminApi.testProvider(input));
       } else {
-        const next = await agentAdminApi.updateProvider(input);
-        setApiKey("");
-        setRevealKey(false);
+        onChanged(await agentAdminApi.updateProvider(input));
         setSaved(true);
-        onChanged(next);
       }
     } catch (err) {
       setError(String(err));
@@ -467,10 +512,142 @@ const ProviderCard = ({
     }
   };
 
-  const complete = MODEL_TIERS.every(({ tier }) => models[tier].trim() !== "");
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm">Model tiers</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Plan authoring uses Heavy; review uses Default. Cheap is reserved for light
+          routing. Values are stored as full <code className="font-mono">provider:model</code>{" "}
+          ids.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="hidden gap-3 px-1 text-[10px] uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[100px_minmax(7rem,10rem)_minmax(0,1fr)]">
+          <span>Tier</span>
+          <span>Provider</span>
+          <span>Model ID</span>
+        </div>
+        {MODEL_TIERS.map(({ tier, label, description }) => (
+          <div
+            key={tier}
+            className="grid items-center gap-3 rounded-md border p-3 md:grid-cols-[100px_minmax(7rem,10rem)_minmax(0,1fr)]"
+          >
+            <div>
+              <Label className="text-xs font-medium">{label}</Label>
+              <p className="text-[10px] text-muted-foreground">{description}</p>
+            </div>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={rows[tier].provider}
+              aria-label={`${label} provider`}
+              onChange={(event) =>
+                setRows((value) => ({
+                  ...value,
+                  [tier]: {
+                    ...value[tier],
+                    provider: event.target.value as ApiProviderName,
+                  },
+                }))
+              }
+            >
+              {supported.map((name) => (
+                <option key={name} value={name}>
+                  {providerLabel(registry, name)}
+                </option>
+              ))}
+            </select>
+            <Input
+              value={rows[tier].modelId}
+              onChange={(event) =>
+                setRows((value) => ({
+                  ...value,
+                  [tier]: { ...value[tier], modelId: event.target.value },
+                }))
+              }
+              placeholder={providerModelHint(registry, rows[tier].provider || fallbackProvider)}
+              className="font-mono text-xs"
+              aria-label={`${label} model id`}
+            />
+          </div>
+        ))}
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        {saved && (
+          <p className="flex items-center gap-1 text-xs text-success-foreground">
+            <CheckCircle2 className="size-3.5" /> Tier table saved.
+          </p>
+        )}
+        {testResult && <ProviderTestResult result={testResult} />}
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy || !complete}
+            onClick={() => void submit("test")}
+          >
+            <Zap className="mr-1 size-4" /> Test default
+          </Button>
+          <Button size="sm" disabled={busy || !complete} onClick={() => void submit("save")}>
+            {busy ? "Saving…" : "Save tiers"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+/** Per-provider API key / base URL only. */
+const CredentialCard = ({
+  provider,
+  usedByTiers,
+  initial,
+  registry,
+  onChanged,
+}: {
+  provider: ApiProviderName;
+  usedByTiers: string[];
+  initial: ApiProviderConfiguration;
+  registry: ProviderRegistryResponse;
+  onChanged: (config: ApiAgentProvider) => void;
+}): JSX.Element => {
+  const [expanded, setExpanded] = useState(usedByTiers.length > 0 || initial.apiKeySet);
+  const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
+  const [apiKey, setApiKey] = useState("");
+  const [revealKey, setRevealKey] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [confirmClearKey, setConfirmClearKey] = useState(false);
+  const showBaseUrl = supportsBaseUrl(registry, provider);
+
+  useEffect(() => {
+    setBaseUrl(initial.baseUrl);
+  }, [initial]);
+
+  const submit = async (mode: "save" | "clear"): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const input: ProviderUpdateInput = {
+        provider,
+        baseUrl: baseUrl.trim(),
+      };
+      if (mode === "clear") input.apiKey = "";
+      else if (apiKey !== "") input.apiKey = apiKey;
+      onChanged(await agentAdminApi.updateProvider(input));
+      setApiKey("");
+      setRevealKey(false);
+      setSaved(true);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <Card className={active ? "border-primary/50" : "border-border"}>
+    <Card className={usedByTiers.length > 0 ? "border-primary/40" : "border-border"}>
       <CardHeader className="pb-3">
         <button
           type="button"
@@ -482,44 +659,16 @@ const ProviderCard = ({
           <div className="min-w-0 flex-1">
             <CardTitle className="text-sm">{providerLabel(registry, provider)}</CardTitle>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {initial.apiKeySet ? `Key ${initial.apiKeyPreview}` : "No stored key"} ·{" "}
-              {models.default || "No default model"}
+              {initial.apiKeySet ? `Key ${initial.apiKeyPreview}` : "No stored key"}
+              {usedByTiers.length > 0 ? ` · used by ${usedByTiers.join(", ")}` : ""}
             </p>
           </div>
-          {active && <Badge variant="default">Active</Badge>}
+          {usedByTiers.length > 0 && <Badge variant="secondary">In use</Badge>}
           <ChevronRight className={`size-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
         </button>
       </CardHeader>
       {expanded && (
         <CardContent className="space-y-4 border-t pt-4">
-          <div className="space-y-2">
-            <div className="grid grid-cols-[100px_minmax(0,1fr)] gap-3 px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <span>Tier</span>
-              <span>Model ID</span>
-            </div>
-            {MODEL_TIERS.map(({ tier, label, description }) => (
-              <div
-                key={tier}
-                className="grid items-center gap-3 rounded-md border p-3 md:grid-cols-[100px_minmax(0,1fr)]"
-              >
-                <div>
-                  <Label htmlFor={`${provider}-${tier}`} className="text-xs font-medium">
-                    {label}
-                  </Label>
-                  <p className="text-[10px] text-muted-foreground">{description}</p>
-                </div>
-                <Input
-                  id={`${provider}-${tier}`}
-                  value={models[tier]}
-                  onChange={(event) =>
-                    setModels((value) => ({ ...value, [tier]: event.target.value }))
-                  }
-                  placeholder={providerModelHint(registry, provider)}
-                  className="font-mono text-xs"
-                />
-              </div>
-            ))}
-          </div>
           {showBaseUrl && (
             <div>
               <Label className="text-xs">Base URL</Label>
@@ -557,10 +706,9 @@ const ProviderCard = ({
           {error && <p className="text-xs text-destructive">{error}</p>}
           {saved && (
             <p className="flex items-center gap-1 text-xs text-success-foreground">
-              <CheckCircle2 className="size-3.5" /> Saved and set active.
+              <CheckCircle2 className="size-3.5" /> Credentials saved.
             </p>
           )}
-          {testResult && <ProviderTestResult result={testResult} />}
           <ConfirmDialog
             open={confirmClearKey}
             onOpenChange={setConfirmClearKey}
@@ -579,19 +727,9 @@ const ProviderCard = ({
             >
               Clear key
             </Button>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy || !complete}
-                onClick={() => void submit("test")}
-              >
-                <Zap className="mr-1 size-4" /> Test default
-              </Button>
-              <Button size="sm" disabled={busy || !complete} onClick={() => void submit("save")}>
-                {busy ? "Saving…" : "Save & use"}
-              </Button>
-            </div>
+            <Button size="sm" disabled={busy} onClick={() => void submit("save")}>
+              {busy ? "Saving…" : "Save credentials"}
+            </Button>
           </div>
         </CardContent>
       )}

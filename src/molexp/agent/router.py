@@ -33,6 +33,7 @@ from molexp.agent.types import UsageBreakdown
 __all__ = [
     "AgenticChunk",
     "FinalChunk",
+    "McpToolSpec",
     "ModelTier",
     "Router",
     "RouterTextResult",
@@ -89,6 +90,30 @@ class RouterTextResult:
 
     text: str
     raw: Any = field(default=None)
+
+
+@dataclass(frozen=True)
+class McpToolSpec:
+    """SDK-free descriptor for a stdio MCP server to attach as an agent tool.
+
+    The harness/services layers pass these to :meth:`Router.complete_structured`
+    to make a codegen agent consult a live MCP server (e.g. molmcp's
+    ``molcrafts_search`` / ``molcrafts_describe``) mid-generation instead of
+    guessing an API from a static catalog. The concrete router turns each spec
+    into a pydantic-ai MCP toolset — none of the callers touch pydantic-ai.
+
+    Attributes:
+        name: Toolset id; also the ``{name}_{tool}`` prefix on every tool.
+        command: Executable launched over stdio (e.g. ``"molmcp"``).
+        args: Command arguments.
+        env: Extra environment as name/value pairs (tuple so the spec stays
+            hashable/frozen); empty means inherit the parent environment.
+    """
+
+    name: str
+    command: str
+    args: tuple[str, ...] = ()
+    env: tuple[tuple[str, str], ...] = ()
 
 
 # ── Agentic-loop streaming chunks ──────────────────────────────────────────
@@ -235,6 +260,7 @@ class Router(Protocol):
         user: str,
         schema: type[SchemaT],
         node_id: str = "",
+        mcp_tools: tuple[McpToolSpec, ...] = (),
     ) -> SchemaT:
         """Drive one schema-typed round trip with retry + event hooks.
 
@@ -248,6 +274,10 @@ class Router(Protocol):
             node_id: Caller-supplied identifier propagated into
                 :class:`~molexp.agent._pydanticai.errors.ProviderError`
                 and event records for traceability.
+            mcp_tools: Stdio MCP servers to attach as agent tools for this
+                call. When non-empty the agent may call those tools (e.g.
+                molmcp code intelligence) before emitting its structured
+                answer, so codegen consults the real API instead of guessing.
 
         Returns:
             One instance of ``schema``.

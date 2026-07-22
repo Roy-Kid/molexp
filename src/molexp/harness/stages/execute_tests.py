@@ -62,7 +62,12 @@ class ExecuteTests(Stage):
         # single-file: the one module. ``python -m pytest`` puts cwd (generated/)
         # on sys.path so the tests' ``from workflow import …`` resolves either way.
         targets = [f.path for f in ts.files] or [f"{ts.module_name}.py"]
-        cmd = [sys.executable, "-m", "pytest", *targets, "-q"]
+        # `--import-mode=importlib`: import each test file by path rather than
+        # registering it under its basename on sys.modules. Without it, two
+        # same-stem modules (or a stale `__pycache__/*.pyc`) trigger pytest's
+        # "import file mismatch" at collection; importlib mode sidesteps that
+        # class of failure entirely (and needs no per-package __init__.py).
+        cmd = [sys.executable, "-m", "pytest", *targets, "-q", "--import-mode=importlib"]
         # molexp task bodies are async-first, so the generated tests are async
         # `def`s. pytest-asyncio (a declared runtime dep of the plan path) is
         # strict-mode by default and REJECTS bare async tests; the materialized

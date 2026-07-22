@@ -157,6 +157,131 @@ _IO_PAYLOAD: dict[str, object] = {
 }
 
 
+# Live ``molcrafts_search`` / ``molcrafts_explore`` shape (trimmed): the dotted
+# path is in ``title`` (no top-level ``qualname`` / ``name``); ``provenance.node_id``
+# is ``file#qualname#kind``; hits live under ``results`` (search) or ``hits`` (explore).
+_LIVE_SEARCH_PAYLOAD: dict[str, object] = {
+    "query": "write lammps data file minimize energy",
+    "result_count": 2,
+    "results": [
+        {
+            "kind": "method",
+            "title": "molpy.engine.openmm.OpenMMEngine.render_minimize_script",
+            "signature": "render_minimize_script(self, config: OpenMMSimulationConfig, pdb: str) -> str",
+            "summary": "Render an OpenMM minimization driver script.",
+            "executable": False,
+            "provenance": {
+                "type": "code_graph",
+                "language": "python",
+                "node_id": "molpy/engine/openmm.py#molpy.engine.openmm.OpenMMEngine.render_minimize_script#method",
+            },
+            "snapshot": "local:hash:sha256-deadbeef",
+        },
+        {
+            "kind": "class",
+            "title": "molpy.io.writers.LammpsDataWriter",
+            "signature": None,
+            "summary": "Write a Frame to a LAMMPS data file.",
+            "executable": False,
+            "provenance": {
+                "type": "code_graph",
+                "language": "python",
+                "node_id": "molpy/io/writers.py#molpy.io.writers.LammpsDataWriter#class",
+            },
+            "snapshot": "local:hash:sha256-deadbeef",
+        },
+    ],
+}
+
+_LIVE_EXPLORE_PAYLOAD: dict[str, object] = {
+    "task": "build water box",
+    "hits": [
+        {
+            "kind": "package",
+            "title": "atomiverse.md",
+            "signature": None,
+            "summary": "OOP Molecular Dynamics driver.",
+            "executable": False,
+            "provenance": {
+                "type": "code_graph",
+                "node_id": "atomiverse/md/__init__.py#atomiverse.md#package",
+            },
+        },
+    ],
+    "details": [],
+}
+
+
+class TestLiveSearchExploreShape:
+    def test_search_results_map_via_title(self) -> None:
+        caps = capabilities_from_payloads([_LIVE_SEARCH_PAYLOAD])
+        by_id = {c.id: c for c in caps}
+        assert set(by_id) == {
+            "molpy.engine.openmm.OpenMMEngine.render_minimize_script",
+            "molpy.io.writers.LammpsDataWriter",
+        }
+        method = by_id["molpy.engine.openmm.OpenMMEngine.render_minimize_script"]
+        assert method.name == "render_minimize_script"
+        assert method.package == "molpy"
+        assert method.tags == ["method"]
+        assert method.input_schema["required"] == ["config", "pdb"]
+
+    def test_explore_hits_channel_maps(self) -> None:
+        # package-kind explore hits are evidence, not bindable capabilities.
+        caps = capabilities_from_payloads([_LIVE_EXPLORE_PAYLOAD])
+        assert caps == []
+
+    def test_node_id_fallback_when_no_title(self) -> None:
+        node = {
+            "kind": "function",
+            "provenance": {"node_id": "molpy/x.py#molpy.x.build#function"},
+        }
+        cap = capability_from_node(node)
+        assert cap is not None
+        assert cap.id == "molpy.x.build"
+        assert cap.name == "build"
+
+    def test_workspace_notes_and_junk_are_not_capabilities(self) -> None:
+        payload = {
+            "results": [
+                {
+                    "kind": "example",
+                    "title": (
+                        ".claude/notes/harness-goal::molcrafts-scientific-workflow-"
+                        "harness-goal-north-star::5-capability-registry::example-27"
+                    ),
+                    "summary": "molpy.build_polymer(...)",
+                    "executable": False,
+                    "execution_status": "not_executable",
+                    "provenance": {
+                        "node_id": (
+                            ".claude/notes/harness-goal.md#.claude/notes/harness-goal"
+                            "::example-27#example"
+                        ),
+                    },
+                },
+                {
+                    "kind": "function",
+                    "title": "mollog.get_logger",
+                    "summary": "infra noise",
+                    "executable": False,
+                },
+                {
+                    "kind": "function",
+                    "title": "ui.mocks.handlers.workspace.buildNestedTree",
+                    "summary": "UI mock",
+                },
+                {
+                    "kind": "class",
+                    "title": "molpy.core.cg.CoarseGrain",
+                    "summary": "CG structure.",
+                },
+            ]
+        }
+        caps = capabilities_from_payloads([payload])
+        assert [c.id for c in caps] == ["molpy.core.cg.CoarseGrain"]
+
+
 class TestCapabilityFromNode:
     def test_function_node_maps_all_fields(self) -> None:
         node = _IO_PAYLOAD["matches"][0]["node"]  # type: ignore[index]

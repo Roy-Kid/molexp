@@ -57,7 +57,7 @@ from molexp.harness.schemas.experiment_spec import (
 )
 from molexp.harness.schemas.final_report import FinalReport
 from molexp.harness.schemas.input_set import InputSet, SweepAxis, SweepStrategy
-from molexp.harness.schemas.mode_result import ModeResult
+from molexp.harness.schemas.mode_result import ModeResult, StageTiming
 from molexp.harness.schemas.parameter import ParameterSource, ParameterValue
 from molexp.harness.schemas.plan_review import PlanReview, PlanReviewFinding
 from molexp.harness.schemas.policy import ApprovalPolicy, PathPolicy, ToolPolicy
@@ -153,6 +153,7 @@ __all__ = [
     "HighRiskOp",
     "InputSet",
     "ModeResult",
+    "StageTiming",
     "ObjectRef",
     "ParameterSource",
     "ParameterValue",

@@ -70,11 +70,52 @@ def configured_agent_model(config: dict[str, Any]) -> str | None:
     return None
 
 
+def _tier_map_from_raw(
+    raw: dict[str, Any], *, default_provider: str | None = None
+) -> dict[str, str] | None:
+    """Normalize a cheap/default/heavy dict to fully-qualified ``provider:model`` ids.
+
+    Each tier may already be ``provider:model`` (cross-provider global table) or a
+    bare model id that is qualified with ``default_provider``. Incomplete maps
+    return ``None``.
+    """
+    tiers: dict[str, str] = {}
+    for tier in ("cheap", "default", "heavy"):
+        value = raw.get(tier)
+        if not isinstance(value, str) or not value.strip():
+            return None
+        text = value.strip()
+        if ":" in text:
+            tiers[tier] = text
+        elif default_provider:
+            tiers[tier] = f"{default_provider}:{text}"
+        else:
+            return None
+    return tiers
+
+
 def configured_agent_models(config: dict[str, Any]) -> dict[str, str] | None:
-    """Extract the active provider's complete cheap/default/heavy mapping."""
+    """Extract the cheap/default/heavy mapping used by :class:`AgentRunner`.
+
+    Preference order:
+
+    1. **Global** ``agent.models`` — each value is a full ``provider:model`` id so
+       the three tiers may come from *different* providers.
+    2. **Legacy** per-active-provider map under
+       ``agent.providers.<active>.models`` (same provider for all three tiers).
+    """
     agent = config.get("agent")
     if not isinstance(agent, dict):
         return None
+
+    # 1. Global cross-provider tier table (Settings "Model tiers").
+    global_raw = agent.get("models")
+    if isinstance(global_raw, dict):
+        global_map = _tier_map_from_raw(global_raw)
+        if global_map is not None:
+            return global_map
+
+    # 2. Legacy: one active provider owns all three tiers.
     provider = agent.get("provider")
     providers = agent.get("providers")
     if not isinstance(provider, str) or not isinstance(providers, dict):
@@ -85,13 +126,7 @@ def configured_agent_models(config: dict[str, Any]) -> dict[str, str] | None:
     raw = section.get("models")
     if not isinstance(raw, dict):
         return None
-    tiers = {tier: raw.get(tier) for tier in ("cheap", "default", "heavy")}
-    if not all(isinstance(value, str) and value for value in tiers.values()):
-        return None
-    return {
-        tier: (str(value) if ":" in str(value) else f"{provider}:{value}")
-        for tier, value in tiers.items()
-    }
+    return _tier_map_from_raw(raw, default_provider=provider)
 
 
 def configured_api_keys(config: dict[str, Any]) -> dict[str, str]:

@@ -13,6 +13,12 @@ from molexp.harness.stages.approval_gate import ApprovalGate, Approver, auto_gra
 from molexp.harness.stages.assemble_knowledge_context import AssembleKnowledgeContext
 from molexp.harness.stages.bind_molcrafts_tasks import BindMolcraftsTasks
 from molexp.harness.stages.compile_workflow import CompileWorkflow
+from molexp.harness.stages.evidence import (
+    CapabilityGap,
+    Diagnosis,
+    collect_evidence_text,
+    diagnose_failure,
+)
 from molexp.harness.stages.execute_tests import ExecuteTests
 from molexp.harness.stages.execute_workflow import ExecuteWorkflow
 from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
@@ -26,11 +32,13 @@ from molexp.harness.stages.generate_test_code import GenerateTestCode
 from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSource
 from molexp.harness.stages.invoke_capability import InvokeCapability
+from molexp.harness.stages.materialize_and_execute_tests import MaterializeAndExecuteTests
 from molexp.harness.stages.materialize_execution import MaterializeExecution
 from molexp.harness.stages.repair_loop import RepairLoop
 from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
 from molexp.harness.stages.review_plan import ReviewPlan
 from molexp.harness.stages.save_user_plan import SaveUserPlan
+from molexp.harness.stages.sequential_task_build import SequentialTaskBuild
 from molexp.harness.stages.step_audit_loop import StepAuditLoop
 from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 from molexp.harness.stages.validate_experiment_spec import ValidateExperimentSpec
@@ -45,7 +53,9 @@ __all__ = [
     "Approver",
     "AssembleKnowledgeContext",
     "BindMolcraftsTasks",
+    "CapabilityGap",
     "CompileWorkflow",
+    "Diagnosis",
     "ExecuteTests",
     "ExecuteWorkflow",
     "ExtractWorkflowIR",
@@ -59,11 +69,13 @@ __all__ = [
     "GenerateTestSpec",
     "GenerateWorkflowSource",
     "InvokeCapability",
+    "MaterializeAndExecuteTests",
     "MaterializeExecution",
     "RepairLoop",
     "ResolveCapabilities",
     "ReviewPlan",
     "SaveUserPlan",
+    "SequentialTaskBuild",
     "StepAuditLoop",
     "ValidateBoundWorkflow",
     "ValidateExperimentSpec",
@@ -73,4 +85,6 @@ __all__ = [
     "ValidateWorkflowIR",
     "ValidateWorkflowSource",
     "auto_grant_approver",
+    "collect_evidence_text",
+    "diagnose_failure",
 ]

@@ -77,11 +77,31 @@ def test_drops_private_and_module_entries() -> None:
 
 
 def test_long_description_is_truncated() -> None:
-    out = render_capability_catalog([_cap("p.x.Y", kind="class", desc="d" * 300)])
+    out = render_capability_catalog([_cap("molpy.x.Y", kind="class", desc="d" * 300)])
     assert "…" in out
     # The single rendered bullet line stays bounded.
-    bullet = next(line for line in out.splitlines() if line.startswith("- p.x.Y"))
+    bullet = next(line for line in out.splitlines() if line.startswith("- molpy.x.Y"))
     assert len(bullet) < 200
+
+
+def test_catalog_drops_notes_and_non_science_packages() -> None:
+    caps = [
+        _cap(
+            ".claude/notes/harness-goal::example-27",
+            kind="example",
+            desc="molpy.build_polymer(...)",
+        ),
+        _cap("mollog.get_logger", kind="function", desc="logger"),
+        _cap("molpy.core.cg.CoarseGrain", kind="class", desc="CG structure."),
+    ]
+    out = render_capability_catalog(caps)
+    assert "molpy.core.cg.CoarseGrain" in out
+    bullets = [ln for ln in out.splitlines() if ln.startswith("- ")]
+    assert bullets == ["- molpy.core.cg.CoarseGrain(…) — CG structure."]
+    assert not any("mollog" in ln for ln in bullets)
+    assert not any(".claude" in ln for ln in bullets)
+    assert not any("example-27" in ln for ln in bullets)
+    assert not any("build_polymer" in ln for ln in bullets)
 
 
 # ----------------------------------------------- render_selected_capability_catalog

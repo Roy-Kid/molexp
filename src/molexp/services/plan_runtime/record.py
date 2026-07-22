@@ -68,6 +68,9 @@ def write_plan_task_status(
     status: str,
     active_plan_task_id: str | None = None,
     turn_id: str | None = None,
+    project_id: str | None = None,
+    experiment_id: str | None = None,
+    run_id: str | None = None,
 ) -> None:
     """Sync an IN-FLIGHT plan task's coarse status into the agent-task store.
 
@@ -77,6 +80,10 @@ def write_plan_task_status(
     finished. Terminal states are still written by
     :func:`write_agent_task_record` (which upgrades the title from the
     generated report). Best-effort: a store failure must not break the run.
+
+    Scope ids (``project_id`` / ``experiment_id`` / ``run_id``) are the plan
+    run's mount — pass them from the live ``PlanTask`` so the Agents hub can
+    deep-link without waiting for terminal materialize.
     """
     from molexp.services.agent_task_store import (
         PersistedAgentTask,
@@ -103,9 +110,19 @@ def write_plan_task_status(
                 active_plan_task_id=active_plan_task_id,
                 pending_plan_draft=current.pending_plan_draft if current is not None else None,
                 skill_id=current.skill_id if current is not None else None,
-                project_id=current.project_id if current is not None else None,
-                experiment_id=current.experiment_id if current is not None else None,
-                run_id=current.run_id if current is not None else None,
+                project_id=(
+                    project_id
+                    if project_id is not None
+                    else (current.project_id if current is not None else None)
+                ),
+                experiment_id=(
+                    experiment_id
+                    if experiment_id is not None
+                    else (current.experiment_id if current is not None else None)
+                ),
+                run_id=(
+                    run_id if run_id is not None else (current.run_id if current is not None else None)
+                ),
             ),
         )
     except Exception as exc:  # the record is a convenience view, never load-bearing
@@ -120,8 +137,15 @@ def write_session_events_record(
     task_id: str,
     draft: str,
     turn_id: str | None = None,
+    failure_stage: str | None = None,
+    failure_error: str | None = None,
 ) -> None:
-    """Write the synthesized session transcript the Agents session view renders."""
+    """Write the synthesized session transcript the Agents session view renders.
+
+    On failure pass ``failure_error`` (and optional ``failure_stage``) so the
+    chat ends with an ``error`` + failed ``loop_completed`` carrying the real
+    reason — not a green "plan ready" summary.
+    """
     report = _read_artifact_json(run, "experiment_report")
     _write_session_events(
         workspace_root,
@@ -131,6 +155,8 @@ def write_session_events_record(
         draft=draft,
         report=report,
         turn_id=turn_id,
+        failure_stage=failure_stage,
+        failure_error=failure_error,
     )
 
 
@@ -163,6 +189,10 @@ def _write_agent_task(
         status = "failed"
     else:
         status = run.status if run.status in {"succeeded", "failed"} else "completed"
+    # Scope is the plan Run's experiment — always authoritative (chat parent
+    # may have a broader mount; the plan itself is experiment-scoped).
+    project_id = run.experiment.project.id
+    experiment_id = run.experiment.id
     write_agent_task_metadata(
         workspace_root,
         PersistedAgentTask(
@@ -179,8 +209,8 @@ def _write_agent_task(
             active_plan_task_id=(current.active_plan_task_id if current is not None else None),
             pending_plan_draft=None,
             skill_id=current.skill_id if current is not None else None,
-            project_id=current.project_id if current is not None else None,
-            experiment_id=current.experiment_id if current is not None else None,
+            project_id=project_id,
+            experiment_id=experiment_id,
             run_id=run.id,
         ),
     )
@@ -218,6 +248,8 @@ def _write_session_events(
     draft: str,
     report: dict[str, Any] | None,
     turn_id: str | None = None,
+    failure_stage: str | None = None,
+    failure_error: str | None = None,
 ) -> None:
     """Write a synthesized session transcript for the Agents *session view*.
 
@@ -227,6 +259,10 @@ def _write_session_events(
     panel fetches them structurally from ``GET /plans/{run_id}``. The terminal
     ``loop_completed`` carries a ``plan`` locator so the panel knows which plan to
     open.
+
+    Failure path: still lists completed stages, then emits a typed ``error``
+    event and a failed ``loop_completed`` whose text is the human-readable
+    reason (pytest output / stage message) — never a green "plan ready".
     """
     from molexp.services.agent_task_store import append_agent_task_events, read_agent_task_events
 
@@ -240,6 +276,25 @@ def _write_session_events(
         and event["payload"].get("turn_id") == turn_id
         for event in existing
     )
+    def _payload(event: dict[str, Any]) -> dict[str, Any]:
+        p = event.get("payload")
+        return p if isinstance(p, dict) else {}
+
+    def _same_turn(event: dict[str, Any]) -> bool:
+        return _payload(event).get("turn_id") == turn_id
+
+    has_failed_terminal = any(
+        event.get("type") == "loop_completed"
+        and _same_turn(event)
+        and _payload(event).get("failed") is True
+        for event in existing
+    )
+    has_success_terminal = any(
+        event.get("type") == "loop_completed"
+        and _same_turn(event)
+        and _payload(event).get("failed") is not True
+        for event in existing
+    )
     events: list[dict[str, Any]] = []
     if not has_started:
         events.append(
@@ -250,35 +305,83 @@ def _write_session_events(
             }
         )
     for kind, label in _STAGE_LABELS:
-        if kind in kinds:
-            events.append(
-                {
-                    "type": "tool_call_completed",
-                    "ts": ts,
-                    "payload": {
-                        "tool_name": label,
-                        "result": {"artifact": kind},
-                        **event_context,
-                    },
-                }
-            )
-    if report is not None:
-        tasks = _read_workflow_tasks(experiment)
-        source = _read_workflow_source(run)
-        project_id = experiment.project.id if hasattr(experiment, "project") else ""
-        title = _title(report, draft, run.id)
+        if kind not in kinds:
+            continue
+        already = False
+        for event in existing:
+            if event.get("type") != "tool_call_completed":
+                continue
+            result = _payload(event).get("result")
+            if isinstance(result, dict) and result.get("artifact") == kind:
+                already = True
+                break
+        if already:
+            continue
+        events.append(
+            {
+                "type": "tool_call_completed",
+                "ts": ts,
+                "payload": {
+                    "tool_name": label,
+                    "result": {"artifact": kind},
+                    **event_context,
+                },
+            }
+        )
+
+    tasks = _read_workflow_tasks(experiment)
+    source = _read_workflow_source(run)
+    project_id = experiment.project.id if hasattr(experiment, "project") else ""
+    title = _title(report, draft, run.id)
+    plan_ref = {
+        "run_id": run.id,
+        "project_id": project_id,
+        "experiment_id": experiment.id,
+        "title": title,
+        "step_count": len(tasks),
+        "has_workflow": bool(source and source.strip())
+        or ("workflow_source" in kinds)
+        or ("workflow_ir" in kinds),
+    }
+
+    if failure_error is not None and not has_failed_terminal:
+        detail = _failure_detail(run, failure_error)
+        stage = failure_stage or _infer_failure_stage(kinds)
+        events.append(
+            {
+                "type": "error",
+                "ts": ts,
+                "payload": {
+                    "message": failure_error.strip() or "plan failed",
+                    "stage": stage,
+                    "detail": detail,
+                    **event_context,
+                },
+            }
+        )
+        events.append(
+            {
+                "type": "loop_completed",
+                "ts": ts,
+                "payload": {
+                    "text": _failure_summary(title, stage, failure_error, detail),
+                    "failed": True,
+                    "error": failure_error.strip() or "plan failed",
+                    "stage": stage,
+                    "plan": plan_ref,
+                    **event_context,
+                },
+            }
+        )
+    elif (
+        failure_error is None
+        and report is not None
+        and not has_success_terminal
+        and not has_failed_terminal
+    ):
         # Locator the Deliverables panel uses to fetch the structured plan
         # (`GET /projects/{p}/experiments/{e}/plans/{run_id}`). Carried on the
-        # open `payload` (which is `Record[str, Any]` on the wire) so no schema
-        # or OpenAPI surface has to change.
-        plan_ref = {
-            "run_id": run.id,
-            "project_id": project_id,
-            "experiment_id": experiment.id,
-            "title": title,
-            "step_count": len(tasks),
-            "has_workflow": bool(source and source.strip()),
-        }
+        # open `payload` so no schema / OpenAPI surface has to change.
         events.append(
             {
                 "type": "loop_completed",
@@ -290,7 +393,8 @@ def _write_session_events(
                 },
             }
         )
-    append_agent_task_events(workspace_root, task_id, events)
+    if events:
+        append_agent_task_events(workspace_root, task_id, events)
 
 
 def _summary(title: str, tasks: list[str], source: str | None) -> str:
@@ -305,6 +409,80 @@ def _summary(title: str, tasks: list[str], source: str | None) -> str:
         f"PlanMode {', '.join(did)}.\n\n"
         "Open the **Deliverables** panel to review the spec, plan, and workflow script."
     )
+
+
+def _failure_summary(
+    title: str, stage: str | None, error: str, detail: str | None
+) -> str:
+    """Human-readable failed-turn answer for the Agents chat."""
+    stage_bit = f" at stage `{stage}`" if stage else ""
+    lines = [
+        f"**{title}** — plan failed{stage_bit}.",
+        "",
+        "## Error",
+        "",
+        (error.strip() or "(no error text)"),
+    ]
+    if detail and detail.strip() and detail.strip() not in error:
+        lines += ["", "## Detail", "", "```", detail.strip()[:4000], "```"]
+    lines += [
+        "",
+        "Partial deliverables (spec / workflow) may still be available in the "
+        "**Deliverables** panel. Re-run the same draft to resume from the stage ledger.",
+    ]
+    return "\n".join(lines)
+
+
+def _failure_detail(run: Run, error: str) -> str | None:
+    """Best-effort pytest / stage stderr to surface in chat (not just Knowledge)."""
+    # Prefer the harness feedback artifact left by ExecuteTests for the repair loop.
+    for kind in ("test_code_feedback", "stdout", "stderr"):
+        text = _read_artifact_text(run, kind)
+        if text and text.strip():
+            return text.strip()
+    # Fall back to the execution error.txt if present.
+    try:
+        err_path = Path(run.run_dir) / "executions"
+        if err_path.is_dir():
+            candidates = sorted(err_path.glob("*/error.txt"), key=lambda p: p.stat().st_mtime)
+            if candidates:
+                body = candidates[-1].read_text(encoding="utf-8", errors="replace")
+                if body.strip():
+                    return body.strip()
+    except OSError:
+        pass
+    return None
+
+
+def _read_artifact_text(run: Run, kind: str) -> str | None:
+    from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+    root = Path(run.run_dir) / "artifacts"
+    store = FileArtifactStore(root=root)
+    ref = store.latest_by_kind(kind)
+    if ref is None:
+        return None
+    try:
+        raw = store.get(ref.id)
+    except Exception:
+        return None
+    if isinstance(raw, bytes):
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw.decode("utf-8", errors="replace")
+    return str(raw) if raw is not None else None
+
+
+def _infer_failure_stage(kinds: set[str]) -> str | None:
+    """Guess the failed stage from what is already on disk (when caller omitted it)."""
+    if "workflow_source" in kinds and "execution_result" not in kinds:
+        return "execute_tests"
+    if "experiment_spec" in kinds and "workflow_ir" not in kinds:
+        return "extract_workflow_ir"
+    if "experiment_report" in kinds and "experiment_spec" not in kinds:
+        return "generate_experiment_spec"
+    return None
 
 
 def _artifact_kinds(run: Run) -> list[str]:

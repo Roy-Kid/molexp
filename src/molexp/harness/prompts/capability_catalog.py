@@ -6,13 +6,15 @@ prompt when the run carries a grounded ``CapabilityRegistry``. It turns the
 ungrounded "guess a capability_id" task into "pick one from this list", so the
 binder's choices stay inside what ``ValidateBoundWorkflow`` will accept.
 
-Private (``_``-prefixed) symbols and module-kind entries are dropped — they are
-real index hits but not capabilities a workflow should bind to.
+Noise (notes, tests, UI, non-science packages, private symbols, package/module
+kinds) is dropped by :func:`molexp.harness.registry.bindable.is_bindable_capability`.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
+from molexp.harness.registry.bindable import is_bindable_capability
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -26,14 +28,16 @@ _MAX_DESC_CHARS = 120
 
 
 def _is_bindable(cap: ToolCapability) -> bool:
-    """Drop module-kind entries and private (``_``-prefixed leaf) symbols."""
-    if cap.tags and cap.tags[0] == "module":
-        return False
-    return not cap.id.rsplit(".", 1)[-1].startswith("_")
+    """Drop notes / tests / private / non-science entries (single gate)."""
+    return is_bindable_capability(cap)
 
 
 def _render_params(cap: ToolCapability) -> str:
     """Render ``(a, b*)`` from the capability's input schema (``*`` = required).
+
+    When a molmcp routing guide is available, callers should prepend its
+    checklist text so the binder sees package-role rules without molexp
+    hard-coding package names.
 
     A schema without a ``properties`` key is a wildcard (unknown / ``**kwargs``
     signature) — rendered as ``(…)`` so the binder knows arguments are accepted
@@ -54,14 +58,27 @@ def render_capability_catalog(capabilities: Iterable[ToolCapability]) -> str:
         "## Available molcrafts capabilities",
         "",
         "Bind each PlanWorkflowIR task to exactly ONE `capability_id` chosen from "
-        "this catalog. Do NOT invent capability_ids, callables, or packages that "
-        "are not listed here. A trailing `*` marks a required parameter.",
+        "this catalog. The `capability_id` is the dotted path **before** the "
+        "opening `(` on each bullet — copy it VERBATIM. Do NOT invent ids from "
+        "description prose, notes, or example names (e.g. never invent "
+        "`molpy.build_polymer`). A trailing `*` marks a required parameter.",
         "",
     ]
+    if not bindable:
+        lines.append(
+            "_No bindable science capabilities in the grounded registry "
+            "(notes/tests/UI noise was filtered). Binding will fail validation "
+            "if you invent an id — re-ground molmcp against molpy/molpack._"
+        )
+        return "\n".join(lines)
     for cap in bindable:
         desc = " ".join(cap.description.split())
         if len(desc) > _MAX_DESC_CHARS:
             desc = desc[: _MAX_DESC_CHARS - 1] + "…"
+        # Never let description look like an alternate capability_id
+        # (e.g. prose "molpy.build_polymer(...)").
+        if desc.count("(") == 1 and desc.rstrip().endswith(")"):
+            desc = ""
         suffix = f" — {desc}" if desc else ""
         lines.append(f"- {cap.id}{_render_params(cap)}{suffix}")
     return "\n".join(lines)

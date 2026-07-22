@@ -194,7 +194,19 @@ class PlanTask:
             # a suspension out of the failure records.)
             from .materialize import PlanFailure
 
-            failure = PlanFailure(stage=None, error=repr(exc))
+            # Prefer the human message (StagePersistedFailureError carries the
+            # pytest reason); fall back to repr for unexpected exceptions.
+            err_text = str(exc).strip() or repr(exc)
+            stage_name = getattr(exc, "stage", None) or getattr(exc, "stage_name", None)
+            if not isinstance(stage_name, str):
+                stage_name = None
+            # StageRunner message often looks like "stage 'execute_tests' failed: …"
+            if stage_name is None and "stage '" in err_text:
+                try:
+                    stage_name = err_text.split("stage '", 1)[1].split("'", 1)[0]
+                except IndexError:
+                    stage_name = None
+            failure = PlanFailure(stage=stage_name, error=err_text)
             try:
                 self.record_outcome = await asyncio.to_thread(
                     lambda: materialize_plan_records(
@@ -266,6 +278,9 @@ class PlanTask:
             status=self.status,
             active_plan_task_id=self.task_id,
             turn_id=self.turn_id,
+            project_id=self.experiment.project.id,
+            experiment_id=self.experiment.id,
+            run_id=self.run.id,
         )
 
     @staticmethod

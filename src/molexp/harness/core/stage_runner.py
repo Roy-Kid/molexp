@@ -37,6 +37,9 @@ lock (see :mod:`molexp.harness.store._sqlite`).
 from __future__ import annotations
 
 import asyncio
+import time
+
+from mollog import Context, get_logger
 
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
@@ -48,6 +51,8 @@ from molexp.harness.errors import (
 from molexp.harness.schemas import PlanArtifactRef
 
 __all__ = ["StageRunner", "run_stage_bracketed"]
+
+_LOG = get_logger("molexp.harness.stage")
 
 
 async def _record_artifact(ctx: HarnessRunContext, stage: Stage, ref: PlanArtifactRef) -> None:
@@ -98,6 +103,7 @@ async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> PlanArtif
             persisted ref's ``artifact_created`` + edges and ``stage_failed``.
         StageExecutionError: For any other stage failure, after ``stage_failed``.
     """
+    t0 = time.monotonic()
     await asyncio.to_thread(
         ctx.event_log.append,
         run_id=ctx.run_id,
@@ -105,51 +111,105 @@ async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> PlanArtif
         actor="harness",
         payload={"stage": stage.name},
     )
+    _LOG.info(f"stage start name={stage.name}")
 
-    try:
-        ref = await stage.run(ctx)
-    except ApprovalPendingError as exc:
-        # Suspension, not failure: the gate already recorded the pending
-        # request (approval store + approval_requested event). Close the
-        # stage bracket honestly and re-raise UNCHANGED so task drivers can
-        # distinguish "waiting for a decision" from a failed stage.
-        await asyncio.to_thread(
-            ctx.event_log.append,
-            run_id=ctx.run_id,
-            type="stage_suspended",
-            actor="harness",
-            payload={"stage": stage.name, "pending": [r.id for r in exc.requests]},
-        )
-        raise
-    except StagePersistedFailureError as exc:
-        await _record_artifact(ctx, stage, exc.persisted_ref)
-        await asyncio.to_thread(
-            ctx.event_log.append,
-            run_id=ctx.run_id,
-            type="stage_failed",
-            actor="harness",
-            payload={"stage": stage.name, "error": repr(exc)},
-        )
-        raise
-    except Exception as exc:
-        await asyncio.to_thread(
-            ctx.event_log.append,
-            run_id=ctx.run_id,
-            type="stage_failed",
-            actor="harness",
-            payload={"stage": stage.name, "error": repr(exc)},
-        )
-        raise StageExecutionError(f"stage {stage.name!r} failed: {exc!r}") from exc
+    with Context.scope(f"harness.stage.{stage.name}", stage=stage.name, run_id=ctx.run_id):
+        try:
+            ref = await stage.run(ctx)
+        except ApprovalPendingError as exc:
+            # Suspension, not failure: the gate already recorded the pending
+            # request (approval store + approval_requested event). Close the
+            # stage bracket honestly and re-raise UNCHANGED so task drivers can
+            # distinguish "waiting for a decision" from a failed stage.
+            duration_s = time.monotonic() - t0
+            await asyncio.to_thread(
+                ctx.event_log.append,
+                run_id=ctx.run_id,
+                type="stage_suspended",
+                actor="harness",
+                payload={
+                    "stage": stage.name,
+                    "pending": [r.id for r in exc.requests],
+                    "duration_s": round(duration_s, 3),
+                },
+            )
+            _set_last_stage_duration(duration_s)
+            _LOG.warning(
+                f"stage suspend name={stage.name} duration_s={duration_s:.2f}"
+            )
+            raise
+        except StagePersistedFailureError as exc:
+            duration_s = time.monotonic() - t0
+            _set_last_stage_duration(duration_s)
+            await _record_artifact(ctx, stage, exc.persisted_ref)
+            await asyncio.to_thread(
+                ctx.event_log.append,
+                run_id=ctx.run_id,
+                type="stage_failed",
+                actor="harness",
+                payload={
+                    "stage": stage.name,
+                    "error": repr(exc),
+                    "duration_s": round(duration_s, 3),
+                },
+            )
+            _LOG.error(
+                f"stage fail name={stage.name} duration_s={duration_s:.2f} err={exc!r}"
+            )
+            raise
+        except Exception as exc:
+            duration_s = time.monotonic() - t0
+            _set_last_stage_duration(duration_s)
+            await asyncio.to_thread(
+                ctx.event_log.append,
+                run_id=ctx.run_id,
+                type="stage_failed",
+                actor="harness",
+                payload={
+                    "stage": stage.name,
+                    "error": repr(exc),
+                    "duration_s": round(duration_s, 3),
+                },
+            )
+            _LOG.error(
+                f"stage fail name={stage.name} duration_s={duration_s:.2f} err={exc!r}"
+            )
+            raise StageExecutionError(f"stage {stage.name!r} failed: {exc!r}") from exc
 
-    await _record_artifact(ctx, stage, ref)
-    await asyncio.to_thread(
-        ctx.event_log.append,
-        run_id=ctx.run_id,
-        type="stage_completed",
-        actor="harness",
-        payload={"stage": stage.name},
-    )
-    return ref
+        duration_s = time.monotonic() - t0
+        await _record_artifact(ctx, stage, ref)
+        await asyncio.to_thread(
+            ctx.event_log.append,
+            run_id=ctx.run_id,
+            type="stage_completed",
+            actor="harness",
+            payload={
+                "stage": stage.name,
+                "kind": ref.kind,
+                "duration_s": round(duration_s, 3),
+            },
+        )
+        _LOG.info(
+            f"stage done name={stage.name} kind={ref.kind} duration_s={duration_s:.2f}"
+        )
+        _set_last_stage_duration(duration_s)
+        return ref
+
+
+_LAST_STAGE_DURATION_S: float | None = None
+
+
+def _set_last_stage_duration(duration_s: float) -> None:
+    global _LAST_STAGE_DURATION_S
+    _LAST_STAGE_DURATION_S = duration_s
+
+
+def take_stage_duration(_ref: PlanArtifactRef | None = None) -> float | None:
+    """Pop the wall-clock seconds of the last bracketed stage run."""
+    global _LAST_STAGE_DURATION_S
+    value = _LAST_STAGE_DURATION_S
+    _LAST_STAGE_DURATION_S = None
+    return value
 
 
 class StageRunner:
