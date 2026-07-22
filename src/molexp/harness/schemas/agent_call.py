@@ -12,6 +12,8 @@ just the parsed shape downstream stages see).
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.harness.schemas.artifact import PlanArtifactRef
@@ -44,6 +46,18 @@ class AgentCallSpec(BaseModel):
     #: When ``True``, require the agent's configured MCP servers. ``None`` keeps
     #: the agent registry default (codegen agents get molmcp).
     use_mcp: bool | None = None
+    #: Which gateway dispatch path this call drives:
+    #:
+    #: * ``"structured"`` (default) — one ``Router.complete_structured`` round
+    #:   trip; the model returns a schema-typed instance directly. Every call
+    #:   that predates the agentic branch keeps this behavior.
+    #: * ``"agentic"`` — the emergent tool loop (``Router.stream_agentic``): the
+    #:   model reasons, calls tools, and observes results before emitting a final
+    #:   answer, which the gateway parses into the registered schema.
+    #:
+    #: A closed :class:`~typing.Literal`, so an unknown value is rejected at
+    #: construction (``ValidationError``) rather than silently mis-routing.
+    call_mode: Literal["structured", "agentic"] = "structured"
 
 
 class AgentCallResult(BaseModel):

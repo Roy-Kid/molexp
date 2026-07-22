@@ -24,8 +24,13 @@ from pydantic import BaseModel
 
 from molexp.agent.router import (
     AgenticChunk,
+    FinalChunk,
     ModelTier,
     RouterTextResult,
+    TextDeltaChunk,
+    ThinkingDeltaChunk,
+    ToolCallChunk,
+    ToolResultChunk,
 )
 from molexp.agent.types import UsageBreakdown
 
@@ -72,8 +77,12 @@ class _StubRouter:
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
+        before_tool: object | None = None,
+        after_tool: object | None = None,
+        should_stop: object | None = None,
     ) -> AsyncIterator[AgenticChunk]:
         async def _empty() -> AsyncIterator[AgenticChunk]:  # pragma: no cover
             if False:
@@ -102,6 +111,7 @@ class _RecordingRouter:
         self._model = model
         self.structured_calls: list[dict[str, Any]] = []
         self.complete_text_calls = 0
+        self.stream_agentic_calls = 0
 
     async def complete_text(
         self,
@@ -142,14 +152,99 @@ class _RecordingRouter:
         prompt: str,
         system: str = "",
         tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
         message_history: tuple[Any, ...] = (),
+        before_tool: object | None = None,
+        after_tool: object | None = None,
+        should_stop: object | None = None,
     ) -> AsyncIterator[AgenticChunk]:
+        self.stream_agentic_calls += 1
+
         async def _empty() -> AsyncIterator[AgenticChunk]:  # pragma: no cover
             if False:
                 yield  # type: ignore[unreachable]
 
         return _empty()
+
+    def clear_usage(self) -> None:  # pragma: no cover - inert in tests
+        return None
+
+    def snapshot_usage(self) -> UsageBreakdown:  # pragma: no cover - inert
+        return UsageBreakdown()
+
+
+class _AgenticRouter:
+    """:class:`Router` stub whose ``stream_agentic`` replays a canned ReAct trace.
+
+    Yields thinking → tool_call → tool_result → text → ``FinalChunk(final_text)``
+    so the agentic gateway path has a full multi-chunk sequence to consume.
+    ``complete_structured`` / ``complete_text`` raise so a test can prove the
+    agentic branch never touches the structured / text routes; every
+    ``stream_agentic`` invocation is recorded in ``agentic_calls``.
+    """
+
+    def __init__(self, *, final_text: str, model: str = "agentic-router") -> None:
+        self._final_text = final_text
+        self._model = model
+        self.agentic_calls: list[dict[str, Any]] = []
+        self.structured_calls = 0
+
+    async def complete_text(
+        self,
+        *,
+        prompt: str,
+        system: str = "",
+        message_history: tuple[Any, ...] = (),
+        tier: ModelTier = ModelTier.DEFAULT,
+    ) -> RouterTextResult:
+        raise AssertionError("complete_text must not be called by the agentic gateway path")
+
+    async def complete_structured(
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        node_id: str = "",
+        mcp_tools: tuple[Any, ...] = (),
+    ) -> BaseModel:
+        self.structured_calls += 1
+        raise AssertionError("complete_structured must not be called by the agentic gateway path")
+
+    def stream_agentic(
+        self,
+        *,
+        prompt: str,
+        system: str = "",
+        tools: tuple[Any, ...] = (),
+        toolsets: tuple[Any, ...] = (),
+        tier: ModelTier = ModelTier.DEFAULT,
+        message_history: tuple[Any, ...] = (),
+        before_tool: object | None = None,
+        after_tool: object | None = None,
+        should_stop: object | None = None,
+    ) -> AsyncIterator[AgenticChunk]:
+        self.agentic_calls.append(
+            {
+                "prompt": prompt,
+                "system": system,
+                "tier": tier,
+                "tools": tools,
+                "toolsets": toolsets,
+            }
+        )
+        final_text = self._final_text
+
+        async def _replay() -> AsyncIterator[AgenticChunk]:
+            yield ThinkingDeltaChunk(text="reason about the plan")
+            yield ToolCallChunk(tool_name="molcrafts_search", args_summary="find api")
+            yield ToolResultChunk(tool_name="molcrafts_search", result_summary="found", ok=True)
+            yield TextDeltaChunk(text="drafting answer")
+            yield FinalChunk(text=final_text)
+
+        return _replay()
 
     def clear_usage(self) -> None:  # pragma: no cover - inert in tests
         return None
@@ -525,6 +620,238 @@ class TestRouterBackedAgentGateway:
 
         # The prompt artifact derives from the input it was composed from.
         assert parent.id in prompt_ref.parent_ids
+
+
+class TestStructuredCallModeIsDefault:
+    """``AgentCallSpec.call_mode`` defaults to ``"structured"`` — every call
+    that predates the agentic branch keeps driving ``complete_structured``."""
+
+    def test_default_call_mode_is_structured(self) -> None:
+        """A spec constructed without ``call_mode`` reports ``"structured"``."""
+        from molexp.harness.schemas import AgentCallSpec
+
+        spec = AgentCallSpec(
+            agent_name="tiny_writer",
+            input_artifact_ids=[],
+            output_schema={},
+        )
+        assert spec.call_mode == "structured"
+
+    async def test_structured_mode_never_calls_stream_agentic(self, tmp_path: Path) -> None:
+        """An explicit ``call_mode="structured"`` drives ``complete_structured``
+        once and NEVER opens the agentic stream (record-style assertion)."""
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        router = _RecordingRouter(instance=_TinyReport(title="ok", score=1))
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"tiny_writer": _TinyReport},
+            output_kind_by_agent={"tiny_writer": "experiment_report"},
+            tier_by_agent={"tiny_writer": ModelTier.DEFAULT},
+        )
+
+        spec = AgentCallSpec(
+            agent_name="tiny_writer",
+            input_artifact_ids=[],
+            output_schema=_TinyReport.model_json_schema(),
+            call_mode="structured",
+        )
+        assert spec.call_mode == "structured"
+
+        await gateway.call(spec)
+
+        assert len(router.structured_calls) == 1
+        assert router.stream_agentic_calls == 0
+
+
+class TestAgenticCallMode:
+    """``call_mode="agentic"`` drives the emergent tool loop
+    (:meth:`Router.stream_agentic`) instead of one structured round-trip."""
+
+    async def test_agentic_mode_drives_stream_agentic_and_parses_final(
+        self, tmp_path: Path
+    ) -> None:
+        """The gateway opens ``stream_agentic`` (never ``complete_structured``),
+        consumes the canned tool_call/tool_result/final sequence, and parses
+        ``FinalChunk.text`` into the registered schema, persisted under the
+        agent's output kind."""
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        canned = {"title": "from-react", "score": 42}
+        router = _AgenticRouter(final_text=json.dumps(canned))
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"agentic_writer": _TinyReport},
+            output_kind_by_agent={"agentic_writer": "experiment_plan"},
+            tier_by_agent={"agentic_writer": ModelTier.HEAVY},
+        )
+
+        parent = store.put_text(
+            kind="user_plan", text="drive a react loop", created_by="test", parent_ids=[]
+        )
+        result = await gateway.call(
+            AgentCallSpec(
+                agent_name="agentic_writer",
+                input_artifact_ids=[parent.id],
+                output_schema=_TinyReport.model_json_schema(),
+                call_mode="agentic",
+            )
+        )
+
+        # Agentic route taken exactly once; structured route untouched.
+        assert len(router.agentic_calls) == 1
+        assert router.structured_calls == 0
+
+        # FinalChunk.text parsed into the registered schema, stored as its kind.
+        assert result.output_artifact.kind == "experiment_plan"
+        assert json.loads(store.get(result.output_artifact.id).decode("utf-8")) == canned
+
+    async def test_agentic_mode_persists_raw_trace_before_parsed_with_lineage(
+        self, tmp_path: Path
+    ) -> None:
+        """The raw ``kind="log"`` artifact holds the serialized ReAct trace and is
+        persisted BEFORE the parsed output; both carry the same lineage as the
+        structured path (input id + composed-prompt id)."""
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        router = _AgenticRouter(final_text=json.dumps({"title": "audited", "score": 5}))
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"agentic_writer": _TinyReport},
+            output_kind_by_agent={"agentic_writer": "experiment_plan"},
+            tier_by_agent={"agentic_writer": ModelTier.HEAVY},
+        )
+
+        parent = store.put_text(
+            kind="user_plan", text="audit the react trace", created_by="test", parent_ids=[]
+        )
+        result = await gateway.call(
+            AgentCallSpec(
+                agent_name="agentic_writer",
+                input_artifact_ids=[parent.id],
+                output_schema=_TinyReport.model_json_schema(),
+                call_mode="agentic",
+            )
+        )
+
+        # Exactly one raw log holding the serialized ReAct trace (tool call +
+        # tool result both survive into the persisted record).
+        raw_logs = store.list_by_kind("log")
+        assert len(raw_logs) == 1
+        assert raw_logs[0].id == result.raw_response_artifact.id
+        raw_text = store.get(raw_logs[0].id).decode("utf-8")
+        assert "molcrafts_search" in raw_text
+        assert "found" in raw_text
+
+        # Raw persisted before parsed (the invalid-json test proves it strongly).
+        assert result.raw_response_artifact.kind == "log"
+        assert raw_logs[0].created_at <= result.output_artifact.created_at
+
+        # Lineage identical to the structured path: input id + composed prompt id.
+        prompt_ref = store.list_by_kind("prompt")[0]
+        assert parent.id in result.output_artifact.parent_ids
+        assert prompt_ref.id in result.output_artifact.parent_ids
+        assert parent.id in result.raw_response_artifact.parent_ids
+        assert prompt_ref.id in result.raw_response_artifact.parent_ids
+
+    async def test_agentic_mode_never_calls_complete_structured(self, tmp_path: Path) -> None:
+        """A completed agentic call leaves ``complete_structured`` untouched —
+        the stub raises there, so a clean run is itself the proof."""
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        router = _AgenticRouter(final_text=json.dumps({"title": "ok", "score": 1}))
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"agentic_writer": _TinyReport},
+            output_kind_by_agent={"agentic_writer": "experiment_plan"},
+            tier_by_agent={"agentic_writer": ModelTier.HEAVY},
+        )
+
+        await gateway.call(
+            AgentCallSpec(
+                agent_name="agentic_writer",
+                input_artifact_ids=[],
+                output_schema=_TinyReport.model_json_schema(),
+                call_mode="agentic",
+            )
+        )
+
+        assert router.structured_calls == 0
+        assert len(router.agentic_calls) == 1
+
+    async def test_agentic_invalid_final_json_raises_after_raw_persisted(
+        self, tmp_path: Path
+    ) -> None:
+        """When ``FinalChunk.text`` is not valid schema JSON the call RAISES (no
+        silent fallback) — but the raw ReAct trace was already persisted, and no
+        parsed-output artifact is written."""
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        router = _AgenticRouter(final_text="this is not valid schema json")
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"agentic_writer": _TinyReport},
+            output_kind_by_agent={"agentic_writer": "experiment_plan"},
+            tier_by_agent={"agentic_writer": ModelTier.HEAVY},
+        )
+
+        parent = store.put_text(
+            kind="user_plan", text="bad final chunk", created_by="test", parent_ids=[]
+        )
+        with pytest.raises(ValueError):
+            await gateway.call(
+                AgentCallSpec(
+                    agent_name="agentic_writer",
+                    input_artifact_ids=[parent.id],
+                    output_schema=_TinyReport.model_json_schema(),
+                    call_mode="agentic",
+                )
+            )
+
+        # Raw ReAct trace already on disk despite the parse failure.
+        raw_logs = store.list_by_kind("log")
+        assert len(raw_logs) == 1
+        assert "molcrafts_search" in store.get(raw_logs[0].id).decode("utf-8")
+
+        # No parsed output artifact was persisted.
+        assert store.list_by_kind("experiment_plan") == []
+
+
+class TestCallModeValidation:
+    """``call_mode`` is a closed ``Literal`` — unknown values are rejected."""
+
+    def test_illegal_call_mode_rejected_by_pydantic(self) -> None:
+        from pydantic import ValidationError
+
+        from molexp.harness.schemas import AgentCallSpec
+
+        with pytest.raises(ValidationError):
+            AgentCallSpec(
+                agent_name="tiny_writer",
+                input_artifact_ids=[],
+                output_schema={},
+                call_mode="totally-bogus",  # type: ignore[arg-type]
+            )
 
 
 class TestPlanAgentRegistry:

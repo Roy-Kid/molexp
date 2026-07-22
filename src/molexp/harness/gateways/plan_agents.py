@@ -49,6 +49,11 @@ def plan_agent_responses() -> dict[str, type[BaseModel]]:
     return {
         "experiment_report_writer": ExperimentReport,
         "experiment_spec_generator": ExperimentSpec,
+        # Agentic planner (call_mode="agentic"): molmcp-grounded, studies the
+        # toolchain then emits a concrete plan. Pinned to ExperimentSpec for now.
+        "create_experiment_plan": ExperimentSpec,
+        # Renders an approved frozen plan into a human-readable design report.
+        "plan_report_renderer": ExperimentReport,
         "capability_selector": CapabilitySelection,
         "workflow_ir_extractor": PlanWorkflowIR,
         "bound_workflow_binder": BoundWorkflow,
@@ -86,6 +91,8 @@ def plan_agent_tiers() -> dict[str, ModelTier]:
     return {
         "experiment_report_writer": heavy,
         "experiment_spec_generator": heavy,
+        "create_experiment_plan": heavy,
+        "plan_report_renderer": heavy,
         "capability_selector": heavy,
         "workflow_ir_extractor": heavy,
         "bound_workflow_binder": heavy,
@@ -113,6 +120,8 @@ def plan_agent_mcp_servers() -> dict[str, tuple[str, ...]]:
     fallback — guessing APIs is how plans invent symbols).
     """
     return {
+        # Agentic planner grounds its plan on the live toolchain.
+        "create_experiment_plan": ("molmcp",),
         "workflow_source_writer": ("molmcp",),
         "workflow_source_file_writer": ("molmcp",),
         "test_code_writer": ("molmcp",),
@@ -125,6 +134,8 @@ def plan_output_kinds() -> dict[str, str]:
     return {
         "experiment_report_writer": "experiment_report",
         "experiment_spec_generator": "experiment_spec",
+        "create_experiment_plan": "experiment_plan",
+        "plan_report_renderer": "plan_report",
         "capability_selector": "capability_selection",
         "workflow_ir_extractor": "workflow_ir",
         "bound_workflow_binder": "bound_workflow",
@@ -146,6 +157,10 @@ def plan_output_kinds() -> dict[str, str]:
 def plan_system_prompts() -> dict[str, str]:
     """Map each plan ``agent_name`` to its shipped system prompt."""
     from molexp.harness.prompts import prompts_by_agent
+    from molexp.harness.prompts.create_experiment_plan import (
+        SYSTEM_PROMPT as CREATE_EXPERIMENT_PLAN_SYSTEM_PROMPT,
+    )
+    from molexp.harness.prompts.plan_report import SYSTEM_PROMPT as PLAN_REPORT_SYSTEM_PROMPT
     from molexp.harness.prompts.test_code import SYSTEM_PROMPT as TEST_CODE_SYSTEM_PROMPT
     from molexp.harness.prompts.test_code_file import (
         SYSTEM_PROMPT as TEST_CODE_FILE_SYSTEM_PROMPT,
@@ -159,6 +174,8 @@ def plan_system_prompts() -> dict[str, str]:
 
     return {
         **prompts_by_agent(),
+        "create_experiment_plan": CREATE_EXPERIMENT_PLAN_SYSTEM_PROMPT,
+        "plan_report_renderer": PLAN_REPORT_SYSTEM_PROMPT,
         "workflow_source_writer": WORKFLOW_SOURCE_SYSTEM_PROMPT,
         # Per-task writers: short system + YAML user payload (codegen_prompt).
         "workflow_source_file_writer": WORKFLOW_SOURCE_FILE_SYSTEM_PROMPT,

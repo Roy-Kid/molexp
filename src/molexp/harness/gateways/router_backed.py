@@ -34,14 +34,21 @@ Call flow (mirrors :class:`StubAgentGateway` shape):
    a ``kind="prompt"`` artifact (deriving from the inputs it was composed
    from) so audit replay can reconstruct the LLM *input*, not just its
    response. Its id is threaded into the raw + output lineage below.
-3. Drive ``router.complete_structured(schema=...)`` — pydantic-ai native
-   ``output_type`` + ``retries={"output": N}`` — to obtain a parsed ``schema``
-   instance. Unlike ``complete_text`` + ``model_validate_json``, a model
-   wrapping its answer in prose/markdown does not crash the harness; the
-   SDK enforces the schema.
-4. Persist the instance's ``model_dump_json()`` as a ``kind="log"`` raw
-   artifact whose ``parent_ids`` are ``spec.input_artifact_ids`` plus the
-   composed-prompt artifact — the §10.2 raw-before-parsed audit invariant.
+3. Branch on ``spec.call_mode`` (default ``"structured"``):
+
+   * ``"structured"`` — drive ``router.complete_structured(schema=...)``
+     (pydantic-ai native ``output_type`` + ``retries={"output": N}``) for a
+     parsed ``schema`` instance. A model wrapping its answer in prose/markdown
+     does not crash the harness; the SDK enforces the schema.
+   * ``"agentic"`` — drive ``router.stream_agentic(...)``, consume the full
+     ReAct chunk stream (thinking / tool_call / tool_result / text / final),
+     and parse ``FinalChunk.text`` into ``schema``.
+4. Persist the raw response as a ``kind="log"`` artifact whose ``parent_ids``
+   are ``spec.input_artifact_ids`` plus the composed-prompt artifact — the
+   §10.2 raw-before-parsed audit invariant, honored on **both** branches
+   (the structured dump, or the serialized ReAct trace). For the agentic
+   branch the raw is written before ``FinalChunk.text`` is parsed, so it
+   survives a parse failure.
 5. Persist the parsed output (``model_dump(mode="json")``) as the
    registered ``ArtifactKind`` with the same ``parent_ids``.
 6. Return an :class:`AgentCallResult` carrying both refs + the gateway's
@@ -51,13 +58,25 @@ Call flow (mirrors :class:`StubAgentGateway` shape):
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import Mapping
+from typing import Any
 
 from mollog import get_logger
 from pydantic import BaseModel
 
-from molexp.agent.router import McpToolSpec, ModelTier, Router
+from molexp.agent.router import (
+    AgenticChunk,
+    FinalChunk,
+    McpToolSpec,
+    ModelTier,
+    Router,
+    TextDeltaChunk,
+    ThinkingDeltaChunk,
+    ToolCallChunk,
+    ToolResultChunk,
+)
 from molexp.harness.errors import AgentResponseNotRegisteredError
 from molexp.harness.gateways.llm_trace import LlmCallObserver, LlmCallTrace
 from molexp.harness.schemas import (
@@ -112,6 +131,37 @@ class RouterBackedAgentGateway:
         self._on_llm_call = on_llm_call
 
     async def call(self, spec: AgentCallSpec) -> AgentCallResult:
+        """Dispatch one agent call, branching on ``spec.call_mode``.
+
+        The shared front-matter is identical for both paths: resolve the
+        agent's schema / output kind / system prompt / tier, compose the user
+        prompt from ``spec.input_artifact_ids`` (+ optional
+        ``spec.prompt_artifact_id``), and persist that exact composed prompt as
+        a ``kind="prompt"`` artifact whose id is threaded into the raw + output
+        lineage. Then the call splits:
+
+        * ``call_mode="structured"`` (default) → :meth:`_call_structured` —
+          one ``Router.complete_structured`` round trip. Every call that
+          predates the agentic branch keeps this behavior byte-for-byte.
+        * ``call_mode="agentic"`` → :meth:`_call_agentic` — the emergent tool
+          loop (``Router.stream_agentic``), whose final answer is parsed into
+          the same schema.
+
+        Both branches honor the ``harness-goal.md`` §10.2 raw-before-parsed
+        invariant (persist the raw response as ``kind="log"`` *before* the
+        parsed output) and return the same :class:`AgentCallResult` shape.
+
+        Args:
+            spec: The typed call envelope (agent name, input ids, call mode, …).
+
+        Returns:
+            The :class:`AgentCallResult` carrying the parsed-output + raw refs.
+
+        Raises:
+            AgentResponseNotRegisteredError: ``spec.agent_name`` has no
+                registered schema (or, via ``_resolve_tier``, no registered
+                tier).
+        """
         try:
             schema = self._agent_responses[spec.agent_name]
         except KeyError as exc:
@@ -126,7 +176,7 @@ class RouterBackedAgentGateway:
         model_label = self._model_label_for_tier(tier)
         _LOG.info(
             f"[gateway] agent={spec.agent_name!r} tier={tier.value} "
-            f"model={model_label} "
+            f"model={model_label} call_mode={spec.call_mode} "
             f"mcp_tools={[getattr(t, 'name', t) for t in mcp_tools]}"
         )
         # Reading input artifacts is blocking filesystem I/O — offload it so
@@ -137,7 +187,7 @@ class RouterBackedAgentGateway:
         # so audit replay can reconstruct the LLM *input* (not just its
         # response). It derives from the input artifacts (and the optional
         # per-agent prompt template) it was composed from; its id is then
-        # threaded into the raw + output lineage below.
+        # threaded into the raw + output lineage of BOTH branches below.
         prompt_parents = list(spec.input_artifact_ids)
         if spec.prompt_artifact_id:
             prompt_parents.append(spec.prompt_artifact_id)
@@ -151,6 +201,54 @@ class RouterBackedAgentGateway:
         # Output/raw lineage keeps the input ids and adds the prompt artifact.
         lineage_parents = [*spec.input_artifact_ids, prompt_ref.id]
 
+        if spec.call_mode == "agentic":
+            return await self._call_agentic(
+                spec,
+                schema=schema,
+                output_kind=output_kind,
+                system_prompt=system_prompt,
+                tier=tier,
+                model_label=model_label,
+                prompt=prompt,
+                prompt_ref=prompt_ref,
+                lineage_parents=lineage_parents,
+            )
+        return await self._call_structured(
+            spec,
+            schema=schema,
+            output_kind=output_kind,
+            system_prompt=system_prompt,
+            tier=tier,
+            mcp_tools=mcp_tools,
+            model_label=model_label,
+            prompt=prompt,
+            prompt_ref=prompt_ref,
+            lineage_parents=lineage_parents,
+        )
+
+    async def _call_structured(
+        self,
+        spec: AgentCallSpec,
+        *,
+        schema: type[BaseModel],
+        output_kind: str,
+        system_prompt: str,
+        tier: ModelTier,
+        mcp_tools: tuple[McpToolSpec, ...],
+        model_label: str,
+        prompt: str,
+        prompt_ref: PlanArtifactRef,
+        lineage_parents: list[str],
+    ) -> AgentCallResult:
+        """One structured round trip (the default ``call_mode``).
+
+        Extracted verbatim from the pre-branch ``call`` body: drive
+        ``Router.complete_structured`` for a schema-typed instance, persist its
+        dump as the ``kind="log"`` raw artifact **before** the parsed output
+        (§10.2), then persist the parsed output under the agent's registered
+        kind. Prose-resilience (the SDK enforces ``output_type``) and retries
+        are unchanged.
+        """
         # Use pydantic-ai native structured output (output_type=schema +
         # retries={"output": N}) rather than complete_text + manual model_validate_json:
         # a real model wrapping its answer in prose/markdown no longer crashes
@@ -214,6 +312,138 @@ class RouterBackedAgentGateway:
             raw_artifact_id=raw_ref.id,
         )
         return result
+
+    async def _call_agentic(
+        self,
+        spec: AgentCallSpec,
+        *,
+        schema: type[BaseModel],
+        output_kind: str,
+        system_prompt: str,
+        tier: ModelTier,
+        model_label: str,
+        prompt: str,
+        prompt_ref: PlanArtifactRef,
+        lineage_parents: list[str],
+    ) -> AgentCallResult:
+        """Drive the emergent tool loop (``Router.stream_agentic``).
+
+        Instead of one structured round trip, the model reasons, calls tools,
+        and observes their results before emitting a final answer. This method:
+
+        1. Consumes the full :data:`AgenticChunk` stream, serializing every
+           chunk (thinking / tool_call / tool_result / text / final) into a
+           ReAct trace — the raw record MUST retain tool **names and results**
+           so audit replay can see what the model actually did.
+        2. Persists that serialized trace as the ``kind="log"`` raw artifact
+           **first** (§10.2 raw-before-parsed), so the trace survives even when
+           the final answer fails to parse.
+        3. Parses ``FinalChunk.text`` into the registered ``schema`` and
+           persists it under the agent's ``output_kind``.
+
+        Lineage (``parent_ids = input ids + composed-prompt id``) is identical
+        to the structured path on BOTH artifacts, and ``_notify_llm_call``
+        fires for the prompt + raw exactly as the structured path does.
+
+        Raises:
+            ValueError: the stream produced no ``FinalChunk``, or
+                ``FinalChunk.text`` is not valid ``schema`` JSON — raised only
+                *after* the raw trace is persisted (no silent fallback, no
+                parsed-output artifact written).
+        """
+        t0 = time.monotonic()
+        trace: list[dict[str, Any]] = []
+        final_text: str | None = None
+        try:
+            async for chunk in self._router.stream_agentic(
+                prompt=prompt,
+                system=system_prompt,
+                tier=tier,
+            ):
+                trace.append(self._serialize_agentic_chunk(chunk))
+                if isinstance(chunk, FinalChunk):
+                    final_text = chunk.text
+        except Exception:
+            llm_s = time.monotonic() - t0
+            _LOG.error(
+                f"[gateway] agent={spec.agent_name!r} tier={tier.value} "
+                f"model={model_label} llm_duration_s={llm_s:.2f} status=failed "
+                f"mode=agentic prompt_chars={len(prompt)}"
+            )
+            raise
+        llm_s = time.monotonic() - t0
+        _LOG.info(
+            f"[gateway] agent={spec.agent_name!r} tier={tier.value} "
+            f"model={model_label} llm_duration_s={llm_s:.2f} status=ok "
+            f"mode=agentic prompt_chars={len(prompt)} chunks={len(trace)}"
+        )
+
+        # §10.2 audit invariant: persist the raw ReAct trace BEFORE parsing the
+        # final answer, so a parse failure below still leaves the trace on disk.
+        raw_text = json.dumps(trace, ensure_ascii=False, indent=2)
+        raw_ref: PlanArtifactRef = await asyncio.to_thread(
+            self._artifacts.put_text,
+            kind="log",
+            text=raw_text,
+            created_by=f"agent:{spec.agent_name}",
+            parent_ids=lineage_parents,
+        )
+
+        if final_text is None:
+            raise ValueError(
+                f"agentic call for agent_name={spec.agent_name!r} produced no "
+                "FinalChunk; the raw trace was persisted"
+            )
+        # No silent fallback: an unparseable final answer raises (the raw trace
+        # is already persisted above; no parsed-output artifact is written).
+        instance = schema.model_validate_json(final_text)
+
+        output_ref: PlanArtifactRef = await asyncio.to_thread(
+            self._artifacts.put_json,
+            kind=output_kind,
+            obj=instance.model_dump(mode="json"),
+            created_by=f"agent:{spec.agent_name}",
+            parent_ids=lineage_parents,
+        )
+
+        result = AgentCallResult(
+            output_artifact=output_ref,
+            raw_response_artifact=raw_ref,
+            model=model_label,
+            usage={},
+        )
+        self._notify_llm_call(
+            agent_name=spec.agent_name,
+            model=model_label,
+            prompt=prompt,
+            raw=raw_text,
+            prompt_artifact_id=prompt_ref.id,
+            raw_artifact_id=raw_ref.id,
+        )
+        return result
+
+    @staticmethod
+    def _serialize_agentic_chunk(chunk: AgenticChunk) -> dict[str, Any]:
+        """Serialize one :data:`AgenticChunk` into an audit-record dict.
+
+        The raw ReAct trace MUST retain tool names AND results, so tool chunks
+        keep both. A ``FinalChunk``'s opaque ``model_messages_json`` is dropped
+        (it is not part of the human-readable trace).
+        """
+        if isinstance(chunk, ThinkingDeltaChunk):
+            return {"kind": "thinking_delta", "text": chunk.text}
+        if isinstance(chunk, ToolCallChunk):
+            return {"kind": "tool_call", "tool_name": chunk.tool_name, "args": chunk.args_summary}
+        if isinstance(chunk, ToolResultChunk):
+            return {
+                "kind": "tool_result",
+                "tool_name": chunk.tool_name,
+                "result": chunk.result_summary,
+                "ok": chunk.ok,
+            }
+        if isinstance(chunk, TextDeltaChunk):
+            return {"kind": "text_delta", "text": chunk.text}
+        return {"kind": "final", "text": chunk.text}
 
     def _resolve_tier(self, spec: AgentCallSpec) -> ModelTier:
         """Resolve the model tier for *spec* — no silent default fallback.
