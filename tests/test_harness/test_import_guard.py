@@ -40,9 +40,28 @@ _FORBIDDEN = ("pydantic_ai", "pydantic_graph", "molexp.workflow")
 
 HARNESS_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "harness"
 
-# CLAUDE.md: "The single sanctioned harness → agent import target is
-# molexp.agent.router (the SDK-free Protocol module)."
-SANCTIONED_AGENT_MODULE = "molexp.agent.router"
+# CLAUDE.md pinned exactly one sanctioned harness → agent import target
+# (``molexp.agent.router``). Spec ``plan-emergent-05c-orchestrator`` widens it
+# to an ALLOWLIST: the emergent-planning orchestrator's private
+# ``InteractiveLoopPlanRunner`` must construct a phase-02 Pi loop on the harness
+# side (loop construction is the driver's job per phase-02), so the loop /
+# runtime / session / events / hook modules join the sanctioned set. The
+# runtime invariant is unchanged and still enforced by the subprocess probes
+# above: ``import molexp.harness`` must pull no ``pydantic_ai`` /
+# ``pydantic_graph`` / ``molexp.workflow`` (guaranteed by lazy imports + no
+# eager re-export). CLAUDE.md's charter text is synced with phase-08.
+SANCTIONED_AGENT_MODULES: frozenset[str] = frozenset(
+    {
+        "molexp.agent.router",
+        "molexp.agent.loops",
+        "molexp.agent.loops.hooks",
+        "molexp.agent.loops.interactive",
+        "molexp.agent.runtime",
+        "molexp.agent.session",
+        "molexp.agent.events",
+        "molexp.agent.execution_env",
+    }
+)
 
 # Application-shell layers the harness must never import — statically,
 # anywhere (top level, function bodies, TYPE_CHECKING blocks alike).
@@ -137,23 +156,26 @@ class TestImportGuard:
 
     # ───────────────────────────── static source scans ─────────────────────────────
 
-    def test_harness_agent_imports_target_only_the_router_module(self) -> None:
-        """Every ``molexp.agent.*`` import under harness/ is exactly ``molexp.agent.router``.
+    def test_harness_agent_imports_stay_within_the_sanctioned_allowlist(self) -> None:
+        """Every ``molexp.agent.*`` import under harness/ is in the sanctioned allowlist.
 
-        ``from molexp.agent.router import …`` is the one sanctioned spelling.
-        ``from molexp.agent import router`` is also a violation — it executes
-        ``molexp/agent/__init__.py`` and drags the whole agent surface in.
+        ``from molexp.agent.router import …`` remains the canonical spelling; the
+        loop-construction surface (``molexp.agent.loops`` / ``.runtime`` /
+        ``.session`` / ``.events`` / the hook modules) is admitted for the
+        emergent-planning orchestrator's private ``InteractiveLoopPlanRunner``.
+        Any other ``molexp.agent.*`` target (e.g. ``molexp.agent.runner``, which
+        would drag the SDK-bearing runner in) is still a violation.
         """
         hits = _imports_with_prefix("molexp.agent", HARNESS_ROOT)
         bad = [
             f"{path.relative_to(HARNESS_ROOT)}:{lineno}: {module}"
             for path, lineno, module in hits
-            if module != SANCTIONED_AGENT_MODULE
+            if module not in SANCTIONED_AGENT_MODULES
         ]
         assert not bad, (
-            "harness may import molexp.agent ONLY via the sanctioned "
-            f"{SANCTIONED_AGENT_MODULE!r} Protocol module (CLAUDE.md layer DAG).\n"
-            "Offenders:\n  " + "\n  ".join(bad)
+            "harness may import molexp.agent ONLY via the sanctioned allowlist "
+            f"{sorted(SANCTIONED_AGENT_MODULES)!r} (CLAUDE.md layer DAG + spec "
+            "plan-emergent-05c-orchestrator).\nOffenders:\n  " + "\n  ".join(bad)
         )
 
     def test_harness_forbids_application_layers_statically(self) -> None:

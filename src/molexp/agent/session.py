@@ -26,10 +26,20 @@ from molexp.agent.session_entry import (
     SessionEntry,
     StageEntry,
 )
-from molexp.agent.session_storage import SessionStorage
+from molexp.agent.session_storage import (
+    InMemorySessionStorage,
+    JsonlSessionStorage,
+    SessionStorage,
+)
 from molexp.agent.types import Message
 
-__all__ = ["Session"]
+# ``InMemorySessionStorage`` / ``JsonlSessionStorage`` are re-exported here so a
+# consumer that already reaches ``molexp.agent.session`` for :class:`Session`
+# can construct one without importing the ``molexp.agent.session_storage``
+# module directly. The harness emergent-planning loop driver relies on this:
+# ``session`` is on its sanctioned import allowlist but ``session_storage`` is
+# not (spec ``plan-emergent-05c-orchestrator``).
+__all__ = ["InMemorySessionStorage", "JsonlSessionStorage", "Session", "SessionStorage"]
 
 
 class Session:

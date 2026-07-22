@@ -220,6 +220,17 @@ class InteractiveLoop(AgentLoop):
     ``should_stop``-deny feedback, and durable suspend — driven entirely by an
     injected :class:`~molexp.agent.loops.hooks.LoopHooks` bundle.
 
+    Tools seam (constructor injection): ``tools`` defaults to ``()`` — the loop
+    then builds exactly its stable ops toolset (``build_ops_tools``, plus the
+    lifecycle tools when ``operation_mode == "lifecycle"``) and forwards that,
+    byte-identical to the pre-seam loop. When a non-empty ``tools`` tuple is
+    injected (the sanctioned harness-driven path — the emergent planning
+    ``InteractiveLoopPlanRunner`` hands the plan tools in, spec
+    ``plan-emergent-05c-orchestrator``) those callables are **appended** to the
+    ops toolset and forwarded to :meth:`~molexp.agent.router.Router.stream_agentic`
+    alongside it, so a planning turn can drive both the board tools and the ops
+    tools without the loop hard-coding either set.
+
     Hooks seam (constructor injection):
 
     * ``hooks=None`` → a single pass that always proceeds, terminating in a
@@ -255,9 +266,13 @@ class InteractiveLoop(AgentLoop):
         *,
         config: InteractiveLoopConfig | None = None,
         hooks: LoopHooks | None = None,
+        tools: tuple[object, ...] = (),
     ) -> None:
         self.config = config or InteractiveLoopConfig()
         self.hooks = hooks
+        # Harness-injected tools appended to the self-built ops toolset in
+        # :meth:`run`. Empty (the default) keeps the pre-seam behavior exactly.
+        self._injected_tools = tuple(tools)
 
     async def run(
         self,
@@ -303,6 +318,8 @@ class InteractiveLoop(AgentLoop):
         tools = tuple(build_ops_tools(ctx))
         if self.config.operation_mode == "lifecycle":
             tools = tools + tuple(lifecycle_tools(workspace_root=workspace))
+        # Harness-injected tools (empty by default → byte-identical pre-seam).
+        tools = tools + self._injected_tools
 
         # Composition: ops preamble → optional live MCP catalog → user → context.
         preamble = self.config.behavior_preamble or ctx.behavior.system_preamble()

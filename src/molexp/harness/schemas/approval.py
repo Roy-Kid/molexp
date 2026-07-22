@@ -35,6 +35,7 @@ ApprovalIntent = Literal[
     "overwrite",
     "final_report",
     "experiment_spec",
+    "approve_experiment_plan",
 ]
 
 

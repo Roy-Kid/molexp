@@ -130,6 +130,21 @@ class RouterBackedAgentGateway:
         self._model_name = model
         self._on_llm_call = on_llm_call
 
+    @property
+    def router(self) -> Router:
+        """The underlying :class:`Router` this gateway dispatches through.
+
+        Impl-specific accessor (**not** part of the :class:`AgentGateway`
+        Protocol, which stays ``async call(spec)``-only). It exists so a
+        harness-side loop driver — the emergent planning
+        ``InteractiveLoopPlanRunner`` (spec ``plan-emergent-05c-orchestrator``)
+        — can build a phase-02 ``AgentRuntime`` on the same router this gateway
+        already owns, rather than constructing a second one. Callers depend on
+        ``RouterBackedAgentGateway`` (or a fake exposing ``.router``), never on
+        the bare Protocol.
+        """
+        return self._router
+
     async def call(self, spec: AgentCallSpec) -> AgentCallResult:
         """Dispatch one agent call, branching on ``spec.call_mode``.
 
