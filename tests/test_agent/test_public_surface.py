@@ -32,8 +32,10 @@ def test_loops_all_is_loops_plus_hook_vocabulary() -> None:
     InteractiveLoop, +configs) plus the SDK-free neutral tool/hook vocabulary
     (``HookOutcome`` / ``HookDecision`` / ``LoopState`` / the three hook
     Protocols / the ``invoke_*`` helpers) that phase-02's emergent loop and
-    harness-injected gates reuse (spec ``plan-emergent-01-agent-hooks``). The
-    prior pipeline modes moved to :mod:`molexp.harness`."""
+    harness-injected gates reuse (spec ``plan-emergent-01-agent-hooks``), plus
+    the ``LoopHooks`` bundle the outer emergent loop consumes (spec
+    ``plan-emergent-02-loop-refactor``). The prior pipeline modes moved to
+    :mod:`molexp.harness`."""
     assert set(loops.__all__) == {
         # Shipping loops.
         "ChatLoop",
@@ -50,4 +52,6 @@ def test_loops_all_is_loops_plus_hook_vocabulary() -> None:
         "invoke_before_tool",
         "invoke_after_tool",
         "invoke_should_stop",
+        # Hook bundle consumed by the outer emergent loop (plan-emergent-02).
+        "LoopHooks",
     }

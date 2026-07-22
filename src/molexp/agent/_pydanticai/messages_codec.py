@@ -35,11 +35,27 @@ Design notes
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import ModelMessagesTypeAdapter
 
-__all__ = ["dump_model_messages", "load_model_messages"]
+if TYPE_CHECKING:
+    from molexp.agent.types import Message
+
+__all__ = [
+    "dump_model_messages",
+    "load_model_messages",
+    "model_messages_from_messages",
+]
+
+# Fixed reconstruction timestamp. pydantic-ai stamps each freshly-built
+# ``UserPromptPart`` / ``SystemPromptPart`` / ``ModelResponse`` with
+# ``now()`` by default, which would make two rebuilds of the *same*
+# conversation compare unequal. Pinning a constant makes
+# :func:`model_messages_from_messages` deterministic — a required property,
+# since the reseed bridge is compared against itself across turns.
+_RESEED_TIMESTAMP = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def dump_model_messages(messages: Iterable[Any]) -> bytes:
@@ -76,3 +92,60 @@ def load_model_messages(data: bytes) -> tuple[Any, ...]:
     """
     parsed = ModelMessagesTypeAdapter.validate_json(data)
     return tuple(parsed)
+
+
+def model_messages_from_messages(messages: Iterable[Message]) -> tuple[Any, ...]:
+    """Rebuild pydantic-ai ``ModelMessage``\\ s from molexp :class:`Message`\\ s.
+
+    The *reseed bridge*: when the lossless ``model_messages`` blob is
+    discarded (a branch/resume moved the session tip, or the blob was
+    deleted), :class:`~molexp.agent.loops.interactive.InteractiveLoop`
+    rebuilds LLM history from the canonical entry tree
+    (``session.build_context()``) through this function. The rebuild is
+    *semantic* — it carries role + text only, so tool-call detail the lossless
+    blob preserved is intentionally absent.
+
+    Role mapping:
+
+    * ``user`` → a ``ModelRequest`` with a single ``UserPromptPart``.
+    * ``system`` → a ``ModelRequest`` with a single ``SystemPromptPart``.
+    * everything else (``assistant`` / ``tool``) → a ``ModelResponse`` with a
+      single ``TextPart``.
+
+    Args:
+        messages: molexp conversation turns (``role`` + ``content``).
+
+    Returns:
+        A tuple of pydantic-ai ``ModelMessage`` instances, typed ``Any`` at
+        the boundary so callers stay free of ``pydantic_ai`` imports. Two
+        calls with equal input produce equal output (the timestamp is pinned).
+    """
+    from pydantic_ai.messages import (
+        ModelRequest,
+        ModelResponse,
+        SystemPromptPart,
+        TextPart,
+        UserPromptPart,
+    )
+
+    rebuilt: list[Any] = []
+    for message in messages:
+        if message.role == "system":
+            rebuilt.append(
+                ModelRequest(
+                    parts=[SystemPromptPart(content=message.content, timestamp=_RESEED_TIMESTAMP)]
+                )
+            )
+        elif message.role == "user":
+            rebuilt.append(
+                ModelRequest(
+                    parts=[UserPromptPart(content=message.content, timestamp=_RESEED_TIMESTAMP)]
+                )
+            )
+        else:
+            rebuilt.append(
+                ModelResponse(
+                    parts=[TextPart(content=message.content)], timestamp=_RESEED_TIMESTAMP
+                )
+            )
+    return tuple(rebuilt)

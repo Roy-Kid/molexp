@@ -23,6 +23,7 @@ data, a :class:`enum.StrEnum` decision axis, and ``@runtime_checkable``
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
@@ -33,6 +34,7 @@ __all__ = [
     "BeforeToolHook",
     "HookDecision",
     "HookOutcome",
+    "LoopHooks",
     "LoopState",
     "ShouldStopGuard",
     "invoke_after_tool",
@@ -177,6 +179,32 @@ class ShouldStopGuard(Protocol):
     async def __call__(self, *, state: LoopState) -> HookOutcome:
         """Return the outcome for stopping the loop in ``state``."""
         ...
+
+
+# ── Hook bundle ────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class LoopHooks:
+    """The three-boundary hook bundle a loop is constructed with.
+
+    A plain frozen :func:`dataclasses.dataclass` — **not** a pydantic model —
+    because it carries live async callables (the hook Protocols), which the
+    agent-layer charter forbids inside a frozen ``BaseModel``
+    (``arbitrary_types_allowed`` is banned in ``molexp.agent``). Every field
+    defaults to ``None`` (opt out), so an all-``None`` bundle is behaviorally
+    equivalent to passing no hooks at all.
+
+    Attributes:
+        before_tool: Consulted before each tool call, or ``None`` to opt out.
+        after_tool: Consulted after each tool result, or ``None`` to opt out.
+        should_stop: Consulted before the loop declares itself finished, or
+            ``None`` to opt out.
+    """
+
+    before_tool: BeforeToolHook | None = None
+    after_tool: AfterToolHook | None = None
+    should_stop: ShouldStopGuard | None = None
 
 
 # ── Honor helpers (single source of the None → proceed semantics) ──────────

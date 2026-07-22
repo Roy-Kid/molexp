@@ -39,6 +39,11 @@ from molexp.workspace.models import FolderMetadata
 AGENT_KIND = "agent.agent"
 AGENT_SESSION_KIND = "agent.session"
 MESSAGES_FILENAME = "messages.jsonl"
+# Leaf-stamp sidecar beside ``messages.jsonl``: records the session entry id
+# the lossless model-messages blob was produced against, so the emergent loop
+# can tell a linear continuation (reuse the blob) from a branch/resume
+# (discard it and reseed from the entry tree).
+MESSAGES_LEAF_FILENAME = "messages.leaf"
 META_YAML_FILENAME = "meta.yaml"
 
 
@@ -266,6 +271,7 @@ __all__ = [
     "AGENT_KIND",
     "AGENT_SESSION_KIND",
     "MESSAGES_FILENAME",
+    "MESSAGES_LEAF_FILENAME",
     "Agent",
     "AgentSession",
 ]
