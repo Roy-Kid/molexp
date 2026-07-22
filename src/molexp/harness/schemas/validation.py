@@ -30,6 +30,10 @@ _TARGET_KINDS = Literal[
     "test_source",
     "input_set",
     "provenance",
+    #: Emergent-plan guard target: an :class:`~molexp.harness.plan.ExperimentPlan`
+    #: (opaque spec + task board) graded by
+    #: :class:`~molexp.harness.validators.emergent_plan_form.EmergentPlanFormValidator`.
+    "experiment_plan",
 ]
 _SEVERITIES = Literal["error", "warning"]
 

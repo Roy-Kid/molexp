@@ -19,6 +19,7 @@ report-to-error lift.
 from __future__ import annotations
 
 from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
+from molexp.harness.validators.emergent_plan_form import EmergentPlanFormValidator
 from molexp.harness.validators.experiment_spec import ExperimentSpecValidator
 from molexp.harness.validators.input_set import InputSetValidator
 from molexp.harness.validators.provenance import ProvenanceValidator
@@ -29,6 +30,7 @@ from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
 __all__ = [
     "BoundWorkflowValidator",
+    "EmergentPlanFormValidator",
     "ExperimentSpecValidator",
     "InputSetValidator",
     "ProvenanceValidator",
