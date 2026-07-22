@@ -47,6 +47,11 @@ from molexp.agent.router import (
 )
 from molexp.agent.types import UsageBreakdown
 from molexp.harness.core.run_context import HarnessRunContext
+
+# RED: the module + its private loop runner do not exist yet.
+from molexp.harness.modes.emergent_plan import (
+    InteractiveLoopPlanRunner,
+)
 from molexp.harness.plan import (
     BoardTask,
     Difficulty,
@@ -59,11 +64,6 @@ from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 from molexp.harness.validators import EmergentPlanFormValidator
-
-# RED: the module + its private loop runner do not exist yet.
-from molexp.harness.modes.emergent_plan import (  # noqa: E402 — intentional RED import
-    InteractiveLoopPlanRunner,
-)
 
 pytestmark = pytest.mark.asyncio
 
@@ -184,9 +184,7 @@ def _form_guard(holder: _BoardHolder):
 
     async def should_stop(*, state: LoopState) -> HookOutcome:
         del state
-        report = EmergentPlanFormValidator.validate(
-            ExperimentPlan(spec=_SPEC, board=holder.board)
-        )
+        report = EmergentPlanFormValidator.validate(ExperimentPlan(spec=_SPEC, board=holder.board))
         if report.passed:
             return HookOutcome.proceed()
         return HookOutcome.deny("; ".join(v.message for v in report.violations))

@@ -1,8 +1,9 @@
 """Lock the shrunk ``molexp.harness`` public surface.
 
-The harness top level exports only the orchestration surface: the Mode/Stage
-machinery, the one shipped pipeline (``PlanMode``), the stores, the executor
-seam, the approval gate, and the agent gateway — plus the symbols the public
+The harness top level exports only the orchestration surface: the Stage
+machinery, the one shipped pipeline (``EmergentPlanOrchestrator``), the stores,
+the executor seam, the approval gate, and the agent gateway — plus the symbols
+the public
 docs (``docs/guide/plan-mode.md`` / ``docs/architecture/plan-mode.md``) cite
 as harness API (``RouterBackedAgentGateway``, ``CapabilityRegistry``,
 ``StageExecutionError``, ``SQLiteEventLog``, ``SQLiteArtifactLineageStore``,
@@ -18,16 +19,15 @@ from __future__ import annotations
 
 import molexp.harness as harness
 
-# The frozen public surface: 13 baseline symbols + 6 doc-cited symbols
+# The frozen public surface: 12 baseline symbols + 6 doc-cited symbols
 # + 2 approval-inbox symbols (vision-loop-01: the suspend signal and the
 # persisted-decision store the server decide-route constructs).
 EXPECTED_ALL = {
-    # baseline — Mode/Stage machinery + the shipped pipeline
-    "Mode",
+    # baseline — Stage machinery + the shipped pipeline
     "Stage",
     "StageRunner",
     "HarnessRunContext",
-    "PlanMode",
+    "EmergentPlanOrchestrator",
     "ModeResult",
     # baseline — stores, executors, gate, gateway
     "ArtifactStore",

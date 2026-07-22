@@ -1,12 +1,14 @@
-"""``molexp plan`` — run the harness PlanMode pipeline against a workspace.
+"""``molexp plan`` — run the harness emergent-planning pipeline on a workspace.
 
-The first production call path into :mod:`molexp.harness`: a natural-language
-experiment draft flows through the canonical PlanMode stage sequence
-(``SaveUserPlan → … → ApprovalGate``) on a ``workspace.Run``, driven by a
+The production call path into :mod:`molexp.harness`: a natural-language
+experiment draft is handed to :class:`~molexp.harness.EmergentPlanOrchestrator`
+on a ``workspace.Run``, driven by a
 :class:`~molexp.harness.gateways.router_backed.RouterBackedAgentGateway`
-built from the configured LLM. Stage completion is recorded in the per-run
-completion ledger, so re-running the same draft resumes after the last
-completed stage instead of re-invoking the LLM.
+built from the configured LLM. The orchestrator runs two phases —
+**phase 1** emergent planning (draft → task board → hard review gate → frozen
+experiment plan) and **phase 2** deterministic realization (a separate phase,
+not driven by this command yet). With no approver the review gate suspends
+store-first (exit 2); a re-run with a stored grant replays through the gate.
 
 Model resolution mirrors ``molexp agent``: ``--model`` wins, else the
 ``agent.model`` key from ``molexp config``; with neither, the command fails
@@ -18,10 +20,6 @@ preflight (:meth:`PlanRuntime.preflight` → shared
 workspace write, so a missing ``molexp[agent]`` extra, an unconfigured
 model, or a missing API key exits with a one-line message and leaves the
 target directory untouched.
-
-Output speaks the documented nine-step vocabulary
-(``PlanMode.step_groups``); the internal stage names fold into
-``-v/--verbose``.
 
 Heavy imports (``molexp.harness``, ``molexp.workspace``, the agent router)
 are deferred into the command body so plain ``molexp --help`` stays fast.
@@ -38,11 +36,9 @@ import typer
 if TYPE_CHECKING:
     from molexp._typing import JSONValue
     from molexp.agent.router import Router
-    from molexp.harness.executors import Executor
     from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.modes.plan import PlanStep
     from molexp.harness.registry.capability_registry import CapabilityRegistry
-    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ModeResult
+    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
     from molexp.services.plan_runtime import PlanRecordOutcome
     from molexp.workspace.run import Run
 
@@ -52,24 +48,19 @@ _DRAFT_PREVIEW_CHARS = 80
 
 
 class InteractiveApprover:
-    """``Approver`` for ``molexp plan``'s review checkpoints.
+    """``Approver`` for ``molexp plan``'s emergent review gate.
 
-    A callable approver (mirrors the ``Approver`` protocol via
-    :meth:`__call__`). It auto-grants **only under an explicit ``--yes``**;
-    the command constructs it solely on a TTY or with ``--yes``, and passes
-    ``approver=None`` otherwise — the gate then suspends pending instead of
-    granting. On an interactive terminal it gates each checkpoint, branching
-    on the request intent:
+    A callable approver (satisfies the harness ``Approver`` type —
+    ``async (ApprovalRequest) -> ApprovalDecision`` — via :meth:`__call__`). It
+    auto-grants **only under an explicit ``--yes``**; the command constructs it
+    solely on a TTY or with ``--yes``, and passes ``approve=None`` otherwise —
+    the gate then suspends pending instead of granting. On an interactive
+    terminal it renders the review pack for the request and prompts
+    ``[a]pprove / [r]eject / [v]revise``.
 
-    - ``experiment_spec`` — the **pre-compile** gate. Prints the concrete
-      ``experiment_spec`` (the resolved variables/conditions + answered
-      questions) and prompts ``[y/N]`` BEFORE the spec is fed to the LLM to
-      build the workflow. A rejection stops the pipeline before any IR/source.
-    - ``final_report`` — the whole-plan review and (with ``--execute``) the
-      executed-result review.
-
-    ``PlanMode(approver=InteractiveApprover(...))`` wires it into all three
-    gates.
+    :class:`~molexp.harness.EmergentPlanOrchestrator` receives it as its
+    ``approve`` seam and asks it at the plan-tool side-effect gate and the hard
+    ``approve_experiment_plan`` review gate before the plan is frozen.
     """
 
     def __init__(self, *, run: Run, assume_yes: bool = False) -> None:
@@ -253,18 +244,6 @@ class PlanRuntime:
             turn_id=turn_id,
         )
 
-    @staticmethod
-    def build_executor() -> Executor:
-        """Build the executor RunMode drives its subprocesses through.
-
-        Defaults to the real :class:`LocalExecutor`. A seam: tests monkeypatch
-        this to inject a ``DryRunExecutor`` so ``--execute`` CLI tests spawn no
-        subprocesses.
-        """
-        from molexp.harness import LocalExecutor
-
-        return LocalExecutor()
-
 
 def _resolve_draft(draft: str | None, file: Path | None) -> str:
     """Return the draft text from exactly one of ``draft`` / ``file``."""
@@ -320,10 +299,10 @@ def plan(
         bool,
         typer.Option(
             "--execute",
-            help="After the plan is reviewed (step 8), run the workflow for real "
-            "on the same run: the opt-in execution tail (real pytest + engine) "
-            "plus the final report and audit. Off by default — the plan stops at "
-            "the execution report.",
+            help="Request the phase-2 deterministic realization tail after the "
+            "plan is approved. Realization is a separate phase not yet driven by "
+            "this command — `molexp plan` stops at the frozen plan + report; "
+            "passing --execute prints a notice.",
         ),
     ] = False,
     yes: Annotated[
@@ -352,15 +331,15 @@ def plan(
         typer.Option(
             "--verbose",
             "-v",
-            help="Show the internal stage names inside each of the nine steps "
-            "(and the per-stage artifact table on completion).",
+            help="Show the produced artifacts of the two-phase plan flow "
+            "(emergent planning → deterministic realization) on completion.",
         ),
     ] = False,
 ) -> None:
-    """Turn an experiment draft into validated molexp.workflow source (PlanMode)."""
+    """Turn an experiment draft into a frozen experiment plan (emergent planning)."""
     from molexp.cli._common import deterministic_run_id, rprint
-    from molexp.harness import ApprovalPendingError, PlanMode, StageExecutionError
-    from molexp.services.plan_runtime import PlanPreflightError, resolve_plan_compute_target
+    from molexp.harness import ApprovalPendingError, EmergentPlanOrchestrator, StageExecutionError
+    from molexp.services.plan_runtime import PlanPreflightError
     from molexp.workspace import Workspace
 
     draft_text = _resolve_draft(draft, file)
@@ -388,41 +367,26 @@ def plan(
     workspace_root = (workspace or Path.cwd()).resolve()
     ws = Workspace(workspace_root)
     ws.materialize()
-    # Content-addressed run id: the same draft maps to the same Run, so the
-    # per-run completion ledger resumes instead of starting a fresh pipeline.
+    # Content-addressed run id: the same draft maps to the same Run, so a
+    # re-run replays store-first through the review gate on that Run.
     params: dict[str, JSONValue] = {"mode": "plan", "draft": draft_text}
     exp = ws.add_project(project).add_experiment(experiment)
     run = exp.add_run(params, id=deterministic_run_id(params))
 
     # Explicit or suspended, never implicit: an interactive approver exists
-    # only on a TTY or with --yes; otherwise approver=None means the gates
-    # resolve store-first and SUSPEND pending (exit 2) instead of granting.
+    # only on a TTY or with --yes; otherwise approve=None means the review gate
+    # resolves store-first and SUSPENDS pending (exit 2) instead of granting.
     import sys
 
     approver = InteractiveApprover(run=run, assume_yes=yes) if (yes or sys.stdin.isatty()) else None
-    mode = PlanMode(
-        approver=approver,
-        executor=PlanRuntime.build_executor(),
-        execute=execute,
-        compute_target=resolve_plan_compute_target(run, ws),
-    )
-    groups = mode.step_groups(draft_text)
-    plan_steps = [g for g in groups if not g.tail]
+    mode = EmergentPlanOrchestrator(approve=approver)
     preview = draft_text.strip().splitlines()[0][:_DRAFT_PREVIEW_CHARS]
-    tail_note = " + execution tail" if execute else ""
-    rprint(
-        f"[bold]molexp plan[/bold] — {len(plan_steps)} steps{tail_note} "
-        f"on run [bold]{run.id}[/bold]"
-    )
+    rprint(f"[bold]molexp plan[/bold] — emergent planning on run [bold]{run.id}[/bold]")
     rprint(f"  model     : {resolved_model}")
     rprint(f"  draft     : {preview}")
     rprint(f"  workspace : {workspace_root}")
-    rprint(f"  steps     : {' -> '.join(g.title for g in groups)}")
-    if verbose:
-        rprint("  stages    :")
-        for label, group in _numbered(groups):
-            chain = " -> ".join(stage.name for stage in group.stages)
-            rprint(f"    {label} {group.title:<24} {chain}")
+    rprint("  phase 1   : emergent planning (draft -> task board -> review gate -> frozen plan)")
+    rprint("  phase 2   : deterministic realization (separate phase)")
 
     plan_task_id = f"plan-{run.id}"
     gateway = PlanRuntime.build_gateway(
@@ -458,15 +422,15 @@ def plan(
         rprint(
             "[dim]To proceed: decide in the UI approvals inbox, re-run this "
             "command on a TTY to answer interactively, or re-run with --yes. "
-            "Completed stages stay in the ledger — the re-run resumes.[/dim]"
+            "A granted plan review replays store-first through the gate on the "
+            "same run.[/dim]"
         )
         raise typer.Exit(2) from exc
     except StageExecutionError as exc:
         rprint(f"[red]Plan pipeline failed:[/red] {exc}")
         rprint(
-            "[dim]Completed stages stay in the run's completion ledger — "
-            "re-running the same draft resumes the pipeline; artifacts a "
-            "validator rejected are regenerated, not reused.[/dim]"
+            "[dim]The plan board was rejected before the review gate opened — "
+            "re-running the same draft regenerates it.[/dim]"
         )
         # A terminally-failed plan still materializes (Agents-tab entry with
         # status failed + a FailureAnalysis knowledge record). The suspension
@@ -485,26 +449,13 @@ def plan(
         _print_record_errors(outcome)
         raise typer.Exit(1) from exc
 
-    rprint(f"\n[green]OK[/green] all {len(plan_steps)} steps{tail_note} completed")
-    artifacts = iter(result.stage_artifacts)
-    timing_by_stage = {t.stage: t for t in result.stage_timings}
-    for label, group in _numbered(groups):
-        refs = [next(artifacts) for _ in group.stages]
-        group_s = sum(
-            timing_by_stage[s.name].duration_s
-            for s in group.stages
-            if s.name in timing_by_stage and timing_by_stage[s.name].status == "ok"
-        )
-        rprint(
-            f"  {label} {group.title:<24} {len(refs)} artifact"
-            f"{'s' if len(refs) != 1 else ''}  [dim]{group_s:.1f}s[/dim]"
-        )
-        if verbose:
-            for stage, ref in zip(group.stages, refs, strict=True):
-                t = timing_by_stage.get(stage.name)
-                dt = f"{t.duration_s:.1f}s" if t and t.status == "ok" else (t.status if t else "")
-                rprint(f"       {stage.name:<26} {ref.kind:<20} {ref.id}  [dim]{dt}[/dim]")
-    _print_timing_table(result)
+    rprint("\n[green]OK[/green] emergent plan completed")
+    rprint(f"  artifacts : {len(result.stage_artifacts)} produced")
+    if verbose:
+        for ref in result.stage_artifacts:
+            rprint(f"    {ref.kind:<24} {ref.id}")
+    if result.final_artifact is not None:
+        rprint(f"  final     : {result.final_artifact.kind}  {result.final_artifact.id}")
 
     # Materialize the SAME UI-facing records the server's `POST /plan-tasks`
     # writes — persist the workflow IR onto the experiment + record the Agents
@@ -524,62 +475,18 @@ def plan(
     rprint(f"  ui session: [bold]{plan_task_id}[/bold] (open the Agents tab to see this plan)")
 
     if execute:
-        _print_final_report(run, result)
+        # Honest notice: the emergent orchestrator is planning-only. Real
+        # execution / realization (phase 2) is a separate phase this command
+        # does not drive yet — never a silent success claim.
+        rprint(
+            "[yellow]--execute[/yellow]: deterministic realization (phase 2) is a "
+            "separate phase not driven by this command yet — the plan stops at the "
+            "frozen plan + report."
+        )
 
     rprint(f"\n  artifacts : {run.run_dir / 'artifacts'}")
     rprint(f"  audit db  : {run.run_dir / 'harness.sqlite'}  (events + artifact lineage)")
     rprint(
-        "[dim]Re-running the same draft skips completed stages via the "
-        "per-run completion ledger.[/dim]"
+        "[dim]Re-running the same draft replays store-first through the review "
+        "gate on the same content-addressed run.[/dim]"
     )
-
-
-def _numbered(groups: list[PlanStep]) -> list[tuple[str, PlanStep]]:
-    """Label the nine plan steps ``1.`` … ``9.`` and the opt-in tail ``+``."""
-    labeled: list[tuple[str, PlanStep]] = []
-    step_no = 0
-    for group in groups:
-        if group.tail:
-            labeled.append(("+", group))
-        else:
-            step_no += 1
-            labeled.append((f"{step_no}.", group))
-    return labeled
-
-
-def _print_timing_table(result: ModeResult) -> None:
-    """Print stages sorted by wall time (hottest first)."""
-    from molexp.cli._common import rprint
-
-    ran = [t for t in result.stage_timings if t.status == "ok" and t.duration_s > 0]
-    if not ran:
-        return
-    total = sum(t.duration_s for t in ran)
-    rprint(f"\n[bold]Stage timing[/bold] (total {total:.1f}s, hottest first)")
-    for t in sorted(ran, key=lambda x: x.duration_s, reverse=True):
-        pct = 100.0 * t.duration_s / total if total else 0.0
-        bar = "█" * max(1, int(pct / 5))
-        rprint(f"  {t.duration_s:7.1f}s  {pct:3.0f}%  {bar:<20}  {t.stage}")
-    skipped = sum(1 for t in result.stage_timings if t.status == "skipped")
-    if skipped:
-        rprint(f"  [dim]{skipped} stage(s) skipped (ledger resume)[/dim]")
-
-
-def _print_final_report(run: Run, result: ModeResult) -> None:
-    """Print the final report produced by the ``--execute`` tail."""
-    from molexp.cli._common import rprint
-    from molexp.harness.schemas import FinalReport
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-    report_ref = next((a for a in result.stage_artifacts if a.kind == "final_report"), None)
-    if report_ref is None:
-        rprint("[yellow]No final_report artifact found after execution.[/yellow]")
-        return
-    store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
-    report = FinalReport.model_validate_json(store.get(report_ref.id))
-    rprint(f"\n[bold]Final report[/bold] — {report.title}")
-    rprint(f"  objective   : {report.objective}")
-    rprint(f"  tests       : {report.test_summary}")
-    rprint(f"  execution   : {report.execution_summary}")
-    rprint(f"  results     : {report.results}")
-    rprint(f"  conclusions : {report.conclusions}")

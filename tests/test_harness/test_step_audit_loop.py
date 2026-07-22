@@ -1,10 +1,10 @@
-"""Tests for :class:`StepAuditLoop`, its ReviewPack builders, and PlanMode wiring.
+"""Tests for :class:`StepAuditLoop` and its ReviewPack builders.
 
-``StepAuditLoop`` is the expert-audit dual of ``RepairLoop``: build a
-``ReviewPack``, then branch on the auto / soft / hard policy. The pack builders
-(``review_pack_builders``) are the deterministic ReviewPack sources PlanMode's
-step-2 / step-8 loops consume; they have no dedicated test module, so their
-contract lives here.
+``StepAuditLoop`` is the expert-audit dual of the generate→validate loop: build
+a ``ReviewPack``, then branch on the auto / soft / hard policy. The pack
+builders (``review_pack_builders``) are the deterministic ReviewPack sources the
+plan step audits consume; they have no dedicated test module, so their contract
+lives here.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.errors import ApprovalPendingError, StageExecutionError
 from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, FormDocument, ReviewPack
 from molexp.harness.schemas.step_audit import FormTextField
-from molexp.harness.stages import ApprovalGate, StepAuditLoop, auto_grant_approver
+from molexp.harness.stages import StepAuditLoop, auto_grant_approver
 from molexp.harness.stages.review_pack_builders import (
     build_experiment_spec_review_pack,
     build_plan_review_pack,
@@ -200,19 +200,3 @@ class TestReviewPackBuilders:
         pack = build_plan_review_pack(env.ctx)
         assert pack.step_id == "review"
         assert any(r.kind == "execution_result" for r in pack.subject_refs)
-
-
-class TestPlanModeWiring:
-    def test_step_audit_loops_replace_only_the_spec_and_plan_gates(self) -> None:
-        """Step 2 / step 8 became StepAuditLoops; the execute-tail gate stays an ApprovalGate.
-
-        The nine-step name sequence itself is owned by
-        ``test_plan_mode.py::TestPlanModeShape``.
-        """
-        from molexp.harness import PlanMode
-
-        stages = {s.name: s for s in PlanMode(execute=True).stages("draft")}
-        assert isinstance(stages["approve_experiment_spec"], StepAuditLoop)
-        assert isinstance(stages["approve_plan"], StepAuditLoop)
-        assert isinstance(stages["approve_execution"], ApprovalGate)
-        assert not isinstance(stages["approve_execution"], StepAuditLoop)

@@ -1,14 +1,19 @@
-"""Concrete :class:`molexp.harness.Mode` subclasses.
+"""Concrete plan-pipeline drivers.
 
-Ships the single :class:`PlanMode` — the idea → verified plan → execution
-report pipeline (9 steps). Real scientific execution is its opt-in
-``execute=True`` tail (the folded-in former RunMode back half), gated by the
-step-8 review; it runs the workflow as executor subprocesses and writes the
-final + audit reports on the same ``workspace.Run``.
+Ships the :class:`EmergentPlanOrchestrator` — the two-phase planning pipeline.
+**Phase 1 — emergent planning:** an interactive agent loop drives a task board
+from the draft, a deterministic form guard keeps a malformed plan from ever
+reaching the human, and a hard review gate freezes the approved board into a
+content-addressed experiment plan (suspending store-first when there is no
+approver). **Phase 2 — deterministic realization** turns that frozen plan into
+executable artifacts; it is a separate phase, not driven here.
+
+The orchestrator is not a ``Mode`` subclass and holds no completion ledger —
+its resume correctness rides on the hard gate's store-first replay.
 """
 
 from __future__ import annotations
 
-from molexp.harness.modes.plan import PlanMode, PlanStep
+from molexp.harness.modes.emergent_plan import EmergentPlanOrchestrator
 
-__all__ = ["PlanMode", "PlanStep"]
+__all__ = ["EmergentPlanOrchestrator"]

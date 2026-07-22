@@ -185,9 +185,7 @@ class TestApprovalStoreScope:
         assert pending.scope == "intervention_request"
         assert pending.target_agent_id == "codegen-task-T"
 
-    def test_grant_still_durable_for_intervention_request(
-        self, store: SQLiteApprovalStore
-    ) -> None:
+    def test_grant_still_durable_for_intervention_request(self, store: SQLiteApprovalStore) -> None:
         request = _intervention_request()
         store.record_pending(_RUN_ID, request)
         store.record_decision(_decision(request.id, granted=True, decided_by="ui-operator"))

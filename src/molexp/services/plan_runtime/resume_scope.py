@@ -85,9 +85,9 @@ class RouterBackedResumeDriver:
     """Production :class:`ResumeDriver` — re-drives real PlanMode work.
 
     ``resume_main`` folds the operator payload into a guidance ``user_input`` and
-    re-drives :class:`~molexp.harness.PlanMode` via
-    :func:`~molexp.services.plan_runtime.drive.drive_plan_mode` (the stage ledger
-    skips completed stages, so only the affected work re-runs).
+    re-drives :class:`~molexp.harness.EmergentPlanOrchestrator` via
+    :func:`~molexp.services.plan_runtime.drive.drive_plan_mode` (store-first
+    replay carries a granted plan review straight through the gate).
     ``resume_subagent`` scopes that same re-drive to the named codegen subagent's
     stuck step. Model + workspace are resolved lazily so the driver is
     constructible with no arguments from :func:`_get_resume_driver`.
@@ -117,7 +117,7 @@ class RouterBackedResumeDriver:
         return model
 
     async def resume_main(self, *, run: Run, payload: dict[str, object]) -> object:
-        from molexp.harness import PlanMode
+        from molexp.harness import EmergentPlanOrchestrator
 
         from .drive import drive_plan_mode
         from .gateway import build_plan_gateway
@@ -128,7 +128,7 @@ class RouterBackedResumeDriver:
             workspace_root=self._workspace_root or None,
         )
         return await drive_plan_mode(
-            PlanMode(),
+            EmergentPlanOrchestrator(),
             run=run,
             user_input=_fold_guidance(payload),
             gateway=gateway,

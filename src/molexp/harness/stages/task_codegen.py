@@ -334,9 +334,7 @@ async def run_isolated_task_pytest(
     )
 
 
-def materialize_task_sources(
-    task_dir: Path, *, slug: str, module_src: str, test_src: str
-) -> None:
+def materialize_task_sources(task_dir: Path, *, slug: str, module_src: str, test_src: str) -> None:
     """Write one task's isolated ``workflow/`` + ``tests/`` tree under ``task_dir``.
 
     The tree is wiped first (a repair attempt re-materializes) so a renamed or

@@ -5,12 +5,12 @@ unlike the agent-session runtime — it needs no session/turn split: the task IS
 the background ``asyncio.Task`` plus its coarse status. On success it persists
 the generated workflow onto the experiment so the UI graph renderer shows it.
 
-Approvals are **never** auto-granted: ``PlanMode()`` runs with no approver, so
-each gate resolves store-first (a grant recorded in the run's approval store
-replays) and otherwise suspends — the task lands ``waiting_approval`` with the
-pending requests kept on it, the approvals inbox lists them, and a granted
-decision re-drives the pipeline via :meth:`PlanTask.resume` (the stage ledger
-skips completed stages; the gate passes on the stored grant).
+Approvals are **never** auto-granted: ``EmergentPlanOrchestrator()`` runs with
+no approver, so the review gate resolves store-first (a grant recorded in the
+run's approval store replays) and otherwise suspends — the task lands
+``waiting_approval`` with the pending requests kept on it, the approvals inbox
+lists them, and a granted decision re-drives the pipeline via
+:meth:`PlanTask.resume` (the gate passes store-first on the stored grant).
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ class PlanTask:
         return task
 
     async def _drive(self, gateway: AgentGateway) -> None:
-        from molexp.harness import ApprovalPendingError, PlanMode
+        from molexp.harness import ApprovalPendingError, EmergentPlanOrchestrator
 
         from .drive import drive_plan_mode
         from .materialize import materialize_plan_records
@@ -143,8 +143,11 @@ class PlanTask:
             # drive_plan_mode wraps the pipeline in the run lifecycle so the
             # plan Run's status is honest (running -> succeeded | failed) —
             # the same shared path `molexp plan` uses.
+            # ``execute`` / ``compute_target`` stay on the request shape for
+            # backward compat but are inert for the emergent orchestrator, which
+            # is planning-only (ends at the frozen plan + report).
             self.result = await drive_plan_mode(
-                PlanMode(execute=self.execute, compute_target=self.compute_target),
+                EmergentPlanOrchestrator(),
                 run=self.run,
                 user_input=self.draft,
                 gateway=gateway,

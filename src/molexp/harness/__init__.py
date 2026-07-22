@@ -15,9 +15,9 @@ environment) is owned by :mod:`molexp.workspace` (``RunMetadata`` /
 per-scope ``AssetManifest``); code-version and environment capture belong
 there, never here.
 
-Public surface (deliberately small): the Mode/Stage execution machinery,
-the one shipped pipeline (:class:`PlanMode`), the stores its artifacts and
-audit trail live in, the executor seam, the approval gate, and the agent
+Public surface (deliberately small): the Stage execution machinery, the one
+shipped pipeline (:class:`EmergentPlanOrchestrator`), the stores its artifacts
+and audit trail live in, the executor seam, the approval gate, and the agent
 gateway. Everything else — stage classes, schemas, validators, policies,
 curation actions — is imported via its full submodule path
 (``molexp.harness.stages`` / ``.schemas`` / ``.validators`` / …); those
@@ -39,8 +39,7 @@ from molexp.harness.core import HarnessRunContext, Stage, StageRunner
 from molexp.harness.errors import ApprovalPendingError, StageExecutionError
 from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
-from molexp.harness.mode import Mode
-from molexp.harness.modes import PlanMode
+from molexp.harness.modes import EmergentPlanOrchestrator
 from molexp.harness.registry import CapabilityRegistry
 from molexp.harness.schemas import ModeResult
 from molexp.harness.stages import ApprovalGate
@@ -59,13 +58,12 @@ __all__ = [
     "ArtifactStore",
     "CapabilityRegistry",
     "DryRunExecutor",
+    "EmergentPlanOrchestrator",
     "Executor",
     "FileArtifactStore",
     "HarnessRunContext",
     "LocalExecutor",
-    "Mode",
     "ModeResult",
-    "PlanMode",
     "RouterBackedAgentGateway",
     "SQLiteApprovalStore",
     "SQLiteArtifactLineageStore",

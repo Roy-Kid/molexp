@@ -20,10 +20,9 @@ from molexp.harness.plan import (
     ExperimentPlan,
     FeasibilityAnnotation,
     TaskBoard,
+    TaskStatus,  # noqa: F401  (documented lifecycle vocab)
 )
-from molexp.harness.plan import TaskStatus  # noqa: F401  (documented lifecycle vocab)
 from molexp.harness.validators.emergent_plan_form import EmergentPlanFormValidator
-
 
 # --------------------------------------------------------------- builders
 
@@ -103,9 +102,7 @@ class TestSpecIncomplete:
         assert report.passed is False
 
     def test_missing_title_and_objective_report_one_each(self) -> None:
-        report = EmergentPlanFormValidator.validate(
-            _plan(spec={"id": "exp-1"})
-        )
+        report = EmergentPlanFormValidator.validate(_plan(spec={"id": "exp-1"}))
         assert _codes(report).count("spec_incomplete") == 2
         assert report.passed is False
 
@@ -136,9 +133,7 @@ class TestBoardDefects:
         assert report.passed is False
 
     def test_task_missing_acceptance_blocks(self) -> None:
-        report = EmergentPlanFormValidator.validate(
-            _plan(tasks=(_task(acceptance=()),))
-        )
+        report = EmergentPlanFormValidator.validate(_plan(tasks=(_task(acceptance=()),)))
         assert "task_missing_acceptance" in _codes(report)
         assert report.passed is False
 
@@ -155,9 +150,7 @@ class TestUnreachableWarning:
         unreachable = FeasibilityAnnotation(
             reachable=False, difficulty=Difficulty.HARD, rationale="no capability"
         )
-        report = EmergentPlanFormValidator.validate(
-            _plan(tasks=(_task(feasibility=unreachable),))
-        )
+        report = EmergentPlanFormValidator.validate(_plan(tasks=(_task(feasibility=unreachable),)))
         assert "task_unreachable" in _codes(report)
         assert _error_codes(report) == []
         assert report.passed is True

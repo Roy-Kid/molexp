@@ -36,7 +36,7 @@ from typing import Any
 
 import pytest
 
-from molexp.agent.loops import HookOutcome, LoopHooks, LoopState
+from molexp.agent.loops import LoopHooks, LoopState
 from molexp.harness import (
     ApprovalPendingError,
     FileArtifactStore,
@@ -44,6 +44,12 @@ from molexp.harness import (
     SQLiteApprovalStore,
 )
 from molexp.harness.gateways.stub import StubAgentGateway
+
+# RED: the module under test does not exist yet.
+from molexp.harness.modes.emergent_plan import (
+    EmergentPlanOrchestrator,
+    PlanLoopRunner,
+)
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -55,12 +61,6 @@ from molexp.harness.plan import (
 )
 from molexp.harness.schemas import ApprovalDecision
 from molexp.harness.stages import auto_grant_approver
-
-# RED: the module under test does not exist yet.
-from molexp.harness.modes.emergent_plan import (  # noqa: E402 — intentional RED import
-    EmergentPlanOrchestrator,
-    PlanLoopRunner,
-)
 from molexp.services.plan_runtime import drive_plan_mode
 from molexp.workspace import Workspace
 
@@ -137,8 +137,8 @@ class _CannedBoardRunner:
 @pytest.fixture()
 def run(tmp_path: Path):
     ws = Workspace(root=tmp_path / "ws", name="lab")
-    return ws.add_project("p").add_experiment("e").add_run(
-        params={"mode": "plan"}, id="emergent05c"
+    return (
+        ws.add_project("p").add_experiment("e").add_run(params={"mode": "plan"}, id="emergent05c")
     )
 
 
@@ -279,8 +279,6 @@ class TestModeLikeShape:
         orch = EmergentPlanOrchestrator(
             loop_runner=_CannedBoardRunner(_valid_board()), approve=auto_grant_approver
         )
-        result = await drive_plan_mode(
-            orch, run=run, user_input=_USER_INPUT, gateway=_gateway(run)
-        )
+        result = await drive_plan_mode(orch, run=run, user_input=_USER_INPUT, gateway=_gateway(run))
         assert isinstance(result, ModeResult)
         assert run.status == "succeeded"

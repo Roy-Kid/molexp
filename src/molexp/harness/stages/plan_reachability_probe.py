@@ -67,9 +67,7 @@ class PlanReachabilityProbe:
             result = annotate_feasibility(result, task.id, annotation)
         return result
 
-    def _probe(
-        self, name: str, registry: CapabilityRegistry | None
-    ) -> FeasibilityAnnotation:
+    def _probe(self, name: str, registry: CapabilityRegistry | None) -> FeasibilityAnnotation:
         if registry is None:
             return FeasibilityAnnotation(
                 reachable=False,
@@ -87,9 +85,7 @@ class PlanReachabilityProbe:
             )
         probed_refs = tuple(cap.id for cap in hits[: self.max_refs])
         difficulty = (
-            Difficulty.MODERATE
-            if any(cap.side_effects for cap in hits)
-            else Difficulty.TRIVIAL
+            Difficulty.MODERATE if any(cap.side_effects for cap in hits) else Difficulty.TRIVIAL
         )
         rationale = "grounded on " + ", ".join(cap.id for cap in hits)
         return FeasibilityAnnotation(

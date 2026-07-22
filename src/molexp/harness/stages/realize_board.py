@@ -96,7 +96,9 @@ class RealizeBoard(Stage):
         # ── Block branch: persist-then-raise, never compile on a block ─────
         blocked = [r.blocked for r in results if r.blocked is not None]
         if blocked:
-            request_ref = self._persist_intervention(ctx, bound=bound, bound_ref=bound_ref, blocked=blocked)
+            request_ref = self._persist_intervention(
+                ctx, bound=bound, bound_ref=bound_ref, blocked=blocked
+            )
             raise TaskRealizationBlockedError(request_ref, [bt.task_id for bt in blocked])
 
         # ── Reduce: assemble the greens into workflow_source + test_source ─
@@ -145,12 +147,10 @@ class RealizeBoard(Stage):
         module in ``files``, and a matching ``TestSpecBundle`` + ``TestSource``.
         """
         module_by_task = {
-            task.id: (r.module_src or "")
-            for task, r in zip(bound.tasks, results, strict=True)
+            task.id: (r.module_src or "") for task, r in zip(bound.tasks, results, strict=True)
         }
         test_by_task = {
-            task.id: (r.test_src or "")
-            for task, r in zip(bound.tasks, results, strict=True)
+            task.id: (r.test_src or "") for task, r in zip(bound.tasks, results, strict=True)
         }
         wf_files = [
             GeneratedFile(path=f"workflow/{slugs[task.id]}.py", source=module_by_task[task.id])

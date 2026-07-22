@@ -2,17 +2,27 @@
 
 Function-level only: the integration tests that drove the Typer ``CliRunner``
 and the server's UI-facing routes moved out of the pruned core. What remains
-pins the executor seam default — ``PlanRuntime.build_executor()`` returns a
-:class:`~molexp.harness.LocalExecutor` — asserted by calling the factory
-directly, with no CLI or FastAPI app boot.
+pins the approver seam — the CLI's :class:`~molexp.cli.plan_cmd.InteractiveApprover`
+satisfies the harness ``Approver`` shape the emergent orchestrator expects — by
+constructing both directly, with no CLI or FastAPI app boot.
 """
 
 from __future__ import annotations
 
+import inspect
+from types import SimpleNamespace
+
 
 class TestPlanCmd:
-    def test_executor_seam_defaults_to_local_executor(self) -> None:
+    def test_interactive_approver_is_a_valid_orchestrator_approve(self) -> None:
+        """The CLI approver is an async ``(ApprovalRequest) -> ApprovalDecision``
+        callable, and the emergent orchestrator accepts it as its ``approve`` seam."""
         from molexp.cli import plan_cmd
-        from molexp.harness import LocalExecutor
+        from molexp.harness.modes.emergent_plan import EmergentPlanOrchestrator
 
-        assert isinstance(plan_cmd.PlanRuntime.build_executor(), LocalExecutor)
+        approver = plan_cmd.InteractiveApprover(
+            run=SimpleNamespace(run_dir="/tmp/plan-run"), assume_yes=True
+        )
+        assert inspect.iscoroutinefunction(approver.__call__)
+        # Constructs without error → the approver conforms to the Approver type.
+        EmergentPlanOrchestrator(approve=approver)

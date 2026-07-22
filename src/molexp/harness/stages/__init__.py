@@ -35,11 +35,9 @@ from molexp.harness.stages.invoke_capability import InvokeCapability
 from molexp.harness.stages.materialize_and_execute_tests import MaterializeAndExecuteTests
 from molexp.harness.stages.materialize_execution import MaterializeExecution
 from molexp.harness.stages.realize_board import RealizeBoard
-from molexp.harness.stages.repair_loop import RepairLoop
 from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
 from molexp.harness.stages.review_plan import ReviewPlan
 from molexp.harness.stages.save_user_plan import SaveUserPlan
-from molexp.harness.stages.sequential_task_build import SequentialTaskBuild
 from molexp.harness.stages.step_audit_loop import StepAuditLoop
 from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 from molexp.harness.stages.validate_experiment_spec import ValidateExperimentSpec
@@ -73,11 +71,9 @@ __all__ = [
     "MaterializeAndExecuteTests",
     "MaterializeExecution",
     "RealizeBoard",
-    "RepairLoop",
     "ResolveCapabilities",
     "ReviewPlan",
     "SaveUserPlan",
-    "SequentialTaskBuild",
     "StepAuditLoop",
     "ValidateBoundWorkflow",
     "ValidateExperimentSpec",

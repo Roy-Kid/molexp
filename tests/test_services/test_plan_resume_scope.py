@@ -152,7 +152,7 @@ class TestResumeDriverSeam:
         )
         task.status = "waiting_approval"
         fake = FakeResumeDriver()
-        set_resume_driver_factory(lambda *args, **kwargs: fake)
+        set_resume_driver_factory(lambda *_args, **_kwargs: fake)
 
         task.resume_intervention(target_agent_id="codegen-task-T", payload={"reason": "tweak"})
         assert task._task is not None
@@ -177,7 +177,7 @@ class TestResumeDriverSeam:
             created_at="2026-07-22T00:00:00Z",
         )
         task.status = "waiting_approval"
-        set_resume_driver_factory(lambda *args, **kwargs: FakeResumeDriver())
+        set_resume_driver_factory(lambda *_args, **_kwargs: FakeResumeDriver())
 
         # No silent fallback: an intervention resume with no named subagent fails loud.
         with pytest.raises((ValueError, RuntimeError), match="target"):
@@ -189,7 +189,7 @@ class TestProposePlanPatchFallback:
     async def test_propose_plan_patch_reopens_main_conversation(self, tmp_path: Path) -> None:
         _experiment, run = _run(tmp_path)
         fake = FakeResumeDriver()
-        set_resume_driver_factory(lambda *args, **kwargs: fake)
+        set_resume_driver_factory(lambda *_args, **_kwargs: fake)
 
         awaitable = propose_plan_patch(run=run, patch={"note": "flip solver to PME"})
         if awaitable is not None:

@@ -20,7 +20,6 @@ from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
 from molexp.harness.schemas import ToolCapability
 from molexp.harness.stages.plan_reachability_probe import PlanReachabilityProbe
 
-
 # --------------------------------------------------------------- builders
 
 
@@ -73,9 +72,7 @@ class TestSearchMiss:
 
 class TestSearchHit:
     def test_side_effect_free_hit_is_trivial(self) -> None:
-        registry = InMemoryCapabilityRegistry(
-            [_cap("molpy.build.write", desc="build a polymer")]
-        )
+        registry = InMemoryCapabilityRegistry([_cap("molpy.build.write", desc="build a polymer")])
         board = _board(_task("t1", "build"))
 
         [annotated] = PlanReachabilityProbe().annotate(board, registry).tasks

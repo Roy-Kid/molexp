@@ -135,16 +135,6 @@ class TestAssembleKnowledgeContext:
         digest = _digest(_ctx(tmp_path / "bare", tmp_path / "run"))
         assert "not mounted inside a workspace" in digest
 
-    def test_stage_sits_in_plan_mode_draft_proposal_group(self) -> None:
-        from molexp.harness import PlanMode
-
-        groups = PlanMode().step_groups("draft")
-        visible = [g for g in groups if not g.tail]
-        assert len(visible) == 9
-        draft = visible[0]
-        assert draft.title == "Draft proposal"
-        assert "assemble_knowledge_context" in [s.name for s in draft.stages]
-
     def test_report_writer_receives_knowledge_context_id(self, seeded, tmp_path: Path) -> None:
         """The proposal writer's AgentCallSpec carries the digest artifact id —
         the knowledge→plan lineage edge materializes through the gateway."""
