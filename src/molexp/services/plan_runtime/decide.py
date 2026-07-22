@@ -18,10 +18,42 @@ from molexp.harness.schemas import (
 )
 
 if TYPE_CHECKING:
+    import asyncio
+    from collections.abc import Coroutine
+
     from molexp.services.plan_runtime.task import PlanTask
     from molexp.workspace.run import Run
 
 __all__ = ["decide_plan_review", "map_review_action_to_approval"]
+
+#: Strong refs to fire-and-forget resume tasks so the running loop cannot GC
+#: them mid-flight (RUF006); each task removes itself on completion.
+_RESUME_TASKS: set[asyncio.Task[object]] = set()
+
+
+def _schedule_resume(result: object) -> None:
+    """Fire-and-forget a resume coroutine returned by ``propose_plan_patch``.
+
+    ``propose_plan_patch`` returns the ``resume_main`` coroutine; this decide
+    path is sync, so schedule it on the running loop (the async server route) or
+    run it to completion when called outside one. A non-awaitable (a
+    monkeypatched test double) is a no-op.
+    """
+    import asyncio
+    import inspect
+    from typing import cast
+
+    if not inspect.isawaitable(result):
+        return
+    coro = cast("Coroutine[object, object, object]", result)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(coro)
+    else:
+        task = loop.create_task(coro)
+        _RESUME_TASKS.add(task)
+        task.add_done_callback(_RESUME_TASKS.discard)
 
 
 def map_review_action_to_approval(
@@ -93,6 +125,38 @@ def decide_plan_review(
     )
 
     approval = map_review_action_to_approval(review, request_id=request.id)
+
+    if request.scope == "intervention_request":
+        # Phase-2 resume: route into the named codegen subagent (or the plan-patch
+        # fallback), never the phase-1 approval-store grant path. propose_plan_patch
+        # is looked up via the module so a test monkeypatch resolves at call time.
+        from molexp.services.plan_runtime import resume_scope
+
+        if review.field_values.get("fallback") == "plan_patch":
+            patch: dict[str, Any] = {
+                "field_values": dict(review.field_values),
+                "reason": review.reason,
+                "edits": review.edits,
+            }
+            _schedule_resume(resume_scope.propose_plan_patch(run=run, patch=patch))
+            notify_approvals_changed()
+            return approval
+        if request.target_agent_id is None:
+            raise ValueError(
+                f"intervention_request {request.id!r} has no target_agent_id and no "
+                "plan_patch fallback — a task intervention with no named subagent "
+                "target is a caller defect (no silent fallback)"
+            )
+        payload: dict[str, Any] = {
+            "field_values": dict(review.field_values),
+            "reason": review.reason,
+            "edits": review.edits,
+        }
+        if task is not None:
+            task.resume_intervention(target_agent_id=request.target_agent_id, payload=payload)
+        notify_approvals_changed()
+        return approval
+
     if review.action == "approve":
         # Ensure grant path uses approve mapping even if caller passed wrong fields.
         approval = review_decision_to_approval(review, request_id=request.id)

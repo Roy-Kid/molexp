@@ -246,6 +246,66 @@ class PlanTask:
         self.pending_requests = []
         self._task = asyncio.create_task(self._drive(self._gateway))
 
+    def resume_intervention(
+        self, *, target_agent_id: str | None, payload: dict[str, object]
+    ) -> None:
+        """Re-seed + re-run one stuck codegen subagent (phase-2 intervention).
+
+        The ``intervention_request`` scope's resume: unlike :meth:`resume`
+        (which re-drives the whole ledger), this reopens only the named codegen
+        subagent through the :class:`~molexp.services.plan_runtime.resume_scope.ResumeDriver`
+        seam. Sync-spawning, mirroring :meth:`resume` — it sets the background
+        ``asyncio.Task`` and returns.
+
+        Args:
+            target_agent_id: The phase-2 codegen subagent to re-seed. ``None``
+                fails loud — an intervention resume with no named subagent is a
+                caller defect (no silent fallback to the main session).
+            payload: Operator guidance threaded into the subagent's re-run.
+
+        Raises:
+            ValueError: ``target_agent_id`` is ``None``.
+            RuntimeError: The task is not ``waiting_approval``.
+        """
+        if self.status != "waiting_approval":
+            raise RuntimeError(
+                f"plan task {self.task_id!r} is {self.status!r}, not waiting_approval "
+                "— only a suspended task can resume"
+            )
+        if target_agent_id is None:
+            raise ValueError(
+                f"plan task {self.task_id!r} intervention resume has no target_agent_id "
+                "— a task intervention with no named subagent target is a caller defect"
+            )
+        self.status = "running"
+        self._sync_status()
+        self.pending_requests = []
+        self._task = asyncio.create_task(
+            self._drive_intervention(target_agent_id=target_agent_id, payload=payload)
+        )
+
+    async def _drive_intervention(
+        self, *, target_agent_id: str, payload: dict[str, object]
+    ) -> None:
+        from molexp.services.plan_runtime.resume_scope import _get_resume_driver
+
+        try:
+            driver = _get_resume_driver(self.run)
+            await driver.resume_subagent(
+                run=self.run, target_agent_id=target_agent_id, payload=payload
+            )
+            self.status = "completed"
+            self._sync_status()
+        except asyncio.CancelledError:
+            self.status = "cancelled"
+            self._sync_status()
+            raise
+        except Exception as exc:  # surface as task status, never crash the loop
+            self.status = "failed"
+            self.error = exc
+            self._sync_status()
+            _LOG.warning(f"[plan-task {self.task_id}] intervention resume failed: {exc!r}")
+
     def mark_rejected(self, reason: str) -> None:
         """Record an operator rejection: the current attempt ends ``failed``.
 

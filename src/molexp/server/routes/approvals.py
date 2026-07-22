@@ -62,6 +62,11 @@ class PendingApprovalItem(BaseModel):
     packId: str | None = None
     #: Structured form for UI ReviewSurface (FormDocument JSON shape).
     formDocument: dict[str, Any] | None = None
+    #: Resume-routing discriminator (``approval_gate`` | ``intervention_request``);
+    #: the UI shows a phase-2 intervention differently from a phase-1 gate.
+    scope: str = "approval_gate"
+    #: Named phase-2 codegen subagent for an ``intervention_request`` (else ``None``).
+    targetAgentId: str | None = None
 
 
 class PendingApprovalsResponse(BaseModel):
@@ -165,6 +170,8 @@ def _items_for(kind: TaskKind, tasks: list[Any]) -> list[PendingApprovalItem]:
                     preview=_preview_for(kind, task, request.intent),
                     packId=pack_id,
                     formDocument=form_doc,
+                    scope=request.scope,
+                    targetAgentId=request.target_agent_id,
                 )
             )
     return items

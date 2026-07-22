@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS approvals (
     state TEXT NOT NULL CHECK (state IN ('pending', 'granted', 'rejected')),
     decided_by TEXT,
     decided_at TEXT,
-    decision_reason TEXT
+    decision_reason TEXT,
+    scope TEXT DEFAULT 'approval_gate',
+    target_agent_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_approvals_run ON approvals(run_id);
@@ -77,6 +79,24 @@ class SQLiteApprovalStore:
         self._conn, self._lock = open_db(self._path)
         with self._lock:
             self._conn.executescript(_SCHEMA_SQL)
+            self._migrate_scope_columns()
+
+    def _migrate_scope_columns(self) -> None:
+        """Bring a pre-plan-emergent-07 ``approvals`` table up to the scope set.
+
+        ``CREATE TABLE IF NOT EXISTS`` is a no-op on a pre-existing legacy
+        table, so the ``scope`` / ``target_agent_id`` columns are added here
+        with ``ALTER TABLE``. Idempotent (columns already present are left
+        untouched); legacy rows read back ``scope == 'approval_gate'`` via the
+        column default. Mirrors ``store._sqlite._migrate_artifact_edges``.
+        """
+        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(approvals)")}
+        if "scope" not in existing:
+            self._conn.execute(
+                "ALTER TABLE approvals ADD COLUMN scope TEXT DEFAULT 'approval_gate'"
+            )
+        if "target_agent_id" not in existing:
+            self._conn.execute("ALTER TABLE approvals ADD COLUMN target_agent_id TEXT")
 
     def record_pending(self, run_id: str, request: ApprovalRequest) -> None:
         """Open (or re-open) *request* as pending.
@@ -91,13 +111,15 @@ class SQLiteApprovalStore:
                 """
                 INSERT INTO approvals (
                     request_id, run_id, intent, reason, triggered_by_policy,
-                    metadata_json, requested_at, state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+                    metadata_json, requested_at, state, scope, target_agent_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                 ON CONFLICT(request_id) DO UPDATE SET
                     state = 'pending',
                     decided_by = NULL,
                     decided_at = NULL,
-                    decision_reason = NULL
+                    decision_reason = NULL,
+                    scope = excluded.scope,
+                    target_agent_id = excluded.target_agent_id
                 WHERE approvals.state != 'granted'
                 """,
                 (
@@ -108,6 +130,8 @@ class SQLiteApprovalStore:
                     request.triggered_by_policy,
                     json.dumps(request.metadata, default=str),
                     request.created_at.isoformat(),
+                    request.scope,
+                    request.target_agent_id,
                 ),
             )
 
@@ -171,7 +195,7 @@ class SQLiteApprovalStore:
             rows = self._conn.execute(
                 """
                 SELECT request_id, intent, reason, triggered_by_policy,
-                       metadata_json, requested_at
+                       metadata_json, requested_at, scope, target_agent_id
                 FROM approvals
                 WHERE run_id = ? AND state = 'pending'
                 ORDER BY requested_at
@@ -186,6 +210,8 @@ class SQLiteApprovalStore:
                 triggered_by_policy=triggered_by_policy,
                 metadata=json.loads(metadata_json),
                 created_at=datetime.fromisoformat(requested_at_iso),
+                scope=scope or "approval_gate",
+                target_agent_id=target_agent_id,
             )
             for (
                 request_id,
@@ -194,5 +220,7 @@ class SQLiteApprovalStore:
                 triggered_by_policy,
                 metadata_json,
                 requested_at_iso,
+                scope,
+                target_agent_id,
             ) in rows
         ]

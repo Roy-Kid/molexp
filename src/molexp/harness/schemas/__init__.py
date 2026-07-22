@@ -12,6 +12,7 @@ from molexp.harness.schemas.approval import (
     ApprovalDecision,
     ApprovalIntent,
     ApprovalRequest,
+    ApprovalScope,
 )
 from molexp.harness.schemas.artifact import (
     WELL_KNOWN_ARTIFACT_KINDS,
@@ -115,6 +116,7 @@ __all__ = [
     "ApprovalLevel",
     "ApprovalPolicy",
     "ApprovalRequest",
+    "ApprovalScope",
     "ArtifactKind",
     "AuditReport",
     "BlockedTask",

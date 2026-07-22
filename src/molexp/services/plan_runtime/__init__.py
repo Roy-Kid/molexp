@@ -31,6 +31,14 @@ from molexp.services.plan_runtime.preview import (
     render_review_pack,
 )
 from molexp.services.plan_runtime.registry import PlanTaskRegistry
+from molexp.services.plan_runtime.resume_scope import (
+    ResumeDriver,
+    RouterBackedResumeDriver,
+    propose_plan_patch,
+    reset_resume_driver_factory,
+    resolve_resume_scope,
+    set_resume_driver_factory,
+)
 from molexp.services.plan_runtime.targets import resolve_plan_compute_target
 from molexp.services.plan_runtime.task import PlanTask, PlanTaskStatus
 
@@ -42,6 +50,8 @@ __all__ = [
     "PlanTask",
     "PlanTaskRegistry",
     "PlanTaskStatus",
+    "ResumeDriver",
+    "RouterBackedResumeDriver",
     "build_plan_gateway",
     "build_review_pack",
     "decide_plan_review",
@@ -50,9 +60,13 @@ __all__ = [
     "materialize_plan_records",
     "persist_plan_workflow_to_experiment",
     "preflight_plan_router",
+    "propose_plan_patch",
     "render_approval_preview",
     "render_review_pack",
     "reset_plan_gateway_factory",
+    "reset_resume_driver_factory",
     "resolve_plan_compute_target",
+    "resolve_resume_scope",
     "set_plan_gateway_factory",
+    "set_resume_driver_factory",
 ]
