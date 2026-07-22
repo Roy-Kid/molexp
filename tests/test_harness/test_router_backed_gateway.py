@@ -395,9 +395,7 @@ class TestRouterBackedGateway:
                 )
             )
 
-    async def test_spec_tier_override_and_use_mcp(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_spec_tier_override_and_use_mcp(self, tmp_path: Path) -> None:
         """Per-call AgentCallSpec.tier / use_mcp override the registry."""
         from molexp.agent.router import McpToolSpec
         from molexp.harness.gateways.router_backed import RouterBackedAgentGateway

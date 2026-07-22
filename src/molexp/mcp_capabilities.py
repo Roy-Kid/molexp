@@ -506,9 +506,7 @@ async def fetch_molmcp_capabilities(
     return caps
 
 
-def _queries_from_guide(
-    guide: Mapping[str, object] | None, task: str | None
-) -> list[str]:
+def _queries_from_guide(guide: Mapping[str, object] | None, task: str | None) -> list[str]:
     """Build search queries from molcrafts_guide output (or the draft alone)."""
     out: list[str] = []
     if task and task.strip():
@@ -556,10 +554,14 @@ def _packages_from_info(info: Mapping[str, object] | None) -> set[str]:
     sources = info.get("sources")
     if not isinstance(sources, dict):
         return set()
-    return _packages_from_guide({"available_sources": [
-        {"name": k, "status": (v or {}).get("status") if isinstance(v, dict) else "ok"}
-        for k, v in sources.items()
-    ]})
+    return _packages_from_guide(
+        {
+            "available_sources": [
+                {"name": k, "status": (v or {}).get("status") if isinstance(v, dict) else "ok"}
+                for k, v in sources.items()
+            ]
+        }
+    )
 
 
 def _cap_in_packages(cap_id: str, allowed: set[str]) -> bool:

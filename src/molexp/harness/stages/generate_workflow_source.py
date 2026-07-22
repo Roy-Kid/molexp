@@ -28,6 +28,7 @@ from molexp.harness.errors import StageExecutionError
 from molexp.harness.prompts.capability_catalog import render_capability_catalog
 from molexp.harness.schemas import (
     AgentCallSpec,
+    BoundTask,
     BoundWorkflow,
     PlanArtifactRef,
     WorkflowSource,
@@ -102,7 +103,7 @@ class GenerateWorkflowSource(Stage):
         """One concurrent ``workflow_source_file_writer`` call per bound task."""
         slugs = {task.id: _slug(task.ir_task_id or task.id) for task in bound.tasks}
 
-        async def one(task) -> tuple[str, str]:
+        async def one(task: BoundTask) -> tuple[str, str]:
             """Return (bound_task_id, module_source) for one task."""
             slice_wf = bound.model_copy(
                 update={"id": f"{bound.id}-{task.id}", "tasks": [task], "edges": []}

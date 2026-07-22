@@ -92,9 +92,7 @@ _ALLOWED_KINDS: frozenset[str] = frozenset(
 )
 
 #: Dotted Python qualname: ``pkg.mod.Name`` (at least one dot).
-_PYTHON_QUALNAME_RE = re.compile(
-    r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$"
-)
+_PYTHON_QUALNAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
 #: Path / notes / section-anchor pollution.
 _JUNK_ID_MARKERS: tuple[str, ...] = (

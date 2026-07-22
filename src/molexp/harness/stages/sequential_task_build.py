@@ -361,9 +361,7 @@ class SequentialTaskBuild(Stage):
         }
         ref = ctx.artifact_store.put_text(
             kind="workflow_wiring_contract",
-            text=yaml.safe_dump(
-                doc, sort_keys=False, allow_unicode=True, default_flow_style=False
-            ),
+            text=yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False),
             created_by=f"stage:{self.name}",
             parent_ids=[],
         )

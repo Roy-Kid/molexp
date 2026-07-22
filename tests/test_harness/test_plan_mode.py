@@ -246,9 +246,9 @@ def _fixture_gateway(run, *, test_source: Mapping[str, object] | None = None) ->
         try:
             doc = yaml.safe_load(raw)
             if isinstance(doc, dict) and "task" in doc:
-                ir = (doc.get("task") or {}).get("ir_task_id") or (
-                    doc.get("task") or {}
-                ).get("slug")
+                ir = (doc.get("task") or {}).get("ir_task_id") or (doc.get("task") or {}).get(
+                    "slug"
+                )
             else:
                 ir = None
         except Exception:
@@ -256,9 +256,7 @@ def _fixture_gateway(run, *, test_source: Mapping[str, object] | None = None) ->
         if not ir:
             from molexp.harness.schemas import BoundWorkflow
 
-            slice_wf = BoundWorkflow.model_validate_json(
-                store.get(spec.input_artifact_ids[0])
-            )
+            slice_wf = BoundWorkflow.model_validate_json(store.get(spec.input_artifact_ids[0]))
             ir = slice_wf.tasks[0].ir_task_id
             bw_id = slice_wf.id
         else:
@@ -290,7 +288,8 @@ def _fixture_gateway(run, *, test_source: Mapping[str, object] | None = None) ->
         if (test_source or _TEST_SOURCE).get("files")
         else _TEST_MAKE_DATA,
         "summarize": (test_source or _TEST_SOURCE)["files"][1]["source"]
-        if (test_source or _TEST_SOURCE).get("files") and len((test_source or _TEST_SOURCE)["files"]) > 1
+        if (test_source or _TEST_SOURCE).get("files")
+        and len((test_source or _TEST_SOURCE)["files"]) > 1
         else _TEST_SUMMARIZE,
     }
 

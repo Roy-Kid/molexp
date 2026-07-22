@@ -27,6 +27,7 @@ from molexp.harness.schemas import (
     AgentCallSpec,
     PlanArtifactRef,
     TestSource,
+    TestSpec,
     TestSpecBundle,
 )
 from molexp.harness.schemas.workflow_source import GeneratedFile
@@ -86,7 +87,7 @@ class GenerateTestCode(Stage):
         """One ``test_code_file_writer`` call per task (concurrent), then merged."""
         bundle = TestSpecBundle.from_artifact(ctx.artifact_store.get(bundle_ref.id))
 
-        async def one(spec) -> tuple[str, list[GeneratedFile]]:
+        async def one(spec: TestSpec) -> tuple[str, list[GeneratedFile]]:
             """Return (partial_artifact_id, files) for one task's test module."""
             slice_bundle = TestSpecBundle(
                 id=f"{bundle.id}-{spec.target_task_id or spec.id}",
@@ -144,7 +145,7 @@ class GenerateTestCode(Stage):
         )
 
     @staticmethod
-    def _files_of(partial: TestSource, spec) -> list[GeneratedFile]:
+    def _files_of(partial: TestSource, spec: TestSpec) -> list[GeneratedFile]:
         """The per-file result's test modules (synthesize one if single-file)."""
         if partial.files:
             return list(partial.files)

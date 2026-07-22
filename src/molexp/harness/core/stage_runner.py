@@ -134,9 +134,7 @@ async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> PlanArtif
                 },
             )
             _set_last_stage_duration(duration_s)
-            _LOG.warning(
-                f"stage suspend name={stage.name} duration_s={duration_s:.2f}"
-            )
+            _LOG.warning(f"stage suspend name={stage.name} duration_s={duration_s:.2f}")
             raise
         except StagePersistedFailureError as exc:
             duration_s = time.monotonic() - t0
@@ -153,9 +151,7 @@ async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> PlanArtif
                     "duration_s": round(duration_s, 3),
                 },
             )
-            _LOG.error(
-                f"stage fail name={stage.name} duration_s={duration_s:.2f} err={exc!r}"
-            )
+            _LOG.error(f"stage fail name={stage.name} duration_s={duration_s:.2f} err={exc!r}")
             raise
         except Exception as exc:
             duration_s = time.monotonic() - t0
@@ -171,9 +167,7 @@ async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> PlanArtif
                     "duration_s": round(duration_s, 3),
                 },
             )
-            _LOG.error(
-                f"stage fail name={stage.name} duration_s={duration_s:.2f} err={exc!r}"
-            )
+            _LOG.error(f"stage fail name={stage.name} duration_s={duration_s:.2f} err={exc!r}")
             raise StageExecutionError(f"stage {stage.name!r} failed: {exc!r}") from exc
 
         duration_s = time.monotonic() - t0
@@ -189,9 +183,7 @@ async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> PlanArtif
                 "duration_s": round(duration_s, 3),
             },
         )
-        _LOG.info(
-            f"stage done name={stage.name} kind={ref.kind} duration_s={duration_s:.2f}"
-        )
+        _LOG.info(f"stage done name={stage.name} kind={ref.kind} duration_s={duration_s:.2f}")
         _set_last_stage_duration(duration_s)
         return ref
 

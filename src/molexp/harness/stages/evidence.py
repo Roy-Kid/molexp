@@ -59,13 +59,9 @@ _MODULE_ERROR_RE = re.compile(r"No module named\s+['\"]([\w.]+)['\"]")
 # Qualnames from installed MolCrafts packages (molrs may appear in
 # tracebacks as implementation detail; molmcp no longer indexes it as a
 # Python API source — live inspect still helps read error types).
-_MOLCRAFTS_QUALNAME_RE = re.compile(
-    r"\b((?:molpy|molpack|molrs|molq|molexp|molnex)(?:\.[\w]+)+)\b"
-)
+_MOLCRAFTS_QUALNAME_RE = re.compile(r"\b((?:molpy|molpack|molrs|molq|molexp|molnex)(?:\.[\w]+)+)\b")
 #: Mock/patch targets the test invented — open the real API page for them.
-_MOCK_TARGET_RE = re.compile(
-    r"""patch\(\s*['\"]((?:molpy|molpack)[\w.]*)['\"]"""
-)
+_MOCK_TARGET_RE = re.compile(r"""patch\(\s*['\"]((?:molpy|molpack)[\w.]*)['\"]""")
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,9 +200,7 @@ def collect_evidence_text(
 
     resolver = lookup if lookup is not None else _default_lookup
 
-    sections.append(
-        "## molmcp evidence (open pages — use these signatures; do not invent APIs)"
-    )
+    sections.append("## molmcp evidence (open pages — use these signatures; do not invent APIs)")
     for symbol in symbols[:8]:
         try:
             detail = resolver(symbol)
@@ -224,8 +218,7 @@ def collect_evidence_text(
             if (
                 promote_misses
                 and _looks_molcrafts(root)
-                and code
-                in {"SYMBOL_NOT_FOUND", "CAPABILITY_NOT_FOUND", "api_symbol_missing"}
+                and code in {"SYMBOL_NOT_FOUND", "CAPABILITY_NOT_FOUND", "api_symbol_missing"}
             ):
                 diagnosis.gaps.append(
                     CapabilityGap(
@@ -246,11 +239,7 @@ def collect_evidence_text(
         else:
             sig = ""
             if isinstance(detail, dict):
-                data = (
-                    detail.get("data")
-                    if isinstance(detail.get("data"), dict)
-                    else None
-                )
+                data = detail.get("data") if isinstance(detail.get("data"), dict) else None
                 usage = data.get("usage") if isinstance(data, dict) else None
                 inner = usage or data or detail.get("detail") or detail
                 if isinstance(inner, dict):
@@ -329,8 +318,7 @@ def _live_source_signature(symbol: str) -> str:
                 break
         if obj is None:
             return (
-                f"### live source `{symbol}`\n\n"
-                f"*(could not import/resolve in harness process)*\n"
+                f"### live source `{symbol}`\n\n*(could not import/resolve in harness process)*\n"
             )
         lines: list[str] = [f"### live source `{symbol}`"]
         try:

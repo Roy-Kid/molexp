@@ -146,8 +146,7 @@ class TestPreflightSuccess:
         monkeypatch.setitem(molexp.config, "deepseek_api_key", "test-key")
         router = preflight_plan_router(model="deepseek:deepseek-v4-flash")
         resolved = {  # type: ignore[attr-defined]
-            tier: configured.model_name
-            for tier, configured in router._tier_models.items()
+            tier: configured.model_name for tier, configured in router._tier_models.items()
         }
         assert resolved[ModelTier.CHEAP] == "deepseek-v4-flash"
         assert resolved[ModelTier.DEFAULT] == "deepseek-v4-flash"

@@ -201,10 +201,20 @@ def _seed_two_task_bundle(artifact_store: ArtifactStore) -> PlanArtifactRef:
         id="tsb-001",
         bound_workflow_id="bw-x",
         specs=[
-            TestSpec(id="ts-load", name="unit: load", kind="unit_test",
-                     target_task_id="load", description="load emits ints"),
-            TestSpec(id="ts-save", name="unit: save", kind="unit_test",
-                     target_task_id="save", description="save writes a file"),
+            TestSpec(
+                id="ts-load",
+                name="unit: load",
+                kind="unit_test",
+                target_task_id="load",
+                description="load emits ints",
+            ),
+            TestSpec(
+                id="ts-save",
+                name="unit: save",
+                kind="unit_test",
+                target_task_id="save",
+                description="save writes a file",
+            ),
         ],
     )
     return artifact_store.put_json(
@@ -247,14 +257,18 @@ def test_multi_task_bundle_fans_out_per_file_and_merges(ctx_with_gw) -> None:
                 module_name=f"test_{task}",
                 test_spec_id=slice_bundle.id,
                 bound_workflow_id="bw-x",
-                files=[GeneratedFile(
-                    path=f"tests/test_{task}.py",
-                    source=f"def test_{task}_ok():\n    assert True\n",
-                )],
+                files=[
+                    GeneratedFile(
+                        path=f"tests/test_{task}.py",
+                        source=f"def test_{task}_ok():\n    assert True\n",
+                    )
+                ],
             )
             ref = store.put_json(
-                kind="test_source_file", obj=json.loads(out.model_dump_json()),
-                created_by="fake", parent_ids=[spec.input_artifact_ids[0]],
+                kind="test_source_file",
+                obj=json.loads(out.model_dump_json()),
+                created_by="fake",
+                parent_ids=[spec.input_artifact_ids[0]],
             )
             return AgentCallResult(output_artifact=ref, raw_response_artifact=ref, model="fake")
 

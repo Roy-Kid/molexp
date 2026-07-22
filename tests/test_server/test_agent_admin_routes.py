@@ -187,9 +187,7 @@ class TestProviderPut:
         }
         body = response.json()
         assert body["models"]["heavy"] == "anthropic:claude-opus-4-6"
-        anthropic = next(
-            item for item in body["configurations"] if item["provider"] == "anthropic"
-        )
+        anthropic = next(item for item in body["configurations"] if item["provider"] == "anthropic")
         assert anthropic["models"]["heavy"] == "claude-opus-4-6"
 
     def test_put_accepts_cross_provider_tier_table(

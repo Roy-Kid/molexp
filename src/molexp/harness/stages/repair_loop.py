@@ -80,9 +80,7 @@ class RepairLoop(Stage):
             # gates whose own (report) artifacts stay in the store but are not
             # returned, so downstream stages resolve the real generated artifact.
             attempt_t0 = time.monotonic()
-            _LOG.info(
-                f"[repair:{self.name}] attempt {attempt}/{self._attempts} start"
-            )
+            _LOG.info(f"[repair:{self.name}] attempt {attempt}/{self._attempts} start")
             generated: PlanArtifactRef = await self._generate.run(ctx)
             try:
                 for validator in self._validators:

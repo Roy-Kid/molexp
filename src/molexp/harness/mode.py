@@ -147,9 +147,7 @@ class Mode(ABC):
         for stage in stages:
             fingerprint = stage_fingerprint(stage)
             if self._entry_valid(ctx, completed.get(stage.name), stage.name, fingerprint):
-                timings.append(
-                    StageTiming(stage=stage.name, duration_s=0.0, status="skipped")
-                )
+                timings.append(StageTiming(stage=stage.name, duration_s=0.0, status="skipped"))
                 _LOG.info(f"stage skip name={stage.name} reason=ledger_hit")
                 continue  # verified cache hit / resume — skip the stage body
             completed.pop(stage.name, None)
@@ -169,9 +167,7 @@ class Mode(ABC):
                     self._write_ledger(ledger_path, completed, run_id=run.id)
                 # Best-effort duration for the failed stage (may be absent).
                 fail_dt = take_stage_duration() or 0.0
-                timings.append(
-                    StageTiming(stage=stage.name, duration_s=fail_dt, status="failed")
-                )
+                timings.append(StageTiming(stage=stage.name, duration_s=fail_dt, status="failed"))
                 self._log_timing_summary(timings)
                 raise
             except Exception:

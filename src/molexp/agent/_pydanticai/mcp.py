@@ -79,9 +79,7 @@ def build_mcp_server(
     )
 
     if transport == "stdio":
-        stdio = StdioTransport(
-            command=command, args=list(args), env=env, keep_alive=keep_alive
-        )
+        stdio = StdioTransport(command=command, args=list(args), env=env, keep_alive=keep_alive)
         return MCPToolset(stdio, id=name).prefixed(name)
 
     if transport in ("http", "sse"):

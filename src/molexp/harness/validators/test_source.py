@@ -185,23 +185,23 @@ def _contract_violations(tree: ast.Module, source: str) -> list[ValidationViolat
     # RegisterMetric has .key / .value — never .name (frozen public surface).
     if "RegisterMetric" in source or "register_metric" in source.lower():
         for node in ast.walk(tree):
+            # Heuristic: attribute access on a local named *metric*
             if (
                 isinstance(node, ast.Attribute)
                 and node.attr == "name"
                 and isinstance(node.value, ast.Name)
+                and "metric" in node.value.id.lower()
             ):
-                # Heuristic: attribute access on a local named *metric*
-                if "metric" in node.value.id.lower():
-                    violations.append(
-                        ValidationViolation(
-                            code="register_metric_name_attr",
-                            message=(
-                                "RegisterMetric has no `.name` field — use `.key` "
-                                f"(found `{node.value.id}.name`)"
-                            ),
-                            severity="error",
-                        )
+                violations.append(
+                    ValidationViolation(
+                        code="register_metric_name_attr",
+                        message=(
+                            "RegisterMetric has no `.name` field — use `.key` "
+                            f"(found `{node.value.id}.name`)"
+                        ),
+                        severity="error",
                     )
+                )
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)

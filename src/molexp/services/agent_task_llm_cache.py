@@ -270,7 +270,7 @@ def prune_agent_task_llm_cache(
     if total > max_bytes_per_workspace and survivors:
         survivors.sort(key=lambda row: row[0])  # oldest first
         by_task: dict[str, set[str]] = {}
-        for mtime, size, path, task_id, cache_id in survivors:
+        for _mtime, size, path, task_id, cache_id in survivors:
             if total <= max_bytes_per_workspace:
                 break
             if not path.exists():

@@ -121,7 +121,9 @@ def write_plan_task_status(
                     else (current.experiment_id if current is not None else None)
                 ),
                 run_id=(
-                    run_id if run_id is not None else (current.run_id if current is not None else None)
+                    run_id
+                    if run_id is not None
+                    else (current.run_id if current is not None else None)
                 ),
             ),
         )
@@ -276,6 +278,7 @@ def _write_session_events(
         and event["payload"].get("turn_id") == turn_id
         for event in existing
     )
+
     def _payload(event: dict[str, Any]) -> dict[str, Any]:
         p = event.get("payload")
         return p if isinstance(p, dict) else {}
@@ -411,9 +414,7 @@ def _summary(title: str, tasks: list[str], source: str | None) -> str:
     )
 
 
-def _failure_summary(
-    title: str, stage: str | None, error: str, detail: str | None
-) -> str:
+def _failure_summary(title: str, stage: str | None, error: str, detail: str | None) -> str:
     """Human-readable failed-turn answer for the Agents chat."""
     stage_bit = f" at stage `{stage}`" if stage else ""
     lines = [
@@ -433,7 +434,7 @@ def _failure_summary(
     return "\n".join(lines)
 
 
-def _failure_detail(run: Run, error: str) -> str | None:
+def _failure_detail(run: Run, _error: str) -> str | None:
     """Best-effort pytest / stage stderr to surface in chat (not just Knowledge)."""
     # Prefer the harness feedback artifact left by ExecuteTests for the repair loop.
     for kind in ("test_code_feedback", "stdout", "stderr"):

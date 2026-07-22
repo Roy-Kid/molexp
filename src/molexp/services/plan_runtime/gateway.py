@@ -63,9 +63,7 @@ def _resolve_tier_models(*, model: str, models: dict[str, str] | None) -> dict:
     from molexp.agent.router import ModelTier
 
     if models is not None:
-        missing = [
-            t.value for t in ModelTier if t.value not in models or not models[t.value]
-        ]
+        missing = [t.value for t in ModelTier if t.value not in models or not models[t.value]]
         if missing:
             raise PlanPreflightError(
                 "plan models map is incomplete — configure agent.models for "
@@ -335,9 +333,7 @@ def build_plan_gateway(
         router = preflight_plan_router(model=model, models=models)
     store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
     required_mcp = plan_agent_mcp_servers()
-    mcp_tools_by_agent = _resolve_agent_mcp_tools(
-        required_mcp, workspace_root or run.run_dir
-    )
+    mcp_tools_by_agent = _resolve_agent_mcp_tools(required_mcp, workspace_root or run.run_dir)
     # Fail-closed: codegen agents that declare molmcp must actually get tools.
     # Silent catalog-only fallback invents APIs; raise before the plan starts.
     missing = [
@@ -367,12 +363,8 @@ def build_plan_gateway(
         except Exception as exc:  # never block gateway construction
             logger.warning(f"llm cache prune at plan start failed: {exc!r}")
         if draft is not None:
-            ensure_plan_session_started(
-                workspace_root, task_id, draft=draft, turn_id=turn_id
-            )
-        on_llm_call = make_llm_call_observer(
-            workspace_root, task_id, turn_id=turn_id
-        )
+            ensure_plan_session_started(workspace_root, task_id, draft=draft, turn_id=turn_id)
+        on_llm_call = make_llm_call_observer(workspace_root, task_id, turn_id=turn_id)
 
     responses = plan_agent_responses()
     tiers = plan_agent_tiers()

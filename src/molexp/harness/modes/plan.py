@@ -214,9 +214,7 @@ class PlanMode(Mode):
                         feedback_kind="bound_workflow_feedback",
                         attempts=n,
                     ),
-                    SequentialTaskBuild(
-                        self._executor, attempts=self._repair_attempts
-                    ),
+                    SequentialTaskBuild(self._executor, attempts=self._repair_attempts),
                     # Assembly already green under per-task pytest; structural
                     # + semantic gates only (no full rewrite of sequential work).
                     ValidateWorkflowSource(),
