@@ -27,6 +27,7 @@ __all__ = [
     "OutOfAffectedScopeError",
     "StageExecutionError",
     "StagePersistedFailureError",
+    "TaskRealizationBlockedError",
     "UnhandledHighRiskOpError",
 ]
 
@@ -111,6 +112,34 @@ class ApprovalPendingError(StageExecutionError):
         )
         self.requests = list(requests)
         self.run_id = run_id
+
+
+class TaskRealizationBlockedError(StageExecutionError):
+    """Raised by the realization phase when >= 1 task could not self-repair.
+
+    Subclasses :class:`StageExecutionError` so existing ``except
+    StageExecutionError`` sites still stop the pipeline. Mirrors
+    :class:`ApprovalPendingError`'s "persist a durable record, then raise"
+    pattern: the board writes one ``intervention_request`` artifact holding
+    every :class:`~molexp.harness.schemas.intervention.BlockedTask`, then
+    raises this so the run suspends for a human decision rather than
+    compiling an incomplete workflow.
+
+    Attributes:
+        request_ref: The :class:`PlanArtifactRef` of the persisted
+            ``intervention_request`` artifact.
+        blocked_task_ids: The ``BoundTask.id``\\ s that stayed red.
+    """
+
+    def __init__(self, request_ref: PlanArtifactRef, blocked_task_ids: list[str]) -> None:
+        ids = ", ".join(blocked_task_ids)
+        super().__init__(
+            f"task realization blocked: {len(blocked_task_ids)} task(s) could not be "
+            f"self-repaired to green ({ids}); a durable intervention_request "
+            f"{request_ref.id!r} was persisted — resolve it and re-run to resume"
+        )
+        self.request_ref = request_ref
+        self.blocked_task_ids = list(blocked_task_ids)
 
 
 class AgentResponseNotRegisteredError(HarnessError):

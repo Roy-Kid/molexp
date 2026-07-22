@@ -34,6 +34,7 @@ from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSourc
 from molexp.harness.stages.invoke_capability import InvokeCapability
 from molexp.harness.stages.materialize_and_execute_tests import MaterializeAndExecuteTests
 from molexp.harness.stages.materialize_execution import MaterializeExecution
+from molexp.harness.stages.realize_board import RealizeBoard
 from molexp.harness.stages.repair_loop import RepairLoop
 from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
 from molexp.harness.stages.review_plan import ReviewPlan
@@ -71,6 +72,7 @@ __all__ = [
     "InvokeCapability",
     "MaterializeAndExecuteTests",
     "MaterializeExecution",
+    "RealizeBoard",
     "RepairLoop",
     "ResolveCapabilities",
     "ReviewPlan",

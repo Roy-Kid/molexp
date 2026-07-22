@@ -57,6 +57,7 @@ from molexp.harness.schemas.experiment_spec import (
 )
 from molexp.harness.schemas.final_report import FinalReport
 from molexp.harness.schemas.input_set import InputSet, SweepAxis, SweepStrategy
+from molexp.harness.schemas.intervention import BlockedTask, InterventionRequest
 from molexp.harness.schemas.mode_result import ModeResult, StageTiming
 from molexp.harness.schemas.parameter import ParameterSource, ParameterValue
 from molexp.harness.schemas.plan_review import PlanReview, PlanReviewFinding
@@ -116,6 +117,7 @@ __all__ = [
     "ApprovalRequest",
     "ArtifactKind",
     "AuditReport",
+    "BlockedTask",
     "BoundTask",
     "BoundWorkflow",
     "CapabilityInvocationResult",
@@ -152,6 +154,7 @@ __all__ = [
     "HarnessEvent",
     "HighRiskOp",
     "InputSet",
+    "InterventionRequest",
     "ModeResult",
     "ObjectRef",
     "ParameterSource",
