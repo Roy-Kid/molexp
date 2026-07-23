@@ -15,6 +15,11 @@ examples/agent/smoke_runs/
 /catalog/
 /projects/
 /cache/
+/index.json
+/INDEX.md
+/workspace.events.sqlite
+# ad-hoc e2e runner left at repo root
+/e2e_run.py
 # Accidental agent/session materialisation at repo root (never commit)
 # Agent home: agent/ (sessions + _tasks + .scratch).
 /agent/
