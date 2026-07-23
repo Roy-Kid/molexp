@@ -31,8 +31,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from molexp.harness.stages.input_space import input_set_to_param_space
-from molexp.harness.stages.realize_board import RealizeBoard
 
 from molexp.harness.schemas import (
     CommandResult,
@@ -40,6 +38,8 @@ from molexp.harness.schemas import (
     InterventionRequest,
     WorkflowSource,
 )
+from molexp.harness.stages.input_space import input_set_to_param_space
+from molexp.harness.stages.realize_board import RealizeBoard
 
 pytestmark = pytest.mark.asyncio
 

@@ -17,11 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  collectFieldValues,
-  type FormDocumentWire,
-  type FormFieldWire,
-} from "./formDocument";
+import { collectFieldValues, type FormDocumentWire, type FormFieldWire } from "./formDocument";
 
 export type { FormDocumentWire, FormFieldWire } from "./formDocument";
 export { collectFieldValues } from "./formDocument";
@@ -128,7 +124,7 @@ export const ReviewSurface = ({
                   disabled={ro}
                   onChange={(e) => set(field.id, e.target.checked)}
                 />
-                <span>{Boolean(value) ? "Yes" : "No"}</span>
+                <span>{value ? "Yes" : "No"}</span>
               </label>
             </FieldShell>
           );
@@ -217,15 +213,18 @@ export const ReviewSurface = ({
                         </td>
                       </tr>
                     ) : (
-                      rows.map((row, i) => (
-                        <tr key={i}>
-                          {cols.map((c) => (
-                            <td key={c.id} className="border border-border/60 px-2 py-1">
-                              {String(row[c.id] ?? "")}
-                            </td>
-                          ))}
-                        </tr>
-                      ))
+                      rows.map((row) => {
+                        const rowKey = cols.map((c) => String(row[c.id] ?? "")).join("\0");
+                        return (
+                          <tr key={rowKey}>
+                            {cols.map((c) => (
+                              <td key={c.id} className="border border-border/60 px-2 py-1">
+                                {String(row[c.id] ?? "")}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

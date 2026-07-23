@@ -19,9 +19,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from molexp.harness.plan_tools import PlanTool, PlanToolResult, as_loop_tool
 
 from molexp.harness.core.run_context import HarnessRunContext
+from molexp.harness.plan_tools import PlanTool, PlanToolResult, as_loop_tool
 from molexp.harness.policy import enforce_side_effect_approvals
 from molexp.harness.schemas.approval import ApprovalDecision, ApprovalRequest
 from molexp.harness.stages import auto_grant_approver

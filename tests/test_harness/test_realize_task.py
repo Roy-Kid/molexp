@@ -34,10 +34,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from molexp.harness.stages.realize_task import realize_one_task
 
 from molexp.harness.schemas import BlockedTask, CommandResult
 from molexp.harness.stages.generate_workflow_source import _slug
+from molexp.harness.stages.realize_task import realize_one_task
 
 pytestmark = pytest.mark.asyncio
 

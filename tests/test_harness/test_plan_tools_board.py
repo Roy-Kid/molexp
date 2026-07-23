@@ -21,6 +21,10 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
+
+from molexp.harness.core.run_context import HarnessRunContext
+from molexp.harness.errors import ArtifactNotFoundError, HarnessError
 from molexp.harness.plan_tools import (
     BOARD_TOOLS,
     PlanTool,
@@ -34,10 +38,6 @@ from molexp.harness.plan_tools import (
     propose_plan_patch,
     update_task,
 )
-from pydantic import ValidationError
-
-from molexp.harness.core.run_context import HarnessRunContext
-from molexp.harness.errors import ArtifactNotFoundError, HarnessError
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore

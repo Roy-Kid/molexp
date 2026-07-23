@@ -395,9 +395,9 @@ const ProviderTab = (): JSX.Element => {
         <div>
           <h2 className="text-base font-semibold">Models</h2>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            The agent router has three semantic tiers. Each tier can use a model from a
-            different provider — set the global table first, then store credentials for
-            every provider you reference.
+            The agent router has three semantic tiers. Each tier can use a model from a different
+            provider — set the global table first, then store credentials for every provider you
+            reference.
           </p>
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
@@ -413,8 +413,8 @@ const ProviderTab = (): JSX.Element => {
         <div>
           <h3 className="text-sm font-semibold">Provider credentials</h3>
           <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
-            API keys and optional base URLs. Independent of the tier table — only the
-            providers used by a tier need a key.
+            API keys and optional base URLs. Independent of the tier table — only the providers used
+            by a tier need a key.
           </p>
         </div>
         <div className="space-y-3">
@@ -461,13 +461,14 @@ const TierTableCard = ({
   registry: ProviderRegistryResponse;
   onChanged: (config: ApiAgentProvider) => void;
 }): JSX.Element => {
-  const [rows, setRows] = useState(() =>
-    Object.fromEntries(
-      MODEL_TIERS.map(({ tier }) => {
-        const parsed = parseQualifiedModel(initial[tier] || "", fallbackProvider);
-        return [tier, parsed];
-      }),
-    ) as Record<ApiModelTier, { provider: ApiProviderName | ""; modelId: string }>,
+  const [rows, setRows] = useState(
+    () =>
+      Object.fromEntries(
+        MODEL_TIERS.map(({ tier }) => {
+          const parsed = parseQualifiedModel(initial[tier] || "", fallbackProvider);
+          return [tier, parsed];
+        }),
+      ) as Record<ApiModelTier, { provider: ApiProviderName | ""; modelId: string }>,
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -517,9 +518,8 @@ const TierTableCard = ({
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">Model tiers</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Plan authoring uses Heavy; review uses Default. Cheap is reserved for light
-          routing. Values are stored as full <code className="font-mono">provider:model</code>{" "}
-          ids.
+          Plan authoring uses Heavy; review uses Default. Cheap is reserved for light routing.
+          Values are stored as full <code className="font-mono">provider:model</code> ids.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">

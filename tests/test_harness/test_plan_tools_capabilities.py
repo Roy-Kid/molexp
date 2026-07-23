@@ -25,10 +25,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from molexp.harness.plan_tools import PlanToolResult, run_acceptance_test, run_capability
 
 from molexp.harness import CapabilityRegistry, DryRunExecutor, StageExecutionError
 from molexp.harness.core.run_context import HarnessRunContext
+from molexp.harness.plan_tools import PlanToolResult, run_acceptance_test, run_capability
 from molexp.harness.policy import enforce_side_effect_approvals
 from molexp.harness.registry import InMemoryCapabilityRegistry
 from molexp.harness.schemas import PlanArtifactRef, ToolCapability

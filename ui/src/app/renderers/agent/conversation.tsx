@@ -131,7 +131,9 @@ const EventRow = ({
               <div>
                 <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Prompt
-                  {typeof payload.prompt_chars === "number" ? ` · ${payload.prompt_chars} chars` : ""}
+                  {typeof payload.prompt_chars === "number"
+                    ? ` · ${payload.prompt_chars} chars`
+                    : ""}
                 </p>
                 <pre className="max-h-48 overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap">
                   {String(payload.prompt_preview)}
@@ -212,17 +214,13 @@ const TurnAnswer = ({
         <div className="space-y-2">
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             Plan failed
-            {typeof payload.stage === "string" && payload.stage
-              ? ` · stage ${payload.stage}`
-              : ""}
+            {typeof payload.stage === "string" && payload.stage ? ` · stage ${payload.stage}` : ""}
           </div>
           <MarkdownContent text={linkIndex ? linkifyEntityTokens(summary, linkIndex) : summary} />
         </div>
       );
     }
-    return (
-      <MarkdownContent text={linkIndex ? linkifyEntityTokens(summary, linkIndex) : summary} />
-    );
+    return <MarkdownContent text={linkIndex ? linkifyEntityTokens(summary, linkIndex) : summary} />;
   }
 
   if (result.type === "error") {
