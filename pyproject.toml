@@ -49,6 +49,7 @@ dev = [
     # META.build.check / bare `ruff` on PATH agrees with the commit hooks.
     "ruff==0.15.12",
     "ty==0.0.60",
+    "tox>=4.23",
 ]
 docs = [
     "zensical>=0.0.45",
@@ -172,4 +173,45 @@ molexp = [
     "openapi.json",
     "dist/**",
     "harness/prompts/contracts/*.yaml",
+]
+
+# Isolated gates — prek + CI: uv run --extra dev tox -e lint|py
+[tool.tox]
+requires = ["tox>=4.23"]
+env_list = ["lint", "py"]
+
+[tool.tox.env.lint]
+description = "CI lint"
+skip_install = true
+base_python = ["python3.12"]
+deps = [
+  "ruff==0.15.12",
+  "ty==0.0.60",
+]
+commands = [
+  ["ruff", "check", "."],
+]
+
+[tool.tox.env.py]
+description = "CI test (non-editable package when package=wheel)"
+base_python = ["python3.12"]
+pass_env = [
+  "HOME",
+  "PATH",
+  "SSH_AUTH_SOCK",
+  "TERM",
+  "VIRTUAL_ENV",
+  "UV_*",
+]
+package = "wheel"
+extras = ["dev"]
+commands_pre = [
+  [
+    "{envpython}",
+    "-c",
+    "import pathlib, site; sps=site.getsitepackages(); print('site-packages', sps)",
+  ],
+]
+commands = [
+  ["{envpython}", "-m", "pytest", "tests/", "-q", "--cov=src/molexp", "--cov-report=xml"],
 ]
