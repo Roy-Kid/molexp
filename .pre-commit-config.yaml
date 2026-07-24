@@ -1,11 +1,7 @@
 # Managed by prek: `prek install`
-# Python tests: tox from pyproject[dev]. Lint uses ruff-pre-commit (tree not
-# fully ruff-clean for full-tree tox -e lint yet). UI mirrors ci.yml ui job.
-#
-# Install: prek install
+# CI parity with .github/workflows/ci.yml (UV_NO_SOURCES=1 for path-free installs).
 
 default_install_hook_types: [pre-commit, pre-push]
-
 exclude: '^ui/src/api/generated/'
 
 repos:
@@ -21,8 +17,6 @@ repos:
       - id: check-merge-conflict
       - id: mixed-line-ending
       - id: check-toml
-      - id: check-json
-        exclude: '(^|/)(tsconfig(\..+)?\.json|devcontainer\.json)$'
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.12
@@ -33,18 +27,10 @@ repos:
 
   - repo: local
     hooks:
-      - id: tox-py
-        name: "CI test (uv run --extra dev tox -e py)"
-        entry: uv run --extra dev tox -e py
+      - id: ci-test
+        name: "CI test (uv sync + pytest, UV_NO_SOURCES=1)"
+        entry: bash -c 'export UV_NO_SOURCES=1; uv sync --extra dev && uv run pytest tests/ -q --cov=src/molexp --cov-report=xml'
         language: system
         pass_filenames: false
         always_run: true
-        stages: [pre-push]
-
-      - id: ui
-        name: "UI lint + typecheck + test (ci.yml ui job)"
-        entry: bash -c 'npm run lint && npm run typecheck && npm run test:ui'
-        language: system
-        always_run: true
-        pass_filenames: false
         stages: [pre-push]
