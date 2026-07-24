@@ -46,14 +46,14 @@ jobs:
 
   ui:
     runs-on: ubuntu-latest
+    # Advisory: workspace depends on unpublished @molcrafts/molplot pin.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          # no cache: package-lock may be absent by design
       - name: npm install
         run: npm install
       - name: UI lint + typecheck + test
         run: npm run lint && npm run typecheck && npm run test:ui
-        continue-on-error: true
