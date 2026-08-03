@@ -292,7 +292,9 @@ async def run_task_body(
                 run_dir=getattr(deps, "run_dir", None),
             )
 
-    raw = await _invoke_body_with_ctx(registration, task_ctx, inputs, effective_config)
+    # Parameter binding treats an absent config as an empty one; the body-call
+    # helpers below take a non-optional mapping.
+    raw = await _invoke_body_with_ctx(registration, task_ctx, inputs, effective_config or {})
     return _promote_outputs(raw, deps.run_context)
 
 

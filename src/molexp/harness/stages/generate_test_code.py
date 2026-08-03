@@ -31,7 +31,11 @@ from molexp.harness.schemas import (
     TestSpecBundle,
 )
 from molexp.harness.schemas.workflow_source import GeneratedFile
-from molexp.harness.stages._resolve import feedback_inputs, require_latest
+from molexp.harness.stages._resolve import (
+    feedback_inputs,
+    require_agent_gateway,
+    require_latest,
+)
 
 __all__ = ["GenerateTestCode"]
 
@@ -105,7 +109,7 @@ class GenerateTestCode(Stage):
                 input_artifact_ids=[slice_ref.id, workflow_source_id, *feedback],
                 output_schema=TestSource.model_json_schema(),
             )
-            result = await ctx.agent_gateway.call(call)
+            result = await require_agent_gateway(ctx, stage=self.name).call(call)
             partial = TestSource.model_validate_json(
                 ctx.artifact_store.get(result.output_artifact.id)
             )

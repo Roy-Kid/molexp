@@ -309,16 +309,12 @@ def build_ops_tools(
         "discover": discover,
         "describe": describe,
     }
-    tools = tuple(by_name[n] for n in sorted(allowed) if n in by_name)
-    # Stable catalog order from BUILTIN_TOOLS sequence.
+    # Stable catalog order from the BUILTIN_TOOLS sequence. (The dropped
+    # asserts here duplicated tests/test_agent/ops/test_ops_surface.py, which
+    # already pins the built surface against BUILTIN_TOOL_NAMES per surface.)
     from molexp.agent.ops.builtins import BUILTIN_TOOLS
 
-    ordered = tuple(by_name[t.name] for t in BUILTIN_TOOLS if t.name in allowed)
-    tools = ordered
-    for t in tools:
-        assert t.__name__ in BUILTIN_TOOL_NAMES
-        assert t.__name__ in allowed
-    return tools
+    return tuple(by_name[t.name] for t in BUILTIN_TOOLS if t.name in allowed)
 
 
 def render_discovery_catalog(

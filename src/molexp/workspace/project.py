@@ -269,7 +269,7 @@ class Project(Folder):
             tags=tags,
             default_target=default_target,
         )
-        return cast(Experiment, self.add_folder(child))
+        return self.add_folder(child)
 
     def experiment(self, name: str, **kwargs: Any) -> Experiment:  # noqa: ANN401
         """Fluent create-or-get alias for :meth:`add_experiment` (idempotent)."""

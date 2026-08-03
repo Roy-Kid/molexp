@@ -3,7 +3,7 @@
 ChatLoop is one ``user_input`` → one LLM round-trip → one
 :class:`~molexp.agent.loop.AgentRunResult`. Plain ``async def run`` body
 (no ``Stage`` / ``ModePipeline`` / ``RepairPolicy``); events flow
-through the injected :class:`~molexp.agent.events.AsyncIteratorEventSink`
+through the injected :data:`~molexp.agent.events.EventSink`
 in emission order.
 
 Conversation context comes from the session entry-tree: prior turns are
@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.agent.compaction import CompactionSettings
 from molexp.agent.events import (
-    AsyncIteratorEventSink,
+    EventSink,
     LoopCompletedEvent,
     LoopStartedEvent,
 )
@@ -63,7 +63,7 @@ class ChatLoop(AgentLoop):
         self,
         *,
         runtime: AgentRuntime,
-        sink: AsyncIteratorEventSink,
+        sink: EventSink,
         user_input: str,
     ) -> None:
         """Drive one chat turn; emit events through ``sink``."""

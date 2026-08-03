@@ -1156,6 +1156,9 @@ def shell(target_spec: TargetOption = ".") -> None:
     if isinstance(target, RemoteTarget):
         import subprocess
 
+        if not target.host:
+            rprint("[red]Error:[/red] remote target has no host to ssh into")
+            raise typer.Exit(1)
         user_host = f"{target.user}@{target.host}" if target.user else target.host
         ssh_cmd = ["ssh", "-t", user_host, f"cd {target.path} && exec ${{SHELL:-bash}}"]
         if target.port:

@@ -419,7 +419,7 @@ class Experiment(Folder):
             workflow_snapshot=workflow_snapshot,
             target=resolved_target,
         )
-        run = cast(Run, self.add_folder(child))
+        run = self.add_folder(child)
         # Default-on, non-fatal workspace-timeline milestone (integration P0.3).
         from .events import emit_workspace_event
 
@@ -549,7 +549,11 @@ class Experiment(Folder):
                     f"got a scalar for {', '.join(repr(a) for a in scalars)} — "
                     f"wrap it in a list (e.g. {scalars[0]!r}: [{grid[scalars[0]]!r}])."
                 )
-            space = GridSpace(grid)
+            # Rebuild through the isinstance filter the guard above already
+            # proved exhaustive, so the axis type is carried, not asserted.
+            space = GridSpace(
+                {axis: values for axis, values in grid.items() if isinstance(values, list)}
+            )
         # Auto-compile an uncompiled WorkflowCompiler (duck-typed: a compiled
         # workflow has no ``compile`` method; workspace never imports workflow).
         compile_hook = getattr(workflow, "compile", None)

@@ -207,9 +207,12 @@ def _build_runner(
             context_block=context_block,
         )
     )
-    runner_config = {"models": models} if models is not None else {"model": model}
+    if models is not None:
+        return AgentRunner(
+            loop=loop, models=models, workspace=workspace_root, session_anchor=session_anchor
+        )
     return AgentRunner(
-        loop=loop, workspace=workspace_root, session_anchor=session_anchor, **runner_config
+        loop=loop, model=model, workspace=workspace_root, session_anchor=session_anchor
     )
 
 

@@ -80,7 +80,7 @@ def wiring_dict_from_bound(bound: object, *, slugs: dict[str, str]) -> dict[str,
         src_outs = _mappingish(getattr(by_id[src], "outputs", None) or {})
         tgt_ins = _mappingish(getattr(by_id[tgt], "inputs", None) or {})
         # Keys that appear on both sides are the contract surface.
-        shared = sorted(set(src_outs) & set(tgt_ins)) if src_outs and tgt_ins else []
+        shared = sorted(set(_keys(src_outs)) & set(_keys(tgt_ins)))
         edge_list.append(
             {
                 "from_task": slugs.get(src, src),

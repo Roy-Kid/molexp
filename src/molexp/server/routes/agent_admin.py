@@ -763,7 +763,7 @@ async def test_mcp_server(
     entry = store.get(mcp_scope, name)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"MCP server {name!r} not found")
-    transport = entry.spec.type if hasattr(entry.spec, "type") else "?"
+    transport = entry.transport or "?"
     started = time.monotonic()
     tool_count = 0
     err: str | None = None
@@ -773,8 +773,8 @@ async def test_mcp_server(
             import os
             from pathlib import Path
 
-            from mcp import ClientSession, StdioServerParameters  # ty: ignore[unresolved-import]
-            from mcp.client.stdio import stdio_client  # ty: ignore[unresolved-import]
+            from mcp import ClientSession, StdioServerParameters
+            from mcp.client.stdio import stdio_client
 
             params = StdioServerParameters(
                 command=resolved.command,
@@ -990,7 +990,7 @@ def update_knowledge_sources(
         if s not in seen:
             seen.add(s)
             ordered.append(s)
-    env = dict(public)
+    env: dict[str, JSONValue] = dict(public)
     if ordered:
         env["MOLMCP_SOURCES"] = ",".join(ordered)
     else:

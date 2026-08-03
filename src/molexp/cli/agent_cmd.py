@@ -319,6 +319,7 @@ def agent_harvest(
     """Harvest an on-disk agent session into a KnowledgeItem on the workspace."""
     from molexp.agent.harvest import harvest_session
     from molexp.cli._common import rprint
+    from molexp.workspace import parse_knowledge_kind
 
     root = (workspace or Path.cwd()).resolve()
     try:
@@ -329,7 +330,7 @@ def agent_harvest(
     try:
         item = harvest_session(
             sess,
-            kind=kind,  # type: ignore[arg-type]
+            kind=parse_knowledge_kind(kind),
             narrative=narrative,
             created_by=created_by,
             host=ws,

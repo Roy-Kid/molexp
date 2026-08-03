@@ -34,7 +34,11 @@ from molexp.harness.schemas import (
     WorkflowSource,
 )
 from molexp.harness.schemas.workflow_source import GeneratedFile
-from molexp.harness.stages._resolve import feedback_inputs, require_latest
+from molexp.harness.stages._resolve import (
+    feedback_inputs,
+    require_agent_gateway,
+    require_latest,
+)
 
 __all__ = ["GenerateWorkflowSource"]
 
@@ -120,7 +124,7 @@ class GenerateWorkflowSource(Stage):
                 prompt_artifact_id=catalog_id,
                 output_schema=WorkflowSource.model_json_schema(),
             )
-            result = await ctx.agent_gateway.call(call)
+            result = await require_agent_gateway(ctx, stage=self.name).call(call)
             partial = WorkflowSource.model_validate_json(
                 ctx.artifact_store.get(result.output_artifact.id)
             )

@@ -113,9 +113,9 @@ def _task_from_metadata(task: PersistedAgentTask) -> AgentTaskResponse:
     )
 
 
-def _workspace_root(workspace) -> str | None:  # noqa: ANN001
-    root = getattr(workspace, "root", None)
-    return str(root) if root is not None else None
+def _workspace_root(workspace: Workspace) -> str:
+    """The workspace root as a string. ``Workspace.root`` is always set."""
+    return str(workspace.root)
 
 
 def _persist_task_response(

@@ -15,6 +15,7 @@ from molexp.harness.errors import StageExecutionError
 
 if TYPE_CHECKING:
     from molexp.harness.core.run_context import HarnessRunContext
+    from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.schemas import PlanArtifactRef
 
 
@@ -50,3 +51,18 @@ def feedback_inputs(ctx: HarnessRunContext, feedback_kind: str) -> list[str]:
     """
     ref = ctx.artifact_store.latest_by_kind(feedback_kind)
     return [ref.id] if ref is not None else []
+
+
+def require_agent_gateway(ctx: HarnessRunContext, *, stage: str) -> AgentGateway:
+    """Return the run's agent gateway, or raise.
+
+    ``HarnessRunContext.agent_gateway`` is optional because non-LLM stages do
+    not need one. A stage that *does* dispatch an agent call must say so and
+    fail with its own name rather than dereference ``None``.
+
+    Raises:
+        StageExecutionError: If no gateway is wired on ``ctx``.
+    """
+    if ctx.agent_gateway is None:
+        raise StageExecutionError(f"{stage} requires ctx.agent_gateway")
+    return ctx.agent_gateway

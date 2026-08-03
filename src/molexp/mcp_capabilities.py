@@ -33,7 +33,7 @@ query menu — auto-discovery law. Phase 1b feeds the same catalog to the
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mollog import get_logger
 
@@ -60,6 +60,11 @@ _SKIP_PARAMS = frozenset({"self", "cls"})
 
 
 # ── Signature parsing (pure) ───────────────────────────────────────────────
+
+
+def _as_list(value: object) -> list[Any]:
+    """The list at *value*, or empty. Untyped molmcp JSON is never iterated blind."""
+    return value if isinstance(value, list) else []
 
 
 def _split_top_level(params: str) -> list[str]:
@@ -309,9 +314,7 @@ def capabilities_from_payloads(
 
 def _payload_from_result(result: object) -> Mapping[str, object] | None:
     """Extract the JSON dict from an MCP ``CallToolResult``'s text content."""
-    if not hasattr(result, "content"):
-        return None
-    content = result.content
+    content = _as_list(getattr(result, "content", None))
     if not content:
         return None
     for block in content:
@@ -395,8 +398,8 @@ async def fetch_molmcp_capabilities(
     # ``mcp`` arrives transitively via the optional ``agent`` extra (pydantic-ai)
     # and molmcp is externally provisioned, so this stays a lazy, in-function
     # import; ty lacks stubs for the submodule.
-    from mcp import ClientSession, StdioServerParameters  # ty: ignore[unresolved-import]
-    from mcp.client.stdio import stdio_client  # ty: ignore[unresolved-import]
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
 
     from molexp.agent.mcp import McpScope, McpStore
 
@@ -539,9 +542,12 @@ def _queries_from_guide(guide: Mapping[str, object] | None, task: str | None) ->
         suggested = guide.get("suggested_queries")
         if isinstance(suggested, list):
             out.extend(str(q) for q in suggested if q)
-        for item in guide.get("checklist") or []:
-            if isinstance(item, dict) and item.get("search_query"):
-                out.append(str(item["search_query"]))
+        for item in _as_list(guide.get("checklist")):
+            if not isinstance(item, dict):
+                continue
+            query = item.get("search_query")
+            if query:
+                out.append(str(query))
     if not out:
         out = ["public package APIs and executable capabilities"]
     return list(dict.fromkeys(out))
@@ -552,11 +558,11 @@ def _packages_from_guide(guide: Mapping[str, object] | None) -> set[str]:
     if not isinstance(guide, dict):
         return set()
     roots: set[str] = set()
-    for name in guide.get("preferred_packages") or []:
+    for name in _as_list(guide.get("preferred_packages")):
         if isinstance(name, str) and name:
             roots.add(name.split(".", 1)[0].lower())
             roots.add(name.lower())
-    for entry in guide.get("available_sources") or []:
+    for entry in _as_list(guide.get("available_sources")):
         if not isinstance(entry, dict):
             continue
         if entry.get("status") not in (None, "ok"):

@@ -28,7 +28,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from molq.transport import Transport
 
@@ -54,7 +54,7 @@ class LocalTarget(ComputeTarget):
     via :attr:`path`.
     """
 
-    def __init__(self, path: Path | str | None = None, **data: object) -> None:
+    def __init__(self, path: Path | str | None = None, **data: Any) -> None:  # noqa: ANN401 — forwarded pydantic field values
         if path is not None:
             data.setdefault("scratch_root", str(path))
         data.setdefault("name", data.get("scratch_root", "local"))
@@ -78,7 +78,7 @@ class RemoteTarget(ComputeTarget):
 
     user: str | None = None
 
-    def __init__(self, *, path: str | None = None, **data: object) -> None:
+    def __init__(self, *, path: str | None = None, **data: Any) -> None:  # noqa: ANN401 — forwarded pydantic field values
         if path is not None:
             data.setdefault("scratch_root", path)
         if "name" not in data:
@@ -101,8 +101,12 @@ class RemoteTarget(ComputeTarget):
         return self.scp_notation
 
 
-#: The unified target family — every target IS a ComputeTarget.
-Target = ComputeTarget
+#: The unified target family. Every target IS a ``ComputeTarget`` (the
+#: persisted shape), but resolution only ever produces one of the two address
+#: views — so the alias names the union. Aliasing the base instead made
+#: ``isinstance(t, RemoteTarget)`` narrow to a type with no ``path`` at all,
+#: which is how the CLI ended up unable to name the path it had just resolved.
+Target = LocalTarget | RemoteTarget
 
 
 # SCP pattern: [user@]host:path  (but not :// which is a URL)

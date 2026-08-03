@@ -23,7 +23,7 @@ the shared ``@concept_type`` registry so :func:`concept_from_dir` rebuilds it.
 
 from __future__ import annotations
 
-from typing import ClassVar, Literal, cast
+from typing import ClassVar, Literal, cast, get_args
 
 from pydantic import BaseModel, field_validator
 
@@ -48,6 +48,29 @@ KnowledgeKind = Literal[
     "OpenQuestion",
 ]
 """The typed category of a knowledge item."""
+
+KNOWLEDGE_KINDS: tuple[KnowledgeKind, ...] = get_args(KnowledgeKind)
+"""The KnowledgeKind vocabulary, in declaration order."""
+
+
+def parse_knowledge_kind(value: str) -> KnowledgeKind:
+    """Validate an untrusted ``kind`` string against :data:`KnowledgeKind`.
+
+    Agent tools and CLI flags carry the kind as a free ``str``. Passing that
+    straight into a ``Literal``-typed API only defers the failure to model
+    construction, mid-turn; validating at the boundary yields one clear error
+    naming the whole vocabulary.
+
+    Raises:
+        ValueError: If *value* is not one of :data:`KNOWLEDGE_KINDS`.
+    """
+    for kind in KNOWLEDGE_KINDS:
+        if value == kind:
+            return kind
+    raise ValueError(
+        f"unknown knowledge kind {value!r}; expected one of: {', '.join(KNOWLEDGE_KINDS)}"
+    )
+
 
 SourceKind = Literal[
     "artifact",
@@ -173,9 +196,11 @@ class KnowledgeItem(Folder):
 
 __all__ = [
     "KNOWLEDGE_ITEM_KIND",
+    "KNOWLEDGE_KINDS",
     "KnowledgeItem",
     "KnowledgeKind",
     "KnowledgeMeta",
     "SourceKind",
     "SourceRef",
+    "parse_knowledge_kind",
 ]

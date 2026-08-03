@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from mollog import get_logger
@@ -237,9 +238,10 @@ class PlanTask:
                 from molexp.harness.plan.document import experiment_report_to_document
                 from molexp.harness.store.file_artifact_store import FileArtifactStore
 
-                board = read_board(board_path(self.run.run_dir))
+                run_dir = Path(str(self.run.run_dir))
+                board = read_board(board_path(run_dir))
                 step_count = len(getattr(board, "tasks", ()) or ())
-                store = FileArtifactStore(root=self.run.run_dir / "artifacts")
+                store = FileArtifactStore(root=run_dir / "artifacts")
                 # Prefer LLM-filled plan_report (rendered before the review gate).
                 report_ref = store.latest_by_kind("plan_report")
                 if report_ref is not None:

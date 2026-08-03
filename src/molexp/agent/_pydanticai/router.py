@@ -407,7 +407,7 @@ class PydanticAIRouter:
             # valid per pydantic-ai's signature.
             agent = cast(
                 "Agent[None, SchemaT]",
-                Agent(  # ty: ignore[no-matching-overload]
+                Agent(
                     model=model,
                     output_type=schema,
                     system_prompt=system,
@@ -466,7 +466,7 @@ class PydanticAIRouter:
         model = self._tier_models[tier]
         return cast(
             "Agent[None, SchemaT]",
-            Agent(  # ty: ignore[no-matching-overload]
+            Agent(
                 model=model,
                 output_type=schema,
                 system_prompt=system,

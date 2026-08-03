@@ -277,8 +277,8 @@ def _live_collection() -> object | None:
     if _COLLECTION_CACHE is not None:
         return _COLLECTION_CACHE
     try:
-        from molmcp.config import load_config
-        from molmcp.runtime import build_collection
+        from molmcp.config import load_config  # ty: ignore[unresolved-import]
+        from molmcp.runtime import build_collection  # ty: ignore[unresolved-import]
 
         _COLLECTION_CACHE = build_collection(load_config())
         return _COLLECTION_CACHE
@@ -362,7 +362,10 @@ def _default_lookup(symbol: str) -> dict[str, Any] | None:
             "ref": symbol,
         }
     try:
-        from molmcp.collection.browse import open_ref, search_scoped
+        from molmcp.collection.browse import (  # ty: ignore[unresolved-import]
+            open_ref,
+            search_scoped,
+        )
     except Exception as exc:
         return {
             "ok": False,

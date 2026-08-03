@@ -84,7 +84,7 @@ class _CapturesInitConfig:
                 }
             init(self, *args, **kw)
 
-        cls.__init__ = _wrapped  # ty: ignore[invalid-assignment]
+        cls.__init__ = _wrapped
 
 
 class Task[StateT, InputT, OutputT](_CapturesInitConfig, ABC):

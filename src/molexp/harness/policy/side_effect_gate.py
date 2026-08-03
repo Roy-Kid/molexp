@@ -43,10 +43,18 @@ class _HasSideEffects(Protocol):
     Both :class:`~molexp.harness.schemas.capability.ToolCapability` and
     :class:`~molexp.harness.schemas.bound_workflow.BoundTask` satisfy this, so a
     caller may gate either.
+
+    Members are **read-only** on purpose: the conformers are frozen pydantic
+    models, which expose their fields as read-only properties and therefore do
+    not satisfy a Protocol that declares mutable attributes. The gate only ever
+    reads, so ``Sequence[str]`` is also the honest element type.
     """
 
-    id: str
-    side_effects: list[str]
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def side_effects(self) -> Sequence[str]: ...
 
 
 def make_side_effect_approval_requests(

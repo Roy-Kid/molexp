@@ -41,6 +41,7 @@ from molexp.harness.prompts.codegen_prompt import (
 )
 from molexp.harness.schemas import (
     AgentCallSpec,
+    BoundTask,
     BoundWorkflow,
     CommandSpec,
     GeneratedFile,
@@ -48,6 +49,7 @@ from molexp.harness.schemas import (
     TestSource,
     WorkflowSource,
 )
+from molexp.harness.stages._resolve import require_agent_gateway
 from molexp.harness.stages.generate_workflow_source import _module_source, _slug
 from molexp.workspace.utils import generate_id
 
@@ -87,7 +89,7 @@ async def gen_task_module(
     *,
     bound: BoundWorkflow,
     bound_ref: PlanArtifactRef,
-    task: object,
+    task: BoundTask,
     experiment_spec_id: str,
     created_by: str,
     catalog_id: str | None = None,
@@ -140,7 +142,7 @@ async def gen_task_module(
         tier="heavy",
         use_mcp=is_repair,
     )
-    result = await ctx.agent_gateway.call(call)  # type: ignore[union-attr]
+    result = await require_agent_gateway(ctx, stage="task_codegen").call(call)
     partial = WorkflowSource.model_validate_json(ctx.artifact_store.get(result.output_artifact.id))
     return _module_source(partial)
 
@@ -149,7 +151,7 @@ async def gen_task_test(
     ctx: HarnessRunContext,
     *,
     bound_ref: PlanArtifactRef,
-    task: object,
+    task: BoundTask,
     slug: str,
     module_src: str,
     created_by: str,
@@ -204,7 +206,7 @@ async def gen_task_test(
         tier="heavy",
         use_mcp=is_repair,
     )
-    result = await ctx.agent_gateway.call(call)  # type: ignore[union-attr]
+    result = await require_agent_gateway(ctx, stage="task_codegen").call(call)
     partial = TestSource.model_validate_json(ctx.artifact_store.get(result.output_artifact.id))
     if partial.files:
         return partial.files[0].source
@@ -356,9 +358,13 @@ def materialize_task_sources(task_dir: Path, *, slug: str, module_src: str, test
 def compose_task_markdown(task_text: str) -> str:
     """Best-effort in-process molmcp compose for one task (no stdio MCP)."""
     try:
-        from molmcp.collection.browse import compose_context, open_ref, search_scoped
-        from molmcp.config import load_config
-        from molmcp.runtime import build_collection
+        from molmcp.collection.browse import (  # ty: ignore[unresolved-import]
+            compose_context,
+            open_ref,
+            search_scoped,
+        )
+        from molmcp.config import load_config  # ty: ignore[unresolved-import]
+        from molmcp.runtime import build_collection  # ty: ignore[unresolved-import]
     except Exception as exc:
         _LOG.debug(f"[task_codegen] molmcp compose unavailable: {exc!r}")
         return ""

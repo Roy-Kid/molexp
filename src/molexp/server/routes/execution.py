@@ -99,7 +99,7 @@ def get_cache_stats() -> CacheStatsResponse:
     store_dir = getattr(store, "store_dir", None)
     return CacheStatsResponse(
         storeDir=str(store_dir) if store_dir is not None else "",
-        entryCount=int(stats["entry_count"]),
+        entryCount=entry_count if isinstance(entry_count := stats["entry_count"], int) else 0,
     )
 
 

@@ -18,6 +18,7 @@ path that actually works (see :func:`_credential_guidance`).
 from __future__ import annotations
 
 import re
+from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,7 +27,7 @@ from mollog import get_logger
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from molexp.agent.router import Router
+    from molexp.agent.router import McpToolSpec, Router
     from molexp.harness.gateways.gateway import AgentGateway
     from molexp.workspace.run import Run
 
@@ -252,10 +253,10 @@ def _prime_credentials(router: object) -> None:
 
 def _resolve_agent_mcp_tools(
     servers_by_agent: dict[str, tuple[str, ...]],
-    workspace_root: str | Path,
+    workspace_root: str | PathLike[str],
     *,
     knowledge_sources: Sequence[str] | None = None,
-) -> dict[str, tuple[object, ...]]:
+) -> dict[str, tuple[McpToolSpec, ...]]:
     """Resolve per-agent MCP server *names* into concrete ``McpToolSpec``s.
 
     Reads the same MCP config (`~/.molexp/mcp.json` + workspace `.mcp.json`)
@@ -270,7 +271,7 @@ def _resolve_agent_mcp_tools(
     from molexp.agent.mcp import McpScope, McpStore
     from molexp.agent.router import McpToolSpec
 
-    resolved: dict[str, tuple[object, ...]] = {}
+    resolved: dict[str, tuple[McpToolSpec, ...]] = {}
     store: McpStore | None = None
     cache: dict[str, McpToolSpec | None] = {}
     # Session/task pin (if any). Otherwise leave the molmcp server's own
@@ -283,7 +284,7 @@ def _resolve_agent_mcp_tools(
             return cache[name]
         try:
             if store is None:
-                store = McpStore(workspace_root)
+                store = McpStore(Path(workspace_root))
             entry = store.get(McpScope.WORKSPACE, name) or store.get(McpScope.USER, name)
             if entry is None:
                 cache[name] = None

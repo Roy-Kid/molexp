@@ -61,8 +61,5 @@ def aggregate_assets_by_kind(scope: _AssetScope, *, recursive: bool = False) -> 
     """
     # ``kind`` is the discriminated-union tag on every concrete asset subclass;
     # the base ``Asset`` query() returns doesn't declare it (repo-wide pattern).
-    counts: Counter[str] = Counter(
-        asset.kind  # ty: ignore[unresolved-attribute]
-        for asset in scope.assets.query(recursive=recursive)
-    )
+    counts: Counter[str] = Counter(asset.kind for asset in scope.assets.query(recursive=recursive))
     return dict(counts)

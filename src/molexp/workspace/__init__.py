@@ -80,11 +80,13 @@ from .folder import (
 from .harvest import harvest_run
 from .knowledge_item import (
     KNOWLEDGE_ITEM_KIND,
+    KNOWLEDGE_KINDS,
     KnowledgeItem,
     KnowledgeKind,
     KnowledgeMeta,
     SourceKind,
     SourceRef,
+    parse_knowledge_kind,
 )
 from .knowledge_write import write_knowledge_item
 from .lifecycle_ops import cancel_run
@@ -154,48 +156,36 @@ from .zotero_concepts import ZoteroItem, read_zotero_items
 
 __all__ = [
     "DEFAULT_EDGE_ROLE",
-    # OKF KnowledgeItem Concept (integration P0.4) — typed, source-linked
     "KNOWLEDGE_ITEM_KIND",
-    # Built-in ``local`` compute target (targets-merge)
+    "KNOWLEDGE_KINDS",
     "LOCAL_TARGET_NAME",
-    # Retryable-status domain (resume / rerun verb selection)
     "RETRYABLE_STATUSES",
-    # Folder kind taxonomy (unify-folder-abstraction-02)
     "WORKSPACE_CACHE_KIND",
-    # Workspace event spine (integration P0.3) — append-only cross-object timeline
     "WORKSPACE_EVENTS_DB",
     "WORKSPACE_EXPERIMENT_KIND",
     "WORKSPACE_PROJECT_KIND",
     "WORKSPACE_ROOT_KIND",
     "WORKSPACE_RUN_KIND",
     "ArtifactAsset",
-    # WorkspaceContext read-model + assembler (integration P0.2)
     "ArtifactRef",
-    # Assets
     "Asset",
     "AssetManifest",
     "AssetScope",
     "AssetsView",
-    # OKF Note backlink (knowledge-docs-01) — a derived reverse-edge row
     "Backlink",
-    # OKF bundle façade (wsokf-04) — distinct from the per-scope Library
     "Bundle",
     "BundleIndex",
-    # System folders (unify-folder-abstraction-03)
     "CacheFolder",
     "CheckpointAsset",
     "ComputeTarget",
     "ConceptIndexEntry",
     "ConceptNotFoundError",
-    # Context
     "Context",
     "ContextFocus",
     "DataAsset",
     "DataAssetLibrary",
-    # OKF typed knowledge-graph edge role (typed-provenance-edge P0.1)
     "Edge",
     "EdgeRole",
-    # OKF document-embed entity summary (knowledge-docs-05) — read-only UI card
     "EntitySummary",
     "ErrorInfo",
     "ErrorTraceAsset",
@@ -203,12 +193,10 @@ __all__ = [
     "ExecutionPrunePlan",
     "ExecutionRecord",
     "Experiment",
-    # Workspace error hierarchy
     "ExperimentExistsError",
     "ExperimentMetadata",
     "ExperimentNotFoundError",
     "ExperimentRef",
-    # Folder abstraction (unify-folder-abstraction-01)
     "Folder",
     "FolderMetadata",
     "FolderMoveCollisionError",
@@ -218,15 +206,11 @@ __all__ = [
     "KnowledgeKind",
     "KnowledgeMeta",
     "KnowledgeRef",
-    # Target types + session management (unified workspace CLI)
     "LivePruneRefusedError",
     "LocalTarget",
     "LogAsset",
-    # OKF Note Concept (wsokf-05) — a directory whose path is its identity
     "Note",
-    # OKF Note document meta.yaml payload (knowledge-docs-05) — tags + status
     "NoteMeta",
-    # Parameters
     "ParamSpace",
     "Params",
     "Producer",
@@ -235,8 +219,6 @@ __all__ = [
     "ProjectMetadata",
     "ProjectNotFoundError",
     "ProjectRef",
-    # OKF Reference Concept (wsokf-05) — a directory whose path is its
-    # identity. Its typed meta.yaml payload is ReferenceMeta.
     "ReferenceConcept",
     "ReferenceMeta",
     "RemoteTarget",
@@ -260,26 +242,47 @@ __all__ = [
     "TargetNotFound",
     "UniformSpace",
     "WorkflowRef",
-    # Entities
     "Workspace",
     "WorkspaceContext",
     "WorkspaceEvent",
     "WorkspaceEventLog",
     "WorkspaceEventType",
-    # Metadata models
     "WorkspaceMetadata",
     "WorkspaceRef",
-    # OKF read-only Zotero importer (wsokf-05) — produces ReferenceConcepts
     "ZoteroItem",
-    # Compute target helpers
+    "# Assets",
+    "# Atomic JSON I/O — used by workflow layer's persistence + agent",
+    "# Atomic plain-text I/O — companion to atomic_write_json for",
+    "# Built-in ``local`` compute target (targets-merge)",
+    "# Compute target helpers",
+    "# Context",
+    "# Entities",
+    "# Folder abstraction (unify-folder-abstraction-01)",
+    "# Folder kind taxonomy (unify-folder-abstraction-02)",
+    "# Metadata models",
+    "# OKF KnowledgeItem Concept (integration P0.4) — typed, source-linked",
+    "# OKF Note Concept (wsokf-05) — a directory whose path is its identity",
+    "# OKF Note backlink (knowledge-docs-01) — a derived reverse-edge row",
+    "# OKF Note document meta.yaml payload (knowledge-docs-05) — tags + status",
+    "# OKF Reference Concept (wsokf-05) — a directory whose path is its",
+    "# OKF bundle façade (wsokf-04) — distinct from the per-scope Library",
+    "# OKF document-embed entity summary (knowledge-docs-05) — read-only UI card",
+    "# OKF read-only Zotero importer (wsokf-05) — produces ReferenceConcepts",
+    "# OKF typed knowledge-graph edge role (typed-provenance-edge P0.1)",
+    "# Parameters",
+    "# Retryable-status domain (resume / rerun verb selection)",
+    "# System folders (unify-folder-abstraction-03)",
+    "# Target types + session management (unified workspace CLI)",
+    "# WorkspaceContext read-model + assembler (integration P0.2)",
+    "# Workspace error hierarchy",
+    "# Workspace event spine (integration P0.3) — append-only cross-object timeline",
+    "# identity. Its typed meta.yaml payload is ReferenceMeta.",
+    "# layer's session storage.",
+    "# markdown reports / generated source previews / log snapshots.",
     "add_target",
     "apply_execution_prune",
     "assemble_workspace_context",
-    # Atomic JSON I/O — used by workflow layer's persistence + agent
-    # layer's session storage.
     "atomic_write_json",
-    # Atomic plain-text I/O — companion to atomic_write_json for
-    # markdown reports / generated source previews / log snapshots.
     "atomic_write_text",
     "builtin_local_target",
     "cancel_run",

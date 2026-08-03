@@ -40,6 +40,8 @@ from molexp.cli._app import app
 from molexp.cli._common import rprint
 
 if TYPE_CHECKING:
+    from types import FrameType
+
     from molexp.server.deps.served import ServedWorkspace
     from molexp.server.workspace_targets import WorkspaceTarget
 
@@ -402,7 +404,7 @@ def _install_sse_wakeup_on_exit(
     """Wrap uvicorn's exit handler so SSE long-polls stop on the first Ctrl+C."""
     original = server.handle_exit
 
-    def handle_exit(sig: int | None, frame: object) -> None:
+    def handle_exit(sig: int, frame: FrameType | None) -> None:
         try:
             from molexp.server.shutdown import mark_shutting_down
             from molexp.services.approval_notify import close_approval_subscribers
@@ -414,4 +416,6 @@ def _install_sse_wakeup_on_exit(
         _stop_ui_dev_server(ui_proc)
         original(sig, frame)
 
-    server.handle_exit = handle_exit  # type: ignore[method-assign]
+    # Deliberate monkeypatch of a bound method — the signature above matches
+    # uvicorn's exactly, so the call site is unaffected.
+    server.handle_exit = handle_exit  # ty: ignore[invalid-assignment]

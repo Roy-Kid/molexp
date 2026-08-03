@@ -540,7 +540,7 @@ def run_harvest(
     from molexp.workspace import ExperimentNotFoundError as _ExpNotFound
     from molexp.workspace import ProjectNotFoundError as _ProjNotFound
     from molexp.workspace import RunNotFoundError as _RunNotFound
-    from molexp.workspace import harvest_run
+    from molexp.workspace import harvest_run, parse_knowledge_kind
 
     try:
         project = ws.get_project(project_id)
@@ -552,7 +552,7 @@ def run_harvest(
     try:
         item = harvest_run(
             run,
-            kind=kind,  # type: ignore[arg-type]
+            kind=parse_knowledge_kind(kind),
             narrative=narrative,
             created_by=created_by,
         )

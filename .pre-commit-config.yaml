@@ -27,6 +27,16 @@ repos:
 
   - repo: local
     hooks:
+      # Matches the ci.yml lint job and mol_project.build.check. Whole-tree
+      # (not per-file): a type error is usually raised by the *caller* of the
+      # file you edited.
+      - id: ty
+        name: "ty check src/"
+        entry: uv run ty check src/
+        language: system
+        pass_filenames: false
+        files: '\.py$'
+
       # UV_NO_SOURCES=1 reproduces the CI resolution (published deps, no
       # `[tool.uv.sources]` path overrides). It runs in its OWN environment:
       # syncing that resolution into .venv would silently replace the editable

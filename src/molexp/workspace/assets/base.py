@@ -70,6 +70,10 @@ class AssetScope(BaseModel):
         return self.ids[-1] if self.ids else "workspace"
 
 
+AssetKind = Literal["artifact", "checkpoint", "data", "error_trace", "log"]
+"""The discriminator vocabulary of the concrete asset kinds."""
+
+
 class Asset(BaseModel):
     """Shared asset fields.
 
@@ -82,6 +86,7 @@ class Asset(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    kind: AssetKind
     asset_id: str
     name: str
     scope: AssetScope

@@ -9,7 +9,9 @@ Tool **names** are never hard-coded — they come from the live MCP
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Protocol, cast
 
 from mollog import get_logger
 
@@ -70,7 +72,13 @@ def open_mcp_toolsets(workspace_root: Path) -> tuple[object, ...]:
     return tuple(toolsets)
 
 
-def _unwrap_mcp_listable(toolset: object) -> tuple[object | None, str]:
+class _ListsTools(Protocol):
+    """What the unwrap probe actually establishes: an awaitable ``list_tools``."""
+
+    async def list_tools(self) -> Sequence[object]: ...
+
+
+def _unwrap_mcp_listable(toolset: object) -> tuple[_ListsTools | None, str]:
     """Return ``(object_with_list_tools, name_prefix)`` for a toolset."""
     prefix = str(getattr(toolset, "prefix", "") or "")
     current: object | None = toolset
@@ -79,7 +87,7 @@ def _unwrap_mcp_listable(toolset: object) -> tuple[object | None, str]:
     while current is not None and id(current) not in seen:
         seen.add(id(current))
         if callable(getattr(current, "list_tools", None)):
-            return current, prefix
+            return cast("_ListsTools", current), prefix
         current = getattr(current, "wrapped", None)
     return None, prefix
 

@@ -13,7 +13,6 @@ children from disk or create + materialize new ones.
 from __future__ import annotations
 
 from pathlib import Path as _LocalPath
-from typing import cast
 
 from molexp.knowledge.types import concept_type
 from molexp.path import Path
@@ -267,7 +266,7 @@ class Workspace(Folder):
         """Mount a project under this workspace (idempotent on slug)."""
         self._ensure_materialized()
         child = self._construct_child(Project, name, fs=self._fs)
-        return cast(Project, self.add_folder(child))
+        return self.add_folder(child)
 
     def project(self, name: str) -> Project:
         """Fluent create-or-get alias for :meth:`add_project` (idempotent)."""

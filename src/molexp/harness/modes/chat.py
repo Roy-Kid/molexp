@@ -20,6 +20,7 @@ from molexp.harness.schemas import ModeResult
 
 if TYPE_CHECKING:
     from molexp.agent.loops import InteractiveLoop, InteractiveLoopConfig
+    from molexp.agent.session import Session
     from molexp.harness.gateways.gateway import AgentGateway
 
 __all__ = ["CHAT_SCRATCH_PREFIX", "ChatMode", "chat_loop_config"]
@@ -85,7 +86,7 @@ class ChatMode:
         workspace_root: Path,
         user_input: str,
         gateway: AgentGateway,
-        session: object | None = None,
+        session: Session | None = None,
         context_block: str = "",
     ) -> ModeResult:
         """Drive one chat turn via InteractiveLoop; do not create a science Run.
@@ -107,10 +108,7 @@ class ChatMode:
         scratch = root / CHAT_SCRATCH_PREFIX
         scratch.mkdir(parents=True, exist_ok=True)
 
-        if session is None:
-            sess = Session(storage=InMemorySessionStorage())
-        else:
-            sess = session  # type: ignore[assignment]
+        sess = session if session is not None else Session(storage=InMemorySessionStorage())
         runtime = AgentRuntime(
             session=sess,
             router=router,  # type: ignore[arg-type]

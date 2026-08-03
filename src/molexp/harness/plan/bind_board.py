@@ -23,7 +23,7 @@ from molexp.workspace.utils import generate_id
 
 if TYPE_CHECKING:
     from molexp.harness.schemas import PlanArtifactRef
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
+    from molexp.harness.store.artifact_store import ArtifactStore
 
 __all__ = ["board_plan_to_bound_workflow", "materialize_plan_for_realization"]
 
@@ -95,7 +95,7 @@ def board_plan_to_bound_workflow(
 
 def materialize_plan_for_realization(
     plan: ExperimentPlan,
-    store: FileArtifactStore,
+    store: ArtifactStore,
     *,
     created_by: str,
     parent_ids: tuple[str, ...] = (),

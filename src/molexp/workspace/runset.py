@@ -27,7 +27,7 @@ from molexp._typing import JSONValue, TaskOutput
 
 from .execution_results import read_completed_node_outputs
 from .models import RunStatus
-from .run import Run, require_run_executor
+from .run import Run, RunWorkflowExecutor, require_run_executor
 
 __all__ = ["RunRecord", "RunSet", "RunSetResult"]
 
@@ -87,11 +87,11 @@ class RunSetResult:
 
     def min_by(self, key: str) -> dict[str, object]:
         """The record with the smallest *key* value (params or task output)."""
-        return min(self._rows_with(key), key=lambda row: row[key])  # ty: ignore[invalid-argument-type]
+        return min(self._rows_with(key), key=lambda row: row[key])
 
     def max_by(self, key: str) -> dict[str, object]:
         """The record with the largest *key* value (params or task output)."""
-        return max(self._rows_with(key), key=lambda row: row[key])  # ty: ignore[invalid-argument-type]
+        return max(self._rows_with(key), key=lambda row: row[key])
 
 
 class RunSet(Sequence[Run]):
@@ -167,7 +167,7 @@ class RunSet(Sequence[Run]):
             )
         return asyncio.run(self._execute(executor, parallel=parallel))
 
-    async def _execute(self, executor: object, parallel: int) -> RunSetResult:
+    async def _execute(self, executor: RunWorkflowExecutor, parallel: int) -> RunSetResult:
         semaphore = asyncio.Semaphore(parallel)
 
         async def _one(run: Run) -> RunRecord:
@@ -175,7 +175,7 @@ class RunSet(Sequence[Run]):
                 return self._record_for(run)
             async with semaphore:
                 try:
-                    result = await executor.aexecute(run, self._workflow)  # type: ignore[attr-defined]
+                    result = await executor.aexecute(run, self._workflow)
                 except Exception as exc:
                     return self._record_for(run, exc=exc)
             return self._record_for(run, outputs=dict(getattr(result, "outputs", {}) or {}))

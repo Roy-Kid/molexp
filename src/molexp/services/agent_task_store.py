@@ -17,13 +17,27 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 # Co-located with InteractiveLoop.name ("agent") — single product agent home.
 AGENT_HOME_NAME = "agent"
 TASKS_SUBDIR = "_tasks"
 METADATA_FILE = "metadata.json"
 EVENTS_FILE = "events.json"
+
+
+#: The two agent-task modes. Persisted values outside this vocabulary are
+#: coerced on read, so consumers never have to re-widen the field.
+AgentTaskMode = Literal["chat", "plan"]
+
+
+def _coerce_mode(raw: object, *, plan_mode: bool) -> AgentTaskMode:
+    """Read a persisted ``active_mode``, falling back to the plan_mode flag."""
+    if raw == "chat":
+        return "chat"
+    if raw == "plan":
+        return "plan"
+    return "plan" if plan_mode else "chat"
 
 
 @dataclass(frozen=True)
@@ -36,7 +50,7 @@ class PersistedAgentTask:
     created_at: str
     updated_at: str | None = None
     plan_mode: bool = False
-    active_mode: str = "chat"
+    active_mode: AgentTaskMode = "chat"
     active_turn_id: str | None = None
     active_plan_task_id: str | None = None
     pending_plan_draft: str | None = None
@@ -104,10 +118,8 @@ def _read_meta_file(meta_path: Path, task_id: str) -> PersistedAgentTask | None:
         created_at=str(raw.get("created_at") or _now_iso()),
         updated_at=raw.get("updated_at") if isinstance(raw.get("updated_at"), str) else None,
         plan_mode=bool(raw.get("plan_mode", False)),
-        active_mode=(
-            str(raw.get("active_mode"))
-            if raw.get("active_mode") in {"chat", "plan"}
-            else ("plan" if bool(raw.get("plan_mode", False)) else "chat")
+        active_mode=_coerce_mode(
+            raw.get("active_mode"), plan_mode=bool(raw.get("plan_mode", False))
         ),
         active_turn_id=(
             raw.get("active_turn_id") if isinstance(raw.get("active_turn_id"), str) else None

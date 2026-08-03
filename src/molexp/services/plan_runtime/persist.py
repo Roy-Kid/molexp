@@ -95,8 +95,11 @@ def _attach_task_sources(ir: dict[str, JSONValue], source: str) -> None:
         segment = "\n".join(lines[start - 1 : node.end_lineno])
         by_name[node.name] = textwrap.dedent(segment).strip("\n")
     for tc in task_configs:
-        if isinstance(tc, dict) and tc.get("task_id") in by_name:
-            tc["source"] = by_name[tc["task_id"]]
+        if not isinstance(tc, dict):
+            continue
+        task_id = tc.get("task_id")
+        if isinstance(task_id, str) and task_id in by_name:
+            tc["source"] = by_name[task_id]
 
 
 def _annotation_to_ui_type(ann: ast.expr | None) -> tuple[str, list | None]:
@@ -166,8 +169,11 @@ def _extract_input_schema(ir: dict[str, JSONValue], source: str) -> None:
     if fields:
         # Merge, never clobber: multi-file mode annotates one module at a
         # time, and a name recorded by an earlier module keeps precedence.
+        prior = ir.get("input_schema")
         existing = {
-            f["name"]: f for f in ir.get("input_schema", []) if isinstance(f, dict) and "name" in f
+            f["name"]: f
+            for f in (prior if isinstance(prior, list) else [])
+            if isinstance(f, dict) and "name" in f
         }
         for name, field in fields.items():
             existing.setdefault(name, field)

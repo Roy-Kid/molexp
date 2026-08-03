@@ -66,7 +66,7 @@ def lifecycle_tools(*, workspace_root: Path) -> tuple[Any, ...]:
         return ``error: …`` so the model can run/wait first instead of crashing
         the turn.
         """
-        from molexp.workspace import Workspace
+        from molexp.workspace import Workspace, parse_knowledge_kind
         from molexp.workspace import harvest_run as harvest_core
 
         try:
@@ -74,7 +74,7 @@ def lifecycle_tools(*, workspace_root: Path) -> tuple[Any, ...]:
             run = ws.get_project(project_id).get_experiment(experiment_id).get_run(run_id)
             item = harvest_core(
                 run,
-                kind=kind,  # type: ignore[arg-type]
+                kind=parse_knowledge_kind(kind),
                 narrative=narrative,
                 created_by=created_by,
             )

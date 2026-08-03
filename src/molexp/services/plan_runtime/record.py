@@ -26,7 +26,9 @@ from typing import TYPE_CHECKING, Any
 from mollog import get_logger
 
 if TYPE_CHECKING:
+    from molexp.workspace.edges import EdgeRole
     from molexp.workspace.experiment import Experiment
+    from molexp.workspace.folder import Folder
     from molexp.workspace.knowledge_item import KnowledgeItem
     from molexp.workspace.run import Run
 
@@ -648,7 +650,7 @@ def write_finding_record(
         block = _render_value(final_report.get(key))
         if block:
             lines += [f"## {label}", "", block, ""]
-    cites: list[tuple[Any, str]] = [(run, "derived_from")]
+    cites: list[tuple[Folder, EdgeRole]] = [(run, "derived_from")]
     try:
         decision = experiment.get_folder(
             f"experiment-record-{experiment.id}-{run.id}", cls=KnowledgeItem

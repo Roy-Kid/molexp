@@ -31,7 +31,7 @@ from molexp.agent.compaction import (
     estimate_entries_tokens,
     prepare_compaction,
 )
-from molexp.agent.events import AsyncIteratorEventSink, CompactionPerformedEvent
+from molexp.agent.events import CompactionPerformedEvent, EventSink
 from molexp.agent.router import ModelTier
 from molexp.agent.session import _entries_from, _most_recent_compaction
 from molexp.agent.session_entry import MessageEntry, SessionEntry
@@ -86,7 +86,7 @@ def _render_transcript(
 async def maybe_compact(
     *,
     runtime: AgentRuntime,
-    sink: AsyncIteratorEventSink,
+    sink: EventSink,
     settings: CompactionSettings,
     loop_name: str,
 ) -> bool:

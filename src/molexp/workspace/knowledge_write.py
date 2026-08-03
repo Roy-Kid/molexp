@@ -21,6 +21,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from molexp.path import Path
+
 from .edges import EdgeRole
 from .events import emit_workspace_event
 from .folder import Folder
@@ -40,7 +42,7 @@ __all__ = ["write_knowledge_item"]
 _LOG = logging.getLogger(__name__)
 
 
-def _workspace_root(host: Folder) -> object | None:
+def _workspace_root(host: Folder) -> Path | None:
     """Walk ``parent`` to the top Folder and return its resolved path, or None."""
     node: Folder | None = host
     try:
@@ -103,7 +105,7 @@ def write_knowledge_item(
         root = _workspace_root(host)
         if root is not None:
             try:
-                rel = item.resolve().relative_to(root).as_posix()  # type: ignore[union-attr]
+                rel = item.resolve().relative_to(root).as_posix()
             except Exception:
                 _LOG.debug(
                     "write_knowledge_item: skip knowledge.created (path relative_to failed)",

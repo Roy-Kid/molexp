@@ -51,7 +51,7 @@ async def inspect_task(
     task = board.get_task(task_id)
     payload: dict[str, Any]
     if isinstance(task, dict):
-        payload = dict(task)
+        payload = {str(key): value for key, value in task.items()}
     else:
         payload = {"task": task}
     return PlanToolResult(

@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from molexp.agent.types import Message, Usage, UsageBreakdown
 
 if TYPE_CHECKING:
-    from molexp.agent.events import AgentEvent, AsyncIteratorEventSink
+    from molexp.agent.events import AgentEvent, EventSink
     from molexp.agent.runtime import AgentRuntime
 
 
@@ -78,7 +78,7 @@ class AgentLoop(ABC):
         self,
         *,
         runtime: AgentRuntime,
-        sink: AsyncIteratorEventSink,
+        sink: EventSink,
         user_input: str,
     ) -> None:
         """Drive the loop, emitting orchestration events through ``sink``.

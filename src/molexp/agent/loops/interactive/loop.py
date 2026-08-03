@@ -27,15 +27,16 @@ end-to-end flow.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.agent.compaction import CompactionSettings
 from molexp.agent.events import (
-    AsyncIteratorEventSink,
+    EventSink,
     LoopCompletedEvent,
     LoopStartedEvent,
     LoopSuspendedEvent,
@@ -285,14 +286,22 @@ class InteractiveLoop(AgentLoop):
 
         from molexp.agent.ops.chat_policy import chat_before_tool
 
-        async def _chained_before(tool_name: str, args: object = None) -> HookOutcome:
-            from molexp.agent.loops.hooks import HookDecision
+        async def _chained_before(
+            *, tool_name: str, args: Mapping[str, Any] | str | None = None
+        ) -> HookOutcome:
+            # Keyword-only, matching the BeforeToolHook Protocol the router
+            # invokes through. The injected hook is reached via the canonical
+            # ``invoke_before_tool``: calling it positionally (as this used to)
+            # raises TypeError against any hook that follows the Protocol.
+            from molexp.agent.loops.hooks import HookDecision, invoke_before_tool
 
             denied = await chat_before_tool(tool_name, args)
             if denied.decision == HookDecision.DENY:
                 return denied
-            if self.hooks is not None and self.hooks.before_tool is not None:
-                return await self.hooks.before_tool(tool_name, args)  # type: ignore[misc]
+            if self.hooks is not None:
+                return await invoke_before_tool(
+                    self.hooks.before_tool, tool_name=tool_name, args=args
+                )
             return HookOutcome.proceed()
 
         if self.hooks is None:
@@ -307,7 +316,7 @@ class InteractiveLoop(AgentLoop):
         self,
         *,
         runtime: AgentRuntime,
-        sink: AsyncIteratorEventSink,
+        sink: EventSink,
         user_input: str,
     ) -> None:
         """Drive one interactive turn as a Pi-style outer loop over inner ReAct passes.
@@ -495,7 +504,7 @@ class InteractiveLoop(AgentLoop):
         as ``None``), so the call is byte-identical to the pre-refactor loop and
         a router that predates the hook kwargs still accepts it.
         """
-        base = {
+        base: dict[str, Any] = {
             "prompt": prompt,
             "system": system,
             "tools": tools,
@@ -503,7 +512,7 @@ class InteractiveLoop(AgentLoop):
             "message_history": history,
         }
         if hooks is None:
-            return runtime.router.stream_agentic(**base)  # type: ignore[arg-type]
+            return runtime.router.stream_agentic(**base)
         # Test fakes may predate hook kwargs — only pass what the router accepts.
         import inspect
 
@@ -513,9 +522,9 @@ class InteractiveLoop(AgentLoop):
             params = {}
         if "before_tool" in params:
             return runtime.router.stream_agentic(
-                **base,  # type: ignore[arg-type]
+                **base,
                 before_tool=hooks.before_tool,
                 after_tool=hooks.after_tool,
                 should_stop=hooks.should_stop,
             )
-        return runtime.router.stream_agentic(**base)  # type: ignore[arg-type]
+        return runtime.router.stream_agentic(**base)

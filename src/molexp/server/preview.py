@@ -54,8 +54,8 @@ from .exceptions import (
 if TYPE_CHECKING:
     # molpy is a declared dependency. ``Frame`` is re-exported by molpy and
     # reached ONLY through it — molexp never imports molrs directly.
-    from molpy import Frame  # ty: ignore[unresolved-import]
-    from molpy.io import BaseTrajectoryReader  # ty: ignore[unresolved-import]
+    from molpy import Frame
+    from molpy.io import BaseTrajectoryReader
 
 # Private module name for sidecar import — never ``"__main__"``, so the
 # sidecar's ``if __name__ == "__main__"`` guard stays dormant.
@@ -151,7 +151,7 @@ def _reader_subclasses_in(module) -> list[type]:  # noqa: ANN001
     base classes are ignored), excluding the abstract ``BaseTrajectoryReader``
     base.
     """
-    from molpy.io import BaseTrajectoryReader  # ty: ignore[unresolved-import]
+    from molpy.io import BaseTrajectoryReader
 
     found: list[type] = []
     for obj in vars(module).values():
@@ -240,7 +240,7 @@ def frames_to_extxyz(frames: Iterable[Frame]) -> bytes:
     Returns:
         The extxyz trajectory encoded as UTF-8 bytes.
     """
-    from molpy.io import write_xyz_trajectory  # ty: ignore[unresolved-import]
+    from molpy.io import write_xyz_trajectory
 
     with tempfile.NamedTemporaryFile(suffix=".xyz", delete=False) as tmp:
         tmp_path = Path(tmp.name)
