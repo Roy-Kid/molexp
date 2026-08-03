@@ -1,5 +1,6 @@
 [project]
 site_name = "MolExp Documentation"
+site_url = "https://docs.molcrafts.org/molexp/"
 site_description = "Agent-assisted scientific-workflow platform for FAIR research"
 docs_dir = "docs/en"
 site_dir = "site/en"

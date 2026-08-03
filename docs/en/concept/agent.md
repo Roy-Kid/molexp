@@ -62,5 +62,5 @@ Two rules keep the agent layer honest:
 
 ## Next
 
-- For the pipeline that drives the agent through PlanMode's nine steps, see [Plan Mode](../guide/plan-mode.md).
+- For the pipeline that drives the agent through PlanOrchestrator's two phases, see [Plan Mode](../guide/plan-mode.md).
 - For the architecture-level import rules, see [Agent Layer Architecture](../architecture/agent.md).

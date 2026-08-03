@@ -267,7 +267,7 @@ plugin channels.
   </a>
   <a href="architecture/plan-mode/">
     <strong>molmcp · capabilities</strong>
-    <em>Grounds the agent harness. PlanMode discovers the full toolchain through molmcp, then binds the minimal subset an experiment needs.</em>
+    <em>Grounds the agent harness. PlanOrchestrator discovers the full toolchain through molmcp, then binds the minimal subset an experiment needs.</em>
   </a>
   <a href="concept/plugins/">
     <strong>molvis · visualization</strong>
@@ -382,7 +382,7 @@ Common entry points you will reach for most often.
     <em>Grid-search parameters, execute in parallel, summarize with to_records().</em>
   </a>
   <a href="guide/plan-mode/">
-    <strong>PlanMode</strong>
+    <strong>PlanOrchestrator</strong>
     <em>Nine-step agent-driven experiment pipeline: draft → spec → code → test → review.</em>
   </a>
 </div>

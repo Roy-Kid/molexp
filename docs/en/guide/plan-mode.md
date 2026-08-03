@@ -1,118 +1,74 @@
-# Plan & Run with the Agent Harness
+# 用 Agent Harness 做规划
 
-`molexp plan` turns a natural-language experiment draft into a fully
-verified, reviewed plan plus an execution report — in nine steps:
-proposal → concrete spec → resolved capabilities → workflow IR →
-tasks + per-task tests → input set → compile/dry-run → review →
-execution report. With `--execute` it goes further: it runs the workflow
-for real and writes a final report — all on a single content-addressed run.
+`molexp plan` 把自然语言实验草案变成：
 
-This is the production entry point to the harness `PlanMode` pipeline. For
-the stage-by-stage internals, see
-[Plan Mode Architecture](../architecture/plan-mode.md).
+1. **任务板**（有序步骤 + 验收标准），
+2. **人工审查**（审批收件箱 / TTY / `--yes`），
+3. **冻结计划** + 可读 **计划报告**，
+4. 默认再 **实现** 工作流（codegen + 仅编译 dry-run）。
 
-## Prerequisites
+生产入口是 `molexp.harness.PlanOrchestrator`。内部细节见
+[Plan Mode 架构](../architecture/plan-mode.md)。
 
-PlanMode drives an LLM, so install the agent extra and configure a model:
+## 前置条件
 
 ```bash
 pip install "molexp[agent]"
 molexp config set agent.model anthropic:claude-sonnet-4-5
 ```
 
-The model is read from `~/.molexp/config.json` (`agent.model`); the same
-loader backs the CLI and the server. You can override it per invocation
-with `--model`.
+模型来自 `~/.molexp/config.json` 的 `agent.model`（CLI 与服务端同一加载器）。
+可用 `--model` 覆盖。
 
-## Plan only
+## 规划（并实现）
 
 ```bash
-# Inline draft
-molexp plan "screen three solvent ratios for electrolyte X and report conductivity"
-
-# Or read the draft from a file
+molexp plan "筛选三种溶剂比例并报告电导率"
 molexp plan --file draft.md
 ```
 
-PlanMode runs nine steps — save draft + assemble prior knowledge, draft a
-concrete spec (gated by `approve_experiment_spec` **before** capability
-discovery), resolve capabilities, extract workflow IR, bind tasks +
-per-task tests, build the parameter-space input set, compile/dry-run, then
-a plan review gate — and stops at an **execution report** describing where
-and how the workflow *would* run. It **does not execute** the experiment.
-The run is filed under the `plans` / `plan` project / experiment by
-default (override with `--project` / `--experiment`).
+| 阶段 | 你会看到 |
+|------|----------|
+| 规划 | Agent 用工具往任务板上放任务；表单不完整则不能结束 |
+| 审查 | 硬门禁 — 批准 / 拒绝 / 修订（keep_tasks、备注、优先级） |
+| 实现 | 按任务生成代码与单测，再 compile-only |
 
-## Plan, then run
+无 TTY 授权且未 `--yes` 时，审查门禁会 **挂起** 到审批收件箱；授权后同一 run
+store-first 恢复。默认项目/实验为 `plans` / `plan`。
 
 ```bash
-molexp plan --file draft.md --execute
+molexp plan --file draft.md --yes   # 自动过审查门禁，仍会跑实现阶段
 ```
 
-`--execute` appends the real-execution tail onto the **same run**: after
-the review gate it executes the workflow for real, then writes the final
-report and audit. (The compile/dry-run and per-task tests in step 7
-already gate the plan — red tests block the review gate.) Tests and the
-workflow both run in **executor subprocesses**, so a generation bug can
-never crash the planning process.
+## UI
 
-The web UI reaches the nine-step pipeline by switching the shared AgentTask
-composer to **Plan** (click the mode pill or press `Shift+Tab`). Plan is a turn
-mode inside the same conversation, not a separate task type. The web Plan turn
-always stops after the auditable nine steps; real execution is requested
-explicitly in a later Chat turn. The legacy `POST .../plan-tasks` route remains
-available as a compatibility surface.
-Server-side execution runs on the **serving host** — the compute target is
-descriptive (it feeds the step-9 execution report) and nothing schedules
-to molq — and every gate, including `approve_execution`, suspends into the
-approvals inbox until a human decides. CLI and server resolve the target
-through one shared service (`resolve_plan_compute_target`); naming an
-unknown target fails the request with the known names listed.
+Agent 作曲器切到 **Plan**（模式胶囊或 `Shift+Tab`）。同一 `POST /plan-tasks`
+驱动 `PlanOrchestrator`。
 
-## What it produces
+- **左轨** — 新阶段列表（任务板 → 审查 → 冻结 → 报告 → 绑定 → 源码 → 编译…）
+- **右栏** — 当前阶段交付物
+- **审批** — 结构化表单；**批准与修订都会提交 fieldValues**
 
-Everything lands under the run directory:
+## 产物
 
 ```text
-runs/<run_id>/
-├── artifacts/        # experiment report, workflow IR, generated source, tests, reports
-└── harness.sqlite    # event log + artifact lineage + approval store
+runs/run-<id>/
+├── plan/task_board.json
+├── artifacts/
+└── harness.sqlite
 ```
 
-Because the run is **content-addressed from the draft**, re-issuing the
-same draft resumes where it left off — completed stages are skipped, not
-repeated. Change the draft and you get a new run.
+实现全绿时，工作流 IR 会投影到 experiment，供图查看器打开。
 
-## Approval gates
+## 审批动作
 
-PlanMode has **three** named gates (all store-first on
-`SQLiteApprovalStore` in the run's `harness.sqlite`):
+| 动作 | 效果 |
+|------|------|
+| **批准** | 写入授权 + 可选 field_values；恢复后冻结并实现 |
+| **修订** | 把 field_values 应用到任务板，重新进门禁 |
+| **拒绝** | 计划任务标记失败 |
 
-1. **`approve_experiment_spec`** (step 2) — human approves the concrete
-   experiment spec **before** any capability discovery / IR / codegen.
-2. **`approve_plan`** (step 8) — human reviews the full verified plan.
-3. **`approve_execution`** (`--execute` tail only) — human reviews the
-   executed result.
+## 相关
 
-Approvals are never granted implicitly: on a TTY the CLI asks `[y/N]`;
-with `--yes` the grant is explicit and named in the audit trail; anywhere
-else (server tasks, piped CLI) the gate **suspends** with
-`ApprovalPendingError` — the pending request lands in the approvals inbox
-(`/api/approvals`, surfaced in the UI's Agents hub), and a granted
-decision is persisted so a re-run resumes past the gate (grants replay;
-rejections re-ask). Approval is recorded in the run's event log alongside
-the machine-validation result, so "a human approved it" and "machine
-validation passed" stay distinct.
-
-## Chatting instead of planning
-
-`molexp plan` is the batch, pipeline-driven path. For an interactive
-conversation that can read your workspace and call tools, use the agent
-REPL:
-
-```bash
-molexp agent
-```
-
-That drives the `InteractiveLoop` and streams the same events the web UI
-renders. See the [Agent concept](../concept/agent.md) for the loop model.
+- 架构：[Plan Mode 架构](../architecture/plan-mode.md)
+- 跟踪运行：[Tracked runs](../getting-started/tracked-runs.md)

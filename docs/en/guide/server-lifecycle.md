@@ -69,10 +69,29 @@ immediate fetch. When several workspaces are served, make
 `polymer_electrolyte` the first `-ws` value or activate it in the left
 workspace tree before watching its run dashboard.
 
-This is a thin wrapper. There is no `--dev` / `--reload` flag in `molexp serve` today — for hot reload, invoke uvicorn directly:
+### Frontend HMR (`--dev`)
+
+From a source checkout (editable install), start the API and the Rsbuild
+dev server together:
 
 ```bash
-uvicorn molexp.server.app:app --reload --port 8000
+molexp serve --dev -ws ./lab --port 8000
+# optional: --ui-port 5173
+```
+
+- Spawns `MOLEXP_API_PORT=<api-port> npm run dev -- --port=<ui-port>`
+  so `/api` on the UI origin proxies to this process.
+- Prints **Dev UI** `http://localhost:<ui-port>` — open that for live
+  reload. The API port still serves the bundled `dist` if present; that
+  is the production package, not HMR.
+- Ctrl+C stops both processes (UI process group is SIGTERM'd).
+- Needs `npm` on PATH and `ui/package.json`. Set `MOLEXP_UI_DIR` if the
+  ui tree is not next to the package sources.
+
+For Python-only auto-reload of the API (no UI), invoke uvicorn directly:
+
+```bash
+uvicorn --factory molexp.server.app:create_app --reload --port 8000
 ```
 
 ## `ServerManager` (Python API)
@@ -137,7 +156,7 @@ Pass a custom `config_dir=Path("./.local")` to the constructor to relocate them.
 
 | Scenario | Pattern |
 |----------|---------|
-| Local dev | `molexp serve` in one terminal, `npm run dev` in another |
+| Local dev | `molexp serve --dev -ws ./lab` (API + UI HMR); or two terminals without `--dev` |
 | Production (long-lived) | `manager.start(background=True, kill_on_exit=False)` from a deploy script |
 | Tests (auto-cleanup) | `manager.start(background=True, kill_on_exit=True)` |
 | Embedded tooling | Run `molexp.server.app:create_app()` directly in your own ASGI host |

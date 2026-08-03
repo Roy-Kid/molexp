@@ -22,7 +22,7 @@ from molexp.agent.loops import ChatLoop, InteractiveLoop
 `ChatLoop` is one LLM round-trip; `InteractiveLoop` is the emergent
 tool loop driving `Router.stream_agentic`. ("Loop" is the agent-layer
 LLM-conversation concept; "Mode" is reserved for `molexp.harness.Mode`
-orchestration — the former agent-side PlanMode / RunMode pipelines moved
+orchestration — the former agent-side plan pipeline / run execution pipelines moved
 to the harness layer.)
 
 Construction is plain Python — no factory functions
@@ -100,10 +100,10 @@ up.
 
 ## Pipeline orchestration lives in the harness
 
-The agent layer used to host its own multi-step pipelines (PlanMode,
+The agent layer used to host its own multi-step pipelines (PlanOrchestrator,
 AuthorMode, RunMode, ReviewMode) built on `molexp.workflow`. That
 orchestration moved out: `molexp.harness` now owns the `Mode` ledger
-and the single canonical `PlanMode` (9 steps + an opt-in `--execute`
+and the canonical `PlanOrchestrator` (two-phase planning + realization
 tail; the former separate RunMode is retired/folded in). The harness
 drives the LLM through the agent's
 `Router` Protocol via `RouterBackedAgentGateway` — the single sanctioned

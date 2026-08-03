@@ -238,7 +238,7 @@ molexp run train.py --rerun --fresh     # 从头重新执行
   </a>
   <a href="architecture/plan-mode/">
     <strong>molmcp · 能力发现</strong>
-    <em>为智能体 Harness 落地能力。PlanMode 经 molmcp 发现完整工具链，再绑定实验所需的最小子集。</em>
+    <em>为智能体 Harness 落地能力。PlanOrchestrator 经 molmcp 发现完整工具链，再绑定实验所需的最小子集。</em>
   </a>
   <a href="concept/plugins/">
     <strong>molvis · 可视化</strong>
@@ -352,8 +352,8 @@ MolExp 不是功能的大杂烩。每个子系统服务于以下目标之一。
     <em>网格搜索参数，并行执行，用 to_records() 汇总。</em>
   </a>
   <a href="guide/plan-mode/">
-    <strong>PlanMode</strong>
-    <em>九步智能体驱动实验流水线：起草 → 规格 → 代码 → 测试 → 审查。</em>
+    <strong>PlanOrchestrator</strong>
+    <em>两阶段规划流水线：任务板 → 审查冻结 → 实现编译。</em>
   </a>
 </div>
 

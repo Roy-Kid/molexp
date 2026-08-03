@@ -35,11 +35,18 @@ so this one process serves both the REST API and the interface — no
 Node.js required. If `./lab` does not exist or has no `workspace.json`,
 `serve` initializes it automatically.
 
-> **Editable installs:** if you installed from a source checkout with
-> `pip install -e .`, the UI bundle may be absent and the server falls
-> back to API-only. Build it once with `cd ui && npm install && npm run
-> build`, or run the dev server (`npm run dev`, port 5173) alongside the
-> backend. See [Server Lifecycle](../guide/server-lifecycle.md).
+> **Editable installs / live UI:** from a source checkout
+> (`pip install -e .`), use **one command** for API + HMR frontend:
+>
+> ```bash
+> molexp serve --dev -ws ./lab --port 8000
+> ```
+>
+> Open the printed **Dev UI** URL (default <http://localhost:5173>), not
+> the API port. `npm run dev` proxies `/api` to the API. Requires Node
+> and a one-time `cd ui && npm install`. Override the UI port with
+> `--ui-port`, or the ui path with `MOLEXP_UI_DIR`. See
+> [Server Lifecycle](../guide/server-lifecycle.md).
 
 You can serve several workspaces at once by repeating `-ws`;
 the UI shows each one in the left panel and you switch by clicking into
@@ -194,7 +201,7 @@ existing Compare / Aggregate views.
 
 **Agent Tasks** has two different modes:
 
-- **Plan Mode** (`PlanComposer`) — full PlanMode pipeline (nine steps +
+- **Plan Mode** (`PlanComposer`) — full PlanOrchestrator pipeline (two phases +
   optional execute), approvals inbox, real artifacts. Configure the model
   under Agent settings (`agent.model` / provider keys).
 - **Interactive chat** — **read-only** today: search knowledge and read

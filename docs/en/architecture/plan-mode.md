@@ -1,159 +1,89 @@
-# Plan Mode Architecture
+# Plan Mode 架构
 
-PlanMode turns a natural-language experiment draft into a fully verified,
-reviewed plan plus a descriptive execution report — in **nine visible
-steps**. It is the **single `Mode` pipeline in `molexp.harness`** (the top
-layer of the dependency DAG); the earlier PlanMode/RunMode split is retired.
-The nine steps end at the execution report; real scientific execution is an
-**opt-in tail** (`PlanMode(execute=True)` / `molexp plan --execute`) that runs
-the workflow for real and writes the final + audit reports.
+`PlanOrchestrator` 把自然语言实验草案变成：**任务板（task board）**、经人审
+批的计划报告，以及（默认）**实现（realize）** 后的工作流——绑定任务 → 按任务
+代码生成与自修复 → 仅编译的 dry-run。这是 `molexp.harness` 里**唯一**交付的
+规划流水线。
 
-> PlanMode used to be a `molexp.agent` mode built on `molexp.workflow`, and
-> the back half lived in a separate `RunMode`. It now lives in the harness
-> as one ordered list of `Stage` objects with an opt-in execution tail. The
-> harness reaches the LLM only through the agent's `Router` Protocol
-> (`RouterBackedAgentGateway`), and it never loads the workflow engine
-> in-process — pytest and the materialized workflow driver run as executor
-> subprocesses.
+CLI（`molexp plan`）与服务端（`POST /plan-tasks`）都经
+`services.plan_runtime.drive_plan_mode` 驱动同一路径，彼此不互调。
 
-## A Mode is a stage ledger
+Harness 只通过 agent 的 `Router` 协议（`RouterBackedAgentGateway`）访问 LLM；
+工作流引擎**不会**在 harness 进程内加载——pytest 与 compile dry-run 在
+**executor 子进程**中运行。
 
-A `Mode` is an ordered list of `Stage`s run against one
-content-addressed `Run`. `Mode.stages(user_input)` returns the
-sequence; the runner executes each `Stage.run(ctx) -> PlanArtifactRef`,
-brackets it with `stage_started` / `artifact_created` / `stage_completed`
-events, and auto-wires `derived_from` lineage between artifacts. Each
-completed stage is recorded in a ledger keyed by the Run's fingerprint,
-so re-running the **same draft** resumes on the same Run and skips
-already-completed stages.
-
-Run-level provenance (params, config hash, code/script identity) is
-owned by **workspace** (`RunMetadata` + the per-scope `AssetManifest`s).
-Harness lineage covers only the agent-pipeline artifacts and stamps each
-edge with its stage plus the workspace `run_id`.
-
-## PlanMode flow (9 steps)
+## 两阶段（不是九步账本）
 
 ```mermaid
 flowchart TD
-    A["Experiment draft"] --> S1["1 Draft proposal<br/>SaveUserPlan → AssembleKnowledgeContext → GenerateExperimentReport"]
-    S1 --> S2["2 Draft spec<br/>GenerateExperimentSpec → Validate → ApprovalGate"]
-    S2 --> S3["3 Resolve capabilities<br/>ResolveCapabilities"]
-    S3 --> S4["4 Workflow IR<br/>ExtractWorkflowIR → ValidateWorkflowIR"]
-    S4 --> S5["5 Tasks + per-task tests<br/>Bind → Source → TestSpec → TestCode (+validate)"]
-    S5 --> S6["6 Input set<br/>GenerateInputSet → ValidateInputSet"]
-    S6 --> S7["7 Compile / dry-run<br/>MaterializeExecution → ExecuteTests → CompileWorkflow"]
-    S7 --> S8["8 Review<br/>ApprovalGate (approve_plan)"]
-    S8 --> S9["9 Execution report<br/>GenerateExecutionReport"]
-    S9 -.->|--execute tail| R["ExecuteWorkflow → GenerateFinalReport<br/>→ ApprovalGate → GenerateAuditReport"]
+    D["实验草案"] --> P1["阶段 1 — 交互式规划"]
+    P1 --> B["任务板工具<br/>place / list / update / patch"]
+    B --> G["表单守卫<br/>PlanFormValidator"]
+    G --> Pr["可达性探针"]
+    Pr --> R["硬门禁<br/>StepAuditLoop store-first"]
+    R -->|挂起| A["审批收件箱"]
+    A -->|授权| F["freeze_experiment_plan"]
+    R -->|自动/已存授权| F
+    F --> Rep["plan_report_renderer"]
+    Rep --> P2["阶段 2 — 实现"]
+    P2 --> M["board → experiment_spec<br/>+ bound_workflow"]
+    M --> Z["RealizeBoard<br/>map → reduce → compile"]
+    Z -->|阻塞| I["intervention_request"]
+    Z -->|全绿| E["execution_result"]
 ```
 
-1. **Draft proposal** — `SaveUserPlan` → **`AssembleKnowledgeContext`** →
-   `GenerateExperimentReport` capture the request, fold prior workspace
-   knowledge into a first-class `knowledge_context` artifact (auditable
-   knowledge→plan lineage), and draft a human-readable experiment report.
-2. **Draft spec** — `GenerateExperimentSpec` concretizes every parameter
-   into a provenance-carrying `ExperimentSpec` and resolves the report's
-   open questions; `ValidateExperimentSpec` checks coverage; then
-   **`ApprovalGate(approve_experiment_spec)`** gates the concrete spec
-   **before** capability discovery / IR / codegen. Stored as JSON; the YAML
-   view is rendered at the CLI/server boundary.
-3. **Resolve capabilities** — `ResolveCapabilities` grounds the full molmcp
-   toolchain onto `ctx.capability_registry`, then an LLM
-   (`capability_selector`) narrows to the **minimal** subset →
-   `capability_catalog` (registry stays full for later validation).
-   `BindMolcraftsTasks` (step 5) consumes the catalog.
-4. **Workflow IR** — `ExtractWorkflowIR` lifts the *concrete spec* into a
-   workflow IR (flow + topology); `ValidateWorkflowIR` checks it.
-5. **Tasks + per-task tests** — `BindMolcraftsTasks` / `ValidateBoundWorkflow`
-   bind IR nodes to concrete tasks; `GenerateWorkflowSource` /
-   `ValidateWorkflowSource` + `ReviewPlan` emit + validate the runnable
-   `molexp.workflow` source; `GenerateTestSpec` / `GenerateTestCode` (+
-   validators) author **one unit test per bound task**.
-6. **Input set** — `GenerateInputSet` / `ValidateInputSet` describe the
-   parameter-space sweep (`InputSet`), bridging to workspace
-   `GridSpace` / `UniformSpace`.
-7. **Compile / dry-run** — `MaterializeExecution` writes the driver +
-   modules, `ExecuteTests` runs the per-task tests, and `CompileWorkflow`
-   runs `run_workflow.py --compile-only` (builds + compiles the DAG, checks
-   the input-set params — **no** task bodies run, no real compute). Produces
-   an `execution_result` tagged `metadata.mode="compile"`.
-8. **Review** — `ApprovalGate(approve_plan)`, the human gate over the whole
-   verified plan. `PlanMode(approver=…)` injects the approver; with no
-   approver the gate resolves store-first (a persisted grant replays) and
-   otherwise **suspends** with `ApprovalPendingError` — it never
-   auto-grants. `auto_grant_approver` survives as an explicit injection for
-   deliberately unattended runs.
-9. **Execution report** — `GenerateExecutionReport` synthesizes a
-   descriptive `ExecutionReport` (which machine, which account, scheduler,
-   resource policy, environment) from the bound workflow + an injected
-   workspace `ComputeTarget`. **Descriptive only — it never submits.**
+| 阶段 | 内容 | 代表产物 |
+|------|------|----------|
+| **1 规划** | InteractiveLoop + 任务板工具；表单守卫；可达性；硬审 | `experiment_plan`、`review_pack`、`frozen_experiment_plan`、`plan_report` |
+| **2 实现** | 物化 bound → RealizeBoard | `bound_workflow`、`workflow_source`、`test_source`、`execution_result`（或 `intervention_request`） |
 
-## Opt-in execution tail (`--execute`)
+**没有**线性九步 `Mode` 账本。硬门禁后的恢复是 **store-first**。仅当
+`PlanOrchestrator(realize=False)` 时跳过阶段 2（测试或刻意 plan-only）。
 
-The nine steps end at the execution report. `PlanMode(execute=True)` (CLI
-`molexp plan --execute`) appends the real-execution tail on the **same Run**
-— the folded-in former RunMode back half:
+## 阶段 1 — 交互式规划
 
-```mermaid
-flowchart TD
-    T1["ExecuteWorkflow"] --> T2["GenerateFinalReport"]
-    T2 --> T3["ApprovalGate (approve_execution)"]
-    T3 --> T4["GenerateAuditReport"]
-```
+1. **规格种子** — 自由文本 → `{title, objective}`；JSON 对象原样作为不透明
+   `spec`。
+2. **任务板工具** — 生产实现 `DiskTaskBoard`（`run_dir/plan/task_board.json`）。
+   工具：`place_task` / `list_tasks` / `inspect_*` / `update_task` /
+   `complete_task` / `block_task` / `propose_plan_patch`。adapter 注入
+   `ctx` 与 `board`。
+3. **表单守卫** — 环内 `require_feasibility=False`；可达性在环结束后标注。
+4. **硬审** — 含 **keep_tasks** 多选等表单。无审批者且无已存授权 →
+   `ApprovalPendingError`。**approve 与 revise 都携带 field_values**。
 
-`PlanMode(executor=…)` defaults to `LocalExecutor`; inject `DryRunExecutor`
-to skip the step-7 and tail subprocesses. The step-7 per-task tests **gate**
-the plan (red tests block the review gate); the tail's real `ExecuteWorkflow`
-runs the workflow for real. Both `ExecuteTests` (pytest) and the materialized
-`run_workflow.py` driver run as **executor subprocesses**, so the
-`molexp.workflow` engine never loads inside the harness process.
+## 阶段 2 — 确定性实现
 
-## Validation
+冻结并出报告后：物化 `experiment_spec` + `bound_workflow`，再
+`RealizeBoard`（并行按任务 codegen → reduce → compile-only）。任一任务超预算
+→ 持久化 `intervention_request` 并在 compile **之前**抛错。
 
-Validators under `harness/validators/` are pure, synchronous, and
-deterministic. They return a `PlanValidationReport` and **never raise** —
-the owning stage decides whether a report's violations should lift to a
-`StageExecutionError`. Each `Validate*` stage pairs with its `Generate*`
-predecessor (`ValidateWorkflowIR`, `ValidateBoundWorkflow`,
-`ValidateWorkflowSource`, `ValidateTestSpec`, `ValidateTestSource`).
+## 审批与恢复
 
-## Artifacts and stores
+门禁写在 `run_dir/harness.sqlite`。共享 decide：
+`services.plan_runtime.decide_plan_review`。作用域：`approval_gate`（阶段 1）与
+`intervention_request`（阶段 2）。
 
-PlanMode (and its `--execute` tail) writes under the Run directory:
+## 磁盘布局
 
 ```text
-runs/<run_id>/
-├── artifacts/        # stage outputs (reports, IR, generated source, tests, …)
-└── harness.sqlite    # event log + artifact lineage + approval store
+runs/run-<id>/
+├── plan/task_board.json
+├── artifacts/
+└── harness.sqlite
 ```
 
-`FileArtifactStore` holds the artifact blobs; `SQLiteEventLog`,
-`SQLiteArtifactLineageStore`, and **`SQLiteApprovalStore`** share the
-run-local `harness.sqlite` (event rows enforce `UNIQUE(run_id, seq)`).
-Approval gates are **store-first**: a pending request is durable, a grant
-replays on re-entry, a rejection re-asks — suspension surfaces as
-`ApprovalPendingError` (not a failed stage). The audit report
-(`GenerateAuditReport`) and `replay_metadata` reconstruct the pipeline
-from those records.
-
-The harness top-level public surface is deliberately small (**21 symbols**,
-locked by `tests/test_harness/test_public_surface.py`), including the
-approval-inbox pair `ApprovalPendingError` / `SQLiteApprovalStore`.
-
-## Production entry point
+## 入口
 
 ```bash
-# Plan only — the nine steps, stopping at the execution report
-molexp plan "screen solvent conditions for electrolyte X"
-
-# Plan, then run the workflow for real on the same Run (opt-in tail)
-molexp plan -f draft.md --execute
+molexp plan "为电解液 X 筛选溶剂条件"
 ```
 
-`molexp plan` (`cli/plan_cmd.py`) injects the agent gateway, the executor,
-and the resolved `ComputeTarget`, derives a content-addressed Run from the
-draft, and drives the single PlanMode (with `--execute`, the real-execution
-tail too). Because the Run is content-addressed, re-issuing the same draft
-resumes the stage ledger rather than starting over. The model defaults to
-the operator's `agent.model` config (`~/.molexp/config.json`).
+UI 与 CLI 同一 `drive_plan_mode(PlanOrchestrator(...), ...)`。会话进度条阶段
+与 `planStages.ts` / `record._STAGE_LABELS` 对齐。
+
+## 相关
+
+- 操作指南：[Plan mode](../guide/plan-mode.md)
+- Agent 层：[Agent 架构](agent.md)
+- 工作流引擎：[Workflow 层](workflow-layer.md)

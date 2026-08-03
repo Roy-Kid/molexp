@@ -1,5 +1,27 @@
 # Writing a third-party molexp plugin
 
+## Scientific data vs plugins (dependency DAG)
+
+Science products are **MolRec records**, not molexp-first-class “metrics”:
+
+```text
+molrec (spec)  ←  molrs I/O  ←  molpy (compute + write record)
+                              ↘
+                           molexp Run assets (storage only)
+                              ↘
+              UI plugins match sections and open:
+                molvis  ← frame / trajectory
+                molplot ← all charts / series / observables (only plot product)
+                molq    ← scheduler chrome only (not science formats)
+```
+
+- **Core** Run UI lists products under **Outputs** and routes previews.
+- **Plugins** activate only when files/tags match — never hard-wired as core tabs.
+- **No Metrics product** — charts are **molplot only**.
+- Builtin agent `run_land` attaches MolRec roots + source; it does not write a metrics stream.
+
+---
+
 molexp ships **two completely independent** plugin channels so a
 downstream Python package can extend molexp without forking it or
 re-bundling the frontend:

@@ -7,9 +7,8 @@ evolves.
   Documents the five-name public surface plus the two loops, the
   `_pydanticai/` firewall, the "don't reinvent pydantic-ai" rule, and why
   pipeline orchestration lives in the harness rather than the agent.
-- [Plan Mode](plan-mode.md) — the single harness `PlanMode` pipeline (9 steps +
-  an opt-in `--execute` tail; the former separate RunMode is retired): stage
-  ledger, executor-subprocess boundary, artifact/lineage layout, and the
+- [Plan Mode](plan-mode.md) — the harness `PlanOrchestrator` pipeline (two-phase planning +
+  planning then realization): executor-subprocess boundary, artifact/lineage layout, and the
   `molexp plan [--execute]` entry point.
 - [Workflow Layer](workflow-layer.md) — `molexp.workflow` as the single workflow
   abstraction; the engine is fully self-owned under `_engine/` (no `pydantic_graph` dependency). Also covers

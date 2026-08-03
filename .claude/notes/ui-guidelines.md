@@ -1,0 +1,247 @@
+# UI Guidelines — MolExp
+
+Product-local UI record, maintained by `/mol:ui`. The shared MolCrafts
+constitution is **not** restated here; it lives in the `mol` plugin at
+`skills/ui/references/visual-language.md`. This file records only what
+*this product* decided.
+
+Human prose may be added anywhere outside the managed markers below and
+will never be rewritten.
+
+<!-- mol:ui:begin -->
+
+## Surface
+
+| | |
+|---|---|
+| Frontend root | `ui/` |
+| Archetype | `workbench` |
+| Default theme | light, with a real dark theme |
+| Token layer | `ui/src/styles/tailwind.css` |
+| Last ladder stage applied | `motion` on `2026-07-27` (ladder complete); token/density hygiene on `2026-07-31` |
+
+## Accent
+
+```css
+:root { --molexp-accent: oklch(0.55 0.19 295); }
+.dark { --molexp-accent: oklch(0.72 0.16 295); }
+```
+
+Hue 295 (violet) stays ≥40° from `--status-running` (250). Product accent
+never signals run/plan state — running uses the status ramp only.
+
+## Token decisions
+
+MolExp owns an independent OKLCH token layer (not shared with MolVis).
+Workbench surfaces: `background`, `surface`, `surface-subtle`, `canvas`.
+`interactive` is the neutral hover surface so accent stays for emphasis and
+selection. Fixed MolCrafts status vocabulary has separate accessible
+foreground and soft-surface tokens. UI text uses the 11–24px semantic ramp
+(`text-micro` … `text-display`); controls use named 28/32/36px heights;
+coarse-pointer controls expand to a 44px minimum target.
+
+Legacy shadcn aliases (`primary`, `success`, `destructive`, `info`,
+`warning`) map onto accent / status tokens for existing feature code.
+`info` aliases **running status**, not the product accent.
+
+Scientific chart series palettes (including ΔF groups) use oklch
+categorical colors — not brand/status tokens.
+
+Stage 2 conformance is enforced across `ui/src/`: feature code contains no
+raw Tailwind palette utilities, arbitrary font sizes, off-scale
+margin/padding/gap values, multi-pixel borders, or unnamed shadows. Overlay
+scrims and the single overlay elevation are local semantic tokens. Version and
+configuration diffs own an independent `diff-added|removed|modified|unchanged`
+ramp so they never borrow run-status meaning.
+
+## Layout shell
+
+Declared frame in `AppShell` (every route renders into it):
+
+```text
+┌───────────────────────────────────────────────────────────────┐
+│ ContextBar — MolExp · filter · approvals · refresh      44px  │
+├────────────┬─────────────────────────────────┬────────────────┤
+│ Navigator  │ Breadcrumb + inspector toggle   │ Node Inspector │
+│ tree 28px  │ Work surface (canvas)           │ (toggleable)   │
+│ rows       │                                 │                │
+│ 16–30%     │                                 │ 20–45%         │
+├────────────┴─────────────────────────────────┴────────────────┤
+│ BottomPanel tab strip (28px): ♡ | Logs | Problems | Runs |    │
+│ Artifacts · scope · chevron   (body height-draggable when open)│
+└───────────────────────────────────────────────────────────────┘
+```
+
+- Global toolbar (`ContextBar`) is **44px** (`h-11`).
+- Work-surface header (breadcrumb) is **40px** (`h-10`).
+- Bottom panel strip is **28px** when collapsed; open height persists in
+  `localStorage` (`molexp.workbench.bottomPanel`).
+- Navigator/work-surface and work-surface/inspector layouts persist independently
+  through stable panel ids. Conditional inspector layouts do not overwrite the
+  single-panel work-surface layout.
+- Runs reuses the declared `AppShell` inspector; it does not create a second
+  fixed-width inspector inside the work surface.
+- Heartbeat sits **on the same row** as Logs/Problems/… (leftmost), and click
+  triggers the active refresh. Idle is neutral, an active refresh uses labelled
+  running blue, and completion gets one neutral 180ms acknowledgement.
+- Mobile: nav + the same stateful inspector become edge drawers; the bottom
+  panel stays full-width.
+- The bottom resize separator supports pointer drag plus
+  Arrow Up/Down, Home, and End, with its current height exposed through ARIA.
+
+## Product components
+
+| Component | Wraps | Owns |
+|---|---|---|
+| `BottomPanel` | tab strip + resize separator | Logs/Problems/Runs/Artifacts |
+| `WorkflowNode` | domain node chrome | DAG node (lists + flowgram) |
+| `NodeInspector` / `Section` / `Row` | semantic aside + section layout | Right-rail inspector frame |
+| `ParameterField` / `ParameterGroup` | Input/Select | Schema-driven params |
+| `RunStatusBadge` | `StatusBadge` + canonical status boundary | Run/execution status chips |
+| `WorkbenchTag` | `Badge` | Category, metadata, selection, and outcome tags |
+| `WorkbenchAction` / `Icon` / `Toggle` | `Button` | Product action vocabulary |
+| `WorkbenchOperationState` | Skeleton / live region | loading·empty·error·disabled·running·success |
+| Plan agent set | rail / deliverables / review | PlanOrchestrator UI |
+
+Live under `ui/src/components/workbench/`. Feature chrome uses
+`WorkbenchAction*` and `WorkbenchTag`; base `Button variant=` and `Badge`
+remain implementation details of base or product/entity wrappers.
+
+Stage 3 component conformance:
+
+- Run and entity status presentation shares the nine-value canonical vocabulary;
+  wire aliases normalize once at the presentation boundary.
+- Primary data-table and runs-table rows activate with pointer, Enter, or Space
+  and expose stable accessible names and focus treatment.
+- Bottom-panel tabs implement roving focus with Left/Right/Home/End; the resize
+  separator supports pointer and keyboard operation.
+- Icon-only actions and form controls have precise programmatic names and label
+  associations. The global command palette exposes combobox/listbox semantics.
+- The plan progress rail becomes a horizontally scrollable stage selector on
+  narrow screens and a vertical rail at the large breakpoint.
+- Product component files keep one primary responsibility: BottomPanel state,
+  resize, tabs, and empty content; inspector rows/sections; and parameter groups
+  are split into focused modules.
+
+## Surface hierarchy
+
+Stage 4 de-card conformance:
+
+- Page regions use a section label, whitespace, and one-dimensional separators;
+  they do not get a rounded bordered `bg-card` wrapper.
+- KPI/stat groups, timelines, tables, settings field groups, empty regions, and
+  ordinary list rows are flat. Selected rows may use a quiet semantic fill.
+- A full object boundary is reserved for a one-to-one domain object or primary
+  control/artifact that can reasonably be opened, edited, copied, enlarged,
+  dragged, removed, or acted on independently.
+- Preserved object surfaces include workflow nodes, draggable dashboard panels,
+  provider credentials, skills, MCP servers, approval requests, entity
+  references, conversation turns, and reviewable code/chart artifacts.
+- Status notices use their semantic soft token with a linear border rather than
+  generic card chrome.
+
+## Operation states
+
+Stage 5 state conformance:
+
+- `WorkbenchOperationState` is the single accessible surface for loading,
+  final empty, error, disabled, running, and success feedback. It owns
+  `status` / `alert` live-region semantics and default, compact, and toolbar
+  densities.
+- Every audited fetching/computing surface uses it: ProjectViewer, AssetViewer,
+  both workflow file viewers, DocTree, KnowledgeDocPanel,
+  KnowledgeBacklinksCard, ApprovalsBell / Inbox, GlobalCommandPalette, and
+  ModelPicker, in addition to the existing bottom-panel, image, editor,
+  activity, and log surfaces.
+- Initial loading never renders as final empty, request failures never collapse
+  to `[]`, `null`, “not found,” or zero metrics, and zero-length payloads get a
+  deliberate final-empty state.
+- Read failures stay visible with an explicit Retry. Background refresh keeps
+  valid prior content visible under a running state.
+- Mutations disable their initiating controls, expose `aria-busy`, announce
+  running/error/success transitions, and retain a retry path where replay is
+  safe.
+- Presentation boundaries normalize wire aliases to the fixed Queued /
+  Running / Completed / Failed / Cancelled vocabulary and status ramp.
+
+## Motion
+
+Stage 6 motion conformance:
+
+- `--motion-fast/base/slow` = 120/150/180ms with
+  `cubic-bezier(0.2, 0, 0, 1)`. Tailwind's default transition duration and
+  easing resolve through those product tokens.
+- `mol-motion-overlay`, `mol-motion-dialog`, `mol-motion-popup`, and
+  `mol-motion-sheet` own Radix open/close motion across dialog, alert, sheet,
+  select, popover, tooltip, dropdown, and context-menu primitives.
+- Spatial motion is reserved for edge-owned panels: the mobile sheet enters
+  from its declared edge, the desktop inspector enters from the right, and the
+  bottom panel expands from its 28px strip. Pointer resize disables easing while
+  dragging.
+- `mol-motion-progress-spin` and `mol-motion-progress-pulse` are the only
+  continuous chrome animations. They use linear cadence and appear only for
+  running, loading, skeleton, or streaming feedback; idle/decorative loops are
+  forbidden.
+- Workflow port hover/link transitions override Flowgram's injected 200ms
+  `transition: all` with explicit 150ms product transitions. Programmatic
+  zoom/fit easing reacts to the same motion preference.
+- Global `prefers-reduced-motion: reduce` removes chrome animations and
+  transitions entirely. Workflow running edges and injected port transitions
+  have explicit fallbacks in addition to the global rule.
+
+## OpenAPI client
+
+Regenerate with:
+
+```bash
+.venv/bin/python scripts/dump_openapi.py
+cd ui && npm run generate:api   # includes patch-generated-api.mjs for JSONValue
+```
+
+`PlanDetailResponse` tracks PlanOrchestrator fields from the live FastAPI
+schema. Do not hand-edit `ui/src/api/generated/`.
+
+## Base primitives installed
+
+`button`, `input`, `textarea`, `select`, `badge`, `tabs`, `dialog`,
+`alert-dialog`, `sheet`, `popover`, `dropdown-menu`, `context-menu`,
+`tooltip`, `separator`, `scroll-area`, `resizable`, `command`, `skeleton`,
+`accordion`, `label`, plus workbench needs `tree`, `markdown`, `toast`,
+`thinking-block`, `tool-call-row`. **`card` removed** (zero feature callers).
+
+## Permitted variance claimed
+
+| Axis | This product | Rationale |
+|---|---|---|
+| Default theme | Light, with dark available | Parameters, tables, DAGs, logs are read for hours |
+| Accent hue | 295 violet | Outside status-running band; distinct from MolVis teal |
+| Layout topology | Nav / work surface / inspector (+ plan rail) | IDE-shaped scientific workbench |
+| Information density | High, persistently visible chrome | Edit · configure · run is the dominant task |
+| Panel behavior | Fixed resizable side panels; mobile edge drawers | State survives layout changes |
+| Product component set | Local to `ui/` | Never import MolVis page components |
+
+## Known debt
+
+2026-07-31 hygiene pass fixed: breadcrumb wrap inside the 40px header,
+dense-table row heights (DataTable now ~30px via `ROW_PADDING_DENSE`),
+dead/non-conforming `density.ts` constants (now the live geometry source),
+headline numbers on `text-display` / `text-title` tokens, and redundant
+`md:px-4` no-ops. Gate pass (same run): molvis preview consumers moved from
+`@molcrafts/molvis-core` to `@molcrafts/molvis-stage` (the package that owns
+`mountMolvis` / `./io`), duplicate `inlineStructure` casing copy removed,
+`chat-answer.test` moved to `@rstest/core`, motion-contract violations
+(`animate-spin` → `mol-motion-progress-spin`) fixed, conditional hook in
+AgentViewer removed, and `biome.json` migrated to CLI 2.5.0. Sticky table
+headers are now opaque (`bg-background`).
+
+| Item | Stage | Severity |
+|---|---|---|
+| Feature code still names 12/14px sizes with Tailwind defaults (`text-xs` / `text-sm`, ~79/67 files) instead of the semantic `text-label` / `text-body-lg` tokens | tokens | 🟡 |
+| Two-line Jobs-table rows (~52px) sit above the 28–32px single-line target by design | density | 🟢 |
+| Dashboard-panel drag/remove chrome is hover-only (HTML5 DnD, no touch path) | states | 🟡 |
+| `ui/src/app/renderers/agent/inlineStructure.tsx` tail was reconstructed after the casing cleanup deleted the only copy (macOS case-insensitive FS); review the render block | — | 🟡 |
+
+New feature chrome should use the workbench product components rather than
+importing base action or tag primitives directly.
+
+<!-- mol:ui:end -->
