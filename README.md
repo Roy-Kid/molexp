@@ -23,7 +23,7 @@
 
 </div>
 
-molexp turns a Python script of typed tasks into a tracked, reproducible experiment. It pairs a content-hashed workflow engine with a file-system-backed `Workspace → Project → Experiment → Run` hierarchy, profile-driven run variants, and optional cluster submission — then layers on an audited orchestration harness (Plan/Run stage pipelines, artifact lineage, approval gates), an optional LLM agent that can plan and drive those workflows, and a FastAPI server with a bundled React UI.
+molexp turns a Python script of typed tasks into a tracked, reproducible experiment. It pairs a content-hashed workflow engine with a file-system-backed `Workspace → Project → Experiment → Run` hierarchy, profile-driven run variants, and optional cluster submission — then layers on an audited orchestration harness (two-phase plan pipeline, artifact lineage, approval gates), an optional LLM agent that can plan and drive those workflows, and a FastAPI server with a bundled React UI.
 
 > **Under active development.** Public APIs may change between minor releases.
 
@@ -44,7 +44,9 @@ What that unlocks is a research workflow you can trust and revisit: experiments 
 | `molexp.config`     | In-code process-global config — a live `molcfg.Config` for runtime values such as LLM API keys, registered in code (never from env) |
 | `molexp.profile`    | File-based per-run config — `molcfg.yaml` loading and named profiles; resolves `defaults` + `profiles` into an immutable, content-hashed `ProfileConfig` |
 | `molexp.agent`      | Optional LLM layer — `AgentRunner` / `AgentLoop` (`ChatLoop` one round-trip, `InteractiveLoop` emergent tool loop) with persisted `AgentSession`s, built on PydanticAI (lazy-loaded) |
-| `molexp.harness`    | Experiment orchestrator — one audited `PlanMode` stage pipeline (artifact lineage, approval gates, executors) over a content-addressed Run, with an opt-in `--execute` real-execution tail; the production `molexp plan [--execute]` entry point that lets an LLM agent plan, generate, and drive a workflow |
+| `molexp.harness`    | Experiment orchestrator — audited stages over a content-addressed Run (artifact lineage, approval gates, executors). Two modes: `PlanOrchestrator` (interactive planning behind a hard review gate, then deterministic realization into a compiled workflow) and `ChatMode` (exploratory, scratch-only). The production `molexp plan` entry point |
+| `molexp.services`   | Application-service layer between the shells and the domain layers — plan/curate runtimes, operator config, agent context, approval notifications. CLI and server both call it and never each other, so a Python operation and a UI operation share one code path |
+| `molexp.knowledge`  | Open Knowledge Format concept-type registry — the bottom-layer `@concept_type` registry `workspace` uses to reconstruct typed folders from each concept's persisted type |
 | `molexp.server`     | FastAPI app — REST routes for workspace, projects, experiments, runs, assets, execution, plus SSE streaming and bundled-SPA serving |
 | `molexp.cli`        | `molexp` command-line entry point — workspace init/info, run/execute, project / experiment / run / asset / target / session subcommands |
 | `molexp.plugins`    | On-demand capability registry — `submit_molq` scheduler bridge (SLURM / PBS / LSF) and `gh` GitHub client; core stays dependency-light |
@@ -57,7 +59,7 @@ What that unlocks is a research workflow you can trust and revisit: experiments 
 pip install molexp
 ```
 
-Requires Python >= 3.12. Core depends on `pydantic`, `pydantic-graph`, `typer`, `rich`, `fastapi`, `uvicorn`, and the MolCrafts libraries `mollog`, `molcfg`, and `molq`. Optional extras: `molexp[agent]` adds the PydanticAI LLM layer; `molexp[tensorboard]` adds the TensorBoard scalar reader; `molexp[all]` bundles both, and `molexp[dev]` pulls everything for development.
+Requires Python >= 3.14. Core depends on `pydantic`, `typer`, `rich`, `fastapi`, `uvicorn`, and the MolCrafts libraries `mollog`, `molcfg`, `molq`, and `molpy` (the workflow engine is self-owned — `pydantic-graph` is no longer a dependency). Optional extras: `molexp[agent]` adds the PydanticAI LLM layer; `molexp[tensorboard]` adds the TensorBoard scalar reader; `molexp[all]` bundles both, and `molexp[dev]` pulls everything for development.
 
 ## Quick start
 

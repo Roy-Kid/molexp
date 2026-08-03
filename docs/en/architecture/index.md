@@ -7,6 +7,11 @@ evolves.
   Documents the five-name public surface plus the two loops, the
   `_pydanticai/` firewall, the "don't reinvent pydantic-ai" rule, and why
   pipeline orchestration lives in the harness rather than the agent.
+- [Harness Layer](harness.md) — `molexp.harness` as the experiment orchestrator:
+  the 22-symbol public surface, artifact lineage / audit / approval machinery,
+  the two shipped modes (`PlanOrchestrator`, `ChatMode`), and the boundaries
+  that keep the agent edge to one Protocol and the workflow engine out of
+  process.
 - [Plan Mode](plan-mode.md) — the harness `PlanOrchestrator` pipeline (two-phase planning +
   planning then realization): executor-subprocess boundary, artifact/lineage layout, and the
   `molexp plan [--execute]` entry point.

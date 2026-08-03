@@ -1,7 +1,7 @@
 """Regression: the emergent-plan cutover is complete (plan-emergent-08-cutover).
 
 Binding runtime example for spec ``plan-emergent-08-cutover``. It proves the
-cutover onto :class:`~molexp.harness.modes.emergent_plan.EmergentPlanOrchestrator`
+cutover onto :class:`~molexp.harness.modes.plan_orchestrator.PlanOrchestrator`
 with two orthogonal checks, both offline, deterministic, stub-driven — no
 network, no subprocess, no server, no CLI, no real LLM:
 
@@ -11,7 +11,7 @@ network, no subprocess, no server, no CLI, no real LLM:
    ``molexp.harness.stages.sequential_task_build``) raises
    ``ModuleNotFoundError`` on import, and the harness public surface no longer
    advertises ``"Mode"`` / ``"PlanMode"`` — it advertises
-   ``"EmergentPlanOrchestrator"`` instead, at exactly 20 symbols.
+   ``"PlanOrchestrator"`` instead, at exactly 22 symbols.
 
 2. **Shared-path drive** — a plan is driven END-TO-END through the ONE public
    shared entry point (:func:`~molexp.services.plan_runtime.drive_plan_mode`,
@@ -50,7 +50,7 @@ from molexp.harness import (
     SQLiteApprovalStore,  # noqa: F401 — imported to prove the public surface still carries it
 )
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.emergent_plan import EmergentPlanOrchestrator
+from molexp.harness.modes.plan_orchestrator import PlanOrchestrator
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -163,17 +163,17 @@ def _check_absence_guard() -> None:
     all_symbols = harness.__all__
     assert "Mode" not in all_symbols, "retired 'Mode' must not be in molexp.harness.__all__"
     assert "PlanMode" not in all_symbols, "retired 'PlanMode' must not be in molexp.harness.__all__"
-    assert "EmergentPlanOrchestrator" in all_symbols, (
-        "the cutover target 'EmergentPlanOrchestrator' must be in molexp.harness.__all__"
+    assert "PlanOrchestrator" in all_symbols, (
+        "the cutover target 'PlanOrchestrator' must be in molexp.harness.__all__"
     )
-    assert len(all_symbols) == 20, (
-        f"harness public surface must be 20 symbols, got {len(all_symbols)}"
+    assert len(all_symbols) == 22, (
+        f"harness public surface must be 22 symbols, got {len(all_symbols)}"
     )
 
     print(
         f"[obs-1] absence guard: deleted={list(_DELETED_MODULES)} "
         f"__all__={len(all_symbols)} symbols (Mode/PlanMode absent, "
-        f"EmergentPlanOrchestrator present)"
+        f"PlanOrchestrator present)"
     )
 
 
@@ -184,8 +184,12 @@ async def _check_shared_path_drive(root: Path) -> None:
     """A plan is driven end-to-end through drive_plan_mode onto the orchestrator."""
     run = _make_run(root, "cutover")
     gateway = _gateway(run)
-    orchestrator = EmergentPlanOrchestrator(
-        loop_runner=_CannedBoardRunner(_valid_board()), approve=auto_grant_approver
+    orchestrator = PlanOrchestrator(
+        loop_runner=_CannedBoardRunner(_valid_board()),
+        approve=auto_grant_approver,
+        # Phase 1 only: this script's contract is "offline, no subprocess", and
+        # phase-2 realization runs codegen agents through an executor subprocess.
+        realize=False,
     )
 
     result = await drive_plan_mode(
@@ -211,7 +215,7 @@ async def _check_shared_path_drive(root: Path) -> None:
     )
 
     print(
-        f"drove EmergentPlanOrchestrator via drive_plan_mode; "
+        f"drove PlanOrchestrator via drive_plan_mode; "
         f"frozen={frozen.id} final={result.final_artifact.kind}"
     )
 

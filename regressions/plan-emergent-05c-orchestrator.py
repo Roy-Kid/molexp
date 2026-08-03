@@ -1,8 +1,8 @@
-"""Regression: EmergentPlanOrchestrator end-to-end, offline (plan-emergent-05c-orchestrator).
+"""Regression: PlanOrchestrator end-to-end, offline (plan-emergent-05c-orchestrator).
 
 Binding runtime example for spec ``plan-emergent-05c-orchestrator``. A
 library-external user drives the **public** emergent-planning orchestrator
-(:class:`~molexp.harness.modes.emergent_plan.EmergentPlanOrchestrator`) through
+(:class:`~molexp.harness.modes.plan_orchestrator.PlanOrchestrator`) through
 its documented run-shape, injecting a SELF-CONTAINED stub ``PlanLoopRunner``
 (writes a canned board via ``write_board`` — no real Pi loop) and a
 :class:`~molexp.harness.gateways.stub.StubAgentGateway` carrying a canned
@@ -15,7 +15,7 @@ each printed before it is asserted:
 
 (a) **guard steer-back / no human surface** — a persistently MALFORMED final
     board (a task with no acceptance) is rejected by the deterministic
-    ``EmergentPlanFormValidator`` guard BEFORE the human gate: no ``review_pack``
+    ``PlanFormValidator`` guard BEFORE the human gate: no ``review_pack``
     and no ``frozen_experiment_plan`` artifact are written, and the approval
     store has NO pending request. A malformed plan never reaches the human.
 (b) **store-first suspend** — a VALID board with NO approver and NO stored grant
@@ -54,7 +54,7 @@ from molexp.harness import (
     SQLiteApprovalStore,
 )
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.emergent_plan import EmergentPlanOrchestrator, PlanLoopRunner
+from molexp.harness.modes.plan_orchestrator import PlanLoopRunner, PlanOrchestrator
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -173,8 +173,10 @@ async def _check_guard_no_human_surface(root: Path) -> None:
     )
 
     run = _make_run(root, "guard")
-    orch = EmergentPlanOrchestrator(
-        loop_runner=_CannedBoardRunner(_malformed_board()), approve=auto_grant_approver
+    orch = PlanOrchestrator(
+        loop_runner=_CannedBoardRunner(_malformed_board()),
+        approve=auto_grant_approver,
+        realize=False,
     )
     # A persistently malformed board must be rejected (raise) — but must never
     # open a human gate: no review pack, no freeze, no pending approval.
@@ -194,7 +196,9 @@ async def _check_guard_no_human_surface(root: Path) -> None:
 async def _check_store_first_suspend(root: Path) -> None:
     """(b) No approver + no grant ⇒ ApprovalPendingError + a pending request."""
     run = _make_run(root, "suspend")
-    orch = EmergentPlanOrchestrator(loop_runner=_CannedBoardRunner(_valid_board()), approve=None)
+    orch = PlanOrchestrator(
+        loop_runner=_CannedBoardRunner(_valid_board()), approve=None, realize=False
+    )
     suspended = False
     try:
         await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
@@ -223,7 +227,9 @@ async def _check_stored_grant_replay(root: Path) -> None:
     """(c) A recorded grant replays store-first → freeze (stable id) + render."""
     run = _make_run(root, "replay")
     gw = _gateway(run)
-    orch = EmergentPlanOrchestrator(loop_runner=_CannedBoardRunner(_valid_board()), approve=None)
+    orch = PlanOrchestrator(
+        loop_runner=_CannedBoardRunner(_valid_board()), approve=None, realize=False
+    )
     # First run suspends store-first; obtain the gate's request id publicly.
     with contextlib.suppress(ApprovalPendingError):
         await orch.run(run=run, user_input=_USER_INPUT, gateway=gw)

@@ -55,7 +55,7 @@ from molexp.harness.schemas import PlanArtifactRef, ReviewPack, ToolCapability
 from molexp.harness.schemas.validation import PlanValidationReport
 from molexp.harness.stages.plan_reachability_probe import PlanReachabilityProbe
 from molexp.harness.stages.review_pack_builders import build_experiment_plan_review_pack
-from molexp.harness.validators import EmergentPlanFormValidator
+from molexp.harness.validators import PlanFormValidator
 
 SLUG = "plan-emergent-05b-guard"
 
@@ -143,12 +143,12 @@ def _wipe_acceptance(plan: ExperimentPlan, task_id: str) -> ExperimentPlan:
 
 def _check_form_validator(plan: ExperimentPlan) -> None:
     """Observation 2: well-formed plan passes; a missing acceptance fails."""
-    ok_report = EmergentPlanFormValidator.validate(plan)
+    ok_report = PlanFormValidator.validate(plan)
     print(f"[obs-2] well-formed plan passed={ok_report.passed} errors={_error_count(ok_report)}")
     assert ok_report.passed is True, "a well-formed plan must pass the form validator"
     assert _error_count(ok_report) == 0, "a well-formed plan must have zero error violations"
 
-    defect_report = EmergentPlanFormValidator.validate(_wipe_acceptance(plan, "t-build"))
+    defect_report = PlanFormValidator.validate(_wipe_acceptance(plan, "t-build"))
     codes = sorted({v.code for v in defect_report.violations})
     print(f"[obs-2] acceptance-wiped plan passed={defect_report.passed} codes={codes}")
     assert defect_report.passed is False, "wiping an acceptance must fail the form validator"
