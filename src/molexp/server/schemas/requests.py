@@ -214,15 +214,9 @@ class GoalCreateRequest(BaseModel):
     mode: Literal["chat", "plan"] = Field(
         "chat",
         description=(
-            "Agent used for the first conversational turn. 'chat' runs the "
-            "interactive agent; 'plan' runs the auditable nine-stage PlanMode pipeline."
-        ),
-    )
-    plan_mode: bool = Field(
-        False,
-        description=(
-            "Deprecated compatibility alias for mode='plan'. AgentTask routes "
-            "run the auditable nine-stage Planning Agent when true."
+            "Agent for the first turn. 'chat' = interactive loop; "
+            "'plan' = auditable Plan Mode pipeline. Canonical field — no "
+            "plan_mode alias."
         ),
     )
     instructions_override: str | None = Field(
@@ -339,11 +333,11 @@ class SkillLaunchRequest(BaseModel):
     """Materialize a skill into a Goal and start a session."""
 
     parameters: dict[str, Any] = Field(default_factory=dict)
-    plan_mode: bool | None = Field(
+    mode: Literal["chat", "plan"] | None = Field(
         None,
         description=(
-            "Override the skill's ``default_plan_mode``. ``None`` (default) "
-            "honors the skill's setting."
+            "Override the skill's default mode. ``None`` (default) honors "
+            "the skill's ``default_plan_mode`` (plan when true, else chat)."
         ),
     )
 

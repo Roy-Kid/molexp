@@ -447,6 +447,10 @@ class AgentTaskResponse(BaseModel):
     activeTurnId: str | None = None
     activePlanTaskId: str | None = None
     skillId: str | None = None
+    #: Plan / mount scope — the same ids used by plan_emitted and Deliverables.
+    projectId: str | None = None
+    experimentId: str | None = None
+    runId: str | None = None
 
 
 class AgentTaskListResponse(BaseModel):
@@ -832,10 +836,14 @@ class ToolParameterResponse(BaseModel):
 
 
 class AgentToolResponse(BaseModel):
-    """One tool exposed by an MCP server.
+    """One agent tool — molexp **builtin** or MCP-discovered.
 
-    ``source`` is ``"mcp:<server-name>"`` so the UI can attach the tool to
-    its owning server's expanded row.
+    ``source`` is:
+
+    * ``"builtin"`` — always-on molexp tools (``workspace_ensure``,
+      ``run_land``, ``code_write``, …)
+    * ``"mcp:<server-name>"`` — tool from an MCP server, so the UI can
+      attach it to that server's expanded row
     """
 
     name: str

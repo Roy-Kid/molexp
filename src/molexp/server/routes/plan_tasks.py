@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.server.dependencies import get_workspace
 
@@ -38,6 +38,8 @@ _DRAFT_PREVIEW_CHARS = 80
 
 class PlanTaskCreateRequest(BaseModel):
     """Body for starting a PlanMode background task."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     draft: str = Field(..., description="Natural-language experiment draft for PlanMode.")
     model: str | None = Field(None, description="Model id; defaults to the configured agent.model.")
@@ -64,6 +66,15 @@ class PlanTaskCreateRequest(BaseModel):
             "Named workspace compute target for the step-9 DESCRIPTIVE execution "
             "report. Unknown names are rejected (422) listing the known targets."
         ),
+    )
+    knowledge_sources: list[str] | None = Field(
+        None,
+        description=(
+            "Optional molmcp package allowlist (e.g. molpy, molvis, molplot). "
+            "When null, uses agent.knowledge_sources from operator config; empty "
+            "list means unrestricted."
+        ),
+        alias="knowledgeSources",
     )
 
 
@@ -162,7 +173,6 @@ def start_plan_task(
 ) -> PlanTaskResponse:
     """Shared starter used by the legacy route and AgentTask plan turns."""
     from molexp._typing import JSONValue
-    from molexp.ids import generate_id
     from molexp.server.deps.plan_runtime import get_plan_runtime
     from molexp.services.plan_runtime import resolve_plan_compute_target
     from molexp.services.plan_runtime.gateway import build_plan_gateway
@@ -200,9 +210,20 @@ def start_plan_task(
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
-    # Agents-tab session id: chat parent task when nested, else plan-<run_id>.
-    # Live PlanTask id stays unique (plan-<generate_id>) for the registry.
+    # ONE public id for plan + agent UI: agent-task id when nested under the
+    # Agents hub, else plan-<run_id>. Registry key, events.json, approvals
+    # taskId, and metadata.active_plan_task_id all share this string — never a
+    # second plan-{generate_id} handle that the UI cannot resolve.
     session_task_id = record_task_id or f"plan-{run.id}"
+    # Knowledge package pin: request override → molmcp server MOLMCP_SOURCES → open.
+    sources: list[str] | None
+    if request.knowledge_sources is not None:
+        sources = [s.strip() for s in request.knowledge_sources if str(s).strip()] or None
+    else:
+        from molexp.server.routes.agent_admin import _knowledge_sources_response
+
+        cfg = _knowledge_sources_response(workspace)
+        sources = list(cfg.sources) if cfg.sources else None
     gateway = build_plan_gateway(
         model=model,
         models=models,
@@ -211,10 +232,17 @@ def start_plan_task(
         task_id=session_task_id,
         draft=draft,
         turn_id=turn_id,
+        knowledge_sources=sources,
     )
-    task = get_plan_runtime().create(
+    runtime = get_plan_runtime()
+    # Sequential revise on the same agent task reuses the id; cancel any prior
+    # in-memory handle so resume/approve cannot hit a stale PlanTask.
+    prior = runtime.get(str(workspace.root), session_task_id)
+    if prior is not None and prior.status in {"running", "waiting_approval"}:
+        prior.cancel()
+    task = runtime.create(
         workspace_root=str(workspace.root),
-        task_id=f"plan-{generate_id()}",
+        task_id=session_task_id,
         run=run,
         experiment=experiment,
         draft=draft,
@@ -226,6 +254,7 @@ def start_plan_task(
         compute_target=compute_target,
         record_task_id=session_task_id,
         turn_id=turn_id,
+        knowledge_sources=tuple(sources) if sources else None,
     )
     return _to_response(task, project_id=project_id, experiment_id=experiment_id)
 

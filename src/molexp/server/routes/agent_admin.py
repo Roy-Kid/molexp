@@ -31,7 +31,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from molexp.server.dependencies import get_workspace
-from molexp.server.schemas import AgentToolListResponse, SkillListResponse
+from molexp.server.schemas import (
+    AgentHealthResponse,
+    AgentToolListResponse,
+    CommandListResponse,
+    CommandParseResponse,
+    CommandSpec,
+    SkillListResponse,
+)
+from molexp.server.schemas.responses import AgentToolResponse, ToolParameterResponse
 
 if TYPE_CHECKING:
     from molexp.agent.mcp.store import McpServerEntry, McpStore
@@ -42,6 +50,186 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/agent", tags=["agent-admin"])
 
 SUPPORTED_PROVIDERS = ["anthropic", "openai", "google", "deepseek", "openai-compatible"]
+
+
+_BUILTIN_COMMANDS: tuple[CommandSpec, ...] = (
+    CommandSpec(
+        slashName="plan",
+        name="Plan mode",
+        description="Toggle plan mode for the next message.",
+        parameters=[],
+        defaultPlanMode=True,
+        isBuiltin=True,
+        skillId=None,
+    ),
+    CommandSpec(
+        slashName="clear",
+        name="Clear conversation",
+        description="Discard the current chat transcript and start fresh.",
+        parameters=[],
+        defaultPlanMode=False,
+        isBuiltin=True,
+        skillId=None,
+    ),
+    CommandSpec(
+        slashName="model",
+        name="Change model",
+        description="Show or change the active model.",
+        parameters=[],
+        defaultPlanMode=False,
+        isBuiltin=True,
+        skillId=None,
+    ),
+    CommandSpec(
+        slashName="help",
+        name="Help",
+        description="Show available commands and a short usage reminder.",
+        parameters=[],
+        defaultPlanMode=False,
+        isBuiltin=True,
+        skillId=None,
+    ),
+)
+
+_BUILTIN_SLASH = frozenset(c.slashName for c in _BUILTIN_COMMANDS)
+
+_PROVIDER_ENV_HINT: dict[str, str] = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "openai-compatible": "OPENAI_API_KEY",
+}
+
+
+@router.get("/health", response_model=AgentHealthResponse)
+def agent_health() -> AgentHealthResponse:
+    """Agent readiness for the UI banner — always 200, never the 503 catch-all.
+
+    ``ready=False`` is a normal configuration state (no model / no API key).
+    The legacy ``agent.router`` catch-all used to 503 unknown ``/api/agent/*``
+    paths, which made the UI treat "missing route" as "stack unavailable"
+    and permanently stop probing. This endpoint exists so health is always a
+    real JSON readiness document.
+    """
+    from molexp.services.operator_config import (
+        configured_agent_model,
+        configured_api_keys,
+        load_operator_config,
+    )
+
+    config = load_operator_config()
+    agent = _agent_section(config)
+    model = configured_agent_model(config) or ""
+    if not model:
+        raw = agent.get("model")
+        model = raw if isinstance(raw, str) else ""
+    provider = _provider_of(
+        model, agent.get("provider") if isinstance(agent.get("provider"), str) else None
+    )
+    keys = configured_api_keys(config)
+    key_name = f"{provider.replace('-', '_')}_api_key" if provider else ""
+    key_set = bool(key_name and keys.get(key_name))
+    # Also accept an active provider card key under agent.<provider>_api_key
+    # via the flat map; openai-compatible often stores under openai_api_key.
+    if not key_set and provider:
+        for alt in (f"{provider.replace('-', '_')}_api_key", "openai_api_key", "api_key"):
+            if keys.get(alt):
+                key_set = True
+                key_name = alt
+                break
+    # Live process may already have a bridged key without a disk entry.
+    if not key_set and provider:
+        import molexp
+
+        for flat in (f"{provider.replace('-', '_')}_api_key", "openai_api_key"):
+            val = molexp.config.get(flat)
+            if isinstance(val, str) and val.strip():
+                key_set = True
+                key_name = flat
+                break
+
+    env_var = _PROVIDER_ENV_HINT.get(provider, "API_KEY")
+    source = "stored" if (model or key_set) else "none"
+    if model and key_set:
+        return AgentHealthResponse(
+            ready=True,
+            provider=provider,
+            model=model,
+            source=source,
+            reason="",
+            envVar=env_var,
+        )
+    if not model:
+        reason = (
+            "No agent model configured. Set one in Agent Settings → Provider "
+            "(or `molexp config set agent.model <provider:model>`)."
+        )
+    else:
+        reason = (
+            f"No API key configured for provider '{provider or 'unknown'}'. "
+            "Save one in Agent Settings → Provider."
+        )
+    return AgentHealthResponse(
+        ready=False,
+        provider=provider,
+        model=model,
+        source=source,
+        reason=reason,
+        envVar=env_var,
+    )
+
+
+@router.get("/commands", response_model=CommandListResponse)
+def list_commands() -> CommandListResponse:
+    """Slash-command catalog for the chat composer palette.
+
+    Builtins always ship; skill-backed commands join when skill persistence
+    is wired (currently an empty skill catalog is valid).
+    """
+    # Skills surface is still empty (see list_skills); builtins only for now.
+    return CommandListResponse(commands=list(_BUILTIN_COMMANDS))
+
+
+class _CommandParseRequest(BaseModel):
+    raw: str = ""
+
+
+@router.post("/commands/parse", response_model=CommandParseResponse)
+def parse_command(request: _CommandParseRequest) -> CommandParseResponse:
+    """Parse a raw slash line into a builtin / skill / error result."""
+    raw = (request.raw or "").strip()
+    if not raw.startswith("/"):
+        return CommandParseResponse(
+            kind="error",
+            error="Slash commands must start with '/'.",
+        )
+    tokens = raw[1:].strip().split()
+    if not tokens:
+        return CommandParseResponse(kind="error", error="Empty slash command.")
+    head = tokens[0].lower()
+    params: dict[str, str] = {}
+    for token in tokens[1:]:
+        if "=" not in token:
+            return CommandParseResponse(
+                kind="error",
+                name=head,
+                error=f"Argument '{token}' is missing a value. Use the form key=value.",
+            )
+        key, _, value = token.partition("=")
+        params[key] = value.strip().strip('"')
+    if head in _BUILTIN_SLASH:
+        return CommandParseResponse(
+            kind="builtin",
+            name=head,
+            parameters=params,
+            planMode=(head == "plan"),
+        )
+    return CommandParseResponse(
+        kind="error",
+        name=head,
+        error=f"Unknown command '/{head}'. Define a skill with this slash name first.",
+    )
 
 
 @router.get("/skills", response_model=SkillListResponse)
@@ -57,12 +245,29 @@ def list_skills() -> SkillListResponse:
 
 @router.get("/tools", response_model=AgentToolListResponse)
 def list_tools() -> AgentToolListResponse:
-    """Return tools grouped by their owning MCP server.
+    """Return agent tools: molexp **builtins** + MCP groups when discovered.
 
-    Until runtime discovery is connected, expose the honest empty catalog
-    expected by Settings instead of reporting an unavailable service.
+    Builtins (``workspace_ensure``, ``run_land``, ``code_write``, …) are
+    always present with ``source="builtin"``. MCP tools attach as
+    ``source="mcp:<server>"`` when runtime discovery is connected; until
+    then ``mcpGroups`` may be empty without hiding builtins.
     """
-    return AgentToolListResponse()
+    from molexp.agent.ops.builtins import BUILTIN_SOURCE, BUILTIN_TOOLS
+
+    tools = [
+        AgentToolResponse(
+            name=t.name,
+            description=t.description,
+            parameters=[
+                ToolParameterResponse(name=n, annotation=a, required=req)
+                for n, a, req in t.parameters
+            ],
+            requiresApproval=False,
+            source=BUILTIN_SOURCE,
+        )
+        for t in BUILTIN_TOOLS
+    ]
+    return AgentToolListResponse(tools=tools, mcpGroups=[])
 
 
 class TierModelsResponse(BaseModel):
@@ -385,6 +590,8 @@ class McpServerResponse(BaseModel):
     args: list[str]
     url: str | None
     envKeys: list[str]
+    #: Non-secret env literals for the editor (e.g. ``MOLMCP_SOURCES``).
+    env: dict[str, str] = Field(default_factory=dict)
     headerKeys: list[str]
     secretRefs: list[str]
     unresolvedSecrets: list[str]
@@ -392,6 +599,8 @@ class McpServerResponse(BaseModel):
     valid: bool
     invalidReason: str
     auth: dict[str, Any] | None = None
+    #: Parsed ``MOLMCP_SOURCES`` when this is a molmcp-class server.
+    knowledgeSources: list[str] = Field(default_factory=list)
 
 
 class McpServerListResponse(BaseModel):
@@ -406,7 +615,30 @@ class McpServerUpsertRequest(BaseModel):
     spec: dict[str, Any]
 
 
-def _to_mcp_response(entry: McpServerEntry) -> McpServerResponse:
+def _parse_molmcp_sources(raw: str | None) -> list[str]:
+    if not raw or not str(raw).strip():
+        return []
+    return [p.strip() for p in str(raw).replace(";", ",").split(",") if p.strip()]
+
+
+def _is_molmcp_server(name: str) -> bool:
+    n = name.lower()
+    return n == "molmcp" or "molmcp" in n
+
+
+def _to_mcp_response(store: McpStore, entry: McpServerEntry) -> McpServerResponse:
+    from molexp.agent.mcp.store import McpScope
+
+    try:
+        scope = McpScope(str(entry.scope))
+    except ValueError:
+        scope = McpScope.USER
+    public_env = store.public_env(scope, entry.name)
+    sources = (
+        _parse_molmcp_sources(public_env.get("MOLMCP_SOURCES"))
+        if _is_molmcp_server(entry.name)
+        else []
+    )
     return McpServerResponse(
         name=entry.name,
         scope=str(entry.scope),
@@ -415,6 +647,7 @@ def _to_mcp_response(entry: McpServerEntry) -> McpServerResponse:
         args=list(entry.args),
         url=entry.url,
         envKeys=list(entry.env_keys),
+        env=public_env,
         headerKeys=list(entry.header_keys),
         secretRefs=list(entry.secret_refs),
         unresolvedSecrets=list(entry.unresolved_secrets),
@@ -422,6 +655,7 @@ def _to_mcp_response(entry: McpServerEntry) -> McpServerResponse:
         valid=entry.valid,
         invalidReason=entry.invalid_reason,
         auth=entry.auth.model_dump(mode="json") if entry.auth is not None else None,
+        knowledgeSources=sources,
     )
 
 
@@ -440,7 +674,7 @@ def list_mcp_servers(workspace: Workspace = Depends(get_workspace)) -> McpServer
     return McpServerListResponse(
         workspacePath=str(store.config_path(McpScope.WORKSPACE)),
         userPath=str(store.config_path(McpScope.USER)),
-        servers=[_to_mcp_response(entry) for entry in store.list()],
+        servers=[_to_mcp_response(store, entry) for entry in store.list()],
     )
 
 
@@ -458,7 +692,369 @@ def create_mcp_server(
         entry = store.upsert(scope, request.name, request.spec)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-    return _to_mcp_response(entry)
+    return _to_mcp_response(store, entry)
+
+
+@router.put("/mcp/servers/{name}", response_model=McpServerResponse)
+def replace_mcp_server(
+    name: str,
+    request: McpServerUpsertRequest,
+    workspace: Workspace = Depends(get_workspace),
+) -> McpServerResponse:
+    """Replace one MCP server entry (name path must match body)."""
+    from molexp.agent.mcp.store import McpScope
+
+    if request.name and request.name != name:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"path name {name!r} does not match body name {request.name!r}",
+        )
+    store = _mcp_store(workspace)
+    try:
+        scope = McpScope(request.scope)
+        entry = store.upsert(scope, name, request.spec)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return _to_mcp_response(store, entry)
+
+
+@router.delete("/mcp/servers/{name}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_mcp_server(
+    name: str,
+    scope: str = "user",
+    workspace: Workspace = Depends(get_workspace),
+) -> None:
+    """Delete one MCP server entry at the given scope."""
+    from molexp.agent.mcp.store import McpScope
+
+    store = _mcp_store(workspace)
+    try:
+        mcp_scope = McpScope(scope)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if not store.delete(mcp_scope, name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"MCP server {name!r} not found")
+
+
+class McpServerTestResponse(BaseModel):
+    ok: bool
+    name: str
+    scope: str
+    transport: str
+    latencyMs: int = 0
+    toolCount: int = 0
+    error: str | None = None
+
+
+@router.post("/mcp/servers/{name}/test", response_model=McpServerTestResponse)
+async def test_mcp_server(
+    name: str,
+    scope: str = "user",
+    workspace: Workspace = Depends(get_workspace),
+) -> McpServerTestResponse:
+    """Best-effort stdio/HTTP reachability probe (list_tools when possible)."""
+    from molexp.agent.mcp.store import McpScope
+
+    store = _mcp_store(workspace)
+    try:
+        mcp_scope = McpScope(scope)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    entry = store.get(mcp_scope, name)
+    if entry is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"MCP server {name!r} not found")
+    transport = entry.spec.type if hasattr(entry.spec, "type") else "?"
+    started = time.monotonic()
+    tool_count = 0
+    err: str | None = None
+    try:
+        resolved = store.resolve(entry)
+        if resolved.transport == "stdio" and resolved.command:
+            import os
+            from pathlib import Path
+
+            from mcp import ClientSession, StdioServerParameters  # ty: ignore[unresolved-import]
+            from mcp.client.stdio import stdio_client  # ty: ignore[unresolved-import]
+
+            params = StdioServerParameters(
+                command=resolved.command,
+                args=list(resolved.args or ()),
+                env=dict(resolved.env or {}) or None,
+            )
+            with Path(os.devnull).open("w", encoding="utf-8") as errlog:
+                async with (
+                    stdio_client(params, errlog=errlog) as (read, write),
+                    ClientSession(read, write) as session,
+                ):
+                    await session.initialize()
+                    listed = await session.list_tools()
+                    tools = getattr(listed, "tools", None) or []
+                    tool_count = len(tools)
+        else:
+            # HTTP/SSE: config-only smoke (full client needs auth plumbing).
+            tool_count = 0
+    except Exception as exc:  # probe must never 500 the settings page
+        err = f"{type(exc).__name__}: {exc}"
+    latency = int((time.monotonic() - started) * 1000)
+    return McpServerTestResponse(
+        ok=err is None,
+        name=name,
+        scope=scope,
+        transport=str(transport),
+        latencyMs=latency,
+        toolCount=tool_count,
+        error=err,
+    )
+
+
+class McpSecretListResponse(BaseModel):
+    scope: str
+    keys: list[str]
+    path: str
+
+
+class McpSecretPutRequest(BaseModel):
+    scope: str = "user"
+    value: str = ""
+
+
+@router.get("/mcp/secrets", response_model=McpSecretListResponse)
+def list_mcp_secrets(
+    scope: str = "user",
+    workspace: Workspace = Depends(get_workspace),
+) -> McpSecretListResponse:
+    """List secret *keys* (never values) at the given scope."""
+    from molexp.agent.mcp.store import McpScope
+
+    store = _mcp_store(workspace)
+    try:
+        mcp_scope = McpScope(scope)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    secrets = store.secrets(mcp_scope)
+    return McpSecretListResponse(
+        scope=scope,
+        keys=list(secrets.list_keys()),
+        path=str(secrets.path),
+    )
+
+
+@router.put("/mcp/secrets/{key}")
+def put_mcp_secret(
+    key: str,
+    request: McpSecretPutRequest,
+    workspace: Workspace = Depends(get_workspace),
+) -> dict[str, Any]:
+    """Set or delete a secret value (empty value deletes)."""
+    from molexp.agent.mcp.store import McpScope
+
+    store = _mcp_store(workspace)
+    try:
+        mcp_scope = McpScope(request.scope)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    secrets = store.secrets(mcp_scope)
+    if not request.value:
+        secrets.delete(key)
+        return {"ok": True, "key": key, "deleted": True}
+    secrets.set(key, request.value)
+    return {"ok": True, "key": key, "deleted": False}
+
+
+# ── Knowledge sources — per-MCP (molmcp) package allowlist ──────────────────
+
+
+#: Packages operators commonly pin for plan grounding (UI chips).
+_KNOWN_KNOWLEDGE_SOURCES: tuple[str, ...] = (
+    "molpy",
+    "molpack",
+    "molvis",
+    "molplot",
+    "molq",
+    "molcfg",
+    "atomiverse",
+    "lammps",
+)
+
+
+class KnowledgeSourcesResponse(BaseModel):
+    """Package scope for the **molmcp** MCP server entry (not a global agent key).
+
+    Stored as ``env.MOLMCP_SOURCES`` on that server's config row. Plan sessions
+    and capability grounding read the same pin from the MCP store.
+    """
+
+    sources: list[str] = Field(default_factory=list)
+    knownPackages: list[str] = Field(default_factory=lambda: list(_KNOWN_KNOWLEDGE_SOURCES))
+    unrestricted: bool = True
+    serverName: str = "molmcp"
+    scope: str = "user"
+    configured: bool = False
+
+
+class KnowledgeSourcesUpdateRequest(BaseModel):
+    """PUT body — empty list clears the pin (unrestricted)."""
+
+    sources: list[str] = Field(default_factory=list)
+    #: Which MCP scope owns the molmcp entry (default: active workspace row).
+    scope: str | None = None
+
+
+def _find_molmcp_entry(store: McpStore) -> McpServerEntry | None:
+    """Prefer workspace molmcp, then user; match name ``molmcp`` or *molmcp*."""
+    from molexp.agent.mcp.store import McpScope
+
+    listed = store.list()
+    for preferred in ("molmcp",):
+        for scope in (McpScope.WORKSPACE, McpScope.USER):
+            entry = store.get(scope, preferred)
+            if entry is not None and not entry.shadowed:
+                return entry
+    for entry in listed:
+        if _is_molmcp_server(entry.name) and not entry.shadowed:
+            return entry
+    return None
+
+
+def _knowledge_sources_response(workspace: Workspace) -> KnowledgeSourcesResponse:
+    store = _mcp_store(workspace)
+    entry = _find_molmcp_entry(store)
+    if entry is None:
+        return KnowledgeSourcesResponse(
+            sources=[],
+            knownPackages=list(_KNOWN_KNOWLEDGE_SOURCES),
+            unrestricted=True,
+            serverName="molmcp",
+            scope="user",
+            configured=False,
+        )
+    from molexp.agent.mcp.store import McpScope
+
+    try:
+        scope = McpScope(str(entry.scope))
+    except ValueError:
+        scope = McpScope.USER
+    env = store.public_env(scope, entry.name)
+    sources = _parse_molmcp_sources(env.get("MOLMCP_SOURCES"))
+    return KnowledgeSourcesResponse(
+        sources=sources,
+        knownPackages=list(_KNOWN_KNOWLEDGE_SOURCES),
+        unrestricted=len(sources) == 0,
+        serverName=entry.name,
+        scope=str(entry.scope),
+        configured=True,
+    )
+
+
+@router.get("/knowledge-sources", response_model=KnowledgeSourcesResponse)
+def get_knowledge_sources(
+    workspace: Workspace = Depends(get_workspace),
+) -> KnowledgeSourcesResponse:
+    """Read package pin from the molmcp MCP server entry (``MOLMCP_SOURCES``)."""
+    return _knowledge_sources_response(workspace)
+
+
+@router.put("/knowledge-sources", response_model=KnowledgeSourcesResponse)
+def update_knowledge_sources(
+    request: KnowledgeSourcesUpdateRequest,
+    workspace: Workspace = Depends(get_workspace),
+) -> KnowledgeSourcesResponse:
+    """Write package pin onto the molmcp server's env (per-MCP, not global agent)."""
+    from molexp._typing import JSONValue
+    from molexp.agent.mcp.store import McpScope
+
+    store = _mcp_store(workspace)
+    entry = _find_molmcp_entry(store)
+    if entry is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "No molmcp MCP server configured. Add one under Agent Settings → MCP "
+            "(name: molmcp), then set knowledge sources.",
+        )
+    if request.scope is not None:
+        try:
+            scope = McpScope(request.scope)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    else:
+        try:
+            scope = McpScope(str(entry.scope))
+        except ValueError:
+            scope = McpScope.USER
+    # Rebuild stdio spec with updated MOLMCP_SOURCES; preserve other public env.
+    public = store.public_env(scope, entry.name)
+    cleaned = [str(s).strip().lower() for s in request.sources if str(s).strip()]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for s in cleaned:
+        if s not in seen:
+            seen.add(s)
+            ordered.append(s)
+    env = dict(public)
+    if ordered:
+        env["MOLMCP_SOURCES"] = ",".join(ordered)
+    else:
+        env.pop("MOLMCP_SOURCES", None)
+    # Keep secret placeholders for secret env keys we don't return publicly.
+    for key in entry.env_keys:
+        if key not in env and key in entry.secret_refs:
+            env[key] = f"${{SECRET:{key}}}"
+        elif key not in env and key != "MOLMCP_SOURCES" and key in entry.secret_refs:
+            # unknown non-public key — leave as secret ref if it was secret-like
+            env[key] = f"${{SECRET:{key}}}"
+    if entry.transport != "stdio" or not entry.command:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "molmcp must be a stdio MCP server to pin MOLMCP_SOURCES",
+        )
+    spec: dict[str, JSONValue] = {
+        "type": "stdio",
+        "command": entry.command,
+        "args": list(entry.args),
+        "env": env,
+    }
+    if entry.usage_instructions:
+        spec["usage_instructions"] = entry.usage_instructions
+    store.upsert(scope, entry.name, spec)
+    return _knowledge_sources_response(workspace)
+
+
+@router.get("/admin/providers")
+def list_admin_providers() -> dict[str, Any]:
+    """Provider form registry for Settings (bootstrap schema; never 503)."""
+    return {
+        "providers": [
+            {
+                "name": name,
+                "label": {
+                    "anthropic": "Anthropic (Claude)",
+                    "openai": "OpenAI",
+                    "google": "Google (Gemini)",
+                    "deepseek": "DeepSeek",
+                    "openai-compatible": "OpenAI-compatible (proxy / Ollama / vLLM)",
+                }.get(name, name),
+                "modelHint": "provider:model id or bare model name",
+                "fields": [
+                    {"key": "api_key", "label": "API key", "kind": "secret", "required": True},
+                    {"key": "model", "label": "Model", "kind": "text", "required": True},
+                    *(
+                        [
+                            {
+                                "key": "base_url",
+                                "label": "Base URL",
+                                "kind": "url",
+                                "required": True,
+                                "placeholder": "http://localhost:11434/v1",
+                            }
+                        ]
+                        if name == "openai-compatible"
+                        else []
+                    ),
+                ],
+            }
+            for name in SUPPORTED_PROVIDERS
+        ]
+    }
 
 
 __all__ = ["router"]

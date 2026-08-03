@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Literal
 
 from molexp.agent.events import AsyncIteratorEventSink
@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 
 TurnStatus = Literal["running", "completed", "failed", "cancelled"]
 """Lifecycle state of an :class:`AgentTurn`."""
+
+# Optional side-effect after a turn lands a terminal status (persist transcript).
+OnTurnComplete = Callable[["AgentTurn"], None]
 
 
 class AgentTurn:
@@ -39,21 +42,33 @@ class AgentTurn:
         self._sinks: list[AsyncIteratorEventSink] = []
         self._lock = asyncio.Lock()
         self._closed = False
+        self._on_complete: OnTurnComplete | None = None
 
     @classmethod
-    def start(cls, *, runner: AgentRunner, session: Session, user_input: str) -> AgentTurn:
+    def start(
+        cls,
+        *,
+        runner: AgentRunner,
+        session: Session,
+        user_input: str,
+        on_complete: OnTurnComplete | None = None,
+    ) -> AgentTurn:
         """Spawn the background turn task and return the live :class:`AgentTurn`.
 
         Args:
             runner: The configured :class:`AgentRunner` to drive.
             session: The persistent :class:`Session` the turn runs against.
             user_input: The user prompt for this turn.
+            on_complete: Optional callback after the turn reaches a terminal
+                status (used to flush events to disk so history survives
+                process restart).
 
         Returns:
             A running :class:`AgentTurn` whose ``_task`` drains
             ``runner.run_events(session, user_input)`` into ``events``.
         """
         turn = cls()
+        turn._on_complete = on_complete
         turn._task = asyncio.create_task(turn._drive(runner, session, user_input))
         return turn
 
@@ -83,6 +98,9 @@ class AgentTurn:
                 self._closed = True
                 for sink in self._sinks:
                     await sink.close()
+            if self._on_complete is not None:
+                with contextlib.suppress(Exception):
+                    self._on_complete(self)
 
     async def subscribe(self) -> AsyncIterator[AgentEvent]:
         """Yield this turn's events replay-then-tail.

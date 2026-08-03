@@ -1,7 +1,7 @@
 """``molexp plan`` — run the harness emergent-planning pipeline on a workspace.
 
 The production call path into :mod:`molexp.harness`: a natural-language
-experiment draft is handed to :class:`~molexp.harness.EmergentPlanOrchestrator`
+experiment draft is handed to :class:`~molexp.harness.PlanOrchestrator`
 on a ``workspace.Run``, driven by a
 :class:`~molexp.harness.gateways.router_backed.RouterBackedAgentGateway`
 built from the configured LLM. The orchestrator runs two phases —
@@ -58,7 +58,7 @@ class InteractiveApprover:
     terminal it renders the review pack for the request and prompts
     ``[a]pprove / [r]eject / [v]revise``.
 
-    :class:`~molexp.harness.EmergentPlanOrchestrator` receives it as its
+    :class:`~molexp.harness.PlanOrchestrator` receives it as its
     ``approve`` seam and asks it at the plan-tool side-effect gate and the hard
     ``approve_experiment_plan`` review gate before the plan is frozen.
     """
@@ -174,6 +174,7 @@ def _resolve_grounding(
     *,
     ground: bool,
     task: str | None = None,
+    sources: list[str] | None = None,
 ) -> CapabilityRegistry | None:
     """Build a molmcp-backed ``CapabilityRegistry`` when ``--ground`` is set.
 
@@ -181,6 +182,9 @@ def _resolve_grounding(
     prints a visible notice in the latter case — never a silent downgrade).
     ``task`` is the experiment draft so discovery follows the user request
     (auto-discovery — no fixed polymer query table).
+
+    ``sources`` pins knowledge packages (e.g. molpy, molvis, molplot) so the
+    binder never sees out-of-scope catalogs like atomiverse.
     """
     if not ground:
         return None
@@ -190,6 +194,7 @@ def _resolve_grounding(
     return resolve_capability_registry(
         workspace_root,
         task=task,
+        sources=sources,
         notify=lambda message: rprint(f"[dim]{message}[/dim]"),
     )
 
@@ -220,6 +225,7 @@ class PlanRuntime:
         task_id: str | None = None,
         draft: str | None = None,
         turn_id: str | None = None,
+        knowledge_sources: list[str] | None = None,
     ) -> AgentGateway:
         """Build the production gateway for ``run`` from the resolved ``model``.
 
@@ -231,6 +237,7 @@ class PlanRuntime:
 
         Pass ``workspace_root`` + ``task_id`` (+ optional ``draft``) so each
         LLM call is projected into the Agents-tab session cache.
+        ``knowledge_sources`` pins molmcp package scope for this plan.
         """
         from molexp.services.plan_runtime import build_plan_gateway
 
@@ -242,6 +249,7 @@ class PlanRuntime:
             task_id=task_id,
             draft=draft,
             turn_id=turn_id,
+            knowledge_sources=knowledge_sources,
         )
 
 
@@ -326,6 +334,17 @@ def plan(
             "to disable.",
         ),
     ] = True,
+    sources: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--source",
+            "-S",
+            help="Pin molmcp knowledge packages for this plan (repeatable). "
+            "Example: -S molpy -S molvis -S molplot. When set, molmcp only "
+            "exposes those packages (atomiverse etc. are hidden) and the "
+            "capability catalog is filtered the same way.",
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -338,7 +357,7 @@ def plan(
 ) -> None:
     """Turn an experiment draft into a frozen experiment plan (emergent planning)."""
     from molexp.cli._common import deterministic_run_id, rprint
-    from molexp.harness import ApprovalPendingError, EmergentPlanOrchestrator, StageExecutionError
+    from molexp.harness import ApprovalPendingError, PlanOrchestrator, StageExecutionError
     from molexp.services.plan_runtime import PlanPreflightError
     from molexp.workspace import Workspace
 
@@ -379,16 +398,19 @@ def plan(
     import sys
 
     approver = InteractiveApprover(run=run, assume_yes=yes) if (yes or sys.stdin.isatty()) else None
-    mode = EmergentPlanOrchestrator(approve=approver)
+    mode = PlanOrchestrator(approve=approver, realize=True)
     preview = draft_text.strip().splitlines()[0][:_DRAFT_PREVIEW_CHARS]
-    rprint(f"[bold]molexp plan[/bold] — emergent planning on run [bold]{run.id}[/bold]")
+    rprint(f"[bold]molexp plan[/bold] — plan pipeline on run [bold]{run.id}[/bold]")
     rprint(f"  model     : {resolved_model}")
     rprint(f"  draft     : {preview}")
     rprint(f"  workspace : {workspace_root}")
-    rprint("  phase 1   : emergent planning (draft -> task board -> review gate -> frozen plan)")
-    rprint("  phase 2   : deterministic realization (separate phase)")
+    rprint("  phase 1   : planning (draft → task board → review gate → frozen plan)")
+    rprint("  phase 2   : realization (bound board → codegen → compile)")
 
     plan_task_id = f"plan-{run.id}"
+    source_list = [s.strip() for s in (sources or []) if s and str(s).strip()] or None
+    if source_list:
+        rprint(f"  sources   : {', '.join(source_list)}")
     gateway = PlanRuntime.build_gateway(
         model=resolved_model,
         run=run,
@@ -396,8 +418,14 @@ def plan(
         workspace_root=str(workspace_root),
         task_id=plan_task_id,
         draft=draft_text,
+        knowledge_sources=source_list,
     )
-    capability_registry = _resolve_grounding(workspace_root, ground=ground, task=draft_text)
+    capability_registry = _resolve_grounding(
+        workspace_root,
+        ground=ground,
+        task=draft_text,
+        sources=source_list,
+    )
     from molexp.services.plan_runtime import drive_plan_mode
 
     try:

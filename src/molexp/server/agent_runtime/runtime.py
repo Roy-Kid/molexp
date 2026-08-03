@@ -30,11 +30,16 @@ class AgentSessionRuntime:
         session: Session,
         goal: str,
         created_at: str,
+        workspace_root: str | None = None,
     ) -> None:
         self.runner = runner
         self.session = session
         self.goal = goal
         self.created_at = created_at
+        # Used by the turn-complete flush so chat transcripts land under
+        # ``agent/_tasks/<id>/events.json`` and survive serve restarts.
+        self.workspace_root = workspace_root
+        self.task_id: str | None = None
         self._turn: AgentTurn | None = None
 
     @property
@@ -42,10 +47,68 @@ class AgentSessionRuntime:
         """The persistent session id (the registry's inner key)."""
         return self.session.session_id
 
+    def _flush_turn_to_disk(self, turn: AgentTurn) -> None:
+        """Merge this turn's events + status onto the durable agent-task store."""
+        root = self.workspace_root
+        if not root:
+            return
+        from dataclasses import replace
+        from datetime import UTC, datetime
+
+        from molexp.server.routes.agent import _event_to_wire
+        from molexp.services.agent_task_store import (
+            list_agent_task_metadata,
+            merge_agent_task_events,
+            read_agent_task_metadata,
+            write_agent_task_metadata,
+        )
+
+        task_id = self.task_id or self.session_id
+        # Prefer the product task id (task-…) over the runtime session id when
+        # the create path has stamped it; otherwise fall back to session id.
+        if self.task_id is None:
+            for row in list_agent_task_metadata(root):
+                if row.session_id == self.session_id:
+                    task_id = row.task_id
+                    self.task_id = row.task_id
+                    break
+
+        wire = [
+            {
+                "type": ev.type,
+                "ts": ev.ts,
+                "payload": ev.payload if isinstance(ev.payload, dict) else {},
+            }
+            for ev in (_event_to_wire(event) for event in turn.events)
+        ]
+        merge_agent_task_events(root, task_id, wire)
+
+        # Keep status in metadata so list/get after restart is not stuck on
+        # ``running`` forever when the live registry is gone.
+        meta = read_agent_task_metadata(root, task_id)
+        if meta is not None:
+            write_agent_task_metadata(
+                root,
+                replace(
+                    meta,
+                    status=turn.status,
+                    updated_at=datetime.now(UTC).isoformat(),
+                ),
+            )
+
     def start_turn(self, user_input: str) -> AgentTurn:
-        """Spawn a new background turn on this session and make it current."""
+        """Spawn a new background turn on this session and make it current.
+
+        Flushes the previous turn to disk first so multi-turn chat history is
+        not lost when the in-memory turn buffer is replaced.
+        """
+        if self._turn is not None and self._turn.events:
+            self._flush_turn_to_disk(self._turn)
         self._turn = AgentTurn.start(
-            runner=self.runner, session=self.session, user_input=user_input
+            runner=self.runner,
+            session=self.session,
+            user_input=user_input,
+            on_complete=self._flush_turn_to_disk,
         )
         return self._turn
 

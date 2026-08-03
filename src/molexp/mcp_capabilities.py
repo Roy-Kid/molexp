@@ -369,6 +369,7 @@ async def fetch_molmcp_capabilities(
     server_name: str = DEFAULT_SERVER_NAME,
     task: str | None = None,
     queries: Sequence[str] | None = None,
+    sources: Sequence[str] | None = None,
     max_results: int = 12,
 ) -> list[ToolCapability]:
     """Open a stdio session to molmcp and prefetch a deduped capability catalog.
@@ -377,6 +378,12 @@ async def fetch_molmcp_capabilities(
     MCP ``list_tools`` catalog; query text comes from ``task`` (experiment
     draft) or an explicit ``queries`` sequence — never from a compiled-in
     polymer/LAMMPS table.
+
+    Args:
+        sources: Optional package allowlist (e.g. ``molpy``, ``molvis``,
+            ``molplot``). When set, discovery queries pass ``sources=`` and
+            the catalog is filtered to those roots — atomiverse etc. never
+            enter the plan binder.
 
     Raises:
         LookupError: if ``server_name`` is not configured or is not a stdio
@@ -409,6 +416,10 @@ async def fetch_molmcp_capabilities(
     payloads: list[Mapping[str, object]] = []
     guide_payload: Mapping[str, object] | None = None
     allowed_packages: set[str] = set()
+    # Operator / task pin (stronger than guide inventory).
+    pinned_sources = {
+        str(s).strip().lower().split(".", 1)[0] for s in (sources or ()) if str(s).strip()
+    }
     # Route the server's stderr (FastMCP startup banner + logs) to /dev/null so
     # it never bleeds into the CLI's own output.
     with Path(os.devnull).open("w", encoding="utf-8") as errlog:
@@ -462,6 +473,13 @@ async def fetch_molmcp_capabilities(
                     )
                     if "search" in tool_name.lower() and "mode" not in args:
                         args = {**args, "mode": "all"}
+                    # Pin discovery to the operator allowlist when present.
+                    if pinned_sources and (
+                        "search" in tool_name.lower()
+                        or "compose" in tool_name.lower()
+                        or "explore" in tool_name.lower()
+                    ):
+                        args = {**args, "sources": sorted(pinned_sources)}
                     try:
                         result = await session.call_tool(tool_name, args)
                     except Exception as exc:
@@ -482,15 +500,20 @@ async def fetch_molmcp_capabilities(
     from molexp.harness.registry.bindable import PLAN_SCIENCE_PACKAGE_ROOTS
 
     science_allowed = {p.lower() for p in PLAN_SCIENCE_PACKAGE_ROOTS}
-    if allowed_packages:
+    if pinned_sources:
+        # Explicit task scope wins: science roots ∩ operator pin.
+        package_filter = {p for p in pinned_sources if p in science_allowed} or pinned_sources
+        caps = [c for c in raw if _cap_in_packages(c.id, package_filter)]
+    elif allowed_packages:
         # Prefer guide inventory ∩ science roots; fall back to science roots alone.
         inv = {a.lower() for a in allowed_packages}
         package_filter = inv & science_allowed or science_allowed
         caps = [c for c in raw if _cap_in_packages(c.id, package_filter)]
     else:
         caps = [c for c in raw if _cap_in_packages(c.id, science_allowed)]
-    if not caps and raw:
+    if not caps and raw and not pinned_sources:
         # Last resort: science-filtered raw (never re-open notes/workspace junk).
+        # When the operator pinned sources, empty is honest — do not re-open scope.
         _LOG.warning(
             f"[mcp_capabilities] inventory filter empty "
             f"(allowed={sorted(allowed_packages)[:12]!r}); "
@@ -501,7 +524,8 @@ async def fetch_molmcp_capabilities(
         _LOG.warning(f"[mcp_capabilities] {warning}")
     _LOG.info(
         f"[mcp_capabilities] catalog n={len(caps)} "
-        f"(raw={len(raw)} science_roots={sorted(science_allowed)})"
+        f"(raw={len(raw)} science_roots={sorted(science_allowed)} "
+        f"pinned={sorted(pinned_sources) or None})"
     )
     return caps
 
@@ -612,6 +636,7 @@ def resolve_capability_registry(
     server_name: str = DEFAULT_SERVER_NAME,
     task: str | None = None,
     queries: Sequence[str] | None = None,
+    sources: Sequence[str] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> CapabilityRegistry | None:
     """Build a grounded ``CapabilityRegistry`` from molmcp, or ``None`` (loud).
@@ -631,6 +656,7 @@ def resolve_capability_registry(
                 server_name=server_name,
                 task=task,
                 queries=queries,
+                sources=sources,
             )
         )
     except Exception as exc:  # prefetch is best-effort: report and proceed ungrounded
@@ -645,6 +671,7 @@ async def aresolve_capability_registry(
     server_name: str = DEFAULT_SERVER_NAME,
     task: str | None = None,
     queries: Sequence[str] | None = None,
+    sources: Sequence[str] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> CapabilityRegistry | None:
     """Async sibling of :func:`resolve_capability_registry` for an async caller.
@@ -652,6 +679,9 @@ async def aresolve_capability_registry(
     Awaits the prefetch directly (rather than ``asyncio.run``), so it is safe to
     call from inside a running event loop — e.g. the server's async plan-task
     route. Same loud-on-miss / never-silent contract.
+
+    ``sources`` pins knowledge packages (e.g. ``molpy,molvis,molplot``) so
+    plan binding never sees out-of-scope catalogs like atomiverse.
     """
     say = notify if notify is not None else _log_notice
     try:
@@ -660,6 +690,7 @@ async def aresolve_capability_registry(
             server_name=server_name,
             task=task,
             queries=queries,
+            sources=sources,
         )
     except Exception as exc:  # prefetch is best-effort: report and proceed ungrounded
         _notice_for_prefetch_error(exc, say)

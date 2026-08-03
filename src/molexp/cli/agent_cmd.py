@@ -185,7 +185,7 @@ def _run_repl(
     run: str | None,
 ) -> None:
     """Start an interactive molexp agent REPL (emergent InteractiveLoop)."""
-    from molexp.agent.loops import InteractiveLoop, InteractiveLoopConfig
+    from molexp.agent.loops import InteractiveLoop
     from molexp.cli._common import rprint
 
     workspace_root = (workspace or Path.cwd()).resolve()
@@ -214,8 +214,11 @@ def _run_repl(
             rprint(f"[red]Mount scope failed to resolve:[/red] {exc}")
             raise typer.Exit(1) from exc
 
+    # Chat Mode (default): InteractiveLoop + scratch surface, no default land.
+    from molexp.harness.modes.chat import chat_loop_config
+
     loop = InteractiveLoop(
-        config=InteractiveLoopConfig(workspace_root=workspace_root, context_block=context_block)
+        config=chat_loop_config(workspace_root=workspace_root, context_block=context_block)
     )
     runner = _make_runner(
         loop=loop, model=resolved_model, workspace=workspace_root, session_anchor=session_anchor

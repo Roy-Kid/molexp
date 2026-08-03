@@ -43,7 +43,13 @@ ReviewActionWire = Literal["approve", "reject", "revise"]
 
 
 class PendingApprovalItem(BaseModel):
-    """One pending request awaiting an operator decision."""
+    """One pending request awaiting an operator decision.
+
+    ``taskId`` is the **single public handle** shared with the Agents hub
+    (agent-task id / plan conversation id). Decide routes resolve the live
+    runtime task by this same id — never a second parallel plan-* registry
+    id that the UI cannot navigate to.
+    """
 
     taskKind: TaskKind
     taskId: str
@@ -135,6 +141,8 @@ def _preview_for(kind: TaskKind, task: Any, intent: str) -> str:  # noqa: ANN401
 def _pack_fields(
     kind: TaskKind,
     task: Any,  # noqa: ANN401 — plan/curate task duck-type
+    *,
+    intent: str = "",
 ) -> tuple[str | None, dict[str, Any] | None]:
     """Best-effort packId + formDocument from the run's review_pack artifact."""
     if kind != "plan":
@@ -142,23 +150,38 @@ def _pack_fields(
     try:
         from molexp.services.plan_runtime.preview import build_review_pack
 
-        pack = build_review_pack(task.run, "final_report")
+        # Prefer the durable review_pack artifact (correct for any gate);
+        # intent only matters when synthesising a fallback pack.
+        pack = build_review_pack(task.run, intent or "approve_experiment_plan")
         form = pack.form.model_dump(mode="json")
         return pack.pack_id, form
     except Exception:
         return None, None
 
 
+def _public_task_id(task: Any) -> str:  # noqa: ANN401
+    """Canonical conversation id for UI navigation + decide path.
+
+    Prefer ``record_task_id`` (Agents hub) when present; otherwise the runtime
+    ``task_id`` (standalone plan/curate launches already use one id).
+    """
+    record = getattr(task, "record_task_id", None)
+    if isinstance(record, str) and record.strip():
+        return record
+    return str(task.task_id)
+
+
 def _items_for(kind: TaskKind, tasks: list[Any]) -> list[PendingApprovalItem]:
     items: list[PendingApprovalItem] = []
     for task in tasks:
         project_id, experiment_id = _experiment_ids(task)
-        pack_id, form_doc = _pack_fields(kind, task)
+        public_id = _public_task_id(task)
         for request in task.pending_requests:
+            pack_id, form_doc = _pack_fields(kind, task, intent=request.intent)
             items.append(
                 PendingApprovalItem(
                     taskKind=kind,
-                    taskId=task.task_id,
+                    taskId=public_id,
                     runId=task.run_id,
                     projectId=project_id,
                     experimentId=experiment_id,
@@ -197,9 +220,18 @@ def _find_task(kind: TaskKind, task_id: str, workspace_root: str) -> Any:  # noq
 
     registry = get_plan_runtime() if kind == "plan" else get_curate_runtime()
     task = registry.get(workspace_root, task_id)
-    if task is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown {kind} task {task_id!r}")
-    return task
+    if task is not None:
+        return task
+    # Resolve by public conversation id (record_task_id) or run id for legacy
+    # in-memory handles still keyed on an internal plan-* id.
+    for candidate in registry.list_tasks(workspace_root):
+        if _public_task_id(candidate) == task_id:
+            return candidate
+        if getattr(candidate, "run_id", None) == task_id:
+            return candidate
+        if candidate.task_id == task_id:
+            return candidate
+    raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown {kind} task {task_id!r}")
 
 
 def _pending_request(task: Any, request_id: str) -> ApprovalRequest:  # noqa: ANN401

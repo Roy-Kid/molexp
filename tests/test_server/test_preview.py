@@ -11,7 +11,9 @@ from pathlib import Path
 
 import pytest
 
-# molpy 0.8 + matching molrs required (Frame lives in molrs).
+# molpy + matching molrs required (Frame lives in molrs). Absent → skip; an
+# INSTALLED-but-broken pair (molpy's version guard raising on a molrs minor
+# mismatch) must stay loud, so no exc_type widening here — fix the install.
 pytest.importorskip("molpy")
 pytest.importorskip("molrs")
 

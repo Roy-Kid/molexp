@@ -33,15 +33,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:  # noqa: ARG001
     On shutdown the agent session registry and the plan-task + curate-task
     registries are closed, cancelling and awaiting every in-flight background
     turn / plan task / curate task so no orphan task survives teardown.
+    SSE long-pollers are woken first so uvicorn's connection drain can finish.
     """
+    from molexp.services.approval_notify import (
+        close_approval_subscribers,
+        reset_approval_subscribers,
+    )
+
     from .dependencies import reset_agent_runtime
     from .deps.curate_runtime import reset_curate_runtime
     from .deps.plan_runtime import reset_plan_runtime
+    from .shutdown import mark_shutting_down, reset_shutdown_flag
 
+    reset_shutdown_flag()
+    reset_approval_subscribers()
     logger.info("MolExp server starting up")
     try:
         yield
     finally:
+        # 1) Cooperative stop for SSE / long-poll generators still open in the
+        # browser (approvals inbox, agent tails). Without this, uvicorn hangs on
+        # "Waiting for connections to close" until every tab disconnects.
+        mark_shutting_down()
+        close_approval_subscribers()
+        # 2) Cancel in-flight background work owned by this process.
         await reset_agent_runtime()
         await reset_plan_runtime()
         await reset_curate_runtime()
@@ -244,8 +259,3 @@ def create_app(
             }
 
     return app
-
-
-# Default app instance for Development Mode (uvicorn --reload).
-# API-only — the frontend dev server (localhost:5173) runs separately.
-app = create_app(serve_static=False)

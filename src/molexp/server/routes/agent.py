@@ -14,6 +14,7 @@ explicit ``workspace``. They reach the process-singleton
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
@@ -193,15 +194,17 @@ def _build_runner(
         )
 
     from molexp.agent import AgentRunner
-    from molexp.agent.loops import InteractiveLoop, InteractiveLoopConfig
+    from molexp.agent.loops import InteractiveLoop
+    from molexp.harness.modes.chat import chat_loop_config
 
     root = getattr(workspace, "root", None)
     workspace_root = Path(str(root)) if root is not None else None
+    # Default agent sessions are Chat Mode (scratch-only, no default land).
+    # Plan turns use PlanOrchestrator separately; lifecycle tools stay optional.
     loop = InteractiveLoop(
-        config=InteractiveLoopConfig(
+        config=chat_loop_config(
             workspace_root=workspace_root,
             context_block=context_block,
-            operation_mode="lifecycle",
         )
     )
     runner_config = {"models": models} if models is not None else {"model": model}
@@ -264,7 +267,9 @@ async def create_session(
         goal=request.description,
         user_input=request.description,
     )
-    return _to_session_response(runtime, plan_mode=request.plan_mode, skill_id=request.skill_id)
+    return _to_session_response(
+        runtime, plan_mode=request.mode == "plan", skill_id=request.skill_id
+    )
 
 
 def list_sessions(*, workspace: Workspace) -> AgentSessionListResponse:
@@ -310,12 +315,22 @@ async def stream_events(session_id: str, *, workspace: Workspace) -> StreamingRe
             error_frame,
             event_to_sse_frame,
         )
+        from molexp.server.shutdown import is_shutting_down
 
         try:
             async for event in runtime.subscribe_events():
+                if is_shutting_down():
+                    yield done_frame()
+                    return
                 yield event_to_sse_frame(event)
+        except asyncio.CancelledError:
+            # Client disconnect or uvicorn drain — exit without re-raise noise.
+            return
         except Exception as exc:  # streaming failure → one error frame, clean close
             yield error_frame(str(exc))
+            return
+        if is_shutting_down():
+            yield done_frame()
             return
         if runtime.status() == "failed":
             yield error_frame(str(runtime.error) if runtime.error else "turn failed")

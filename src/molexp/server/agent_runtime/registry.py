@@ -50,6 +50,7 @@ class AgentSessionRegistry:
             session=session,
             goal=goal,
             created_at=datetime.now(UTC).isoformat(),
+            workspace_root=workspace_root,
         )
         runtime.start_turn(user_input)
         self._by_workspace.setdefault(workspace_root, {})[runtime.session_id] = runtime

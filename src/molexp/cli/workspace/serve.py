@@ -15,11 +15,21 @@ A root may be:
 
 MolExp project/run indexes require a full workspace layout; plain folders
 still serve file-tree / content routes with empty index views.
+
+``--dev`` additionally spawns the checkout's ``ui/`` Rsbuild server
+(``npm run dev``), proxies ``/api`` to this process, and tears the UI down on
+Ctrl+C. Open the printed dev-UI URL (not the API port) for HMR.
 """
 
 from __future__ import annotations
 
+import contextlib
+import os
 import re
+import shutil
+import signal
+import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -32,6 +42,10 @@ from molexp.cli._common import rprint
 if TYPE_CHECKING:
     from molexp.server.deps.served import ServedWorkspace
     from molexp.server.workspace_targets import WorkspaceTarget
+
+# Default Rsbuild port for ``--dev`` (docs historically said 5173; rsbuild's
+# own default is 3000 — pin so the printed URL is stable).
+_DEFAULT_UI_PORT = 5173
 
 
 def _slug(text: str) -> str:
@@ -157,6 +171,104 @@ def _resolve_served(spec: str | Path, used_keys: set[str]) -> ServedWorkspace:
     )
 
 
+def _find_ui_dir() -> Path | None:
+    """Locate the checkout ``ui/`` directory (source tree only).
+
+    Resolution order:
+
+    1. ``MOLEXP_UI_DIR`` env (explicit override for non-standard layouts)
+    2. Walk parents of this module and of the installed ``molexp`` package
+       looking for ``ui/package.json`` (editable install from a checkout)
+    3. ``None`` when only a wheel is installed (no frontend sources)
+    """
+    env = os.environ.get("MOLEXP_UI_DIR", "").strip()
+    if env:
+        candidate = Path(env).expanduser().resolve()
+        if (candidate / "package.json").is_file():
+            return candidate
+        return None
+
+    seeds: list[Path] = [Path(__file__).resolve()]
+    try:
+        from importlib import resources
+
+        seeds.append(Path(str(resources.files("molexp"))).resolve())
+    except Exception:
+        pass
+
+    seen: set[Path] = set()
+    for seed in seeds:
+        for parent in [seed, *seed.parents]:
+            if parent in seen:
+                continue
+            seen.add(parent)
+            ui = parent / "ui"
+            if (ui / "package.json").is_file():
+                return ui
+    return None
+
+
+def _start_ui_dev_server(*, api_port: int, ui_port: int, ui_dir: Path) -> subprocess.Popen[bytes]:
+    """Spawn ``npm run dev`` in *ui_dir*, proxying ``/api`` to *api_port*.
+
+    Uses a new process group (POSIX) so Ctrl+C on the parent can SIGTERM the
+    whole npm/rsbuild tree without leaving orphan node processes.
+    """
+    npm = shutil.which("npm")
+    if npm is None:
+        rprint(
+            "[red]Error:[/red] --dev needs npm on PATH "
+            "(install Node.js, or unset --dev and use the bundled UI)."
+        )
+        raise typer.Exit(1)
+
+    # ``--port`` is a real rsbuild CLI flag. The API proxy target must NOT be
+    # passed as ``--api-port`` (rsbuild's CAC rejects unknown options) — set
+    # ``MOLEXP_API_PORT`` instead (read by ui/rsbuild.config.ts).
+    cmd = [
+        npm,
+        "run",
+        "dev",
+        "--",
+        f"--port={ui_port}",
+    ]
+    env = os.environ.copy()
+    env["MOLEXP_API_PORT"] = str(api_port)
+    rprint(f"[dim]Starting UI dev server in {ui_dir}[/dim]")
+    rprint(f"[dim]  MOLEXP_API_PORT={api_port} {' '.join(cmd)}[/dim]")
+
+    # start_new_session=True → new process group; killpg on shutdown.
+    return subprocess.Popen(
+        cmd,
+        cwd=ui_dir,
+        env=env,
+        start_new_session=True,
+    )
+
+
+def _stop_ui_dev_server(proc: subprocess.Popen[bytes] | None, *, timeout: float = 5.0) -> None:
+    """Terminate the UI process group started by :func:`_start_ui_dev_server`."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        if sys.platform == "win32":
+            proc.terminate()
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        return
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+            if sys.platform == "win32":
+                proc.kill()
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=2.0)
+
+
 @app.command()
 def serve(
     workspaces: Annotated[
@@ -172,10 +284,32 @@ def serve(
             ),
         ),
     ] = None,
-    port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = 8000,
-    host: Annotated[str, typer.Option("--host", help="Server host")] = "localhost",
+    port: Annotated[int, typer.Option("--port", "-p", help="API server port")] = 8000,
+    host: Annotated[str, typer.Option("--host", help="API server host")] = "localhost",
+    dev: Annotated[
+        bool,
+        typer.Option(
+            "--dev",
+            help=(
+                "Also start the checkout UI dev server (npm run dev) with /api "
+                "proxied to this process. Open the printed UI URL for HMR — "
+                "not the API port (which still serves the bundled dist if present)."
+            ),
+        ),
+    ] = False,
+    ui_port: Annotated[
+        int,
+        typer.Option(
+            "--ui-port",
+            help="Rsbuild port when using --dev (default: 5173).",
+        ),
+    ] = _DEFAULT_UI_PORT,
 ) -> None:
-    """Start the MolExp server (API + bundled web UI)."""
+    """Start the MolExp server (API + bundled web UI).
+
+    With ``--dev``, also starts ``ui/``'s ``npm run dev`` (HMR). Requires a
+    source checkout with ``ui/package.json`` and ``npm`` on PATH.
+    """
     from molexp.server.dependencies import (
         set_active_workspace_descriptor,
         set_served_workspaces,
@@ -208,16 +342,76 @@ def serve(
 
     from molexp.server.app import _find_bundled_webapp, create_app
 
-    webapp = _find_bundled_webapp()
-    if webapp is None:
-        rprint(f"[cyan]->[/cyan] API at http://{host}:{port}/api  (no bundled UI)")
-        rprint(
-            "[dim]  Build a wheel to include the frontend, "
-            "or run the frontend dev server separately:[/dim]"
-        )
-        rprint(f"[dim]  cd ui && npm run dev -- --api-port={port}[/dim]")
+    ui_proc: subprocess.Popen[bytes] | None = None
+    if dev:
+        ui_dir = _find_ui_dir()
+        if ui_dir is None:
+            rprint(
+                "[red]Error:[/red] --dev needs the molexp source tree "
+                "(ui/package.json not found). Install from a checkout with "
+                "`pip install -e .`, or set MOLEXP_UI_DIR to the ui/ path."
+            )
+            raise typer.Exit(1)
+        ui_proc = _start_ui_dev_server(api_port=port, ui_port=ui_port, ui_dir=ui_dir)
+        rprint(f"[cyan]->[/cyan] [bold]Dev UI[/bold]  http://localhost:{ui_port}")
+        rprint(f"[cyan]->[/cyan] [dim]API[/dim]     http://{host}:{port}/api")
+        webapp = _find_bundled_webapp()
+        if webapp is not None:
+            rprint(
+                f"[dim]  (bundled UI still at http://{host}:{port} — "
+                f"use the Dev UI URL above for live reload)[/dim]"
+            )
     else:
-        rprint(f"[cyan]->[/cyan] http://{host}:{port}")
+        webapp = _find_bundled_webapp()
+        if webapp is None:
+            rprint(f"[cyan]->[/cyan] API at http://{host}:{port}/api  (no bundled UI)")
+            rprint(
+                "[dim]  Build the frontend (`cd ui && npm run build`), "
+                "or use --dev for the HMR UI:[/dim]"
+            )
+            rprint(f"[dim]  molexp serve --dev -ws … --port {port}[/dim]")
+        else:
+            rprint(f"[cyan]->[/cyan] http://{host}:{port}")
 
     application = create_app()
-    uvicorn.run(application, host=host, port=port, log_level="info")
+    # SSE streams (approvals / agent tails) hold HTTP connections open. On SIGINT
+    # we must wake those generators *before* uvicorn waits for connections to
+    # drain — lifespan shutdown runs too late for that. Cap the drain at 3s as
+    # a backstop if a client never disconnects.
+    config = uvicorn.Config(
+        application,
+        host=host,
+        port=port,
+        log_level="info",
+        timeout_graceful_shutdown=3,
+        timeout_keep_alive=5,
+    )
+    server = uvicorn.Server(config)
+    _install_sse_wakeup_on_exit(server, ui_proc=ui_proc)
+    try:
+        server.run()
+    finally:
+        _stop_ui_dev_server(ui_proc)
+
+
+def _install_sse_wakeup_on_exit(
+    server: uvicorn.Server,
+    *,
+    ui_proc: subprocess.Popen[bytes] | None = None,
+) -> None:
+    """Wrap uvicorn's exit handler so SSE long-polls stop on the first Ctrl+C."""
+    original = server.handle_exit
+
+    def handle_exit(sig: int | None, frame: object) -> None:
+        try:
+            from molexp.server.shutdown import mark_shutting_down
+            from molexp.services.approval_notify import close_approval_subscribers
+
+            mark_shutting_down()
+            close_approval_subscribers()
+        except Exception:  # never block signal handling on a soft failure
+            pass
+        _stop_ui_dev_server(ui_proc)
+        original(sig, frame)
+
+    server.handle_exit = handle_exit  # type: ignore[method-assign]

@@ -85,18 +85,11 @@ class PlanFile(BaseModel):
 
 
 class PlanDetailResponse(BaseModel):
-    """The full generated plan: every deliverable the 9-step pipeline produced.
+    """Full plan deliverables for PlanOrchestrator (and legacy nine-step artifacts).
 
-    One field per UI deliverable view. ``experimentReport`` is the human-readable
-    proposal (step 1); ``experimentSpec`` (+ ``experimentSpecYaml``) is the
-    concrete spec (step 2); ``capabilities`` is the resolved toolchain catalog
-    (step 3); ``tasks`` + ``workflowSource`` are the bound tasks + runnable source
-    (steps 4-5); ``inputSet`` is the parameter-space sweep (step 6); ``dryRun`` is
-    the compile/dry-run result (step 7); ``executionReport`` is the where/how
-    hand-off (step 9). The ``--execute`` tail adds ``execution`` (the REAL
-    workflow execution_result — same artifact kind as the dry-run, split by
-    ``metadata.mode``), ``finalReport``, and ``auditReport``. All are ``None``
-    when the step has not run.
+    Primary kinds: ``experimentPlan`` (spec + task board), ``planReport``,
+    ``frozenExperimentPlan``, ``boundWorkflow``, then codegen/compile outputs.
+    Legacy nine-step fields remain so older runs still render.
     """
 
     runId: str
@@ -106,34 +99,56 @@ class PlanDetailResponse(BaseModel):
     status: str
     draft: str
     experimentReport: dict[str, Any] | None
+    experimentPlan: dict[str, Any] | None = None
+    frozenExperimentPlan: dict[str, Any] | None = None
+    planReport: dict[str, Any] | None = None
+    boundWorkflow: dict[str, Any] | None = None
+    interventionRequest: dict[str, Any] | None = None
     experimentSpec: dict[str, Any] | None
     experimentSpecYaml: str | None
     capabilities: str | None
-    # The LLM's minimal capability pick (ids + reasoning) — what the UI shows
-    # FIRST; ``capabilities`` (the full grounded catalog) folds away behind it.
     capabilitySelection: dict[str, Any] | None
-    # The workflow IR (step 4): raw artifact + a curated workflow-spec YAML
-    # (inputs, tasks with purpose + typed inputs/outputs, task→task edges).
     workflowIr: dict[str, Any] | None
     workflowIrYaml: str | None
-    # The generated workflow spec — every task + the runnable source.
     tasks: list[PlanTaskInfo]
     workflowSource: str | None
-    # Per-task source + test files (one module per task + the assembly; one test
-    # per task). Empty for single-file plans — then ``workflowSource`` stands.
     workflowFiles: list[PlanFile]
     testFiles: list[PlanFile]
     inputSet: dict[str, Any] | None
     dryRun: dict[str, Any] | None
     planReview: dict[str, Any] | None
     executionReport: dict[str, Any] | None
-    # --execute tail: the real run + its grounded reports.
     execution: dict[str, Any] | None
     finalReport: dict[str, Any] | None
     auditReport: dict[str, Any] | None
-    # Every harness stage artifact this plan produced (kinds present on disk).
     artifactKinds: list[str]
     hasWorkflow: bool
+
+
+def _is_plan_run(store: FileArtifactStore, root: Path) -> bool:
+    """True when the run carries any plan-pipeline marker artifact."""
+    for kind in (
+        "experiment_plan",
+        "plan_report",
+        "frozen_experiment_plan",
+        "experiment_report",
+    ):
+        if _read_json_kind(store, root, kind) is not None:
+            return True
+    return False
+
+
+def _plan_title(store: FileArtifactStore, root: Path, run_id: str) -> str:
+    for kind in ("plan_report", "experiment_report", "experiment_plan", "frozen_experiment_plan"):
+        data = _read_json_kind(store, root, kind)
+        if not data:
+            continue
+        if isinstance(data.get("title"), str) and data["title"].strip():
+            return data["title"].strip()
+        spec = data.get("spec")
+        if isinstance(spec, dict) and isinstance(spec.get("title"), str) and spec["title"].strip():
+            return spec["title"].strip()
+    return f"plan-{run_id}"
 
 
 def _artifacts_root(run: Run) -> Path:
@@ -396,13 +411,12 @@ def list_plans(
     for run in experiment.list_runs():
         root = _artifacts_root(run)
         store = _artifact_store(run)
-        report = _read_json_kind(store, root, "experiment_report")
-        if report is None:
+        if not _is_plan_run(store, root):
             continue
         plans.append(
             PlanSummaryResponse(
                 runId=run.id,
-                title=_report_title(report, run.id),
+                title=_plan_title(store, root, run.id),
                 status=run.status,
                 createdAt=run.metadata.created_at.isoformat(),
                 hasWorkflow=store.latest_by_kind("workflow_source") is not None,
@@ -421,15 +435,14 @@ def list_all_plans(workspace: Workspace = Depends(get_workspace)) -> WorkspacePl
             for run in experiment.list_runs():
                 root = _artifacts_root(run)
                 store = _artifact_store(run)
-                report = _read_json_kind(store, root, "experiment_report")
-                if report is None:
+                if not _is_plan_run(store, root):
                     continue
                 plans.append(
                     WorkspacePlanSummary(
                         projectId=project.id,
                         experimentId=experiment.id,
                         runId=run.id,
-                        title=_report_title(report, run.id),
+                        title=_plan_title(store, root, run.id),
                         status=run.status,
                         createdAt=run.metadata.created_at.isoformat(),
                         hasWorkflow=store.latest_by_kind("workflow_source") is not None,
@@ -457,38 +470,79 @@ def get_plan(
 
     root = _artifacts_root(run)
     store = _artifact_store(run)
-    report = _read_json_kind(store, root, "experiment_report")
-    if report is None:
+    if not _is_plan_run(store, root):
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            f"run {run_id!r} has no generated plan (no experiment_report artifact)",
+            f"run {run_id!r} has no generated plan "
+            "(no experiment_plan / plan_report / experiment_report artifact)",
         )
+    report = _read_json_kind(store, root, "experiment_report")
+    plan_report = _read_json_kind(store, root, "plan_report")
+    experiment_plan = _read_json_kind(store, root, "experiment_plan")
+    frozen_plan = _read_json_kind(store, root, "frozen_experiment_plan")
     user_plan = _read_json_kind(store, root, "user_plan") or {}
     draft = user_plan.get("raw_text")
+    if not isinstance(draft, str) or not draft:
+        # PlanOrchestrator stores the draft as free-text user_input only;
+        # fall back to the plan objective / title.
+        if experiment_plan and isinstance(experiment_plan.get("spec"), dict):
+            draft = str(
+                experiment_plan["spec"].get("objective")
+                or experiment_plan["spec"].get("title")
+                or ""
+            )
+        else:
+            draft = ""
     spec = _read_json_kind(store, root, "experiment_spec")
+    if spec is None and experiment_plan and isinstance(experiment_plan.get("spec"), dict):
+        spec = experiment_plan["spec"]
     workflow_ir = _read_json_kind(store, root, "workflow_ir")
     dry_run, real_execution = _split_execution_results(store, root)
+    # Prefer board tasks from experiment_plan when IR workflow is absent.
+    board_tasks: list[PlanTaskInfo] = []
+    board = None
+    if experiment_plan and isinstance(experiment_plan.get("board"), dict):
+        board = experiment_plan["board"]
+    elif frozen_plan and isinstance(frozen_plan.get("board"), dict):
+        board = frozen_plan["board"]
+    if isinstance(board, dict) and isinstance(board.get("tasks"), list):
+        for t in board["tasks"]:
+            if isinstance(t, dict) and isinstance(t.get("id"), str):
+                board_tasks.append(
+                    PlanTaskInfo(
+                        id=t["id"],
+                        type=str(t.get("status") or "pending"),
+                        source=str(t.get("name") or ""),
+                    )
+                )
+    tasks = board_tasks or _read_tasks(experiment)
     return PlanDetailResponse(
         runId=run.id,
         projectId=project_id,
         experimentId=experiment_id,
-        title=_report_title(report, run.id),
+        title=_plan_title(store, root, run.id),
         status=run.status,
         draft=draft if isinstance(draft, str) else "",
-        experimentReport=report,
+        experimentReport=report or plan_report,
+        experimentPlan=experiment_plan,
+        frozenExperimentPlan=frozen_plan,
+        planReport=plan_report,
+        boundWorkflow=_read_json_kind(store, root, "bound_workflow"),
+        interventionRequest=_read_json_kind(store, root, "intervention_request"),
         experimentSpec=spec,
         experimentSpecYaml=_spec_to_yaml(spec, workflow_ir),
         capabilities=_read_text_kind(store, root, "capability_catalog"),
         capabilitySelection=_read_json_kind(store, root, "capability_selection"),
         workflowIr=workflow_ir,
         workflowIrYaml=_workflow_ir_to_spec_yaml(workflow_ir),
-        tasks=_read_tasks(experiment),
+        tasks=tasks,
         workflowSource=_read_workflow_source(store, root),
         workflowFiles=_read_program_files(store, root, "workflow_source"),
         testFiles=_read_program_files(store, root, "test_source"),
         inputSet=_read_json_kind(store, root, "input_set"),
         dryRun=dry_run,
-        planReview=_read_json_kind(store, root, "plan_review"),
+        planReview=_read_json_kind(store, root, "plan_review")
+        or _read_json_kind(store, root, "analysis_result"),
         executionReport=_read_json_kind(store, root, "execution_report"),
         execution=real_execution,
         finalReport=_read_json_kind(store, root, "final_report"),
