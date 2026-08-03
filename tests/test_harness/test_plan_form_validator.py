@@ -22,7 +22,7 @@ from molexp.harness.plan import (
     TaskBoard,
     TaskStatus,  # noqa: F401  (documented lifecycle vocab)
 )
-from molexp.harness.validators.emergent_plan_form import PlanFormValidator
+from molexp.harness.validators.plan_form import PlanFormValidator
 
 # --------------------------------------------------------------- builders
 
