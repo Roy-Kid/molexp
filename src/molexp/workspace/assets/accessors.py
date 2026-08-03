@@ -10,6 +10,7 @@ that task-scoped producer info can be set when running inside a task.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Callable, Sequence
 from datetime import datetime
@@ -80,7 +81,16 @@ class ArtifactAccessor(_AccessorBase):
         elif isinstance(data, Path):
             import shutil
 
-            shutil.copy2(data, target)
+            # Chat / land often write products straight into run/artifacts/
+            # then pass the same path to save — copy2 would raise SameFileError.
+            src = Path(data)
+            try:
+                already = target.exists() and src.resolve().samefile(target.resolve())
+            except OSError:
+                already = False
+            if not already:
+                with contextlib.suppress(shutil.SameFileError):
+                    shutil.copy2(src, target)
         elif isinstance(data, (dict, list)):
             with open(target, "w") as f:  # noqa: PTH123
                 json.dump(data, f, indent=2, default=str)
