@@ -44,6 +44,7 @@ class PlanTaskRegistry:
         compute_target: ComputeTarget | None = None,
         record_task_id: str | None = None,
         turn_id: str | None = None,
+        knowledge_sources: tuple[str, ...] | None = None,
     ) -> PlanTask:
         """Build, start, and register a background plan task."""
         from molexp.services.plan_runtime.task import PlanTask
@@ -62,13 +63,27 @@ class PlanTaskRegistry:
             workspace_root=workspace_root,
             record_task_id=record_task_id,
             turn_id=turn_id,
+            knowledge_sources=knowledge_sources,
         )
         self._by_workspace.setdefault(workspace_root, {})[task_id] = task
         return task
 
     def get(self, workspace_root: str, task_id: str) -> PlanTask | None:
-        """Return the live task for ``(workspace_root, task_id)`` or ``None``."""
-        return self._by_workspace.get(workspace_root, {}).get(task_id)
+        """Return the live task for ``(workspace_root, task_id)`` or ``None``.
+
+        Also matches ``record_task_id`` so the Agents hub public id resolves
+        even if a legacy process still keyed the registry differently.
+        """
+        bucket = self._by_workspace.get(workspace_root, {})
+        direct = bucket.get(task_id)
+        if direct is not None:
+            return direct
+        for task in bucket.values():
+            if getattr(task, "record_task_id", None) == task_id:
+                return task
+            if getattr(task, "run_id", None) == task_id:
+                return task
+        return None
 
     def list_tasks(self, workspace_root: str) -> list[PlanTask]:
         """Return every live task under ``workspace_root``."""

@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterator
+
+import pytest
 
 os.environ.pop("FORCE_COLOR", None)
 os.environ.pop("CLICOLOR_FORCE", None)
@@ -30,3 +33,38 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 def strip_ansi(text: str) -> str:
     """Return *text* with CSI/SGR color codes removed."""
     return _ANSI_RE.sub("", text)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_operator_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[None]:
+    """Isolate every test from the developer's ``~/.molexp/config.json``.
+
+    Two leaks, one fixture:
+
+    * **read** — ``bridge_operator_config`` (called by every preflight) loads
+      the operator config from ``OPERATOR_CONFIG_PATH``; pointed at an empty
+      tmp file so a laptop with a real key/model does not silently satisfy
+      tests that assert a *missing* key or an unknown model.
+    * **write** — the bridge's destination, ``molexp.config``, is a
+      **process-global** singleton that no monkeypatch unwinds. One test that
+      bridges a configured ``agent.models`` map used to re-tier every later
+      test in the same process (an unknown-model preflight quietly resolved to
+      the laptop's DeepSeek models and stopped raising). Snapshot + restore.
+    """
+    import molexp
+    from molexp.services import operator_config
+
+    monkeypatch.setattr(
+        operator_config,
+        "OPERATOR_CONFIG_PATH",
+        tmp_path_factory.mktemp("operator-config") / "config.json",
+    )
+    before = dict(molexp.config)
+    yield
+    for key in list(molexp.config.keys()):
+        if key not in before:
+            del molexp.config[key]
+    for key, value in before.items():
+        molexp.config[key] = value

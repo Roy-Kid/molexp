@@ -230,6 +230,35 @@ def append_agent_task_events(
     write_agent_task_events(workspace_root, task_id, [*current, *events])
 
 
+def _event_dedupe_key(event: dict[str, Any]) -> tuple[Any, ...]:
+    return (event.get("type"), event.get("ts"), repr(event.get("payload")))
+
+
+def merge_agent_task_events(
+    workspace_root: str | Path,
+    task_id: str,
+    events: list[dict[str, Any]],
+) -> int:
+    """Merge *events* into the on-disk transcript without duplicates.
+
+    Used to flush the in-memory live turn onto disk so chat history survives
+    ``molexp serve`` restarts. Returns the number of newly written events.
+    """
+    if not events:
+        return 0
+    current = read_agent_task_events(workspace_root, task_id)
+    seen = {_event_dedupe_key(event) for event in current if isinstance(event, dict)}
+    extra = [
+        event
+        for event in events
+        if isinstance(event, dict) and _event_dedupe_key(event) not in seen
+    ]
+    if not extra:
+        return 0
+    write_agent_task_events(workspace_root, task_id, [*current, *extra])
+    return len(extra)
+
+
 def delete_agent_task(workspace_root: str | Path, task_id: str) -> bool:
     """Remove task metadata from disk.
 

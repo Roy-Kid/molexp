@@ -90,6 +90,11 @@ def ensure_plan_session_started(
                 continue
             if turn_id is None or payload.get("turn_id") == turn_id:
                 return
+        # Keep the chat bubble short — full drafts are multi-line and
+        # "Original request:… Revise…" templates look like a user message mess.
+        preview = " ".join(draft.split())
+        if len(preview) > 120:
+            preview = preview[:117] + "…"
         append_agent_task_events(
             workspace_root,
             task_id,
@@ -98,7 +103,7 @@ def ensure_plan_session_started(
                     "type": "loop_started",
                     "ts": _now_iso(),
                     "payload": {
-                        "user_input": draft,
+                        "user_input": preview or "Plan turn",
                         "turn_id": turn_id,
                         "mode": "plan",
                     },

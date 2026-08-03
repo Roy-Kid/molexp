@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from molexp.workspace.run import Run
 
 __all__ = [
+    "emit_artifact_stage_events",
     "has_artifact",
     "write_agent_task_record",
     "write_experiment_record",
@@ -218,24 +219,20 @@ def _write_agent_task(
     )
 
 
-# The nine PlanMode steps + the execute tail (artifact kind → step label). The session transcript
-# emits one event per kind present, and the UI progress rail keys its per-step
-# "done" state on these artifact kinds — so this list mirrors the rail's
-# ``planStages.ts`` order exactly. Each step is keyed on the representative
-# artifact it produces (step 5 bundles bind/source/tests under workflow_source;
-# step 7's compile dry run is an execution_result; step 8's gate is an
-# analysis_result).
+# PlanOrchestrator stages (artifact kind → step label). Mirrors UI planStages.ts.
 _STAGE_LABELS: list[tuple[str, str]] = [
-    ("experiment_report", "Drafted the experiment proposal"),
-    ("experiment_spec", "Drafted the concrete spec"),
-    ("capability_catalog", "Resolved molcrafts capabilities"),
-    ("workflow_ir", "Drafted the workflow spec"),
-    ("workflow_source", "Generated tasks + per-task tests"),
-    ("input_set", "Generated the input set"),
-    ("execution_result", "Compiled & dry-ran the workflow"),
-    ("analysis_result", "Reviewed the plan"),
-    ("execution_report", "Produced the execution report"),
-    # --execute tail (each event is emitted only when its kind exists on disk):
+    ("experiment_plan", "Built the task board"),
+    ("review_pack", "Opened the review gate"),
+    ("analysis_result", "Recorded the plan review"),
+    ("frozen_experiment_plan", "Froze the experiment plan"),
+    ("plan_report", "Rendered the plan report"),
+    ("experiment_spec", "Materialized the experiment spec"),
+    ("bound_workflow", "Bound tasks for realization"),
+    ("workflow_source", "Generated workflow source"),
+    ("test_source", "Generated per-task tests"),
+    ("execution_result", "Compiled the workflow"),
+    ("intervention_request", "Requested realization intervention"),
+    # optional execute tail:
     ("final_report", "Executed the workflow & wrote the final report"),
     ("audit_report", "Generated the audit report"),
 ]
@@ -491,6 +488,68 @@ def _artifact_kinds(run: Run) -> list[str]:
     if not index_dir.is_dir():
         return []
     return sorted(p.stem for p in index_dir.glob("*.json"))
+
+
+def emit_artifact_stage_events(
+    workspace_root: str,
+    task_id: str,
+    run: Run,
+    *,
+    turn_id: str | None = None,
+    mode: str = "plan",
+) -> int:
+    """Append ``tool_call_completed`` rows for each on-disk plan artifact kind.
+
+    The Agents progress rail only advances on these events (not ``stage_started``).
+    Call at the review gate and after realization so the UI does not stay frozen
+    on empty circles while artifacts already exist under ``run/artifacts/``.
+
+    Returns:
+        Number of new events written (0 when all kinds already recorded).
+    """
+    from molexp.services.agent_task_store import (
+        append_agent_task_events,
+        read_agent_task_events,
+    )
+
+    kinds = _artifact_kinds(run)
+    if not kinds:
+        return 0
+    existing = read_agent_task_events(workspace_root, task_id)
+    already: set[str] = set()
+    for event in existing:
+        if event.get("type") != "tool_call_completed":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        result = payload.get("result")
+        if isinstance(result, dict):
+            art = result.get("artifact")
+            if isinstance(art, str) and art:
+                already.add(art)
+    labels = dict(_STAGE_LABELS)
+    ts = _created_at(run)
+    events: list[dict[str, Any]] = []
+    for kind in kinds:
+        if kind in already:
+            continue
+        label = labels.get(kind, kind.replace("_", " "))
+        events.append(
+            {
+                "type": "tool_call_completed",
+                "ts": ts,
+                "payload": {
+                    "tool_name": label,
+                    "result": {"artifact": kind},
+                    "turn_id": turn_id,
+                    "mode": mode,
+                },
+            }
+        )
+    if events:
+        append_agent_task_events(workspace_root, task_id, events)
+    return len(events)
 
 
 # ── knowledge experiment-record note ─────────────────────────────────────────

@@ -22,10 +22,17 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 
-__all__ = ["notify_approvals_changed", "subscribe_approvals_changed"]
+__all__ = [
+    "close_approval_subscribers",
+    "notify_approvals_changed",
+    "reset_approval_subscribers",
+    "subscribe_approvals_changed",
+]
 
 
-_subscribers: set[asyncio.Queue[None]] = set()
+_subscribers: set[asyncio.Queue[None | object]] = set()
+_CLOSED = object()
+_closed = False
 
 
 def notify_approvals_changed() -> None:
@@ -35,12 +42,33 @@ def notify_approvals_changed() -> None:
             queue.put_nowait(None)
 
 
+def close_approval_subscribers() -> None:
+    """Wake and end every live SSE subscription (server shutdown hook)."""
+    global _closed
+    _closed = True
+    for queue in list(_subscribers):
+        with contextlib.suppress(asyncio.QueueFull):
+            queue.put_nowait(_CLOSED)
+
+
+def reset_approval_subscribers() -> None:
+    """Test / re-serve helper: clear the closed latch for a new process cycle."""
+    global _closed
+    _closed = False
+    _subscribers.clear()
+
+
 async def subscribe_approvals_changed() -> AsyncIterator[None]:
-    """Yield once per approval change until the consumer disconnects."""
-    queue: asyncio.Queue[None] = asyncio.Queue(maxsize=1)
+    """Yield once per approval change until disconnect or server shutdown."""
+    if _closed:
+        return
+    queue: asyncio.Queue[None | object] = asyncio.Queue(maxsize=1)
     _subscribers.add(queue)
     try:
-        while True:
-            yield await queue.get()
+        while not _closed:
+            item = await queue.get()
+            if item is _CLOSED or _closed:
+                return
+            yield None
     finally:
         _subscribers.discard(queue)

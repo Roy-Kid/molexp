@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from mollog import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from molexp.agent.router import Router
     from molexp.harness.gateways.gateway import AgentGateway
@@ -154,14 +154,18 @@ def preflight_plan_router(*, model: str, models: dict[str, str] | None = None) -
     try:
         from molexp.agent import PydanticAIRouter
     except ModuleNotFoundError as exc:
-        raise PlanPreflightError(
-            f"PlanMode needs the LLM agent stack, but {exc.name!r} is not installed — "
-            'install it with: pip install "molexp[agent]"'
-        ) from exc
+        raise PlanPreflightError(_missing_agent_stack_message(exc)) from exc
     try:
         tier_models = _resolve_tier_models(model=model, models=models)
         router = PydanticAIRouter(models=tier_models)
         _prime_credentials(router)
+    except ModuleNotFoundError as exc:
+        # The agent stack can also go missing *after* the import above: the
+        # lazy `molexp.agent` re-export memoizes the router class, and the
+        # pydantic-ai submodules a provider needs are imported deeper still.
+        # Wherever it surfaces, the operator's fix is the same install line —
+        # never the generic "model failed its preflight check" wording.
+        raise PlanPreflightError(_missing_agent_stack_message(exc)) from exc
     except Exception as exc:
         message = f"model {model!r} failed its preflight check: {exc}"
         guidance = _credential_guidance(model, exc)
@@ -169,6 +173,14 @@ def preflight_plan_router(*, model: str, models: dict[str, str] | None = None) -
             message = f"{message}\n{guidance}"
         raise PlanPreflightError(message) from exc
     return router
+
+
+def _missing_agent_stack_message(exc: ModuleNotFoundError) -> str:
+    """One-line preflight message naming the install command for the extra."""
+    return (
+        f"PlanMode needs the LLM agent stack, but {exc.name!r} is not installed — "
+        'install it with: pip install "molexp[agent]"'
+    )
 
 
 #: Provider env-var spelling inside upstream credential errors
@@ -241,6 +253,8 @@ def _prime_credentials(router: object) -> None:
 def _resolve_agent_mcp_tools(
     servers_by_agent: dict[str, tuple[str, ...]],
     workspace_root: str | Path,
+    *,
+    knowledge_sources: Sequence[str] | None = None,
 ) -> dict[str, tuple[object, ...]]:
     """Resolve per-agent MCP server *names* into concrete ``McpToolSpec``s.
 
@@ -249,6 +263,9 @@ def _resolve_agent_mcp_tools(
     tools. A missing server is omitted from the return map; the caller
     (:func:`build_plan_gateway`) fail-closes for agents that *require* molmcp.
     Never raises — resolution errors become absent tools.
+
+    When ``knowledge_sources`` is set, injects ``MOLMCP_SOURCES`` into the
+    molmcp server env so packages/outline/open/search hard-filter to that set.
     """
     from molexp.agent.mcp import McpScope, McpStore
     from molexp.agent.router import McpToolSpec
@@ -256,6 +273,9 @@ def _resolve_agent_mcp_tools(
     resolved: dict[str, tuple[object, ...]] = {}
     store: McpStore | None = None
     cache: dict[str, McpToolSpec | None] = {}
+    # Session/task pin (if any). Otherwise leave the molmcp server's own
+    # ``MOLMCP_SOURCES`` env from MCP config (per-server settings UI).
+    pin = ",".join(s.strip() for s in (knowledge_sources or ()) if str(s).strip())
 
     def spec_for(name: str) -> McpToolSpec | None:
         nonlocal store
@@ -272,11 +292,17 @@ def _resolve_agent_mcp_tools(
             if spec.transport != "stdio" or not spec.command:
                 cache[name] = None
                 return None
+            env_items = list(spec.env.items())
+            # Session override only when explicitly requested; default is the
+            # per-MCP config pin set in Agent Settings → MCP → molmcp.
+            if pin and ("molmcp" in name.lower()):
+                env_items = [(k, v) for k, v in env_items if k != "MOLMCP_SOURCES"]
+                env_items.append(("MOLMCP_SOURCES", pin))
             tool = McpToolSpec(
                 name=name,
                 command=spec.command,
                 args=tuple(spec.args),
-                env=tuple(spec.env.items()),
+                env=tuple(env_items),
             )
         except Exception as exc:  # never let MCP config break gateway build
             logger.warning(f"MCP tool {name!r} not attached to codegen agents: {exc!r}")
@@ -302,6 +328,7 @@ def build_plan_gateway(
     task_id: str | None = None,
     draft: str | None = None,
     turn_id: str | None = None,
+    knowledge_sources: Sequence[str] | None = None,
 ) -> AgentGateway:
     """Build the production ``RouterBackedAgentGateway`` (or the test stub).
 
@@ -333,7 +360,11 @@ def build_plan_gateway(
         router = preflight_plan_router(model=model, models=models)
     store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
     required_mcp = plan_agent_mcp_servers()
-    mcp_tools_by_agent = _resolve_agent_mcp_tools(required_mcp, workspace_root or run.run_dir)
+    mcp_tools_by_agent = _resolve_agent_mcp_tools(
+        required_mcp,
+        workspace_root or run.run_dir,
+        knowledge_sources=knowledge_sources,
+    )
     # Fail-closed: codegen agents that declare molmcp must actually get tools.
     # Silent catalog-only fallback invents APIs; raise before the plan starts.
     missing = [

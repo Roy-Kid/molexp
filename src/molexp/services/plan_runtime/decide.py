@@ -24,7 +24,35 @@ if TYPE_CHECKING:
     from molexp.services.plan_runtime.task import PlanTask
     from molexp.workspace.run import Run
 
-__all__ = ["decide_plan_review", "map_review_action_to_approval"]
+__all__ = ["apply_plan_field_values", "decide_plan_review", "map_review_action_to_approval"]
+
+
+def apply_plan_field_values(run: Run, field_values: dict[str, Any]) -> None:
+    """Apply review form field_values onto the run's on-disk task board.
+
+    Currently honours ``keep_tasks`` (list of task ids to retain). Other keys
+    are ignored here and remain available on the ``review_decision`` artifact.
+    """
+    from molexp.harness.plan import board_path, read_board, remove_task, write_board
+
+    keep = field_values.get("keep_tasks")
+    if not isinstance(keep, list) or not keep:
+        return
+    keep_ids = {str(x) for x in keep}
+    path = board_path(Path(str(run.run_dir)))
+    board = read_board(path)
+    for task in list(board.tasks):
+        if task.id not in keep_ids:
+            try:
+                board = remove_task(board, task.id)
+            except Exception:
+                continue
+    write_board(path, board)
+
+
+def _apply_plan_field_values(run: Run, field_values: dict[str, Any]) -> None:
+    apply_plan_field_values(run, field_values)
+
 
 #: Strong refs to fire-and-forget resume tasks so the running loop cannot GC
 #: them mid-flight (RUF006); each task removes itself on completion.
@@ -160,6 +188,10 @@ def decide_plan_review(
     if review.action == "approve":
         # Ensure grant path uses approve mapping even if caller passed wrong fields.
         approval = review_decision_to_approval(review, request_id=request.id)
+        # Persist operator field choices (keep_tasks, notes, priority) as an
+        # artifact so resume / freeze can honor them — not only on revise.
+        if review.field_values:
+            _apply_plan_field_values(run, review.field_values)
 
     run_dir = Path(str(run.run_dir))
     db_path = run_dir / "harness.sqlite"
@@ -189,10 +221,8 @@ def decide_plan_review(
     # revise: do NOT record a durable grant/reject that would stick as permanent
     # fail on re-entry. Leave pending clear by not storing grant; write decision
     # artifact (above) and resume so StepAuditLoop consumes revise.
-    # Clear any prior grant for this request so hard gate does not auto-pass.
-    # Store has no explicit clear; recording non-grant is fine for reject path
-    # but for revise we skip store.record_decision of granted=False so re-entry
-    # can re-suspend after applying field_values.
+    if review.field_values:
+        _apply_plan_field_values(run, review.field_values)
     if task is not None:
         task.resume()
     notify_approvals_changed()

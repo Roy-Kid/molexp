@@ -5,7 +5,7 @@ unlike the agent-session runtime — it needs no session/turn split: the task IS
 the background ``asyncio.Task`` plus its coarse status. On success it persists
 the generated workflow onto the experiment so the UI graph renderer shows it.
 
-Approvals are **never** auto-granted: ``EmergentPlanOrchestrator()`` runs with
+Approvals are **never** auto-granted: ``PlanOrchestrator()`` runs with
 no approver, so the review gate resolves store-first (a grant recorded in the
 run's approval store replays) and otherwise suspends — the task lands
 ``waiting_approval`` with the pending requests kept on it, the approvals inbox
@@ -54,6 +54,7 @@ class PlanTask:
         compute_target: ComputeTarget | None = None,
         record_task_id: str | None = None,
         turn_id: str | None = None,
+        knowledge_sources: tuple[str, ...] | None = None,
     ) -> None:
         self.task_id = task_id
         self.run = run
@@ -67,6 +68,7 @@ class PlanTask:
         self.compute_target = compute_target
         self.record_task_id = record_task_id or task_id
         self.turn_id = turn_id
+        self.knowledge_sources = tuple(knowledge_sources or ())
         self.status: PlanTaskStatus = "running"
         self.error: BaseException | None = None
         self.workflow_persisted = False
@@ -93,6 +95,7 @@ class PlanTask:
         compute_target: ComputeTarget | None = None,
         record_task_id: str | None = None,
         turn_id: str | None = None,
+        knowledge_sources: tuple[str, ...] | None = None,
     ) -> PlanTask:
         """Build a task and spawn its background PlanMode run.
 
@@ -103,6 +106,9 @@ class PlanTask:
         gate (including ``approve_execution``) suspends into the approvals
         inbox — server-side execution is unreachable without granted
         decisions.
+
+        ``knowledge_sources`` pins molmcp package scope (e.g. molpy, molvis,
+        molplot) so plan agents never consult out-of-scope catalogs.
         """
         task = cls(
             task_id=task_id,
@@ -117,17 +123,233 @@ class PlanTask:
             compute_target=compute_target,
             record_task_id=record_task_id,
             turn_id=turn_id,
+            knowledge_sources=knowledge_sources,
         )
         task._gateway = gateway
         task._sync_status()  # visible in the Agents hub from launch, not completion
         task._task = asyncio.create_task(task._drive(gateway))
         return task
 
+    def _emit_progress(self, message: str, *, stage: str) -> None:
+        """Best-effort transcript breadcrumb for the Agents chat (never raises)."""
+        root = self.workspace_root
+        task_id = self.record_task_id
+        if not root or not task_id:
+            return
+        try:
+            from datetime import UTC, datetime
+
+            from molexp.services.agent_task_store import append_agent_task_events
+
+            append_agent_task_events(
+                root,
+                task_id,
+                [
+                    {
+                        "type": "stage_started",
+                        "ts": datetime.now(UTC).isoformat(),
+                        "payload": {
+                            "stage": stage,
+                            "message": message,
+                            "turn_id": self.turn_id,
+                            "plan_task_id": self.task_id,
+                        },
+                    }
+                ],
+            )
+        except Exception as exc:
+            _LOG.debug(f"[plan-task {self.task_id}] progress emit failed: {exc!r}")
+
+    def _event_context(self) -> dict[str, object]:
+        project_id = ""
+        try:
+            project_id = self.experiment.project.id
+        except Exception:
+            project_id = ""
+        return {
+            "turn_id": self.turn_id,
+            "mode": "plan",
+            "plan_task_id": self.task_id,
+            "run_id": self.run.id,
+            "project_id": project_id,
+            "experiment_id": self.experiment.id,
+        }
+
+    def _emit_phase_turn(self, *, user_input: str, message: str, stage: str) -> None:
+        """Open a new transcript turn + stage breadcrumb (never raises)."""
+        root = self.workspace_root
+        task_id = self.record_task_id
+        if not root or not task_id:
+            return
+        try:
+            from datetime import UTC, datetime
+
+            from molexp.services.agent_task_store import append_agent_task_events
+
+            ts = datetime.now(UTC).isoformat()
+            ctx = self._event_context()
+            append_agent_task_events(
+                root,
+                task_id,
+                [
+                    {
+                        "type": "loop_started",
+                        "ts": ts,
+                        "payload": {"user_input": user_input, **ctx},
+                    },
+                    {
+                        "type": "stage_started",
+                        "ts": ts,
+                        "payload": {"stage": stage, "message": message, **ctx},
+                    },
+                ],
+            )
+        except Exception as exc:
+            _LOG.debug(f"[plan-task {self.task_id}] phase turn emit failed: {exc!r}")
+
+    def _emit_waiting_approval_events(self, exc: object) -> None:
+        """Close the chat turn with plan_emitted (never raises).
+
+        Without this, the Agents UI stays on an in-progress bubble after the
+        hard review gate parks — no "plan ready", no spinner end, only stale
+        stage breadcrumbs. ``plan_emitted`` also carries the PlanRef ids so
+        Deliverables / rail can open before final materialize.
+        """
+        root = self.workspace_root
+        task_id = self.record_task_id
+        if not root or not task_id:
+            return
+        try:
+            from datetime import UTC, datetime
+
+            from molexp.services.agent_task_store import append_agent_task_events
+
+            step_count = 0
+            body_md = ""
+            plan_title = ""
+            try:
+                from molexp.harness.plan import (
+                    ExperimentPlan,
+                    board_path,
+                    read_board,
+                    render_experiment_plan_document,
+                )
+                from molexp.harness.plan.document import experiment_report_to_document
+                from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+                board = read_board(board_path(self.run.run_dir))
+                step_count = len(getattr(board, "tasks", ()) or ())
+                store = FileArtifactStore(root=self.run.run_dir / "artifacts")
+                # Prefer LLM-filled plan_report (rendered before the review gate).
+                report_ref = store.latest_by_kind("plan_report")
+                if report_ref is not None:
+                    try:
+                        import json as _json
+
+                        raw = store.get(report_ref.id)
+                        data = _json.loads(raw)
+                        body_md = experiment_report_to_document(data)
+                        if isinstance(data, dict) and isinstance(data.get("title"), str):
+                            plan_title = data["title"].strip()
+                    except Exception:
+                        body_md = ""
+                if not body_md:
+                    plan_ref_art = store.latest_by_kind("experiment_plan")
+                    if plan_ref_art is not None:
+                        import json as _json
+
+                        plan_obj = ExperimentPlan.model_validate_json(store.get(plan_ref_art.id))
+                        body_md = render_experiment_plan_document(plan_obj)
+                        plan_title = str(plan_obj.spec.get("title") or "")
+                    else:
+                        body_md = render_experiment_plan_document(
+                            ExperimentPlan(
+                                spec={"title": "Experiment Plan", "objective": self.draft},
+                                board=board,
+                            )
+                        )
+            except Exception:
+                step_count = 0
+                body_md = ""
+
+            intents: list[str] = []
+            requests = getattr(exc, "requests", None) or ()
+            for req in requests:
+                intent = getattr(req, "intent", None)
+                if intent:
+                    intents.append(str(intent))
+            reason = (
+                "Awaiting approval: " + ", ".join(intents)
+                if intents
+                else "Awaiting approval for the experiment plan"
+            )
+            ts = datetime.now(UTC).isoformat()
+            ctx = self._event_context()
+            if not plan_title:
+                plan_title = (self.draft.strip().splitlines() or [""])[0][:80]
+            plan_ref = {
+                "run_id": self.run.id,
+                "project_id": ctx["project_id"],
+                "experiment_id": ctx["experiment_id"],
+                "title": plan_title,
+                "step_count": step_count,
+                "has_workflow": False,
+            }
+            # plan_emitted IS the agent answer: full plan book markdown for the chat.
+            append_agent_task_events(
+                root,
+                task_id,
+                [
+                    {
+                        "type": "stage_started",
+                        "ts": ts,
+                        "payload": {
+                            "stage": "review",
+                            "message": reason,
+                            **ctx,
+                        },
+                    },
+                    {
+                        "type": "plan_emitted",
+                        "ts": ts,
+                        "payload": {
+                            "plan_id": self.run.id,
+                            "step_count": step_count,
+                            "message": reason,
+                            "title": plan_title,
+                            "body_md": body_md,
+                            "plan": plan_ref,
+                            **ctx,
+                        },
+                    },
+                ],
+            )
+            # Advance the PlanMode progress rail: experiment_plan / plan_report
+            # already on disk at the gate, but the rail only tracks
+            # tool_call_completed{result.artifact}.
+            try:
+                from .record import emit_artifact_stage_events
+
+                emit_artifact_stage_events(
+                    root,
+                    task_id,
+                    self.run,
+                    turn_id=self.turn_id,
+                )
+            except Exception as stage_exc:
+                _LOG.debug(f"[plan-task {self.task_id}] stage artifact emit failed: {stage_exc!r}")
+        except Exception as emit_exc:
+            _LOG.debug(f"[plan-task {self.task_id}] waiting_approval events failed: {emit_exc!r}")
+
     async def _drive(self, gateway: AgentGateway) -> None:
-        from molexp.harness import ApprovalPendingError, EmergentPlanOrchestrator
+        from molexp.harness import ApprovalPendingError, PlanOrchestrator
 
         from .drive import drive_plan_mode
         from .materialize import materialize_plan_records
+
+        # Cap molmcp grounding so a hung MCP never leaves the UI on "running"
+        # with no further events (common when molmcp is misconfigured/offline).
+        _GROUND_TIMEOUT_S = 45.0
 
         try:
             # Resolve molmcp grounding first (loud on miss, never silent) so the
@@ -136,18 +358,66 @@ class PlanTask:
             if self.ground:
                 from molexp.mcp_capabilities import aresolve_capability_registry
 
-                capability_registry = await aresolve_capability_registry(
+                scope_msg = (
+                    f" (sources={','.join(self.knowledge_sources)})"
+                    if self.knowledge_sources
+                    else ""
+                )
+                self._emit_progress(
+                    f"Resolving molmcp capabilities…{scope_msg}",
+                    stage="ground",
+                )
+                try:
+                    capability_registry = await asyncio.wait_for(
+                        aresolve_capability_registry(
+                            self.workspace_root,
+                            task=self.draft,
+                            sources=self.knowledge_sources or None,
+                        ),
+                        timeout=_GROUND_TIMEOUT_S,
+                    )
+                    if capability_registry is None:
+                        self._emit_progress(
+                            "molmcp unavailable — continuing ungrounded "
+                            "(plan will use catalog/builtins only).",
+                            stage="ground",
+                        )
+                    else:
+                        self._emit_progress(
+                            "Capabilities ready. Drafting the task board…",
+                            stage="plan",
+                        )
+                except TimeoutError:
+                    self._emit_progress(
+                        f"Grounding timed out after {_GROUND_TIMEOUT_S:.0f}s — "
+                        "continuing without molmcp.",
+                        stage="ground",
+                    )
+                    capability_registry = None
+                except Exception as exc:
+                    self._emit_progress(
+                        f"Grounding failed ({type(exc).__name__}: {exc}) — continuing ungrounded.",
+                        stage="ground",
+                    )
+                    capability_registry = None
+            else:
+                self._emit_progress("Drafting the task board…", stage="plan")
+            # Live thinking / tool stream → agent-task events.json for the UI.
+            on_loop_event = None
+            if self.workspace_root and self.record_task_id:
+                from .loop_events import make_plan_loop_event_observer
+
+                on_loop_event = make_plan_loop_event_observer(
                     self.workspace_root,
-                    task=self.draft,
+                    self.record_task_id,
+                    turn_id=self.turn_id,
                 )
             # drive_plan_mode wraps the pipeline in the run lifecycle so the
             # plan Run's status is honest (running -> succeeded | failed) —
             # the same shared path `molexp plan` uses.
-            # ``execute`` / ``compute_target`` stay on the request shape for
-            # backward compat but are inert for the emergent orchestrator, which
-            # is planning-only (ends at the frozen plan + report).
+            # Phase 1 (board + freeze) + Phase 2 (RealizeBoard) when realize=True.
             self.result = await drive_plan_mode(
-                EmergentPlanOrchestrator(),
+                PlanOrchestrator(realize=True, on_loop_event=on_loop_event),
                 run=self.run,
                 user_input=self.draft,
                 gateway=gateway,
@@ -182,6 +452,7 @@ class PlanTask:
             self.status = "waiting_approval"
             self._sync_status()
             self.pending_requests = list(exc.requests)
+            self._emit_waiting_approval_events(exc)
             _LOG.info(
                 f"[plan-task {self.task_id}] waiting for approval: "
                 f"{[request.intent for request in exc.requests]}"
@@ -247,6 +518,27 @@ class PlanTask:
         self.status = "running"
         self._sync_status()
         self.pending_requests = []
+        # New live turn so the Agents UI shows spinner + stage progress for
+        # phase-2 realization (plan_emitted already closed the review turn).
+        self._emit_phase_turn(
+            user_input="Continue after approval — generate workflow",
+            message="Approval granted — freezing plan and generating workflow…",
+            stage="realize",
+        )
+        # Snapshot whatever is already on disk (plan_report, etc.) so the rail
+        # does not blank out between approve and materialize.
+        if self.workspace_root and self.record_task_id:
+            try:
+                from .record import emit_artifact_stage_events
+
+                emit_artifact_stage_events(
+                    self.workspace_root,
+                    self.record_task_id,
+                    self.run,
+                    turn_id=self.turn_id,
+                )
+            except Exception as stage_exc:
+                _LOG.debug(f"[plan-task {self.task_id}] resume stage emit failed: {stage_exc!r}")
         self._task = asyncio.create_task(self._drive(self._gateway))
 
     def resume_intervention(
@@ -283,6 +575,11 @@ class PlanTask:
         self.status = "running"
         self._sync_status()
         self.pending_requests = []
+        self._emit_phase_turn(
+            user_input="Continue after intervention",
+            message=f"Resuming codegen subagent `{target_agent_id}`…",
+            stage="intervention",
+        )
         self._task = asyncio.create_task(
             self._drive_intervention(target_agent_id=target_agent_id, payload=payload)
         )
@@ -325,7 +622,40 @@ class PlanTask:
         self._sync_status()
         self.error = RuntimeError(f"approval rejected: {reason}")
         self.pending_requests = []
+        self._emit_rejection_events(reason)
         self._notify_approvals()
+
+    def _emit_rejection_events(self, reason: str) -> None:
+        """Close the transcript with a typed error (never raises)."""
+        root = self.workspace_root
+        task_id = self.record_task_id
+        if not root or not task_id:
+            return
+        try:
+            from datetime import UTC, datetime
+
+            from molexp.services.agent_task_store import append_agent_task_events
+
+            ts = datetime.now(UTC).isoformat()
+            ctx = self._event_context()
+            msg = (reason or "").strip() or "Plan rejected by operator"
+            append_agent_task_events(
+                root,
+                task_id,
+                [
+                    {
+                        "type": "error",
+                        "ts": ts,
+                        "payload": {
+                            "message": msg,
+                            "stage": "approval",
+                            **ctx,
+                        },
+                    }
+                ],
+            )
+        except Exception as exc:
+            _LOG.debug(f"[plan-task {self.task_id}] rejection events failed: {exc!r}")
 
     def _sync_status(self) -> None:
         """Mirror the coarse status into the agent-task store (hub visibility)."""

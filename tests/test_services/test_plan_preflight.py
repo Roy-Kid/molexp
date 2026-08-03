@@ -40,19 +40,6 @@ def _no_pydantic_ai(monkeypatch: pytest.MonkeyPatch) -> None:
     sys.meta_path.remove(blocker)
 
 
-@pytest.fixture(autouse=True)
-def _isolated_operator_config(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    """Point the preflight's operator-config bridge at a nonexistent file.
-
-    The preflight bridges ``~/.molexp/config.json`` before building the
-    router; a developer machine with a real key persisted there must not
-    leak into these missing-credential tests.
-    """
-    from molexp.services import operator_config
-
-    monkeypatch.setattr(operator_config, "OPERATOR_CONFIG_PATH", tmp_path / "config.json")
-
-
 class TestPreflightFailures:
     def test_missing_agent_extra_names_the_install_command(self, _no_pydantic_ai: None) -> None:
         with pytest.raises(PlanPreflightError) as excinfo:
