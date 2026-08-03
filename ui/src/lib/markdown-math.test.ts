@@ -1,13 +1,36 @@
 /**
- * `normalizeDisplayMath` contract (see markdown-math.ts): whole-line `$$…$$`
- * must reach remark-math in the fenced three-line form (the only shape it
- * parses as display math), while inline math, fenced code, and ambiguous
- * lines pass through untouched.
+ * Math normalization contract (see markdown-math.ts).
  */
 
 import { describe, expect, it } from "@rstest/core";
 
-import { normalizeDisplayMath } from "./markdown-math";
+import {
+  normalizeDisplayMath,
+  normalizeLatexDelimiters,
+  prepareMarkdownMath,
+} from "./markdown-math";
+
+describe("normalizeLatexDelimiters", () => {
+  it("rewrites \\(…\\) to $…$ so remark-math sees inline math", () => {
+    const src = "scaling exponent \\(\\nu\\) in \\(R_g \\sim N^{\\nu}\\).";
+    expect(normalizeLatexDelimiters(src)).toBe("scaling exponent $\\nu$ in $R_g \\sim N^{\\nu}$.");
+  });
+
+  it("rewrites \\[…\\] to a fenced display block", () => {
+    const src = "The law is\n\n\\[R_g \\sim N^{\\nu}\\]\n\ndone.";
+    expect(normalizeLatexDelimiters(src)).toBe("The law is\n\n$$\nR_g \\sim N^{\\nu}\n$$\n\ndone.");
+  });
+
+  it("never rewrites inside fenced code", () => {
+    const src = "```tex\n\\(x\\)\n```\n\n\\(y\\)";
+    expect(normalizeLatexDelimiters(src)).toBe("```tex\n\\(x\\)\n```\n\n$y$");
+  });
+
+  it("leaves plain text without latex delimiters alone", () => {
+    expect(normalizeLatexDelimiters("no math")).toBe("no math");
+    expect(normalizeLatexDelimiters("$already$")).toBe("$already$");
+  });
+});
 
 describe("normalizeDisplayMath", () => {
   it("rewrites a whole-line $$…$$ into a fenced display block", () => {
@@ -55,5 +78,12 @@ describe("normalizeDisplayMath", () => {
 
   it("preserves indentation of the rewritten block", () => {
     expect(normalizeDisplayMath("  $$x$$")).toBe("  $$\n  x\n  $$");
+  });
+});
+
+describe("prepareMarkdownMath", () => {
+  it("chains latex delimiters then display fence normalization", () => {
+    const src = "\\(\\nu\\) in\n\n\\[R_g \\sim N^{\\nu}\\]";
+    expect(prepareMarkdownMath(src)).toBe("$\\nu$ in\n\n$$\nR_g \\sim N^{\\nu}\n$$");
   });
 });

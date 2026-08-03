@@ -16,7 +16,7 @@ interface BacklinksPanelProps {
 export const BacklinksPanel = ({ backlinks, onNavigate }: BacklinksPanelProps): JSX.Element => {
   return (
     <section className="space-y-2">
-      <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         <Link2 className="h-3.5 w-3.5" /> Backlinks ({backlinks.length})
       </h3>
       {backlinks.length === 0 ? (

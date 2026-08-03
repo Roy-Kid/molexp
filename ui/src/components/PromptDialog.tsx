@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { WorkbenchAction } from "@/components/workbench";
 
 export interface PromptOptions {
   title: ReactNode;
@@ -89,10 +89,17 @@ export const usePrompt = (): UsePromptReturn => {
             />
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => close(null)}>
+            <WorkbenchAction
+              kind="secondary"
+              size="default"
+              type="button"
+              onClick={() => close(null)}
+            >
               {state?.cancelLabel ?? "Cancel"}
-            </Button>
-            <Button type="submit">{state?.confirmLabel ?? "OK"}</Button>
+            </WorkbenchAction>
+            <WorkbenchAction kind="primary" size="default" type="submit">
+              {state?.confirmLabel ?? "OK"}
+            </WorkbenchAction>
           </DialogFooter>
         </form>
       </DialogContent>

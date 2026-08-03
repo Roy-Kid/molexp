@@ -22,9 +22,9 @@ const KIND_ICON: Record<string, ComponentType<{ className?: string }>> = {
 };
 
 const KIND_ICON_CLASS: Record<string, string> = {
-  run: "text-emerald-500",
-  experiment: "text-purple-500",
-  asset: "text-amber-500",
+  run: "text-muted-foreground",
+  experiment: "text-muted-foreground",
+  asset: "text-muted-foreground",
   reference: "text-muted-foreground",
   note: "text-muted-foreground",
 };
@@ -78,7 +78,7 @@ export const EntityRefCard = ({
         if (selection) nav.setSelection(selection);
       }}
       className={cn(
-        "group flex w-full items-center gap-2.5 rounded-md border border-border/60 bg-card px-3 py-2 text-left transition-colors",
+        "group flex w-full items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2 text-left transition-colors",
         selection ? "hover:border-border hover:bg-muted/40" : "cursor-default opacity-70",
       )}
     >
@@ -87,7 +87,7 @@ export const EntityRefCard = ({
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-foreground">{card.title}</span>
-        <span className="block truncate text-[11px] uppercase tracking-wide text-muted-foreground">
+        <span className="block truncate text-micro uppercase tracking-wide text-muted-foreground">
           {card.kind}
         </span>
       </span>

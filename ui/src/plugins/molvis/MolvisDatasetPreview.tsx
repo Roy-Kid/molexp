@@ -33,8 +33,8 @@ export const MolvisDatasetPreview = ({ assetId }: FilePreviewContentProps): JSX.
     const run = async (): Promise<void> => {
       try {
         const [{ mountMolvis }, { loadFileContent }] = await Promise.all([
-          import("@molcrafts/molvis-core"),
-          import("@molcrafts/molvis-core/io"),
+          import("@molcrafts/molvis-stage"),
+          import("@molcrafts/molvis-stage/io"),
         ]);
         if (cancelled) return;
 
@@ -93,7 +93,7 @@ export const MolvisDatasetPreview = ({ assetId }: FilePreviewContentProps): JSX.
   }
 
   return (
-    <div className="relative h-[420px] w-full overflow-hidden rounded-md border border-border bg-black/5">
+    <div className="relative h-[420px] w-full overflow-hidden rounded-md border border-border bg-canvas">
       <div ref={containerRef} className="absolute inset-0" />
       {state.kind === "loading" && (
         <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">

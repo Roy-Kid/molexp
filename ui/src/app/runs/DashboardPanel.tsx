@@ -2,8 +2,7 @@ import { GripVertical, X } from "lucide-react";
 import type { DragEvent, JSX, ReactNode } from "react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WorkbenchIconAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 
 import type { DropPosition } from "./useDashboardLayout";
@@ -15,7 +14,7 @@ interface DashboardPanelProps {
   children: ReactNode;
   onReorder: (activeId: string, overId: string, position: DropPosition) => void;
   onRemove: (id: string) => void;
-  /** Skip the card chrome when the child is already a full surface (e.g. KPI strip). */
+  /** Skip the chrome when the child is already a full surface (e.g. KPI strip). */
   bare?: boolean;
 }
 
@@ -82,41 +81,35 @@ export const DashboardPanel = ({
   const controls = (
     <div
       className={cn(
-        "flex items-center gap-0.5 opacity-0 transition-opacity",
+        "flex items-center gap-1 opacity-0 transition-opacity",
         "group-hover/panel:opacity-100 group-focus-within/panel:opacity-100",
         bare && "absolute right-2 top-2 z-10",
       )}
     >
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label={title ? `Drag ${title} panel` : "Drag panel"}
-        title="Drag — drop on left/right to split, top/bottom for new row"
+      <WorkbenchIconAction
+        label={title ? `Drag ${title} panel` : "Drag panel"}
         onMouseDown={() => setDraggable(true)}
         onMouseUp={() => setDraggable(false)}
         onTouchStart={() => setDraggable(true)}
         onTouchEnd={() => setDraggable(false)}
-        className="h-7 w-7 cursor-grab text-muted-foreground active:cursor-grabbing"
+        className="cursor-grab text-muted-foreground active:cursor-grabbing"
       >
         <GripVertical className="h-3.5 w-3.5" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label={title ? `Remove ${title} panel` : "Remove panel"}
-        title="Remove panel"
+      </WorkbenchIconAction>
+      <WorkbenchIconAction
+        label={title ? `Remove ${title} panel` : "Remove panel"}
+        kind="danger"
         onClick={() => onRemove(id)}
-        className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        className="text-muted-foreground hover:bg-status-failed-soft hover:text-status-failed-foreground"
       >
         <X className="h-3.5 w-3.5" />
-      </Button>
+      </WorkbenchIconAction>
     </div>
   );
 
   return (
-    <Card
+    <section
+      aria-label={title ? `${title} dashboard panel` : "Dashboard panel"}
       data-panel-id={id}
       draggable={draggable}
       onDragStart={handleDragStart}
@@ -125,31 +118,27 @@ export const DashboardPanel = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        "group/panel relative flex h-full min-h-0 flex-col gap-0 overflow-hidden py-0 shadow-none",
+        "group/panel relative flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-border bg-surface",
         bare && "border-transparent bg-transparent",
         isDragging && "opacity-50",
       )}
     >
       {dropPosition && !isDragging && <DropIndicator position={dropPosition} />}
       {!bare && (title || description) ? (
-        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 border-b border-border/60 px-4 py-3">
-          <div className="min-w-0 space-y-0.5">
+        <header className="flex flex-row items-start justify-between gap-3 border-b border-border px-3 py-2">
+          <div className="min-w-0 space-y-1">
             {title && (
-              <CardTitle className="text-sm font-medium leading-none text-foreground">
-                {title}
-              </CardTitle>
+              <h3 className="text-body font-medium leading-none text-foreground">{title}</h3>
             )}
-            {description && <p className="text-xs text-muted-foreground">{description}</p>}
+            {description && <p className="text-label text-muted-foreground">{description}</p>}
           </div>
-          <CardAction className="static col-auto row-auto self-center justify-self-auto">
-            {controls}
-          </CardAction>
-        </CardHeader>
+          {controls}
+        </header>
       ) : (
         controls
       )}
-      <CardContent className={cn("min-h-0 flex-1", bare ? "p-0" : "p-4")}>{children}</CardContent>
-    </Card>
+      <div className={cn("min-h-0 flex-1", bare ? "p-0" : "p-3")}>{children}</div>
+    </section>
   );
 };
 
@@ -160,7 +149,7 @@ interface DropIndicatorProps {
 const DropIndicator = ({ position }: DropIndicatorProps): JSX.Element => (
   <div
     className={cn(
-      "pointer-events-none absolute z-20 bg-primary/70 transition-all",
+      "mol-motion-enter-fade pointer-events-none absolute z-20 bg-primary/70",
       position === "left" && "left-0 top-0 h-full w-1",
       position === "right" && "right-0 top-0 h-full w-1",
       position === "top" && "left-0 top-0 h-1 w-full",

@@ -111,23 +111,35 @@ export const useKnowledgeDocs = (filters: KnowledgeDocFilters = {}): UseKnowledg
  * populate the knowledge-tree filter. Loaded once through `workspaceApi`, so the
  * option list never collapses when a filter is applied server-side.
  */
-export const useKnowledgeFacets = (): { tags: string[]; statuses: string[] } => {
+export interface UseKnowledgeFacets {
+  tags: string[];
+  statuses: string[];
+  loading: boolean;
+  error: string | null;
+  reload: () => Promise<void>;
+}
+
+export const useKnowledgeFacets = (): UseKnowledgeFacets => {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    try {
+      const response = await workspaceApi.listKnowledge();
+      setNotes(response.notes);
+      setError(null);
+    } catch (err) {
+      setError(toMessage(err, "Failed to load knowledge filters."));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    void workspaceApi
-      .listKnowledge()
-      .then((response) => {
-        if (!cancelled) setNotes(response.notes);
-      })
-      .catch(() => {
-        // Facets are best-effort; the tree still renders without filter options.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void reload();
+  }, [reload]);
 
   const tags = useMemo(
     () => [...new Set(notes.flatMap((note) => note.tags ?? []))].sort(),
@@ -139,5 +151,5 @@ export const useKnowledgeFacets = (): { tags: string[]; statuses: string[] } => 
     [notes],
   );
 
-  return { tags, statuses };
+  return { tags, statuses, loading, error, reload };
 };

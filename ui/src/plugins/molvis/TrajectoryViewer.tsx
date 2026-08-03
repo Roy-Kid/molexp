@@ -48,8 +48,8 @@ export const TrajectoryViewer = ({
     const run = async (): Promise<void> => {
       try {
         const [{ mountMolvis }, { loadFileContent }] = await Promise.all([
-          import("@molcrafts/molvis-core"),
-          import("@molcrafts/molvis-core/io"),
+          import("@molcrafts/molvis-stage"),
+          import("@molcrafts/molvis-stage/io"),
         ]);
         if (cancelled) return;
 
@@ -108,7 +108,7 @@ export const TrajectoryViewer = ({
     // stay scoped to the canvas and never paint above the molexp UI chrome.
     <div
       className={cn(
-        "relative w-full overflow-hidden rounded-md border border-border bg-black/5 isolate",
+        "relative w-full overflow-hidden rounded-md border border-border bg-canvas isolate",
         className ?? "h-[420px]",
       )}
     >

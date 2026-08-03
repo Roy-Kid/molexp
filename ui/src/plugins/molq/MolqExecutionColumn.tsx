@@ -9,7 +9,7 @@ const Cluster = ({ execution }: ExecutionColumnRenderProps): JSX.Element => {
   const scheduler = execution.metadata.scheduler;
   if (!cluster && !scheduler) return <Empty />;
   return (
-    <span className="font-mono text-[11px]">
+    <span className="font-mono text-micro">
       {cluster ?? "—"}
       {scheduler && <span className="ml-1 text-muted-foreground">[{scheduler}]</span>}
     </span>
@@ -19,7 +19,7 @@ const Cluster = ({ execution }: ExecutionColumnRenderProps): JSX.Element => {
 const SchedulerJob = ({ execution }: ExecutionColumnRenderProps): JSX.Element => {
   const id = execution.schedulerJobId ?? execution.metadata.scheduler_job_id;
   if (!id) return <Empty />;
-  return <span className="font-mono text-[11px]">{id}</span>;
+  return <span className="font-mono text-micro">{id}</span>;
 };
 
 export const MolqExecutionColumn = {

@@ -1,8 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import type { ErrorInfo, ReactNode } from "react";
 import { Component } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WorkbenchAction } from "@/components/workbench";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -38,31 +37,30 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <Card className="w-full max-w-lg border-destructive/30">
-          <CardHeader className="space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-                <AlertTriangle className="h-5 w-5" />
-              </div>
-              <CardTitle className="text-lg font-semibold text-destructive">
-                Execution halted
-              </CardTitle>
+        <section
+          role="alert"
+          className="w-full max-w-lg space-y-3 border-y border-status-failed/30 bg-status-failed-soft px-4 py-4"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex size-9 items-center justify-center rounded-[var(--radius-control)] bg-status-failed-soft text-status-failed-foreground">
+              <AlertTriangle className="h-4 w-4" />
             </div>
-            <p className="text-sm text-muted-foreground">
-              A runtime error stopped the UI. Resolve the issue and reload to continue.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {this.state.error && (
-              <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-foreground">
-                {this.state.error.message}
-              </div>
-            )}
-            <Button variant="outline" onClick={this.handleReload}>
-              Reload Workspace
-            </Button>
-          </CardContent>
-        </Card>
+            <h1 className="text-title font-semibold text-status-failed-foreground">
+              Execution halted
+            </h1>
+          </div>
+          <p className="text-body text-muted-foreground">
+            A runtime error stopped the UI. Resolve the issue and reload to continue.
+          </p>
+          {this.state.error && (
+            <pre className="overflow-auto rounded-[var(--radius-control)] border border-border bg-muted/40 p-3 font-mono text-micro text-foreground">
+              {this.state.error.message}
+            </pre>
+          )}
+          <WorkbenchAction kind="secondary" onClick={this.handleReload}>
+            Reload Workspace
+          </WorkbenchAction>
+        </section>
       </div>
     );
   }

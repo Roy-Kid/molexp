@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AgentSystemPromptResponse } from '../models/AgentSystemPromptResponse';
 import type { AgentTaskListResponse } from '../models/AgentTaskListResponse';
 import type { AgentTaskResponse } from '../models/AgentTaskResponse';
 import type { ApprovalDecidedEvent } from '../models/ApprovalDecidedEvent';
@@ -13,6 +14,7 @@ import type { ErrorEvent } from '../models/ErrorEvent';
 import type { GoalCreateRequest } from '../models/GoalCreateRequest';
 import type { LoopCompletedEvent } from '../models/LoopCompletedEvent';
 import type { LoopStartedEvent } from '../models/LoopStartedEvent';
+import type { LoopSuspendedEvent } from '../models/LoopSuspendedEvent';
 import type { MessageResponse } from '../models/MessageResponse';
 import type { PlanEmittedEvent } from '../models/PlanEmittedEvent';
 import type { PreflightFailedEvent } from '../models/PreflightFailedEvent';
@@ -138,7 +140,7 @@ export class AgentTasksService {
      */
     public static streamAgentTaskEventsApiAgentTasksTaskIdEventsGet(
         taskId: string,
-    ): CancelablePromise<(LoopStartedEvent | StageStartedEvent | StageCompletedEvent | ArtifactWrittenEvent | ApprovalRequestedEvent | ApprovalDecidedEvent | PlanEmittedEvent | PreflightFailedEvent | RepairProposedEvent | ClarificationRequiredEvent | CompactionPerformedEvent | LoopCompletedEvent | ErrorEvent | ThinkingDeltaEvent | TokenDeltaEvent | ToolCallStartedEvent | ToolCallCompletedEvent)> {
+    ): CancelablePromise<(LoopStartedEvent | StageStartedEvent | StageCompletedEvent | ArtifactWrittenEvent | ApprovalRequestedEvent | ApprovalDecidedEvent | PlanEmittedEvent | PreflightFailedEvent | RepairProposedEvent | ClarificationRequiredEvent | CompactionPerformedEvent | LoopCompletedEvent | LoopSuspendedEvent | ErrorEvent | ThinkingDeltaEvent | TokenDeltaEvent | ToolCallStartedEvent | ToolCallCompletedEvent)> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent-tasks/{task_id}/events',
@@ -173,6 +175,31 @@ export class AgentTasksService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Agent Task System Prompt
+     * Return the composed system prompt for an agent task (inspector).
+     *
+     * Accepts either a task id or a runtime session id. Live surface replacement
+     * for the retired ``GET /api/agent/sessions/{id}/system-prompt`` (which
+     * 503s via the legacy agent catch-all).
+     * @param taskId
+     * @returns AgentSystemPromptResponse Successful Response
+     * @throws ApiError
+     */
+    public static getAgentTaskSystemPromptApiAgentTasksTaskIdSystemPromptGet(
+        taskId: string,
+    ): CancelablePromise<AgentSystemPromptResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent-tasks/{task_id}/system-prompt',
+            path: {
+                'task_id': taskId,
+            },
             errors: {
                 422: `Validation Error`,
             },

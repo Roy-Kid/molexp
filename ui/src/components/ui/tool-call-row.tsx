@@ -1,7 +1,8 @@
-import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, XCircle } from "lucide-react";
 import type { JSX } from "react";
 
 import { type ToolCallState, toolCallDurationSeconds } from "@/app/renderers/agentEvents";
+import { ProgressSpinner } from "@/components/ui/progress-spinner";
 import { formatDurationCompact } from "@/lib/format-time";
 
 /**
@@ -16,8 +17,8 @@ import { formatDurationCompact } from "@/lib/format-time";
 export const ToolCallRow = ({ call }: { call: ToolCallState }): JSX.Element => {
   if (call.status === "started") {
     return (
-      <div className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-xs">
-        <Loader2 className="h-3.5 w-3.5 flex-none animate-spin text-info" />
+      <div className="flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 text-xs">
+        <ProgressSpinner className="text-info" label="Tool running" />
         <span className="truncate font-mono text-foreground">
           {call.toolName}
           {call.argsSummary && <span className="text-muted-foreground">({call.argsSummary})</span>}
@@ -32,7 +33,7 @@ export const ToolCallRow = ({ call }: { call: ToolCallState }): JSX.Element => {
   const duration = formatDurationCompact(toolCallDurationSeconds(call));
 
   return (
-    <div className="group/tool flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-xs transition-colors hover:bg-muted/40">
+    <div className="group/tool flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 text-xs transition-colors hover:bg-muted/40">
       <Icon
         className={`h-3.5 w-3.5 flex-none ${failed ? "text-destructive" : "text-success"}`}
         aria-label={failed ? "Tool call failed" : "Tool call succeeded"}
@@ -49,7 +50,7 @@ export const ToolCallRow = ({ call }: { call: ToolCallState }): JSX.Element => {
         </span>
       )}
       {duration && (
-        <span className="ml-auto flex-none font-mono text-[10px] tabular-nums text-muted-foreground/70">
+        <span className="ml-auto flex-none font-mono text-micro tabular-nums text-muted-foreground/70">
           {duration}
         </span>
       )}

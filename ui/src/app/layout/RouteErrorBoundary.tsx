@@ -1,7 +1,7 @@
 import { ArrowLeft, FileQuestion, RefreshCw, ServerCrash, WifiOff } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { isRouteErrorResponse, useRouteError } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { WorkbenchAction } from "@/components/workbench";
 
 /**
  * Route-level error element for the data router. React Router renders this in
@@ -82,40 +82,33 @@ export function RouteErrorBoundary(): ReactNode {
   const { badge, Icon, title, description, detail, retryable } = classify(error);
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background px-6 py-12">
-      {/* Soft radial backdrop so the card reads as the focal point. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_0%,hsl(var(--primary)/0.08),transparent_70%)]"
-      />
-
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background px-6 py-8">
       <div className="relative w-full max-w-md text-center">
         <div className="mb-6 flex justify-center">
-          <div className="relative">
-            <div className="absolute inset-0 rounded-2xl bg-destructive/15 blur-xl" />
-            <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-destructive/20 bg-destructive/10 text-destructive">
-              <Icon className="h-8 w-8" />
-            </div>
-          </div>
+          <Icon className="h-8 w-8 text-status-failed-foreground" />
         </div>
 
-        <p className="mb-2 font-mono text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
+        <p className="mb-2 font-mono text-label font-medium uppercase tracking-wide text-muted-foreground">
           {badge}
         </p>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
-        <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
-          {description}
-        </p>
+        <h1 className="text-display font-semibold tracking-tight text-foreground">{title}</h1>
+        <p className="mx-auto mt-3 max-w-sm text-body-lg text-muted-foreground">{description}</p>
 
-        <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
           {retryable && (
-            <Button onClick={() => window.location.reload()} className="w-full sm:w-auto">
+            <WorkbenchAction
+              kind="primary"
+              size="default"
+              onClick={() => window.location.reload()}
+              className="w-full sm:w-auto"
+            >
               <RefreshCw className="h-4 w-4" />
               Try again
-            </Button>
+            </WorkbenchAction>
           )}
-          <Button
-            variant="outline"
+          <WorkbenchAction
+            kind="secondary"
+            size="default"
             onClick={() => {
               window.location.href = "/";
             }}
@@ -123,16 +116,16 @@ export function RouteErrorBoundary(): ReactNode {
           >
             <ArrowLeft className="h-4 w-4" />
             Back to workspace
-          </Button>
+          </WorkbenchAction>
         </div>
 
         {detail && (
           <details className="group mt-8 text-left">
-            <summary className="cursor-pointer list-none text-center text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+            <summary className="cursor-pointer list-none text-center text-label font-medium text-muted-foreground transition-colors hover:text-foreground">
               <span className="group-open:hidden">Show technical details</span>
               <span className="hidden group-open:inline">Hide technical details</span>
             </summary>
-            <pre className="mt-3 max-h-56 overflow-auto rounded-md border border-border bg-muted/40 p-3 text-left font-mono text-xs leading-relaxed text-foreground/80">
+            <pre className="mt-3 max-h-56 overflow-auto rounded-[var(--radius-control)] border border-border bg-muted/40 p-3 text-left font-mono text-label text-foreground/80">
               {detail}
             </pre>
           </details>

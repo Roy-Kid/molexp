@@ -5,15 +5,13 @@ import {
   EmptyState,
   MetaField,
   MetaGrid,
-  StatusBadge,
   StatusIcon,
   statusKey,
 } from "@/app/components/entity";
 import { formatDuration } from "@/app/renderers/dashboardData";
 import { workspaceApi } from "@/app/state/api";
 import type { RunSummary, WorkflowSummary } from "@/app/types";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { RunStatusBadge, WorkbenchAction, WorkbenchTag } from "@/components/workbench";
 import { normalizeTaskGraph } from "@/components/workflow/flowgram-document";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
@@ -141,7 +139,7 @@ export const RunExecutionsPanel = ({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4 md:p-5">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4 md:p-4">
       <DashboardCard
         title="Attempts"
         description={`${history.length} execution${history.length === 1 ? "" : "s"}`}
@@ -157,13 +155,13 @@ export const RunExecutionsPanel = ({
                   type="button"
                   onClick={() => onSelectExecution(rec.executionId)}
                   className={cn(
-                    "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 text-left transition-colors",
+                    "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     active ? "bg-muted/50" : "hover:bg-muted/30",
                   )}
                   title={rec.executionId}
                 >
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-3">
                     <StatusIcon status={rec.status} />
                     <span className="font-mono text-xs text-muted-foreground">#{index + 1}</span>
                   </div>
@@ -171,7 +169,7 @@ export const RunExecutionsPanel = ({
                     <div className="truncate font-mono text-xs text-foreground">
                       {rec.executionId}
                     </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-micro text-muted-foreground">
                       <span>
                         {formatTimeOfDay(rec.startedAt)}
                         {d ? ` · ${d}` : ""}
@@ -181,7 +179,7 @@ export const RunExecutionsPanel = ({
                       </span>
                     </div>
                   </div>
-                  <StatusBadge status={rec.status} size="sm" />
+                  <RunStatusBadge status={rec.status} size="sm" />
                 </button>
               </li>
             );
@@ -194,15 +192,15 @@ export const RunExecutionsPanel = ({
         description={effectiveExecution?.executionId}
         action={
           onViewLogs && effectiveExecution ? (
-            <Button
+            <WorkbenchAction
+              kind="ghost"
+              size="compact"
               type="button"
-              variant="ghost"
-              size="sm"
               className="h-7 gap-1 px-2 text-xs text-muted-foreground"
               onClick={onViewLogs}
             >
               Logs <ArrowRight className="h-3 w-3" />
-            </Button>
+            </WorkbenchAction>
           ) : undefined
         }
       >
@@ -210,7 +208,7 @@ export const RunExecutionsPanel = ({
           <MetaGrid columns={5}>
             <MetaField
               label="State"
-              value={<StatusBadge status={effectiveExecution.status} size="sm" dot />}
+              value={<RunStatusBadge status={effectiveExecution.status} size="sm" />}
             />
             <MetaField
               label="Start"
@@ -252,26 +250,26 @@ export const RunExecutionsPanel = ({
         action={
           <div className="flex items-center gap-1">
             {onViewLogs && (
-              <Button
+              <WorkbenchAction
+                kind="ghost"
+                size="compact"
                 type="button"
-                variant="ghost"
-                size="sm"
                 className="h-7 gap-1 px-2 text-xs text-muted-foreground"
                 onClick={onViewLogs}
               >
                 Logs <ArrowRight className="h-3 w-3" />
-              </Button>
+              </WorkbenchAction>
             )}
             {workflow && onOpenWorkflow && (
-              <Button
+              <WorkbenchAction
+                kind="ghost"
+                size="compact"
                 type="button"
-                variant="ghost"
-                size="sm"
                 className="h-7 gap-1 px-2 text-xs text-muted-foreground"
                 onClick={onOpenWorkflow}
               >
                 Definition <ArrowRight className="h-3 w-3" />
-              </Button>
+              </WorkbenchAction>
             )}
           </div>
         }
@@ -279,8 +277,8 @@ export const RunExecutionsPanel = ({
         {workflowIr ? (
           <>
             {failedTasks.length > 0 ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs">
-                <div className="flex flex-wrap items-center gap-1.5 font-medium text-destructive">
+              <div className="border-y border-destructive/30 bg-destructive/5 px-3 py-3 text-xs">
+                <div className="flex flex-wrap items-center gap-2 font-medium text-destructive">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   Failed at{" "}
                   {failedTasks.map((t, i) => (
@@ -300,7 +298,7 @@ export const RunExecutionsPanel = ({
                   t.error ? (
                     <pre
                       key={t.id}
-                      className="mt-1.5 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-destructive/90"
+                      className="mt-2 whitespace-pre-wrap break-words font-mono text-micro leading-relaxed text-destructive/90"
                     >
                       {t.error}
                     </pre>
@@ -308,13 +306,13 @@ export const RunExecutionsPanel = ({
                 )}
               </div>
             ) : attemptFailed && !executionGraph ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs">
-                <div className="flex items-center gap-1.5 font-medium text-destructive">
+              <div className="border-y border-destructive/30 bg-destructive/5 px-3 py-3 text-xs">
+                <div className="flex items-center gap-2 font-medium text-destructive">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   This attempt failed before any task ran — no per-node state was recorded.
                 </div>
                 {run.errorMessage && (
-                  <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-destructive/90">
+                  <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-micro leading-relaxed text-destructive/90">
                     {run.errorMessage}
                   </pre>
                 )}
@@ -326,15 +324,15 @@ export const RunExecutionsPanel = ({
               onNodeClick={(taskId) => onInspectTask(taskId, run.id)}
             />
             {Object.keys(edgeStatusSummary).length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {Object.entries(edgeStatusSummary).map(([status, count]) => (
-                  <Badge
+                  <WorkbenchTag
                     key={status}
-                    variant="outline"
-                    className="rounded-md font-normal text-[11px] text-muted-foreground"
+                    meaning="metadata"
+                    className="rounded-md font-normal text-micro text-muted-foreground"
                   >
                     {status}: {count}
-                  </Badge>
+                  </WorkbenchTag>
                 ))}
               </div>
             )}

@@ -3,10 +3,12 @@ import {
   renderPlanByObjectType,
   resolveRenderer,
 } from "@/app/registry";
+import type { RunInspectorRegistration } from "@/app/runs/inspector/RunInspector";
 import { RunsPage } from "@/app/runs/RunsPage";
 import { SettingsPage } from "@/app/settings/SettingsPage";
 import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
 import { WorkflowsPage } from "@/app/workflows/WorkflowsPage";
+import { WorkbenchOperationState } from "@/components/workbench";
 
 interface EmptySelectionCopy {
   title: string;
@@ -40,11 +42,8 @@ export const emptySelectionCopy = (view?: LeftPanelView): EmptySelectionCopy =>
 const EmptySelectionPlaceholder = ({ view }: { view?: LeftPanelView }): JSX.Element => {
   const copy = emptySelectionCopy(view);
   return (
-    <div className="flex h-full items-center justify-center p-6 text-center">
-      <div className="max-w-sm space-y-2">
-        <h2 className="text-base font-semibold text-foreground">{copy.title}</h2>
-        <p className="text-sm text-muted-foreground">{copy.description}</p>
-      </div>
+    <div className="flex h-full items-center justify-center p-6">
+      <WorkbenchOperationState kind="empty" title={copy.title} detail={copy.description} />
     </div>
   );
 };
@@ -56,6 +55,7 @@ interface CenterPanelProps {
   inspectorTarget: InspectorTarget;
 
   onInspectorTargetChange: (target: InspectorTarget) => void;
+  onRunInspectorChange: (registration: RunInspectorRegistration | null) => void;
   onRefresh: () => void;
 }
 
@@ -65,11 +65,12 @@ export const CenterPanel = ({
   leftPanelView,
   inspectorTarget,
   onInspectorTargetChange,
+  onRunInspectorChange,
   onRefresh,
 }: CenterPanelProps): JSX.Element => {
   if (!selection) {
     if (leftPanelView === "runs") {
-      return <RunsPage snapshot={snapshot} />;
+      return <RunsPage snapshot={snapshot} onInspectorChange={onRunInspectorChange} />;
     }
     if (leftPanelView === "workflow") {
       return <WorkflowsPage snapshot={snapshot} onRefresh={onRefresh} />;

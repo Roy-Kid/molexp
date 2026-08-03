@@ -13,7 +13,7 @@ interface MolqJobInspectorProps {
 
 const Field = ({ label, children }: { label: string; children: React.ReactNode }): JSX.Element => (
   <div className="flex justify-between gap-3 py-1">
-    <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
+    <span className="text-micro uppercase tracking-wide text-muted-foreground">{label}</span>
     <span className="min-w-0 truncate text-right font-mono text-xs text-foreground">
       {children}
     </span>
@@ -60,14 +60,14 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
           </h3>
           <StatusBadge status={job.state} size="sm" />
         </div>
-        <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+        <p className="mt-1 truncate font-mono text-micro text-muted-foreground">
           {job.schedulerJobId ?? job.jobId}
         </p>
       </header>
 
       <div className="space-y-4 overflow-auto p-3">
         <section className="space-y-1">
-          <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <h4 className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
             Details
           </h4>
           <div className="divide-y divide-border/40">
@@ -88,10 +88,10 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
           <>
             {detail.commandDisplay && (
               <section className="space-y-1">
-                <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <h4 className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
                   Command
                 </h4>
-                <pre className="break-all rounded border border-border/50 bg-muted/30 p-2 font-mono text-[11px] text-foreground">
+                <pre className="break-all rounded border border-border/50 bg-muted/30 p-2 font-mono text-micro text-foreground">
                   {detail.commandDisplay}
                 </pre>
               </section>
@@ -99,17 +99,17 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
 
             {detail.failureReason && (
               <section className="space-y-1">
-                <h4 className="text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                <h4 className="text-micro font-semibold uppercase tracking-wide text-destructive">
                   Failure reason
                 </h4>
-                <p className="rounded border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive">
+                <p className="rounded border border-destructive/40 bg-destructive/10 p-2 text-micro text-destructive">
                   {detail.failureReason}
                 </p>
               </section>
             )}
 
             <section className="space-y-1">
-              <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <h4 className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
                 Recent transitions
               </h4>
               <ol className="space-y-1">
@@ -120,7 +120,7 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
                   .map((t) => (
                     <li
                       key={`${t.timestamp}-${t.fromState ?? "start"}-${t.toState}`}
-                      className="flex justify-between gap-2 border-b border-border/30 py-1 text-[11px]"
+                      className="flex justify-between gap-2 border-b border-border/30 py-1 text-micro"
                     >
                       <span className="font-mono text-muted-foreground">
                         {formatTimestamp(t.timestamp)}

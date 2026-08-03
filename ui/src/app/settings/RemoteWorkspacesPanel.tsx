@@ -13,11 +13,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { TargetTestResponse } from "@/api/generated/models/TargetTestResponse";
 import type { WorkspaceTargetResponse } from "@/api/generated/models/WorkspaceTargetResponse";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-
+import { WorkbenchAction, WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 import { emitWorkspaceSwitching } from "../state/workspaceSwitchEvents";
-
 import { AddRemoteWorkspaceDialog } from "./AddRemoteWorkspaceDialog";
 
 interface CacheStatus {
@@ -129,31 +126,30 @@ export function RemoteWorkspacesPanel(): JSX.Element {
     <div className="space-y-3">
       <header className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">
-            Remote workspaces <span className="text-muted-foreground">({targets.length})</span>
-          </h3>
+          <h3 className="sr-only">Remote workspaces</h3>
           <p className="text-xs text-muted-foreground">
-            SSH-reachable workspace roots. Set one as Active to mount it as the current workspace.
+            {targets.length} registered · Set an SSH-reachable root as Active to mount it as the
+            current workspace.
           </p>
         </div>
         <AddRemoteWorkspaceDialog
           trigger={
-            <Button size="sm" variant="default">
+            <WorkbenchAction kind="primary" size="compact">
               + Add remote workspace
-            </Button>
+            </WorkbenchAction>
           }
           onCreated={() => void refresh()}
         />
       </header>
-      {listError && <p className="text-sm text-red-500">{listError}</p>}
+      {listError && <p className="text-sm text-status-failed-foreground">{listError}</p>}
       {loading && targets.length === 0 ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : targets.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+        <p className="border-y border-dashed border-border/70 py-6 text-center text-sm text-muted-foreground">
           No remote workspaces registered. Add one to mount a workspace hosted on an HPC node.
         </p>
       ) : (
-        <ul className="divide-y divide-border rounded-md border border-border">
+        <ul className="divide-y divide-border border-y border-border">
           {targets.map((t) => {
             const isActive = t.name === activeName;
             return (
@@ -161,59 +157,58 @@ export function RemoteWorkspacesPanel(): JSX.Element {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-sm font-medium truncate">{t.name}</span>
-                    <Badge variant={isActive ? "default" : "outline"}>
+                    <WorkbenchTag meaning={isActive ? "selection" : "metadata"}>
                       {isActive ? "Active" : "Inactive"}
-                    </Badge>
+                    </WorkbenchTag>
                   </div>
                   <div className="text-xs text-muted-foreground truncate">
                     {t.host} → {t.root_path}
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
+                <WorkbenchAction
+                  kind="ghost"
+                  size="compact"
                   disabled={busy === t.name}
                   onClick={() => void handleTest(t.name)}
                 >
                   Test
-                </Button>
-                <Button
-                  variant={isActive ? "secondary" : "outline"}
-                  size="sm"
+                </WorkbenchAction>
+                <WorkbenchAction
+                  kind="primary"
+                  size="compact"
                   disabled={busy === t.name || isActive}
                   onClick={() => void handleSetActive(t.name)}
                 >
                   {isActive ? "Active" : "Set active"}
-                </Button>
+                </WorkbenchAction>
                 {isActive && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="compact"
                     aria-label={`Refresh ${t.name}`}
                     title={`Refresh navigation cache (TTL ${t.cache_ttl_seconds ?? 300}s)`}
                     disabled={busy === t.name}
                     onClick={() => void handleRefreshCache(t.name)}
                   >
                     <RefreshCw className="h-4 w-4" />
-                    <span className="ml-1.5">Refresh</span>
-                  </Button>
+                    <span className="ml-2">Refresh</span>
+                  </WorkbenchAction>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Remove ${t.name}`}
+                <WorkbenchIconAction
+                  label={`Remove ${t.name}`}
+                  kind="ghost"
                   title={isActive ? "Switch to another workspace first" : `Remove ${t.name}`}
                   disabled={busy === t.name || isActive}
                   onClick={() => void handleDelete(t.name)}
                 >
                   <Trash2 className="h-4 w-4" />
-                </Button>
+                </WorkbenchIconAction>
               </li>
             );
           })}
         </ul>
       )}
-      {actionError && <p className="text-sm text-red-500">{actionError}</p>}
+      {actionError && <p className="text-sm text-status-failed-foreground">{actionError}</p>}
       {cacheStatus && (
         <p className="text-xs text-muted-foreground">
           Refreshed navigation cache — dropped {cacheStatus.dropped}{" "}
@@ -221,15 +216,15 @@ export function RemoteWorkspacesPanel(): JSX.Element {
         </p>
       )}
       {openWarnings.length > 0 && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          <div className="mb-1 flex items-center gap-2 text-amber-600">
+        <div className="border-y border-status-warning/40 bg-status-warning-soft px-3 py-3 text-sm">
+          <div className="mb-1 flex items-center gap-2 text-status-warning-foreground">
             <AlertTriangle className="h-4 w-4" />
             <span className="font-medium">
               {openWarnings.length} {openWarnings.length === 1 ? "warning" : "warnings"} while
               fetching the navigation tree
             </span>
           </div>
-          <ul className="space-y-0.5 pl-1 text-xs text-muted-foreground">
+          <ul className="space-y-1 pl-1 text-xs text-muted-foreground">
             {openWarnings.map((w) => (
               <li key={w} className="break-all">
                 {w}
@@ -239,30 +234,32 @@ export function RemoteWorkspacesPanel(): JSX.Element {
         </div>
       )}
       {testResult && (
-        <div className="rounded-md border border-border bg-muted/30 p-3 text-sm space-y-1">
+        <div className="space-y-1 border-y border-border/60 bg-muted/30 px-3 py-3 text-sm">
           <div className="flex items-center gap-2 font-medium">
             {testResult.ok ? (
-              <Check className="h-4 w-4 text-green-500" />
+              <Check className="h-4 w-4 text-status-completed-foreground" />
             ) : (
-              <X className="h-4 w-4 text-red-500" />
+              <X className="h-4 w-4 text-status-failed-foreground" />
             )}
             <span>{testResult.name}</span>
             <span className="text-muted-foreground">
               {testResult.ok ? "reachable" : "unreachable"}
             </span>
           </div>
-          {testResult.error && <p className="text-xs text-red-500">{testResult.error}</p>}
-          <ul className="space-y-0.5 pl-1">
+          {testResult.error && (
+            <p className="text-xs text-status-failed-foreground">{testResult.error}</p>
+          )}
+          <ul className="space-y-1 pl-1">
             {testResult.checks.map((c) => (
-              <li key={c.label} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <li key={c.label} className="flex items-start gap-2 text-xs text-muted-foreground">
                 {c.ok ? (
-                  <Check className="h-3 w-3 mt-0.5 text-green-500 flex-shrink-0" />
+                  <Check className="h-3 w-3 mt-1 text-status-completed-foreground flex-shrink-0" />
                 ) : (
-                  <X className="h-3 w-3 mt-0.5 text-red-500 flex-shrink-0" />
+                  <X className="h-3 w-3 mt-1 text-status-failed-foreground flex-shrink-0" />
                 )}
                 <span>
                   {c.label}
-                  {c.detail && <span className="text-red-500"> — {c.detail}</span>}
+                  {c.detail && <span className="text-status-failed-foreground"> — {c.detail}</span>}
                 </span>
               </li>
             ))}

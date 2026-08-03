@@ -35,7 +35,7 @@ import { countRunStatuses, formatDuration, formatScalar } from "@/app/renderers/
 import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
 import { buildExperimentWorkbenchData } from "@/app/renderers/entityWorkbenchData";
 import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
-import { MultiRunMetricsView } from "@/app/runs/metrics/MultiRunMetricsView";
+
 import { canCancel } from "@/app/runs/runLifecycle";
 import {
   buildRunListActions,
@@ -53,10 +53,9 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
+import { WorkbenchAction, WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
 import { formatDateTime } from "@/lib/datetime";
 
@@ -88,9 +87,9 @@ const ParametersCell = ({ run, keys }: { run: RunSummary; keys: string[] }): JSX
       {entries.length > visible.length && (
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[11px]">
+            <WorkbenchAction kind="ghost" size="compact" className="h-6 px-2 text-micro">
               +{entries.length - visible.length}
-            </Button>
+            </WorkbenchAction>
           </PopoverTrigger>
           <PopoverContent side="bottom" align="start" className="max-h-80 w-72 overflow-auto p-3">
             <dl className="space-y-2">
@@ -157,10 +156,6 @@ export const ExperimentViewer = ({
     [orderedRunIds],
   );
   const multi = useRunMultiSelect(orderedRunIds);
-  const selectedRunIds = useMemo(
-    () => runs.filter((run) => multi.selected.has(run.id)).map((run) => run.id),
-    [runs, multi.selected],
-  );
 
   const handleDelete = async () => {
     if (!projectId) return;
@@ -196,7 +191,7 @@ export const ExperimentViewer = ({
         title: "Cancel run?",
         description: (
           <>
-            Stop <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code>?
+            Stop <code className="rounded bg-muted px-1 py-1 text-xs">{run.id}</code>?
           </>
         ),
         confirmLabel: "Cancel",
@@ -287,7 +282,7 @@ export const ExperimentViewer = ({
       cell: (run) => (
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-foreground">{run.name || run.id}</div>
-          <div className="truncate font-mono text-[11px] text-muted-foreground">
+          <div className="truncate font-mono text-micro text-muted-foreground">
             {run.id.substring(0, 12)}
           </div>
         </div>
@@ -353,14 +348,10 @@ export const ExperimentViewer = ({
         const verb = primaryRunVerb(run.status);
         if (!verb) return null;
         return (
-          <Button
-            size="sm"
-            variant={verb.kind === "cancel" ? "outline" : "default"}
-            className={`h-6 px-2 text-[11px] ${
-              verb.kind === "cancel"
-                ? "text-destructive hover:bg-destructive/10 hover:text-destructive"
-                : ""
-            }`}
+          <WorkbenchAction
+            kind={verb.kind === "cancel" ? "secondary" : "primary"}
+            size="compact"
+            className={`h-6 px-2 text-micro ${verb.kind === "cancel" ? "text-destructive hover:bg-destructive/10 hover:text-destructive" : ""}`}
             aria-label={verb.label}
             onClick={(event) => {
               event.stopPropagation();
@@ -370,7 +361,7 @@ export const ExperimentViewer = ({
             }}
           >
             {verb.label}
-          </Button>
+          </WorkbenchAction>
         );
       },
     },
@@ -378,7 +369,7 @@ export const ExperimentViewer = ({
 
   // Leading tick column, shown only in multi-select mode. The cell button reads
   // the native event so shift (range) / ctrl|meta (toggle) modifiers reach the
-  // pure selection reducer — DataTable's onRowClick alone carries no event.
+  // pure selection reducer — DataTable's row activation carries no native event.
   const selectionColumn: DataTableColumn<RunSummary> = {
     key: "select",
     header: "",
@@ -449,7 +440,7 @@ export const ExperimentViewer = ({
         </StatGrid>
       </div>
 
-      <DashboardCard title="Identity" description="Experiment metadata" className="lg:col-span-5">
+      <DashboardCard title="Identity" className="lg:col-span-5">
         <MetaGrid columns={2}>
           <MetaField label="Experiment ID" value={experiment.id} mono title={experiment.id} />
           <MetaField label="Project" value={project?.name ?? projectId} />
@@ -495,7 +486,7 @@ export const ExperimentViewer = ({
         bodyClassName="space-y-3"
         action={
           workflowGraph ? (
-            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
               <WorkflowIcon className="h-3.5 w-3.5" />
               Graph
             </span>
@@ -522,30 +513,30 @@ export const ExperimentViewer = ({
         {workbench.parameterAxes.length === 0 ? (
           <p className="text-sm text-muted-foreground">No parameter axes declared.</p>
         ) : (
-          <Accordion type="multiple" className="rounded-lg border border-border">
+          <Accordion type="multiple" className="border-y border-border">
             {workbench.parameterAxes.map((axis) => (
               <AccordionItem key={axis.key} value={axis.key} className="border-border px-3">
-                <AccordionTrigger className="py-2.5 text-xs hover:no-underline">
-                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                <AccordionTrigger className="py-3 text-xs hover:no-underline">
+                  <span className="inline-flex min-w-0 items-center gap-2">
                     <SlidersHorizontal className="h-3.5 w-3.5 flex-none text-muted-foreground" />
                     <span className="truncate font-medium text-foreground">{axis.key}</span>
                   </span>
-                  <Badge variant="secondary" className="ml-auto mr-2 font-mono text-[10px]">
+                  <WorkbenchTag className="ml-auto mr-2 font-mono text-micro">
                     {axis.count}
-                  </Badge>
+                  </WorkbenchTag>
                 </AccordionTrigger>
-                <AccordionContent className="pb-2.5">
+                <AccordionContent className="pb-3">
                   <div className="max-h-44 overflow-auto rounded-md bg-muted/30 p-2">
                     <div className="flex flex-wrap gap-1">
                       {axis.values.map((value) => (
-                        <Badge
+                        <WorkbenchTag
                           key={`${axis.key}:${value}`}
-                          variant="outline"
-                          className="max-w-[180px] truncate rounded-md font-mono text-[11px] font-normal text-muted-foreground"
+                          meaning="metadata"
+                          className="max-w-[180px] truncate rounded-md font-mono text-micro font-normal text-muted-foreground"
                           title={value}
                         >
                           {value}
-                        </Badge>
+                        </WorkbenchTag>
                       ))}
                     </div>
                   </div>
@@ -612,9 +603,9 @@ export const ExperimentViewer = ({
                 setActiveTab("runs");
               }}
             />
-            <Button
-              variant="ghost"
-              size="icon"
+            <WorkbenchIconAction
+              label="Agent"
+              kind="ghost"
               className="h-7 w-7"
               aria-label="Agent"
               title="Agent"
@@ -627,10 +618,10 @@ export const ExperimentViewer = ({
               }
             >
               <Bot className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
+            </WorkbenchIconAction>
+            <WorkbenchIconAction
+              label="Delete"
+              kind="ghost"
               onClick={handleDelete}
               disabled={isDeleting}
               className="h-7 w-7 text-muted-foreground hover:text-destructive"
@@ -638,7 +629,7 @@ export const ExperimentViewer = ({
               title="Delete"
             >
               <Trash2 className="h-4 w-4" />
-            </Button>
+            </WorkbenchIconAction>
           </>
         }
         activeTab={activeTab}
@@ -654,43 +645,43 @@ export const ExperimentViewer = ({
             label: `Runs${counts.total ? ` (${counts.total})` : ""}`,
             content: (
               <div className="flex h-full flex-col">
-                <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
-                  <Button
-                    variant={multi.enabled ? "default" : "outline"}
-                    size="sm"
-                    className="h-7 gap-1.5"
+                <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+                  <WorkbenchAction
+                    kind={multi.enabled ? "primary" : "secondary"}
+                    size="compact"
+                    className="h-7 gap-2"
                     aria-pressed={multi.enabled}
                     onClick={multi.toggleMode}
-                    title="Select multiple runs to aggregate their metrics"
+                    title="Select multiple runs for compare"
                   >
                     <ListChecks className="h-3.5 w-3.5" />
                     {multi.enabled ? "Selecting" : "Select"}
-                  </Button>
+                  </WorkbenchAction>
                   {multi.enabled && (
                     <>
                       <span className="text-xs text-muted-foreground">
                         {multi.selected.size} selected
                       </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1.5"
+                      <WorkbenchAction
+                        kind="secondary"
+                        size="compact"
+                        className="h-7 gap-2"
                         disabled={multi.selected.size === 0}
-                        onClick={() => setActiveTab("aggregate")}
+                        onClick={() => setActiveTab("compare")}
                       >
                         <BarChart3 className="h-3.5 w-3.5" />
-                        Aggregate
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                        Compare
+                      </WorkbenchAction>
+                      <WorkbenchAction
+                        kind="ghost"
+                        size="compact"
                         className="h-7"
                         disabled={multi.selected.size === 0}
                         onClick={multi.clear}
                       >
                         Clear
-                      </Button>
-                      <span className="text-[11px] text-muted-foreground">⇧ range · ⌘ toggle</span>
+                      </WorkbenchAction>
+                      <span className="text-micro text-muted-foreground">⇧ range · ⌘ toggle</span>
                     </>
                   )}
                 </div>
@@ -698,7 +689,12 @@ export const ExperimentViewer = ({
                   columns={tableColumns}
                   data={runs}
                   getRowKey={(run) => run.id}
-                  onRowClick={
+                  getRowLabel={(run) =>
+                    multi.enabled
+                      ? `${multi.selected.has(run.id) ? "Deselect" : "Select"} run ${run.name || run.id}`
+                      : `Open run ${run.name || run.id}`
+                  }
+                  onRowActivate={
                     multi.enabled
                       ? (run) =>
                           multi.selectAt(runIndex.get(run.id) ?? 0, { shift: false, meta: true })
@@ -729,18 +725,6 @@ export const ExperimentViewer = ({
             content:
               activeTab === "compare" ? (
                 <ExperimentCompare runs={runs} onOpenRun={navigateToRun} />
-              ) : null,
-          },
-          {
-            value: "aggregate",
-            label: "Aggregate",
-            content:
-              activeTab === "aggregate" ? (
-                <MultiRunMetricsView
-                  projectId={projectId}
-                  experimentId={experimentId}
-                  runIds={selectedRunIds}
-                />
               ) : null,
           },
         ]}

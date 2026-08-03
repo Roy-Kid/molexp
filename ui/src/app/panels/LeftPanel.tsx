@@ -60,11 +60,11 @@ import type {
 } from "@/app/types";
 import { useAlert, useConfirm } from "@/components/ConfirmDialog";
 import { usePrompt } from "@/components/PromptDialog";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { WorkbenchIconAction } from "@/components/workbench";
 import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 import { countLabel } from "@/lib/count-label";
 
@@ -213,7 +213,7 @@ const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNode
   }));
 
 const CompactCount = ({ children }: { children: ReactNode }): JSX.Element => (
-  <span className="font-mono text-[10px] text-muted-foreground">{children}</span>
+  <span className="font-mono text-micro text-muted-foreground">{children}</span>
 );
 
 const buildProjectNodes = (
@@ -258,7 +258,7 @@ const buildProjectNodes = (
     label: project.name,
     labelClassName: statusTextClass(project.status),
     icon: Blocks,
-    iconClassName: "text-blue-500",
+    iconClassName: "text-muted-foreground",
     right: <CompactCount>{countLabel(project.experiments.length, "exp")}</CompactCount>,
     onSelect: () => actions.onSelect({ objectType: "project", objectId: project.id }),
     actions: [
@@ -294,7 +294,7 @@ const buildProjectNodes = (
       label: experiment.name,
       labelClassName: statusTextClass(experiment.status),
       icon: FlaskConical,
-      iconClassName: "text-purple-500",
+      iconClassName: "text-muted-foreground",
       right: <CompactCount>{countLabel(experiment.runs.length, "run")}</CompactCount>,
       onSelect: () => actions.onSelect({ objectType: "experiment", objectId: experiment.id }),
       actions: [
@@ -341,7 +341,7 @@ const buildProjectNodes = (
         label: run.name || run.id,
         labelClassName: statusTextClass(run.status),
         icon: PlayCircle,
-        iconClassName: "text-emerald-500",
+        iconClassName: "text-muted-foreground",
         onSelect: () => actions.onOpenRunView(run),
         actions: buildRunActions(run, actions),
       })),
@@ -352,12 +352,12 @@ const buildProjectNodes = (
 // A small chip describing a served workspace's kind/state in the nav header.
 const workspaceBadge = (ws: ServedWorkspaceSummary): ReactNode => {
   const tone = ws.unreachable
-    ? "bg-red-500/10 text-red-600"
+    ? "bg-status-failed-soft text-status-failed-foreground"
     : ws.isRemote
-      ? "bg-amber-500/10 text-amber-600"
+      ? "bg-status-warning-soft text-status-warning-foreground"
       : "bg-muted text-muted-foreground";
   const text = ws.unreachable ? "unreachable" : ws.isRemote ? "remote" : "local";
-  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tone}`}>{text}</span>;
+  return <span className={`rounded px-2 py-1 text-micro font-medium ${tone}`}>{text}</span>;
 };
 
 // Shallow project leaves for a NON-active workspace — clicking one activates
@@ -378,7 +378,7 @@ const buildShallowProjectNodes = (
       label: project.name,
       labelClassName: statusTextClass(project.status),
       icon: Blocks,
-      iconClassName: "text-blue-500/50",
+      iconClassName: "text-muted-foreground/50",
       right: <CompactCount>switch</CompactCount>,
       onSelect: onActivate,
     }));
@@ -402,9 +402,9 @@ const buildWorkspaceGroupedNodes = (
       label: ws.label,
       icon: ws.unreachable ? CloudOff : ws.isRemote ? Server : HardDrive,
       iconClassName: ws.unreachable
-        ? "text-red-500"
+        ? "text-status-failed-foreground"
         : ws.active
-          ? "text-blue-500"
+          ? "text-accent"
           : "text-muted-foreground",
       right: workspaceBadge(ws),
       emptyChildLabel: ws.unreachable ? "Unreachable" : "No projects",
@@ -446,7 +446,7 @@ const detectWorkspaceSemantic = (
 ): WorkspaceSemantic | null => {
   const project = snapshot.projects.find((p) => path.endsWith(`projects/${p.id}`));
   if (project) {
-    return { type: "project", id: project.id, icon: Blocks, iconClass: "text-blue-500" };
+    return { type: "project", id: project.id, icon: Blocks, iconClass: "text-muted-foreground" };
   }
 
   const experiment = snapshot.experiments.find((e) => path.endsWith(`experiments/${e.id}`));
@@ -455,13 +455,13 @@ const detectWorkspaceSemantic = (
       type: "experiment",
       id: experiment.id,
       icon: FlaskConical,
-      iconClass: "text-purple-500",
+      iconClass: "text-muted-foreground",
     };
   }
 
   const run = snapshot.runs.find((r) => path.endsWith(`runs/${r.id}`));
   if (run) {
-    return { type: "run", id: run.id, icon: PlayCircle, iconClass: "text-emerald-500" };
+    return { type: "run", id: run.id, icon: PlayCircle, iconClass: "text-muted-foreground" };
   }
 
   const parts = path.split("/");
@@ -470,7 +470,7 @@ const detectWorkspaceSemantic = (
   if (parentName === "assets") {
     const asset = snapshot.assets.find((a) => a.id === folderName);
     if (asset) {
-      return { type: "asset", id: asset.id, icon: Archive, iconClass: "text-amber-500" };
+      return { type: "asset", id: asset.id, icon: Archive, iconClass: "text-muted-foreground" };
     }
   }
 
@@ -623,7 +623,7 @@ const buildAssetNodes = (
     id: asset.id,
     label: asset.name,
     icon: Archive,
-    iconClassName: "text-amber-500",
+    iconClassName: "text-muted-foreground",
     right: <StatusBadge status={asset.status} size="sm" />,
     onSelect: () => onSelect({ objectType: "asset", objectId: asset.id }),
     actions: [
@@ -669,7 +669,7 @@ const buildAssetNodes = (
                 id: `asset-run-${runId}`,
                 label: runName(runId),
                 icon: PlayCircle,
-                iconClassName: "text-emerald-500",
+                iconClassName: "text-muted-foreground",
                 right: <CompactCount>{runAssets.length}</CompactCount>,
                 onSelect: () => onSelect({ objectType: "run", objectId: runId }),
                 children: [...runAssets]
@@ -682,7 +682,7 @@ const buildAssetNodes = (
             id: `asset-exp-${expId}`,
             label: expName(expId),
             icon: FlaskConical,
-            iconClassName: "text-purple-500",
+            iconClassName: "text-muted-foreground",
             right: <CompactCount>{expAssets.length}</CompactCount>,
             onSelect: () => onSelect({ objectType: "experiment", objectId: expId }),
             children: [...expDirect.map(assetLeaf), ...runNodes],
@@ -693,7 +693,7 @@ const buildAssetNodes = (
         id: `asset-proj-${projectId}`,
         label: projName(projectId),
         icon: Blocks,
-        iconClassName: "text-blue-500",
+        iconClassName: "text-muted-foreground",
         right: <CompactCount>{projAssets.length}</CompactCount>,
         onSelect: () => onSelect({ objectType: "project", objectId: projectId }),
         children: [...projDirect.map(assetLeaf), ...expNodes],
@@ -724,7 +724,7 @@ const buildWorkflowNodes = (
     id: workflow.id,
     label: workflow.name,
     icon: Workflow,
-    iconClassName: "text-sky-500",
+    iconClassName: "text-muted-foreground",
     right: <StatusBadge status={workflow.status} size="sm" />,
     onSelect: () =>
       onSelect({ objectType: "workflow", objectId: workflow.id, workflowId: workflow.id }),
@@ -769,24 +769,13 @@ const buildAgentNodes = (
   onDeleteAgent: (session: AgentSessionSummary) => void,
 ): TreeNode[] => {
   return snapshot.agentSessions.map((session) => {
-    const isLive = session.status === "running";
     return {
       id: session.id,
       label: shortenTaskTitle(session),
       hoverTitle: session.goal,
       icon: Bot,
-      iconClassName: isLive ? "text-info animate-pulse" : "text-violet-500",
-      right: (
-        <span className="flex items-center gap-1">
-          {isLive && (
-            <span
-              title="Live"
-              className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-info"
-            />
-          )}
-          <StatusBadge status={session.status} size="sm" dot showLabel={false} />
-        </span>
-      ),
+      iconClassName: "text-muted-foreground",
+      right: <StatusBadge status={session.status} size="sm" dot showLabel={false} />,
       onSelect: () => onSelect({ objectType: "agent", objectId: session.id }),
       actions: [
         {
@@ -977,7 +966,7 @@ export const LeftPanel = ({
       title: "Cancel run?",
       description: (
         <>
-          Stop <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code>?
+          Stop <code className="rounded bg-muted px-1 py-1 text-xs">{run.id}</code>?
         </>
       ),
       confirmLabel: "Cancel",
@@ -1029,7 +1018,7 @@ export const LeftPanel = ({
       title: "Delete project?",
       description: (
         <>
-          Project <code className="rounded bg-muted px-1 py-0.5 text-xs">{projectId}</code> and its
+          Project <code className="rounded bg-muted px-1 py-1 text-xs">{projectId}</code> and its
           experiments will be removed from the workspace.
         </>
       ),
@@ -1053,8 +1042,8 @@ export const LeftPanel = ({
       title: "Delete experiment?",
       description: (
         <>
-          Experiment <code className="rounded bg-muted px-1 py-0.5 text-xs">{experiment.id}</code>{" "}
-          and its runs will be removed.
+          Experiment <code className="rounded bg-muted px-1 py-1 text-xs">{experiment.id}</code> and
+          its runs will be removed.
         </>
       ),
       confirmLabel: "Delete",
@@ -1077,7 +1066,7 @@ export const LeftPanel = ({
       title: "Delete agent task?",
       description: (
         <>
-          Agent task <code className="rounded bg-muted px-1 py-0.5 text-xs">{session.id}</code> will
+          Agent task <code className="rounded bg-muted px-1 py-1 text-xs">{session.id}</code> will
           be removed from the task list. If it is running, its current turn will be cancelled.
         </>
       ),
@@ -1209,8 +1198,8 @@ export const LeftPanel = ({
     ),
     knowledge: <DocTree snapshot={snapshot} activeId={activeId} onSelect={onSelect} />,
     settings: (
-      <nav className="space-y-0.5 px-1 pb-4 text-xs">
-        <div className="rounded-sm bg-muted/30 px-2 py-1.5 font-medium text-foreground">
+      <nav className="space-y-1 px-1 pb-4 text-xs">
+        <div className="rounded-sm bg-muted/30 px-2 py-2 font-medium text-foreground">
           Compute targets
         </div>
       </nav>
@@ -1230,15 +1219,13 @@ export const LeftPanel = ({
             return (
               <Tooltip key={option.id}>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant={isActive ? "secondary" : "ghost"}
-                    size="icon"
+                  <WorkbenchIconAction
+                    label={option.label}
+                    kind={isActive ? "secondary" : "ghost"}
                     onClick={() => onViewChange(option.id)}
-                    title={option.label}
-                    aria-label={option.label}
                   >
                     <option.icon className="h-4 w-4" />
-                  </Button>
+                  </WorkbenchIconAction>
                 </TooltipTrigger>
                 <TooltipContent side="right">{option.label}</TooltipContent>
               </Tooltip>
@@ -1247,15 +1234,13 @@ export const LeftPanel = ({
           <div className="mt-auto">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant={view === "settings" ? "secondary" : "ghost"}
-                  size="icon"
+                <WorkbenchIconAction
+                  label="Settings"
+                  kind={view === "settings" ? "secondary" : "ghost"}
                   onClick={() => onViewChange("settings")}
-                  title="Settings"
-                  aria-label="Settings"
                 >
                   <Settings className="h-4 w-4" />
-                </Button>
+                </WorkbenchIconAction>
               </TooltipTrigger>
               <TooltipContent side="right">Settings</TooltipContent>
             </Tooltip>
@@ -1279,50 +1264,44 @@ export const LeftPanel = ({
             {view === "workspace" && (
               <div className="flex items-center gap-1">
                 {!hasWorkspace ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
+                  <WorkbenchIconAction
+                    label="Open workspace"
+                    kind="ghost"
                     onClick={() => {
                       void handleOpenWorkspace();
                     }}
-                    aria-label="Open workspace"
                   >
                     <FolderOpen className="h-4 w-4" />
-                  </Button>
+                  </WorkbenchIconAction>
                 ) : (
                   <>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
+                    <WorkbenchIconAction
+                      label="New file"
+                      kind="ghost"
                       onClick={() => {
                         void handleCreateFile();
                       }}
-                      aria-label="New file"
                     >
                       <FilePlus className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
+                    </WorkbenchIconAction>
+                    <WorkbenchIconAction
+                      label="New folder"
+                      kind="ghost"
                       onClick={() => {
                         void handleCreateDirectory();
                       }}
-                      aria-label="New folder"
                     >
                       <FolderPlus className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    </WorkbenchIconAction>
+                    <WorkbenchIconAction
+                      label="Refresh workspace"
+                      kind="ghost"
                       className="h-7 w-7"
                       onClick={onRefresh}
                       aria-label="Refresh workspace"
                     >
                       <RefreshCw className="h-4 w-4" />
-                    </Button>
+                    </WorkbenchIconAction>
                   </>
                 )}
               </div>
@@ -1330,25 +1309,21 @@ export const LeftPanel = ({
 
             {view === "agent" && (
               <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
+                <WorkbenchIconAction
+                  label="Agent settings"
+                  kind="ghost"
                   onClick={() => onSelect({ objectType: "agent", objectId: "settings" })}
-                  aria-label="Agent settings"
                   title="Agents, model, skills, tools, and MCP"
                 >
                   <Settings className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
+                </WorkbenchIconAction>
+                <WorkbenchIconAction
+                  label="New agent task"
+                  kind="ghost"
                   onClick={() => onSelect({ objectType: "agent", objectId: "new" })}
-                  aria-label="New task"
                 >
                   <Plus className="h-4 w-4" />
-                </Button>
+                </WorkbenchIconAction>
               </div>
             )}
           </div>

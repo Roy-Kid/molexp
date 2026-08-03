@@ -116,7 +116,7 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
           <div
             key={item.id}
             className={cn(
-              "pointer-events-auto flex items-center gap-2 rounded-md border px-3 py-2 text-sm shadow-md",
+              "pointer-events-auto flex items-center gap-2 rounded-[var(--radius-overlay)] border px-3 py-2 text-sm shadow-overlay",
               KIND_CLASS[item.kind ?? "default"],
             )}
             role="status"

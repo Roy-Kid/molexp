@@ -2,8 +2,6 @@ import { Tag, X } from "lucide-react";
 import { type JSX, type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "@/app/components/entity";
 import { workspaceApi } from "@/app/state/api";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -12,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WorkbenchAction, WorkbenchTag } from "@/components/workbench";
 
 /** Common lifecycle labels offered in the status select; `status` is an open
  * string on the backend, so the current value is always included as an option. */
@@ -100,7 +99,7 @@ export const DocumentControls = ({ relPath }: { relPath: string }): JSX.Element 
     return <p className="text-xs text-destructive">{error}</p>;
   }
   if (!loaded) {
-    return <p className="text-[11px] text-muted-foreground">Loading…</p>;
+    return <p className="text-micro text-muted-foreground">Loading…</p>;
   }
 
   return (
@@ -130,10 +129,10 @@ export const DocumentControls = ({ relPath }: { relPath: string }): JSX.Element 
         <Tag className="h-3.5 w-3.5 text-muted-foreground" />
         {tags.length > 0 ? (
           tags.map((tag) => (
-            <Badge
+            <WorkbenchTag
               key={tag}
-              variant="outline"
-              className="gap-1 px-1.5 py-0 text-[10px] font-medium"
+              meaning="metadata"
+              className="gap-1 px-2 py-0 text-micro font-medium"
             >
               {tag}
               <button
@@ -145,13 +144,13 @@ export const DocumentControls = ({ relPath }: { relPath: string }): JSX.Element 
               >
                 <X className="h-2.5 w-2.5" />
               </button>
-            </Badge>
+            </WorkbenchTag>
           ))
         ) : (
-          <span className="text-[11px] text-muted-foreground">No tags</span>
+          <span className="text-micro text-muted-foreground">No tags</span>
         )}
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
         <Input
           value={tagInput}
           onChange={(event) => setTagInput(event.target.value)}
@@ -161,18 +160,18 @@ export const DocumentControls = ({ relPath }: { relPath: string }): JSX.Element 
           className="h-7 w-40 text-xs"
           disabled={saving}
         />
-        <Button
+        <WorkbenchAction
+          kind="secondary"
+          size="compact"
           type="button"
-          size="sm"
-          variant="outline"
           className="h-7 text-xs"
           onClick={() => addTag(tagInput)}
           disabled={saving || tagInput.trim().length === 0}
         >
           Add
-        </Button>
+        </WorkbenchAction>
       </div>
-      {error ? <p className="text-[11px] text-destructive">{error}</p> : null}
+      {error ? <p className="text-micro text-destructive">{error}</p> : null}
     </div>
   );
 };

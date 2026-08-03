@@ -1,9 +1,11 @@
 import { RefreshCw, Terminal } from "lucide-react";
 import type { JSX } from "react";
 import { useEffect, useRef } from "react";
-
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WorkbenchAction,
+  WorkbenchIconAction,
+  WorkbenchOperationState,
+} from "@/components/workbench";
 import { cn } from "@/lib/utils";
 import type { WorkspaceRunRow } from "../types";
 import type { RunLogsPayload } from "../useRunInspectorLogs";
@@ -68,7 +70,7 @@ export const RunInspectorLogs = ({
         <div className="ml-auto flex items-center gap-1">
           {history.length > 1 && (
             <select
-              className="h-7 max-w-[140px] rounded-md border border-border bg-background px-1.5 text-[11px] text-foreground"
+              className="h-7 max-w-[140px] rounded-md border border-border bg-background px-2 text-micro text-foreground"
               value={selectedExecutionId ?? ""}
               onChange={(event) => {
                 const value = event.target.value;
@@ -84,40 +86,46 @@ export const RunInspectorLogs = ({
               ))}
             </select>
           )}
-          <Button
+          <WorkbenchIconAction
+            label="Refresh logs"
+            kind="ghost"
             type="button"
-            variant="ghost"
-            size="icon"
             className="h-7 w-7 text-muted-foreground"
             onClick={onRefresh}
             aria-label="Refresh logs"
             title="Refresh logs"
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-          </Button>
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "mol-motion-progress-spin")} />
+          </WorkbenchIconAction>
         </div>
       </div>
 
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-auto bg-muted/15 px-3 py-3 font-mono text-[11px] leading-relaxed"
+        className="min-h-0 flex-1 overflow-auto bg-muted/15 px-3 py-3 font-mono text-micro leading-relaxed"
       >
         {error ? (
-          <p className="text-destructive">{error}</p>
+          <WorkbenchOperationState
+            kind="error"
+            density="compact"
+            title="Could not load logs"
+            detail={error}
+            action={
+              <WorkbenchAction kind="secondary" size="compact" onClick={onRefresh}>
+                Retry
+              </WorkbenchAction>
+            }
+          />
         ) : loading && !logs ? (
-          <div className="space-y-2">
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-[90%]" />
-            <Skeleton className="h-3 w-[70%]" />
-          </div>
+          <WorkbenchOperationState kind="loading" density="compact" skeletonRows={4} />
         ) : logs ? (
           <div className="space-y-4">
             <LogBlock title="stdout" body={logs.stdout} tone="default" />
             <LogBlock title="stderr" body={logs.stderr} tone="error" />
           </div>
         ) : (
-          <p className="text-muted-foreground">No logs yet.</p>
+          <WorkbenchOperationState kind="empty" density="compact" title="No logs yet." />
         )}
       </div>
     </div>
@@ -134,11 +142,11 @@ const LogBlock = ({
   tone: "default" | "error";
 }): JSX.Element => (
   <section>
-    <div className="mb-1 text-[11px] font-medium text-muted-foreground">{title}</div>
+    <div className="mb-1 text-micro font-medium text-muted-foreground">{title}</div>
     <pre
       className={cn(
         "whitespace-pre-wrap break-words",
-        tone === "error" ? "text-destructive/90" : "text-foreground",
+        tone === "error" ? "text-status-failed-foreground" : "text-foreground",
         !body && "italic text-muted-foreground",
       )}
     >

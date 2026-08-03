@@ -17,6 +17,8 @@ export type PendingApprovalItem = {
     requestId: string;
     requestedAt: string;
     runId: string;
+    scope?: string;
+    targetAgentId?: (string | null);
     taskId: string;
     taskKind: PendingApprovalItem.taskKind;
 };

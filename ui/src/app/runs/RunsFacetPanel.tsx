@@ -51,7 +51,7 @@ export const RunsFacetPanel = ({
   return (
     <div className="space-y-4 px-1 pb-4">
       <FacetGroup title="Quick views">
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           {QUICK_VIEWS.map((view) => {
             const count = facets.quickView[view.id];
             const checked = filters.quickView?.includes(view.id) ?? false;
@@ -118,7 +118,7 @@ export const RunsFacetPanel = ({
         <button
           type="button"
           onClick={() => onFiltersChange({})}
-          className="w-full rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          className="w-full rounded-md border border-border px-2 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
         >
           Reset filters
         </button>
@@ -134,7 +134,7 @@ interface FacetGroupProps {
 
 const FacetGroup = ({ title, children }: FacetGroupProps): JSX.Element => (
   <div>
-    <div className="mb-1.5 text-xs font-medium text-muted-foreground">{title}</div>
+    <div className="mb-2 text-xs font-medium text-muted-foreground">{title}</div>
     {children}
   </div>
 );
@@ -159,7 +159,7 @@ const FacetCheckboxRow = ({
     <label
       title={title}
       className={cn(
-        "flex cursor-pointer items-center justify-between rounded px-1.5 py-1 text-xs transition-colors hover:bg-muted/40",
+        "flex cursor-pointer items-center justify-between rounded px-2 py-1 text-xs transition-colors hover:bg-muted/40",
         dimmed && "cursor-default opacity-40 hover:bg-transparent",
       )}
     >
@@ -173,7 +173,7 @@ const FacetCheckboxRow = ({
         />
         <span className="truncate">{label}</span>
       </span>
-      <span className="ml-2 shrink-0 tabular-nums text-[10px] text-muted-foreground">{count}</span>
+      <span className="ml-2 shrink-0 tabular-nums text-micro text-muted-foreground">{count}</span>
     </label>
   );
 };
@@ -213,7 +213,7 @@ const CheckboxFacetGroup = ({
   if (merged.length === 0) {
     return (
       <FacetGroup title={title}>
-        <div className="px-1.5 py-1 text-[11px] italic text-muted-foreground">no values</div>
+        <div className="px-2 py-1 text-micro italic text-muted-foreground">no values</div>
       </FacetGroup>
     );
   }
@@ -223,7 +223,7 @@ const CheckboxFacetGroup = ({
 
   return (
     <FacetGroup title={title}>
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {visible.map((option) => (
           <FacetCheckboxRow
             key={option.value}
@@ -237,7 +237,7 @@ const CheckboxFacetGroup = ({
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}
-            className="ml-1 mt-0.5 text-xs text-muted-foreground hover:text-foreground"
+            className="ml-1 mt-1 text-xs text-muted-foreground hover:text-foreground"
           >
             {expanded ? "Show fewer" : `Show ${merged.length - COLLAPSE_THRESHOLD} more`}
           </button>

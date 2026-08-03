@@ -1,13 +1,13 @@
 /**
  * AgentSettingsViewer — read/write management for the agent runtime.
  *
- * Claude Code-style capability surfaces: agents, model, instructions,
- * skills, tools, and MCP. Each network-backed surface mounts independently,
- * so an unavailable optional agent-admin service produces one quiet state
- * instead of a wall of repeated 503 errors.
+ * Surfaces: model (Chat/Plan overview + providers), instructions, skills,
+ * MCP. Chat vs Plan is switched in the composer; this page does not duplicate
+ * that control. Network-backed tabs mount independently so a missing
+ * agent-admin service yields one quiet state instead of repeated 503s.
  *
- * The tab descriptors live in `agent_settings/tabs.ts` so they can be
- * unit-tested without pulling in the full component graph.
+ * Tab descriptors live in `agent_settings/tabs.ts` for unit tests without
+ * the full component graph.
  */
 
 import {
@@ -29,7 +29,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { JSX, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { EmptyState, EntityPage } from "@/app/components/entity";
 import { McpServersTab } from "@/app/renderers/agent_settings/McpServersTab";
 import {
@@ -56,9 +56,6 @@ import {
   type SkillUpsertInput,
   SLASH_NAME_PATTERN,
 } from "@/app/state/api";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -72,6 +69,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { WorkbenchAction, WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 
 interface SkillFormState {
   name: string;
@@ -140,7 +138,6 @@ interface AgentSettingsViewerProps {
 }
 
 const TAB_ICON: Record<AgentSettingsTabDef["value"], typeof Settings> = {
-  agents: Bot,
   model: Cpu,
   instructions: FileText,
   skills: Slash,
@@ -152,8 +149,6 @@ const renderTabContent = (
   onLaunchSession?: (sessionId: string) => void,
 ): JSX.Element => {
   switch (contentKey) {
-    case "agents-overview":
-      return <AgentsOverview />;
     case "providers-form":
       return <ProviderTab />;
     case "instructions-form":
@@ -190,7 +185,7 @@ export const AgentSettingsViewer = ({ onLaunchSession }: AgentSettingsViewerProp
     <EntityPage
       icon={Settings}
       title="Agent settings"
-      subtitle="Agents, instructions, skills, and MCP-provided tools"
+      subtitle="Model, instructions, skills, MCP tools, and knowledge package scope"
       tabs={tabs}
     />
   );
@@ -204,103 +199,24 @@ const SettingsScroll = ({
   wide?: boolean;
 }) => (
   <ScrollArea className="flex-1">
-    <div className={`mx-auto w-full ${wide ? "max-w-5xl" : "max-w-3xl"} px-4 pb-10 pt-4`}>
+    <div className={`mx-auto w-full ${wide ? "max-w-5xl" : "max-w-3xl"} px-4 pb-8 pt-4`}>
       {children}
     </div>
   </ScrollArea>
 );
 
-const AgentsOverview = (): JSX.Element => (
-  <SettingsScroll wide>
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-base font-semibold">Built-in agents</h2>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Every task is one conversation. Switch the agent for each turn from the composer with
-          <kbd className="mx-1 rounded border bg-muted px-1.5 py-0.5 font-mono text-[11px]">
-            Shift+Tab
-          </kbd>
-          or click the mode indicator.
-        </p>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="border-border/80">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Bot className="size-4" />
-                </span>
-                <div>
-                  <CardTitle className="text-sm">Chat</CardTitle>
-                  <p className="text-xs text-muted-foreground">Interactive workspace agent</p>
-                </div>
-              </div>
-              <Badge variant="secondary">Built in</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p className="text-muted-foreground">
-              Explores the workspace, calls tools, edits files, and performs explicit lifecycle
-              actions in the current conversation.
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              <Badge variant="outline">workspace context</Badge>
-              <Badge variant="outline">tools</Badge>
-              <Badge variant="outline">MCP</Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/80">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="flex size-9 items-center justify-center rounded-lg bg-violet-500/10 text-violet-500">
-                  <BrainCircuit className="size-4" />
-                </span>
-                <div>
-                  <CardTitle className="text-sm">Plan</CardTitle>
-                  <p className="text-xs text-muted-foreground">Auditable experiment planner</p>
-                </div>
-              </div>
-              <Badge variant="secondary">Built in</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p className="text-muted-foreground">
-              Runs the fixed nine-stage PlanMode pipeline with review gates, versioned revisions,
-              and inspectable artifacts. It never executes automatically.
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              <Badge variant="outline">9 stages</Badge>
-              <Badge variant="outline">approvals</Badge>
-              <Badge variant="outline">provenance</Badge>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-      <div className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3">
-        <p className="text-sm font-medium">Configuration is shared</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Model and workspace instructions apply to both agents. Skills provide reusable workflows;
-          Tools and MCP control the capabilities available at runtime.
-        </p>
-      </div>
-    </div>
-  </SettingsScroll>
-);
-
 // ─── Provider tab ──────────────────────────────────────────────────────────
 //
-// Two orthogonal surfaces:
-//   1. Global Model tiers (cheap / default / heavy) — full provider:model ids,
-//      may come from *different* manufacturers.
-//   2. Per-provider credentials (API key / base URL) — independent of tiers.
+// Layout (user-facing):
+//   1. Providers — API keys / base URLs (vendors)
+//   2. Agents — which model Chat / Plan call (maps to router tiers)
 //
-// Field schema, labels, and per-provider hints are owned by
-// `providerRegistry.ts`. This file holds no provider-name literals as
-// switching keys.
+// Wire mapping (unchanged backend):
+//   Chat + Plan review  → models.default (+ legacy agent.model)
+//   Plan authoring      → models.heavy
+//   Light routing       → models.cheap
+//
+// Field schema / labels live in `providerRegistry.ts`.
 
 const providerLabel = (registry: ProviderRegistryResponse, name: string): string =>
   findRegistryEntry(registry, name)?.label ?? name;
@@ -308,14 +224,15 @@ const providerLabel = (registry: ProviderRegistryResponse, name: string): string
 const providerModelHint = (registry: ProviderRegistryResponse, name: string): string =>
   findRegistryEntry(registry, name)?.modelHint ?? "";
 
-const MODEL_TIERS: readonly {
+/** UI rows for agent model assignment (not the internal tier jargon). */
+const AGENT_MODEL_ROWS: readonly {
   tier: ApiModelTier;
+  agent: "Chat" | "Plan";
   label: string;
-  description: string;
 }[] = [
-  { tier: "cheap", label: "Cheap", description: "Routing, light parse, non-author work" },
-  { tier: "default", label: "Default", description: "Chat, review, general agent work" },
-  { tier: "heavy", label: "Heavy", description: "Authoring: specs, IR, codegen, bind" },
+  { tier: "default", agent: "Chat", label: "Model" },
+  { tier: "heavy", agent: "Plan", label: "Authoring" },
+  { tier: "cheap", agent: "Plan", label: "Light" },
 ];
 
 const emptyTierModels = (): ApiTierModels => ({ cheap: "", default: "", heavy: "" });
@@ -389,66 +306,59 @@ const ProviderTab = (): JSX.Element => {
   const configurations = config?.configurations ?? [];
   const globalModels = config?.models ?? emptyTierModels();
 
+  const fallbackProvider = (config?.provider as ApiProviderName) || supported[0] || "deepseek";
+
   return (
     <ScrollArea className="h-full">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 pb-10 pt-3">
-        <div>
-          <h2 className="text-base font-semibold">Models</h2>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            The agent router has three semantic tiers. Each tier can use a model from a different
-            provider — set the global table first, then store credentials for every provider you
-            reference.
-          </p>
-        </div>
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 pb-8 pt-3">
         {error && <p className="text-xs text-destructive">{error}</p>}
 
-        <TierTableCard
+        {/* 1. Vendors first */}
+        <section className="space-y-3">
+          <h2 className="text-base font-semibold">Providers</h2>
+          <div className="space-y-2">
+            {supported.map((provider) => {
+              const stored = configurations.find((entry) => entry.provider === provider);
+              const usedBy = AGENT_MODEL_ROWS.filter(({ tier }) =>
+                (globalModels[tier] || "").startsWith(`${provider}:`),
+              ).map(({ agent, label }) => `${agent} · ${label}`);
+              return (
+                <CredentialCard
+                  key={provider}
+                  provider={provider}
+                  usedByTiers={usedBy}
+                  initial={
+                    stored ?? {
+                      provider,
+                      models: emptyTierModels(),
+                      baseUrl: "",
+                      apiKeyPreview: "",
+                      apiKeySet: false,
+                    }
+                  }
+                  registry={registry}
+                  onChanged={setConfig}
+                />
+              );
+            })}
+          </div>
+        </section>
+
+        {/* 2. Per-agent model assignment */}
+        <AgentModelTable
           supported={supported}
           initial={globalModels}
-          fallbackProvider={(config?.provider as ApiProviderName) || supported[0] || "deepseek"}
+          fallbackProvider={fallbackProvider}
           registry={registry}
           onChanged={setConfig}
         />
-
-        <div>
-          <h3 className="text-sm font-semibold">Provider credentials</h3>
-          <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
-            API keys and optional base URLs. Independent of the tier table — only the providers used
-            by a tier need a key.
-          </p>
-        </div>
-        <div className="space-y-3">
-          {supported.map((provider) => {
-            const stored = configurations.find((entry) => entry.provider === provider);
-            return (
-              <CredentialCard
-                key={provider}
-                provider={provider}
-                usedByTiers={MODEL_TIERS.filter(({ tier }) =>
-                  (globalModels[tier] || "").startsWith(`${provider}:`),
-                ).map(({ label }) => label)}
-                initial={
-                  stored ?? {
-                    provider,
-                    models: emptyTierModels(),
-                    baseUrl: "",
-                    apiKeyPreview: "",
-                    apiKeySet: false,
-                  }
-                }
-                registry={registry}
-                onChanged={setConfig}
-              />
-            );
-          })}
-        </div>
       </div>
     </ScrollArea>
   );
 };
 
-/** Global cheap/default/heavy table — cross-provider. */
-const TierTableCard = ({
+/** Per-agent model picks — Chat / Plan rows, not abstract tier names. */
+const AgentModelTable = ({
   supported,
   initial,
   fallbackProvider,
@@ -464,7 +374,7 @@ const TierTableCard = ({
   const [rows, setRows] = useState(
     () =>
       Object.fromEntries(
-        MODEL_TIERS.map(({ tier }) => {
+        AGENT_MODEL_ROWS.map(({ tier }) => {
           const parsed = parseQualifiedModel(initial[tier] || "", fallbackProvider);
           return [tier, parsed];
         }),
@@ -478,7 +388,7 @@ const TierTableCard = ({
   useEffect(() => {
     setRows(
       Object.fromEntries(
-        MODEL_TIERS.map(({ tier }) => {
+        AGENT_MODEL_ROWS.map(({ tier }) => {
           const parsed = parseQualifiedModel(initial[tier] || "", fallbackProvider);
           return [tier, parsed];
         }),
@@ -491,7 +401,7 @@ const TierTableCard = ({
     default: qualifyModel(rows.default.provider, rows.default.modelId),
     heavy: qualifyModel(rows.heavy.provider, rows.heavy.modelId),
   };
-  const complete = MODEL_TIERS.every(({ tier }) => models[tier].includes(":"));
+  const complete = AGENT_MODEL_ROWS.every(({ tier }) => models[tier].includes(":"));
 
   const submit = async (mode: "save" | "test"): Promise<void> => {
     setBusy(true);
@@ -499,7 +409,8 @@ const TierTableCard = ({
     setSaved(false);
     setTestResult(null);
     try {
-      const input: ProviderUpdateInput = { models };
+      // Primary (default) is also the legacy agent.model used by chat sessions.
+      const input: ProviderUpdateInput = { models, model: models.default };
       if (mode === "test") {
         setTestResult(await agentAdminApi.testProvider(input));
       } else {
@@ -513,86 +424,96 @@ const TierTableCard = ({
     }
   };
 
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm">Model tiers</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Plan authoring uses Heavy; review uses Default. Cheap is reserved for light routing.
-          Values are stored as full <code className="font-mono">provider:model</code> ids.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="hidden gap-3 px-1 text-[10px] uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[100px_minmax(7rem,10rem)_minmax(0,1fr)]">
-          <span>Tier</span>
-          <span>Provider</span>
-          <span>Model ID</span>
-        </div>
-        {MODEL_TIERS.map(({ tier, label, description }) => (
-          <div
-            key={tier}
-            className="grid items-center gap-3 rounded-md border p-3 md:grid-cols-[100px_minmax(7rem,10rem)_minmax(0,1fr)]"
-          >
-            <div>
-              <Label className="text-xs font-medium">{label}</Label>
-              <p className="text-[10px] text-muted-foreground">{description}</p>
-            </div>
-            <select
-              className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
-              value={rows[tier].provider}
-              aria-label={`${label} provider`}
-              onChange={(event) =>
-                setRows((value) => ({
-                  ...value,
-                  [tier]: {
-                    ...value[tier],
-                    provider: event.target.value as ApiProviderName,
-                  },
-                }))
-              }
-            >
-              {supported.map((name) => (
-                <option key={name} value={name}>
-                  {providerLabel(registry, name)}
-                </option>
-              ))}
-            </select>
-            <Input
-              value={rows[tier].modelId}
-              onChange={(event) =>
-                setRows((value) => ({
-                  ...value,
-                  [tier]: { ...value[tier], modelId: event.target.value },
-                }))
-              }
-              placeholder={providerModelHint(registry, rows[tier].provider || fallbackProvider)}
-              className="font-mono text-xs"
-              aria-label={`${label} model id`}
-            />
-          </div>
+  const chatRows = AGENT_MODEL_ROWS.filter((r) => r.agent === "Chat");
+  const planRows = AGENT_MODEL_ROWS.filter((r) => r.agent === "Plan");
+
+  const renderRow = (row: (typeof AGENT_MODEL_ROWS)[number]): JSX.Element => (
+    <div
+      key={row.tier}
+      className="grid items-center gap-2 py-2 sm:grid-cols-[5.5rem_minmax(7rem,9rem)_minmax(0,1fr)] sm:gap-3"
+    >
+      <p className="text-xs font-medium text-foreground">{row.label}</p>
+      <select
+        className="h-9 w-full rounded-md bg-muted/50 px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        value={rows[row.tier].provider}
+        aria-label={`${row.agent} ${row.label} provider`}
+        onChange={(event) =>
+          setRows((value) => ({
+            ...value,
+            [row.tier]: {
+              ...value[row.tier],
+              provider: event.target.value as ApiProviderName,
+            },
+          }))
+        }
+      >
+        {supported.map((name) => (
+          <option key={name} value={name}>
+            {providerLabel(registry, name)}
+          </option>
         ))}
-        {error && <p className="text-xs text-destructive">{error}</p>}
-        {saved && (
-          <p className="flex items-center gap-1 text-xs text-success-foreground">
-            <CheckCircle2 className="size-3.5" /> Tier table saved.
-          </p>
-        )}
-        {testResult && <ProviderTestResult result={testResult} />}
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy || !complete}
-            onClick={() => void submit("test")}
-          >
-            <Zap className="mr-1 size-4" /> Test default
-          </Button>
-          <Button size="sm" disabled={busy || !complete} onClick={() => void submit("save")}>
-            {busy ? "Saving…" : "Save tiers"}
-          </Button>
+      </select>
+      <Input
+        value={rows[row.tier].modelId}
+        onChange={(event) =>
+          setRows((value) => ({
+            ...value,
+            [row.tier]: { ...value[row.tier], modelId: event.target.value },
+          }))
+        }
+        placeholder={providerModelHint(registry, rows[row.tier].provider || fallbackProvider)}
+        className="border-0 bg-muted/50 font-mono text-xs shadow-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        aria-label={`${row.agent} ${row.label} model id`}
+      />
+    </div>
+  );
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-base font-semibold">Agents</h2>
+
+      <div className="space-y-0.5 rounded-lg bg-muted/30 px-3 py-2">
+        <div className="flex items-center gap-2 py-1.5">
+          <Bot className="size-3.5 text-muted-foreground" aria-hidden />
+          <h3 className="text-sm font-medium">Chat</h3>
         </div>
-      </CardContent>
-    </Card>
+        {chatRows.map(renderRow)}
+      </div>
+
+      <div className="space-y-0.5 rounded-lg bg-info-soft/20 px-3 py-2">
+        <div className="flex items-center gap-2 py-1.5">
+          <BrainCircuit className="size-3.5 text-info" aria-hidden />
+          <h3 className="text-sm font-medium">Plan</h3>
+        </div>
+        {planRows.map(renderRow)}
+      </div>
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {saved && (
+        <p className="flex items-center gap-1 text-xs text-success-foreground">
+          <CheckCircle2 className="size-3.5" /> Saved.
+        </p>
+      )}
+      {testResult && <ProviderTestResult result={testResult} />}
+      <div className="flex justify-end gap-2">
+        <WorkbenchAction
+          kind="secondary"
+          size="compact"
+          disabled={busy || !complete}
+          onClick={() => void submit("test")}
+        >
+          <Zap className="mr-1 size-4" /> Test
+        </WorkbenchAction>
+        <WorkbenchAction
+          kind="primary"
+          size="compact"
+          disabled={busy || !complete}
+          onClick={() => void submit("save")}
+        >
+          {busy ? "Saving…" : "Save"}
+        </WorkbenchAction>
+      </div>
+    </section>
   );
 };
 
@@ -610,6 +531,9 @@ const CredentialCard = ({
   registry: ProviderRegistryResponse;
   onChanged: (config: ApiAgentProvider) => void;
 }): JSX.Element => {
+  const fieldId = useId();
+  const baseUrlId = `${fieldId}-base-url`;
+  const apiKeyId = `${fieldId}-api-key`;
   const [expanded, setExpanded] = useState(usedByTiers.length > 0 || initial.apiKeySet);
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
   const [apiKey, setApiKey] = useState("");
@@ -647,8 +571,8 @@ const CredentialCard = ({
   };
 
   return (
-    <Card className={usedByTiers.length > 0 ? "border-primary/40" : "border-border"}>
-      <CardHeader className="pb-3">
+    <section className="rounded-lg bg-muted/35">
+      <header className="px-3 py-2.5">
         <button
           type="button"
           className="flex w-full items-center gap-3 text-left"
@@ -657,22 +581,27 @@ const CredentialCard = ({
         >
           <Cpu className="size-4 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <CardTitle className="text-sm">{providerLabel(registry, provider)}</CardTitle>
+            <h3 className="text-sm font-medium text-foreground">
+              {providerLabel(registry, provider)}
+            </h3>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {initial.apiKeySet ? `Key ${initial.apiKeyPreview}` : "No stored key"}
-              {usedByTiers.length > 0 ? ` · used by ${usedByTiers.join(", ")}` : ""}
+              {usedByTiers.length > 0 ? ` · ${usedByTiers.join(" · ")}` : ""}
             </p>
           </div>
-          {usedByTiers.length > 0 && <Badge variant="secondary">In use</Badge>}
+          {usedByTiers.length > 0 && <WorkbenchTag className="text-micro">In use</WorkbenchTag>}
           <ChevronRight className={`size-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
         </button>
-      </CardHeader>
+      </header>
       {expanded && (
-        <CardContent className="space-y-4 border-t pt-4">
+        <div className="space-y-4 px-3 pb-3 pt-1">
           {showBaseUrl && (
             <div>
-              <Label className="text-xs">Base URL</Label>
+              <Label htmlFor={baseUrlId} className="text-xs">
+                Base URL
+              </Label>
               <Input
+                id={baseUrlId}
                 value={baseUrl}
                 onChange={(event) => setBaseUrl(event.target.value)}
                 placeholder={baseUrlPlaceholder(registry, provider)}
@@ -680,9 +609,12 @@ const CredentialCard = ({
             </div>
           )}
           <div>
-            <Label className="text-xs">API key</Label>
+            <Label htmlFor={apiKeyId} className="text-xs">
+              API key
+            </Label>
             <div className="flex gap-2">
               <Input
+                id={apiKeyId}
                 type={revealKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
@@ -693,14 +625,14 @@ const CredentialCard = ({
                 }
                 autoComplete="off"
               />
-              <Button
+              <WorkbenchIconAction
+                label={revealKey ? "Hide API key" : "Show API key"}
+                kind="ghost"
                 type="button"
-                variant="ghost"
-                size="icon"
                 onClick={() => setRevealKey((value) => !value)}
               >
                 {revealKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </Button>
+              </WorkbenchIconAction>
             </div>
           </div>
           {error && <p className="text-xs text-destructive">{error}</p>}
@@ -719,21 +651,26 @@ const CredentialCard = ({
             onConfirm={() => void submit("clear")}
           />
           <div className="flex flex-wrap justify-between gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
+            <WorkbenchAction
+              kind="ghost"
+              size="compact"
               disabled={busy || !initial.apiKeySet}
               onClick={() => setConfirmClearKey(true)}
             >
               Clear key
-            </Button>
-            <Button size="sm" disabled={busy} onClick={() => void submit("save")}>
+            </WorkbenchAction>
+            <WorkbenchAction
+              kind="primary"
+              size="compact"
+              disabled={busy}
+              onClick={() => void submit("save")}
+            >
               {busy ? "Saving…" : "Save credentials"}
-            </Button>
+            </WorkbenchAction>
           </div>
-        </CardContent>
+        </div>
       )}
-    </Card>
+    </section>
   );
 };
 
@@ -742,7 +679,7 @@ const ProviderTestResult = ({ result }: { result: ApiAgentProviderTestResult }):
   return (
     <div
       className={
-        "rounded-md border px-3 py-2 text-xs " +
+        "border-y px-3 py-2 text-xs " +
         (ok
           ? "border-success/30 bg-success-soft text-success-foreground"
           : "border-destructive/40 bg-destructive/10 text-destructive")
@@ -751,17 +688,17 @@ const ProviderTestResult = ({ result }: { result: ApiAgentProviderTestResult }):
       <div className="flex items-center gap-2 font-medium">
         {ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
         {ok ? "Connection OK" : "Connection failed"}
-        <span className="ml-auto font-mono text-[10px] opacity-80">
+        <span className="ml-auto font-mono text-micro opacity-80">
           {result.provider}:{result.model} · {result.latencyMs} ms
         </span>
       </div>
       {ok && result.reply && (
-        <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] opacity-80">
+        <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-micro opacity-80">
           {result.reply}
         </pre>
       )}
       {!ok && result.error && (
-        <p className="mt-1 break-words font-mono text-[11px]">{result.error}</p>
+        <p className="mt-1 break-words font-mono text-micro">{result.error}</p>
       )}
     </div>
   );
@@ -877,11 +814,11 @@ const InstructionsTab = (): JSX.Element => {
         override the whole stack from the chat input.
       </p>
 
-      <Card className="border-border">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Workspace instructions</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 pt-0">
+      <section className="space-y-3 border-t border-border/60 pt-3">
+        <header>
+          <h3 className="text-sm font-medium text-foreground">Workspace instructions</h3>
+        </header>
+        <div className="space-y-3">
           <Textarea
             rows={10}
             value={draft}
@@ -892,7 +829,7 @@ const InstructionsTab = (): JSX.Element => {
             }
             className="font-mono text-xs"
           />
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-micro text-muted-foreground">
             Saved alongside the provider credentials; never sent to the model directly — only
             attached as the agent's system prompt.
           </p>
@@ -913,20 +850,25 @@ const InstructionsTab = (): JSX.Element => {
             onConfirm={() => void handleClear()}
           />
           <div className="flex justify-between gap-2 pt-1">
-            <Button
-              variant="ghost"
-              size="sm"
+            <WorkbenchAction
+              kind="ghost"
+              size="compact"
               disabled={saving || (config?.instructions ?? "") === ""}
               onClick={() => setConfirmClear(true)}
             >
               Clear
-            </Button>
-            <Button size="sm" disabled={saving || !dirty} onClick={() => void handleSave()}>
+            </WorkbenchAction>
+            <WorkbenchAction
+              kind="primary"
+              size="compact"
+              disabled={saving || !dirty}
+              onClick={() => void handleSave()}
+            >
               {saving ? "Saving…" : "Save"}
-            </Button>
+            </WorkbenchAction>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 };
@@ -990,13 +932,18 @@ const SkillLaunchDialog = ({
           ))}
         </div>
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+          <WorkbenchAction kind="ghost" size="compact" onClick={() => onOpenChange(false)}>
             Cancel
-          </Button>
-          <Button size="sm" disabled={launching} onClick={() => void handleLaunch()}>
+          </WorkbenchAction>
+          <WorkbenchAction
+            kind="primary"
+            size="compact"
+            disabled={launching}
+            onClick={() => void handleLaunch()}
+          >
             <PlayCircle className="mr-1 h-4 w-4" />
             {launching ? "Launching…" : "Launch session"}
-          </Button>
+          </WorkbenchAction>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1018,9 +965,7 @@ const CapabilityListHeader = ({
     <div className="min-w-0 space-y-1">
       <div className="flex items-center gap-2">
         <h3 className="text-sm font-medium text-foreground">{title}</h3>
-        <Badge variant="secondary" className="text-[10px] font-normal">
-          {count}
-        </Badge>
+        <WorkbenchTag className="text-micro font-normal">{count}</WorkbenchTag>
       </div>
       <div className="max-w-2xl text-sm text-muted-foreground">{description}</div>
     </div>
@@ -1105,15 +1050,16 @@ const SkillsTab = ({
         }
         count={`${skills.length} configured`}
         actions={
-          <Button
-            size="sm"
+          <WorkbenchAction
+            kind="primary"
+            size="compact"
             onClick={() => {
               setEditing(null);
               setShowForm(true);
             }}
           >
             <Plus className="mr-1 h-4 w-4" /> New skill
-          </Button>
+          </WorkbenchAction>
         }
       />
       {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
@@ -1165,43 +1111,44 @@ const SkillsTab = ({
           />
         )}
         {skills.map((skill) => (
-          <Card key={skill.id} className="border-border">
-            <CardHeader className="pb-2">
+          <section
+            key={skill.id}
+            className="rounded-[var(--radius-panel)] border border-border bg-surface border-border"
+          >
+            <header className="pb-2 px-3 pt-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   {skill.slashName ? (
-                    <Badge
-                      variant="outline"
-                      className="font-mono text-[11px]"
+                    <WorkbenchTag
+                      meaning="metadata"
+                      className="font-mono text-micro"
                       title="Type this in chat to invoke"
                     >
                       /{skill.slashName}
-                    </Badge>
+                    </WorkbenchTag>
                   ) : (
-                    <Badge variant="secondary" className="text-[10px]">
-                      launcher only
-                    </Badge>
+                    <WorkbenchTag className="text-micro">launcher only</WorkbenchTag>
                   )}
-                  <CardTitle className="truncate text-sm">{skill.name}</CardTitle>
+                  <h3 className="truncate text-sm font-medium text-foreground">{skill.name}</h3>
                   {skill.defaultPlanMode && (
-                    <Badge variant="outline" className="text-[10px]">
+                    <WorkbenchTag meaning="metadata" className="text-micro">
                       plan
-                    </Badge>
+                    </WorkbenchTag>
                   )}
                 </div>
                 <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="compact"
                     onClick={() => handleLaunch(skill)}
                     title="Launch a task from this skill"
                     aria-label={`Launch ${skill.name}`}
                   >
                     <PlayCircle className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
+                  </WorkbenchAction>
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="compact"
                     onClick={() => {
                       setEditing(skill);
                       setShowForm(true);
@@ -1209,20 +1156,20 @@ const SkillsTab = ({
                     title="Edit skill"
                   >
                     Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
+                  </WorkbenchAction>
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="compact"
                     onClick={() => setDeleting(skill)}
                     title="Delete skill"
                     aria-label={`Delete ${skill.name}`}
                   >
                     <Trash2 className="h-4 w-4" />
-                  </Button>
+                  </WorkbenchAction>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="pt-0">
+            </header>
+            <div className="px-3 pb-3 pt-0">
               {skill.description && (
                 <p className="mb-2 text-xs text-muted-foreground">{skill.description}</p>
               )}
@@ -1230,19 +1177,19 @@ const SkillsTab = ({
                 {skill.goalTemplate}
               </pre>
               {skill.instructions && (
-                <p className="mb-2 text-[11px] italic text-muted-foreground">
+                <p className="mb-2 text-micro italic text-muted-foreground">
                   +{skill.instructions.length} chars of additional instructions
                 </p>
               )}
               <div className="flex flex-wrap gap-1">
                 {skill.tags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="text-[10px]">
+                  <WorkbenchTag key={tag} className="text-micro">
                     {tag}
-                  </Badge>
+                  </WorkbenchTag>
                 ))}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         ))}
       </div>
     </div>
@@ -1258,6 +1205,8 @@ const SkillForm = ({
   onCancel: () => void;
   onSaved: () => Promise<void>;
 }): JSX.Element => {
+  const fieldId = useId();
+  const id = (name: string): string => `${fieldId}-${name}`;
   const [form, setForm] = useState<SkillFormState>(() =>
     initial
       ? {
@@ -1305,27 +1254,33 @@ const SkillForm = ({
   }, [form, initial, onSaved, slashError]);
 
   return (
-    <Card className="mb-2 border-primary/40">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{initial ? "Edit skill" : "New skill"}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
+    <section className="mb-2 border-y border-primary/40 py-3">
+      <header className="pb-2">
+        <h3 className="text-sm font-medium text-foreground">
+          {initial ? "Edit skill" : "New skill"}
+        </h3>
+      </header>
+      <div className="space-y-2">
         <div>
-          <Label className="text-xs">Name</Label>
+          <Label htmlFor={id("name")} className="text-xs">
+            Name
+          </Label>
           <Input
+            id={id("name")}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             placeholder="Plot energy vs temperature"
           />
         </div>
         <div>
-          <Label className="text-xs">
+          <Label htmlFor={id("slash-name")} className="text-xs">
             Slash name (optional) — invokes as{" "}
             <code className="rounded bg-muted px-1">/&lt;name&gt;</code>
           </Label>
           <div className="flex items-center gap-2">
             <span className="select-none font-mono text-sm text-muted-foreground">/</span>
             <Input
+              id={id("slash-name")}
               value={form.slashName}
               onChange={(e) => setForm({ ...form, slashName: e.target.value })}
               placeholder="plot-energy"
@@ -1333,25 +1288,31 @@ const SkillForm = ({
             />
           </div>
           {slashError ? (
-            <p className="mt-1 text-[10px] text-destructive">{slashError}</p>
+            <p className="mt-1 text-micro text-destructive">{slashError}</p>
           ) : (
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-micro text-muted-foreground">
               Reserved: {RESERVED_SLASH_NAMES.join(", ")}. Leave empty to keep this as
               launcher-only.
             </p>
           )}
         </div>
         <div>
-          <Label className="text-xs">Description</Label>
+          <Label htmlFor={id("description")} className="text-xs">
+            Description
+          </Label>
           <Input
+            id={id("description")}
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             placeholder="Optional summary"
           />
         </div>
         <div>
-          <Label className="text-xs">Goal template — use {"{{param}}"} for placeholders</Label>
+          <Label htmlFor={id("goal-template")} className="text-xs">
+            Goal template — use {"{{param}}"} for placeholders
+          </Label>
           <Textarea
+            id={id("goal-template")}
             rows={3}
             value={form.goalTemplate}
             onChange={(e) => setForm({ ...form, goalTemplate: e.target.value })}
@@ -1359,10 +1320,11 @@ const SkillForm = ({
           />
         </div>
         <div>
-          <Label className="text-xs">
+          <Label htmlFor={id("instructions")} className="text-xs">
             Additional instructions (optional) — appended to the system prompt
           </Label>
           <Textarea
+            id={id("instructions")}
             rows={3}
             value={form.instructions}
             onChange={(e) => setForm({ ...form, instructions: e.target.value })}
@@ -1372,19 +1334,22 @@ const SkillForm = ({
         </div>
         <div className="flex items-center gap-2">
           <input
-            id="defaultPlanMode"
+            id={id("default-plan-mode")}
             type="checkbox"
             checked={form.defaultPlanMode}
             onChange={(e) => setForm({ ...form, defaultPlanMode: e.target.checked })}
             className="h-3.5 w-3.5 accent-primary"
           />
-          <Label htmlFor="defaultPlanMode" className="text-xs">
+          <Label htmlFor={id("default-plan-mode")} className="text-xs">
             Launch with the auditable nine-stage Plan agent by default
           </Label>
         </div>
         <div>
-          <Label className="text-xs">Constraints (one per line)</Label>
+          <Label htmlFor={id("constraints")} className="text-xs">
+            Constraints (one per line)
+          </Label>
           <Textarea
+            id={id("constraints")}
             rows={2}
             value={form.constraints}
             onChange={(e) => setForm({ ...form, constraints: e.target.value })}
@@ -1392,8 +1357,11 @@ const SkillForm = ({
           />
         </div>
         <div>
-          <Label className="text-xs">Success criteria (one per line)</Label>
+          <Label htmlFor={id("success-criteria")} className="text-xs">
+            Success criteria (one per line)
+          </Label>
           <Textarea
+            id={id("success-criteria")}
             rows={2}
             value={form.successCriteria}
             onChange={(e) => setForm({ ...form, successCriteria: e.target.value })}
@@ -1401,8 +1369,11 @@ const SkillForm = ({
           />
         </div>
         <div>
-          <Label className="text-xs">Tags (comma-separated)</Label>
+          <Label htmlFor={id("tags")} className="text-xs">
+            Tags (comma-separated)
+          </Label>
           <Input
+            id={id("tags")}
             value={form.tags}
             onChange={(e) => setForm({ ...form, tags: e.target.value })}
             placeholder="plot, sweep"
@@ -1410,14 +1381,19 @@ const SkillForm = ({
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="ghost" size="sm" onClick={onCancel} disabled={saving}>
+          <WorkbenchAction kind="ghost" size="compact" onClick={onCancel} disabled={saving}>
             Cancel
-          </Button>
-          <Button size="sm" onClick={() => void handleSubmit()} disabled={saving}>
+          </WorkbenchAction>
+          <WorkbenchAction
+            kind="primary"
+            size="compact"
+            onClick={() => void handleSubmit()}
+            disabled={saving}
+          >
             {saving ? "Saving…" : "Save"}
-          </Button>
+          </WorkbenchAction>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 };

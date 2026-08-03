@@ -6,10 +6,9 @@ import { useEffect, useState } from "react";
 import type { CurateTaskResponse } from "@/api/generated/models/CurateTaskResponse";
 import { CurateTasksService } from "@/api/generated/services/CurateTasksService";
 import { ApprovalsInbox } from "@/app/renderers/agent/ApprovalsInbox";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
+import { WorkbenchAction, WorkbenchTag } from "@/components/workbench";
 
 const POLL_INTERVAL_MS = 1000;
 
@@ -89,11 +88,7 @@ export function CurateComposer({
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-muted-foreground">Curate</span>
-        {task && (
-          <Badge variant="secondary" className="font-mono text-[10px]">
-            {task.status}
-          </Badge>
-        )}
+        {task && <WorkbenchTag className="font-mono text-micro">{task.status}</WorkbenchTag>}
       </div>
       <Textarea
         value={request}
@@ -103,18 +98,19 @@ export function CurateComposer({
         disabled={inFlight || submitting}
       />
       <div className="flex items-center justify-end">
-        <Button
-          size="sm"
+        <WorkbenchAction
+          kind="primary"
+          size="compact"
           className="h-7"
           disabled={!request.trim() || inFlight || submitting}
           onClick={() => void submit()}
         >
           {submitting || isRunning ? "…" : "Run"}
-        </Button>
+        </WorkbenchAction>
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
       {isWaitingApproval && taskId && (
-        <ApprovalsInbox taskId={taskId} onDecided={() => undefined} />
+        <ApprovalsInbox variant="detail" taskId={taskId} onDecided={() => undefined} />
       )}
     </div>
   );

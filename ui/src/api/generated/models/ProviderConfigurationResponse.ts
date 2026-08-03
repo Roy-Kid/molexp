@@ -4,7 +4,7 @@
 /* eslint-disable */
 import type { TierModelsResponse } from './TierModelsResponse';
 /**
- * One provider's independently persisted credentials and tier models.
+ * One provider's credentials (+ legacy per-provider tier models).
  */
 export type ProviderConfigurationResponse = {
     apiKeyPreview?: string;

@@ -33,15 +33,16 @@ interface BackendDistributionChartProps {
   onSelectBackend: (backend: string) => void;
 }
 
+/** Categorical series colors (not status — constitution §8 chart freedom). */
 const CLUSTER_PALETTE = [
-  "#3b82f6",
-  "#8b5cf6",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#06b6d4",
-  "#a855f7",
-  "#84cc16",
+  "oklch(0.58 0.16 250)",
+  "oklch(0.55 0.19 295)",
+  "oklch(0.6 0.13 150)",
+  "oklch(0.72 0.14 85)",
+  "oklch(0.58 0.19 25)",
+  "oklch(0.62 0.12 210)",
+  "oklch(0.58 0.16 320)",
+  "oklch(0.65 0.14 130)",
 ];
 
 const BackendDistributionChart = ({
@@ -116,7 +117,7 @@ const TopFailingList = ({ entries, onSelect }: TopFailingListProps): JSX.Element
   const maxFailed = entries[0]?.failedCount ?? 1;
   return (
     <Section title="Top failing">
-      <ul className="space-y-0.5">
+      <ul className="space-y-1">
         {entries.map((entry) => {
           const failedRatio = entry.failedCount / Math.max(entry.totalCount, 1);
           return (
@@ -160,7 +161,7 @@ interface SectionProps {
 }
 
 const Section = ({ title, children }: SectionProps): JSX.Element => (
-  <div className="min-w-0 space-y-2.5">
+  <div className="min-w-0 space-y-3">
     <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
     {children}
   </div>

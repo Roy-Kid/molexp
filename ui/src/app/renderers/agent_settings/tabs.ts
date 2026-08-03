@@ -1,19 +1,16 @@
 /**
  * Top-level tabs for AgentSettingsViewer.
  *
- * Claude Code-style capability surfaces: agents, model, persistent
- * instructions, reusable skills, and MCP servers. Tools are exposed by
- * their owning MCP server and are shown inside that server's expanded row.
- * The descriptor array is pure data so it can be unit-tested from
- * the node test environment without pulling in JSX, lucide, or the
- * api-client singleton chain.
+ * Capability surfaces: model (with a short Chat/Plan overview on top),
+ * persistent instructions, reusable skills, and MCP servers. Chat vs Plan
+ * is a **composer mode** (Shift+Tab), not a separate settings section —
+ * tools live under their owning MCP server row.
  *
- * The renderer (`AgentSettingsViewer`) maps each `contentKey` to a
- * concrete React component and constructs the full tab descriptors
- * for `EntityPage`.
+ * Pure data so it can be unit-tested without JSX / lucide / api clients.
+ * The renderer maps each `contentKey` to a React component.
  */
 
-export type AgentSettingsTabKey = "agents" | "model" | "instructions" | "skills" | "mcp";
+export type AgentSettingsTabKey = "model" | "instructions" | "skills" | "mcp";
 
 export interface AgentSettingsTabDef {
   /** URL-safe slug used by EntityPage for tab routing. */
@@ -21,16 +18,10 @@ export interface AgentSettingsTabDef {
   /** Human-visible label rendered in the tab strip. */
   readonly label: string;
   /** Which content component the renderer mounts for this tab. */
-  readonly contentKey:
-    | "agents-overview"
-    | "providers-form"
-    | "instructions-form"
-    | "skills-list"
-    | "mcp-servers";
+  readonly contentKey: "providers-form" | "instructions-form" | "skills-list" | "mcp-servers";
 }
 
 export const AGENT_SETTINGS_TABS: readonly AgentSettingsTabDef[] = [
-  { value: "agents", label: "Agents", contentKey: "agents-overview" },
   { value: "model", label: "Model", contentKey: "providers-form" },
   { value: "instructions", label: "Instructions", contentKey: "instructions-form" },
   { value: "skills", label: "Skills", contentKey: "skills-list" },

@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { ProviderConfigurationResponse } from './ProviderConfigurationResponse';
+import type { TierModelsResponse } from './TierModelsResponse';
 /**
  * The Settings page's provider view — never carries a key value.
  */
@@ -13,6 +14,7 @@ export type ProviderResponse = {
     configurations?: Array<ProviderConfigurationResponse>;
     instructions: string;
     model: string;
+    models?: TierModelsResponse;
     provider: string;
     supportedProviders?: Array<string>;
 };

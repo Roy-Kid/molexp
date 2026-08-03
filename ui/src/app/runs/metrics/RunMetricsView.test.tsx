@@ -76,7 +76,7 @@ describe("buildLineChartConfig (ac-001)", () => {
       xMode: "step",
       yScale: "linear",
       smoothing: 0,
-      color: "#2563eb",
+      color: "oklch(0.55 0.18 255)",
     }) as { series: Array<{ initialPoints: Array<{ x: number; y: number }> }> };
 
     expect(Array.isArray(config.series)).toBe(true);

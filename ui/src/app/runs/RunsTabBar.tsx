@@ -30,14 +30,14 @@ export const RunsTabBar = ({ value, onChange, className }: RunsTabBarProps): JSX
   <Tabs value={value} onValueChange={(next) => onChange(next as RunsTab)} className={className}>
     <TabsList
       variant="line"
-      className="h-10 w-full justify-start gap-4 rounded-none bg-transparent p-0 sm:gap-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="h-10 w-full justify-start gap-4 rounded-none bg-transparent p-0 sm:gap-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {TAB_DEFS.map(({ id, label, icon: Icon }) => (
         <TabsTrigger
           key={id}
           value={id}
           className={cn(
-            "h-10 flex-none gap-1.5 rounded-none border-0 border-b-2 border-transparent px-0 py-0",
+            "h-10 flex-none gap-2 rounded-none border-0 border-b border-transparent px-0 py-0",
             "text-sm font-medium text-muted-foreground shadow-none after:hidden",
             "data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none",
           )}

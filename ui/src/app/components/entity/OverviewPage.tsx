@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -42,10 +42,14 @@ export const OverviewSection = ({
   children,
   className,
 }: OverviewSectionProps): JSX.Element => {
+  const headingId = useId();
+
   return (
-    <section className={cn("space-y-3", className)}>
+    <section className={cn("space-y-3", className)} aria-labelledby={headingId}>
       <div>
-        <h3 className="text-sm font-medium text-foreground">{title}</h3>
+        <h3 id={headingId} className="text-sm font-medium text-foreground">
+          {title}
+        </h3>
         {description && (
           <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             {description}
@@ -70,9 +74,9 @@ export const OverviewHighlight = ({
   detail,
 }: OverviewHighlightProps): JSX.Element => {
   return (
-    <div className="rounded-lg border border-border/70 bg-card px-3 py-2.5 shadow-none">
+    <div className="border-l border-border/70 py-1 pl-3">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 min-w-0 break-words text-lg font-semibold leading-6 tracking-tight text-foreground">
+      <div className="mt-1 min-w-0 break-words text-heading font-semibold tracking-tight text-foreground">
         {value}
       </div>
       {detail && <div className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</div>}
@@ -85,5 +89,5 @@ interface OverviewHighlightGridProps {
 }
 
 export const OverviewHighlightGrid = ({ children }: OverviewHighlightGridProps): JSX.Element => {
-  return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">{children}</div>;
+  return <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-1">{children}</div>;
 };

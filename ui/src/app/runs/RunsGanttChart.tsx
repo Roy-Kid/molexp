@@ -30,11 +30,11 @@ interface GanttTaskLocal {
 type StatusGroup = "running" | "succeeded" | "failed" | "pending" | "cancelled";
 
 const STATUS_GROUP_COLOR: Record<StatusGroup, string> = {
-  running: "#3b82f6",
-  succeeded: "#10b981",
-  failed: "#ef4444",
-  pending: "#a3a3a3",
-  cancelled: "#71717a",
+  running: "var(--status-running)",
+  succeeded: "var(--status-completed)",
+  failed: "var(--status-failed)",
+  pending: "var(--status-queued)",
+  cancelled: "var(--status-cancelled)",
 };
 
 const STATUS_GROUP_LABEL: Record<StatusGroup, string> = {
@@ -208,14 +208,14 @@ export const RunsGanttChart = ({
 
   if (tasks.length === 0) {
     return (
-      <div className="flex h-full min-h-[280px] items-center justify-center rounded border border-dashed border-border bg-muted/20 px-6 py-12 text-center text-sm text-muted-foreground">
+      <div className="flex h-full min-h-[280px] items-center justify-center border-y border-dashed border-border/70 px-6 py-8 text-center text-sm text-muted-foreground">
         No timeline data yet — runs without start times are hidden from the chart.
       </div>
     );
   }
 
   return (
-    <div className="rounded border border-border bg-background">
+    <div className="min-w-0">
       <MolplotGanttChart
         config={config}
         onTaskClick={(event) => {

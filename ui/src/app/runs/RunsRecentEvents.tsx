@@ -85,14 +85,14 @@ export const RunsRecentEvents = ({ run, max = 8 }: RunsRecentEventsProps): JSX.E
               <div className="flex items-baseline justify-between gap-2">
                 <span className="truncate font-medium text-foreground">{labelFor(event)}</span>
                 <span
-                  className="shrink-0 text-[10px] tabular-nums text-muted-foreground"
+                  className="shrink-0 text-micro tabular-nums text-muted-foreground"
                   title={formatTimestamp(event.at)}
                 >
                   {formatRelative(event.at)}
                 </span>
               </div>
               {event.executionId && (
-                <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                <span className="block truncate font-mono text-micro text-muted-foreground">
                   {event.executionId}
                 </span>
               )}

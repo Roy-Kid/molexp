@@ -50,18 +50,18 @@ export const EntityHeader = ({
 }: EntityHeaderProps): JSX.Element => {
   return (
     <section className="border-b border-border/60 bg-background">
-      <div className="px-4 py-3 md:px-5">
+      <div className="px-4 py-3 md:px-4">
         {/* min-h locks the header height regardless of whether actions/metrics
             slots are populated, so different viewers line up the same way. */}
         <div className="flex min-h-9 items-center justify-between gap-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-border/70 bg-card text-muted-foreground shadow-none">
+            <div className="flex h-8 w-8 flex-none items-center justify-center text-muted-foreground">
               <Icon className="h-4 w-4" />
             </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
               <div className="flex min-w-0 items-center gap-2">
                 <h2
-                  className="truncate text-base font-semibold tracking-tight text-foreground"
+                  className="truncate text-title font-semibold tracking-tight text-foreground"
                   title={titleTooltip}
                 >
                   {title}
@@ -80,7 +80,7 @@ export const EntityHeader = ({
           {(actions || metrics) && (
             <div className="flex flex-none items-center gap-3">
               {metrics && (
-                <div className="hidden flex-wrap items-baseline justify-end gap-x-3 gap-y-0.5 sm:flex">
+                <div className="hidden flex-wrap items-baseline justify-end gap-x-3 gap-y-1 sm:flex">
                   {metrics}
                 </div>
               )}

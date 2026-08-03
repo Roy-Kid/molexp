@@ -4,8 +4,7 @@ import { workspaceApi } from "@/app/state/api";
 import { useInspectedTask } from "@/app/state/inspectedTask";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAssetResponse, RendererProps, TaskSelection } from "@/app/types";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { WorkbenchAction, WorkbenchTag } from "@/components/workbench";
 
 /**
  * TaskViewer — the right-inspector panel shown when a workflow-graph node is
@@ -31,8 +30,8 @@ const Section = ({
   title: string;
   children: React.ReactNode;
 }): JSX.Element => (
-  <div className="px-3 py-2.5">
-    <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+  <div className="px-3 py-3">
+    <h3 className="mb-2 text-micro font-medium uppercase tracking-wide text-muted-foreground">
       {title}
     </h3>
     {children}
@@ -91,55 +90,55 @@ export const TaskViewer = ({ selection, snapshot }: RendererProps): JSX.Element 
     ids.length === 0 ? (
       <span className="text-xs text-muted-foreground">none</span>
     ) : (
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-2">
         {ids.map((id) => (
-          <Button
+          <WorkbenchAction
+            kind="secondary"
+            size="compact"
             key={id}
-            variant="outline"
-            size="sm"
             className="h-7 px-2 font-mono text-xs"
             onClick={() => inspectTask(id, runId)}
           >
             {id}
-          </Button>
+          </WorkbenchAction>
         ))}
       </div>
     );
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex items-center justify-between gap-2 border-b border-border/70 bg-muted/20 px-3 py-1.5">
-        <h2 className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 border-b border-border/70 bg-muted/20 px-3 py-2">
+        <h2 className="truncate text-micro font-medium uppercase tracking-wide text-muted-foreground">
           Task
         </h2>
         {node?.type && (
-          <Badge variant="secondary" className="h-5 px-1.5 text-[10px] uppercase tracking-wide">
+          <WorkbenchTag className="h-5 px-2 text-micro uppercase tracking-wide">
             {node.type}
-          </Badge>
+          </WorkbenchTag>
         )}
       </div>
 
       <div className="flex-1 divide-y divide-border/50 overflow-auto">
         <Section title="Identity">
           <p className="truncate font-mono text-sm font-semibold text-foreground">{taskId}</p>
-          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+          <p className="mt-1 font-mono text-micro text-muted-foreground">
             [{node?.label ?? node?.type ?? "—"}]
           </p>
           {run && (
-            <Button
-              variant="link"
-              size="sm"
+            <WorkbenchAction
+              kind="link"
+              size="compact"
               className="mt-1 h-auto p-0 text-xs"
               onClick={clearInspectedTask}
             >
               ← {run.name ?? run.id}
-            </Button>
+            </WorkbenchAction>
           )}
         </Section>
 
         {node?.source ? (
           <Section title="Source">
-            <pre className="max-h-80 overflow-auto rounded-md border border-border/60 bg-muted/30 p-2.5 font-mono text-[11px] leading-relaxed text-foreground">
+            <pre className="max-h-80 overflow-auto rounded-md border border-border/60 bg-muted/30 p-3 font-mono text-micro leading-relaxed text-foreground">
               <code>{node.source}</code>
             </pre>
           </Section>
@@ -167,14 +166,14 @@ export const TaskViewer = ({ selection, snapshot }: RendererProps): JSX.Element 
         )}
 
         <Section title="Upstream">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <ArrowUp className="h-3 w-3 flex-none text-muted-foreground" />
             <TaskChips ids={upstream} />
           </div>
         </Section>
 
         <Section title="Downstream">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <ArrowDown className="h-3 w-3 flex-none text-muted-foreground" />
             <TaskChips ids={downstream} />
           </div>
@@ -184,7 +183,7 @@ export const TaskViewer = ({ selection, snapshot }: RendererProps): JSX.Element 
           {products.length === 0 ? (
             <p className="text-xs italic text-muted-foreground">No assets published.</p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {products.map((asset) => (
                 <button
                   key={asset.id}
@@ -192,14 +191,14 @@ export const TaskViewer = ({ selection, snapshot }: RendererProps): JSX.Element 
                   className="flex w-full items-start gap-2 rounded-md border border-border/70 bg-muted/20 p-2 text-left transition-colors hover:border-border hover:bg-muted/40"
                   onClick={() => setSelection({ objectType: "asset", objectId: asset.id })}
                 >
-                  <FileText className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" />
+                  <FileText className="mt-1 h-4 w-4 flex-none text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-medium text-foreground">{asset.name}</div>
-                    <div className="truncate font-mono text-[10px] text-muted-foreground">
+                    <div className="truncate font-mono text-micro text-muted-foreground">
                       {asset.path}
                     </div>
                   </div>
-                  <ArrowRight className="mt-0.5 h-3.5 w-3.5 flex-none text-muted-foreground" />
+                  <ArrowRight className="mt-1 h-3.5 w-3.5 flex-none text-muted-foreground" />
                 </button>
               ))}
             </div>

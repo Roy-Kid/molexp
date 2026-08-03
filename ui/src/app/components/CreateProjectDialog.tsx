@@ -1,7 +1,6 @@
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { workspaceApi } from "@/app/state/api";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 
 interface CreateProjectDialogProps {
   onProjectCreated: () => void;
@@ -48,9 +48,14 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="New project">
+        <WorkbenchIconAction
+          label="New project"
+          kind="ghost"
+          className="h-7 w-7"
+          aria-label="New project"
+        >
           <Plus className="h-4 w-4" />
-        </Button>
+        </WorkbenchIconAction>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
@@ -71,12 +76,16 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
                 required
               />
             </div>
-            {error && <div className="text-sm text-red-500 col-span-4 text-center">{error}</div>}
+            {error && (
+              <div className="text-sm text-status-failed-foreground col-span-4 text-center">
+                {error}
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isLoading}>
+            <WorkbenchAction kind="primary" size="default" type="submit" disabled={isLoading}>
               {isLoading ? "Creating..." : "Create Project"}
-            </Button>
+            </WorkbenchAction>
           </DialogFooter>
         </form>
       </DialogContent>

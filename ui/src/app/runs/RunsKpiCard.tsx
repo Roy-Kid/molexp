@@ -83,7 +83,7 @@ export const RunsKpiCard = ({
   const showDelta = typeof delta === "number" && Number.isFinite(delta);
 
   return (
-    <div className="flex h-full flex-col gap-2 rounded-lg border border-border bg-card p-3.5 shadow-none">
+    <div className="flex h-full flex-col gap-2 border-l border-border/60 px-3 py-2">
       <div className="flex items-center gap-2">
         <span
           aria-hidden="true"
@@ -94,7 +94,7 @@ export const RunsKpiCard = ({
       <div className="flex items-baseline justify-between gap-2">
         <span
           className={cn(
-            "min-w-0 break-words text-2xl font-semibold leading-none tracking-tight tabular-nums",
+            "min-w-0 break-words text-display font-semibold leading-none tracking-tight tabular-nums",
             muted ? "text-muted-foreground/45" : "text-foreground",
           )}
         >
@@ -113,11 +113,11 @@ export const RunsKpiCard = ({
         )}
       </div>
       {(showDelta || detail) && (
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between text-micro text-muted-foreground">
           {showDelta ? (
             <span
               className={cn(
-                "inline-flex items-center gap-0.5 font-medium tabular-nums",
+                "inline-flex items-center gap-1 font-medium tabular-nums",
                 deltaToneClass(delta as number, invertDelta),
               )}
             >

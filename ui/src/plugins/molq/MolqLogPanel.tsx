@@ -1,8 +1,7 @@
 import { Pause, Play, Terminal } from "lucide-react";
 import type { JSX } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-
-import { Button } from "@/components/ui/button";
+import { WorkbenchIconAction } from "@/components/workbench";
 import { molqApi } from "@/plugins/molq/api";
 
 const MAX_LINES = 2_000;
@@ -78,28 +77,27 @@ export const MolqLogPanel = ({ target, jobId }: MolqLogPanelProps): JSX.Element 
   }, []);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-zinc-950 text-zinc-100">
-      <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-1 font-mono text-[11px] text-zinc-400">
-        <div className="flex items-center gap-1.5">
+    <div className="flex min-h-0 flex-1 flex-col bg-canvas text-foreground">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1 font-mono text-micro text-muted-foreground">
+        <div className="flex items-center gap-2">
           <Terminal className="h-3 w-3" />
           <span>stdout</span>
-          {closed && <span className="text-zinc-500">· closed</span>}
+          {closed && <span className="text-muted-foreground/70">· closed</span>}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-5 w-5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        <WorkbenchIconAction
+          label={paused ? "Resume log stream" : "Pause log stream"}
+          kind="ghost"
+          className="text-muted-foreground hover:bg-interactive hover:text-foreground"
           onClick={togglePause}
-          title={paused ? "Resume" : "Pause"}
           disabled={closed}
         >
           {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-        </Button>
+        </WorkbenchIconAction>
       </div>
-      <div ref={containerRef} className="flex-1 overflow-auto px-3 py-2 font-mono text-[11px]">
-        {error && <div className="text-rose-300">{error}</div>}
+      <div ref={containerRef} className="flex-1 overflow-auto px-3 py-2 font-mono text-micro">
+        {error && <div className="text-status-failed-foreground">{error}</div>}
         {lines.length === 0 && !error && (
-          <div className="italic text-zinc-500">Waiting for output…</div>
+          <div className="italic text-muted-foreground">Waiting for output…</div>
         )}
         {lines.map((line, idx) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: log rows are stateless text in an append-only (cap-truncated) stream — index identity cannot corrupt reconciliation state.

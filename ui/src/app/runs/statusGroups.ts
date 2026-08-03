@@ -16,39 +16,40 @@ export interface StatusGroupSpec {
   filterValue: string;
 }
 
+/** CSS color values from the constitution status ramp (oklch via custom props). */
 export const STATUS_GROUPS: readonly StatusGroupSpec[] = [
   {
     id: "running",
     label: "Running",
-    color: "#3b82f6",
+    color: "var(--status-running)",
     aliases: ["running"],
     filterValue: "running",
   },
   {
     id: "pending",
-    label: "Pending",
-    color: "#a3a3a3",
+    label: "Queued",
+    color: "var(--status-queued)",
     aliases: ["pending", "queued", "submitted"],
     filterValue: "pending",
   },
   {
     id: "succeeded",
-    label: "Succeeded",
-    color: "#10b981",
+    label: "Completed",
+    color: "var(--status-completed)",
     aliases: ["succeeded", "completed", "success"],
     filterValue: "succeeded",
   },
   {
     id: "failed",
     label: "Failed",
-    color: "#ef4444",
+    color: "var(--status-failed)",
     aliases: ["failed", "timed_out", "lost", "error"],
     filterValue: "failed",
   },
   {
     id: "cancelled",
     label: "Cancelled",
-    color: "#71717a",
+    color: "var(--status-cancelled)",
     aliases: ["cancelled", "skipped"],
     filterValue: "cancelled",
   },

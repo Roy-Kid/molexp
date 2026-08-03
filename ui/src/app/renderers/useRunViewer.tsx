@@ -148,7 +148,7 @@ export const useRunViewer = (props: RendererProps): UseRunViewer => {
       title: "Cancel run?",
       description: (
         <>
-          Stop <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code>?
+          Stop <code className="rounded bg-muted px-1 py-1 text-xs">{run.id}</code>?
         </>
       ),
       confirmLabel: "Cancel",

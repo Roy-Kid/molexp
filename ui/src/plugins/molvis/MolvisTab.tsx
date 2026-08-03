@@ -14,14 +14,14 @@ import { TrajectoryViewer } from "./TrajectoryViewer";
 type MolvisTabProps = RendererProps & { discoveredFiles?: DiscoveredFile[] };
 
 const PALETTE = [
-  "#2563eb",
-  "#dc2626",
-  "#16a34a",
-  "#d97706",
-  "#7c3aed",
-  "#0891b2",
-  "#db2777",
-  "#65a30d",
+  "oklch(0.55 0.18 255)",
+  "oklch(0.55 0.19 25)",
+  "oklch(0.58 0.14 150)",
+  "oklch(0.68 0.14 70)",
+  "oklch(0.55 0.19 295)",
+  "oklch(0.6 0.12 210)",
+  "oklch(0.58 0.18 350)",
+  "oklch(0.62 0.14 130)",
 ];
 
 const TRAJECTORY_PATTERNS = /\.(lammpstrj|lmptrj|lammpsdump|dump|xyz|extxyz|pdb)$/i;
@@ -61,9 +61,9 @@ const FileTreeSidebar = ({ files, active, onSelect }: FileTreeSidebarProps): JSX
       <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
         <Atom className="h-4 w-4 text-muted-foreground" />
         <span className="text-xs font-medium text-foreground">Files</span>
-        <span className="ml-auto text-[11px] text-muted-foreground">{files.length}</span>
+        <span className="ml-auto text-micro text-muted-foreground">{files.length}</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-1.5">
+      <div className="min-h-0 flex-1 overflow-auto p-2">
         <Tree
           nodes={nodes}
           defaultExpandedIds={expanded}

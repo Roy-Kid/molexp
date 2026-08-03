@@ -5,7 +5,6 @@ import type { TargetResponse } from "@/api/generated/models/TargetResponse";
 import { TargetsService } from "@/api/generated/services/TargetsService";
 import { AddTargetDialog } from "@/app/settings/AddTargetDialog";
 import { workspaceApi } from "@/app/state/api";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { WorkbenchAction } from "@/components/workbench";
 
 const NO_TARGET_VALUE = "__none__";
 
@@ -102,10 +102,10 @@ export function CreateExperimentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger === undefined ? (
         <DialogTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 gap-1">
+          <WorkbenchAction kind="secondary" size="compact" className="h-7 gap-1">
             <Plus className="h-3.5 w-3.5" />
             <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">New Experiment</span>
-          </Button>
+          </WorkbenchAction>
         </DialogTrigger>
       ) : (
         trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -168,7 +168,7 @@ export function CreateExperimentDialog({
               <Label htmlFor="exp-target" className="pt-2 text-left sm:text-right">
                 Default target
               </Label>
-              <div className="col-span-3 space-y-1.5">
+              <div className="col-span-3 space-y-2">
                 <Select value={defaultTarget} onValueChange={setDefaultTarget}>
                   <SelectTrigger id="exp-target">
                     <SelectValue placeholder="No default — pick at run time" />
@@ -179,7 +179,7 @@ export function CreateExperimentDialog({
                       <SelectItem key={t.name} value={t.name}>
                         <span className="flex items-center gap-2">
                           <span className="font-medium">{t.name}</span>
-                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          <span className="text-micro uppercase tracking-wide text-muted-foreground">
                             {t.isRemote ? "remote" : "local"}
                           </span>
                         </span>
@@ -203,12 +203,16 @@ export function CreateExperimentDialog({
                 />
               </div>
             </div>
-            {error && <div className="text-sm text-red-500 col-span-4 text-center">{error}</div>}
+            {error && (
+              <div className="text-sm text-status-failed-foreground col-span-4 text-center">
+                {error}
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isLoading}>
+            <WorkbenchAction kind="primary" size="default" type="submit" disabled={isLoading}>
               {isLoading ? "Creating..." : "Create Experiment"}
-            </Button>
+            </WorkbenchAction>
           </DialogFooter>
         </form>
       </DialogContent>

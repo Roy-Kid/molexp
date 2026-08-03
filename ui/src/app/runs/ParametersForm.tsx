@@ -11,8 +11,8 @@
 
 import { Plus, X } from "lucide-react";
 import { type JSX, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 
 interface Row {
   id: number;
@@ -84,9 +84,9 @@ export function ParametersForm({ value, onChange }: ParametersFormProps): JSX.El
   };
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {rows.map((row) => (
-        <div key={row.id} className="flex items-center gap-1.5">
+        <div key={row.id} className="flex items-center gap-2">
           <Input
             value={row.key}
             onChange={(e) => setRow(row.id, { key: e.target.value })}
@@ -102,28 +102,27 @@ export function ParametersForm({ value, onChange }: ParametersFormProps): JSX.El
             className="h-8 flex-1 font-mono text-xs"
             aria-label="Parameter value"
           />
-          <Button
+          <WorkbenchIconAction
+            label={`Remove parameter ${row.key || "row"}`}
+            kind="ghost"
             type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 flex-none text-muted-foreground hover:text-destructive"
+            className="flex-none text-muted-foreground hover:text-destructive"
             onClick={() => removeRow(row.id)}
-            aria-label="Remove parameter"
           >
             <X className="h-3.5 w-3.5" />
-          </Button>
+          </WorkbenchIconAction>
         </div>
       ))}
-      <Button
+      <WorkbenchAction
+        kind="ghost"
+        size="compact"
         type="button"
-        variant="ghost"
-        size="sm"
         className="h-7 gap-1 text-xs text-muted-foreground"
         onClick={addRow}
       >
         <Plus className="h-3.5 w-3.5" />
         Add parameter
-      </Button>
+      </WorkbenchAction>
     </div>
   );
 }

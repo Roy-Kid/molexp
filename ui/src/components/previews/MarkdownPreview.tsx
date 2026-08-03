@@ -5,7 +5,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { FilePreviewContentProps } from "@/lib/file-preview-plugins";
-import { normalizeDisplayMath } from "@/lib/markdown-math";
+import { prepareMarkdownMath } from "@/lib/markdown-math";
 
 export const MarkdownPreview = ({ content }: FilePreviewContentProps): JSX.Element => {
   return (
@@ -14,7 +14,7 @@ export const MarkdownPreview = ({ content }: FilePreviewContentProps): JSX.Eleme
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[[rehypeKatex, { strict: "ignore" }]]}
       >
-        {normalizeDisplayMath(content)}
+        {prepareMarkdownMath(content)}
       </ReactMarkdown>
     </article>
   );

@@ -70,11 +70,11 @@ export default defineConfig(({ command }) => {
     },
     server: {
       proxy: {
+        // API target for `npm run dev` / `molexp serve --dev`.
+        // Prefer MOLEXP_API_PORT (set by the Python CLI); do not pass
+        // --api-port on the rsbuild argv — CAC rejects unknown options.
         '/api': {
-          target: `http://localhost:${(() => {
-            const arg = process.argv.find(a => a.startsWith('--api-port='));
-            return arg ? arg.split('=')[1] : '8000';
-          })()}`,
+          target: `http://localhost:${process.env.MOLEXP_API_PORT || '8000'}`,
           changeOrigin: true,
         },
       },

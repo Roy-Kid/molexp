@@ -14,9 +14,9 @@ describe("ApprovalsInbox three-action contract", () => {
     expect(source).toContain('action: "approve" | "reject" | "revise"');
   });
 
-  it("sends fieldValues on revise", () => {
+  it("sends fieldValues when the form has values (approve and revise)", () => {
     expect(source).toContain("fieldValues");
-    expect(source).toContain('action === "revise"');
+    expect(source).toContain("Object.keys(fieldValues).length > 0 ? fieldValues : undefined");
   });
 
   it("hosts ReviewSurface for form packs", () => {
@@ -26,5 +26,16 @@ describe("ApprovalsInbox three-action contract", () => {
 
   it("calls ApprovalsService decide endpoint", () => {
     expect(source).toContain("decideApprovalApiApprovalsTaskKindTaskIdDecisionsPost");
+  });
+});
+
+describe("PlanDecisionBar (agent-answer decide strip)", () => {
+  const bar = readFileSync(join(here, "PlanDecisionBar.tsx"), "utf8");
+  it("is a slim decide strip without embedding the plan document", () => {
+    expect(bar).toContain("Approve & generate workflow");
+    expect(bar).toContain("Reject");
+    expect(bar).toContain("Revise");
+    expect(bar).not.toContain("PlanDocumentCard");
+    expect(bar).toContain("decideApprovalApiApprovalsTaskKindTaskIdDecisionsPost");
   });
 });

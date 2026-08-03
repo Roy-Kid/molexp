@@ -4,7 +4,6 @@
 
 import { BookMarked } from "lucide-react";
 import { type JSX, useState } from "react";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
+import { WorkbenchAction } from "@/components/workbench";
 
 const KINDS = ["Finding", "FailureAnalysis", "Note", "Hypothesis"] as const;
 
@@ -97,10 +97,15 @@ export function HarvestDialog({
     >
       <DialogTrigger asChild>
         {trigger ?? (
-          <Button variant="outline" size="sm" className="h-7 gap-1" title="Harvest to knowledge">
+          <WorkbenchAction
+            kind="secondary"
+            size="compact"
+            className="h-7 gap-1"
+            title="Harvest to knowledge"
+          >
             <BookMarked className="h-3.5 w-3.5" />
             Harvest
-          </Button>
+          </WorkbenchAction>
         )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[420px]">
@@ -108,7 +113,7 @@ export function HarvestDialog({
           <DialogTitle>Harvest</DialogTitle>
         </DialogHeader>
         <div className="grid gap-3 py-1">
-          <div className="grid gap-1.5">
+          <div className="grid gap-2">
             <Label htmlFor="harvest-kind">Kind</Label>
             <Select value={kind} onValueChange={setKind}>
               <SelectTrigger id="harvest-kind">
@@ -123,7 +128,7 @@ export function HarvestDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-2">
             <Label htmlFor="harvest-narrative">Narrative</Label>
             <Textarea
               id="harvest-narrative"
@@ -137,12 +142,22 @@ export function HarvestDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => setOpen(false)}>
+          <WorkbenchAction
+            kind="ghost"
+            size="compact"
+            disabled={busy}
+            onClick={() => setOpen(false)}
+          >
             Cancel
-          </Button>
-          <Button size="sm" disabled={busy || !narrative.trim()} onClick={() => void submit()}>
+          </WorkbenchAction>
+          <WorkbenchAction
+            kind="primary"
+            size="compact"
+            disabled={busy || !narrative.trim()}
+            onClick={() => void submit()}
+          >
             {busy ? "Saving…" : "Save"}
-          </Button>
+          </WorkbenchAction>
         </DialogFooter>
       </DialogContent>
     </Dialog>

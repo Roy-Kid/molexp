@@ -22,9 +22,8 @@ import type { TreeNode, TreeNodeAction } from "@/app/panels/TreeView";
 import { TreeView } from "@/app/panels/TreeView";
 import { workspaceApi } from "@/app/state/api";
 import type { Selection, WorkspaceSnapshot } from "@/app/types";
-import { useAlert, useConfirm } from "@/components/ConfirmDialog";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { usePrompt } from "@/components/PromptDialog";
-import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -36,6 +35,7 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 import { buildDocTree, type DocEntityKind, type DocTreeNode } from "./knowledgeDocTree";
 import { useKnowledgeDocs, useKnowledgeFacets } from "./useKnowledgeDocs";
@@ -45,6 +45,7 @@ interface KnowledgeFilterProps {
   statuses: string[];
   tag: string | null;
   status: string | null;
+  disabled?: boolean;
   onTagChange: (tag: string | null) => void;
   onStatusChange: (status: string | null) => void;
 }
@@ -60,6 +61,7 @@ const KnowledgeFilter = ({
   statuses,
   tag,
   status,
+  disabled = false,
   onTagChange,
   onStatusChange,
 }: KnowledgeFilterProps): JSX.Element => {
@@ -67,10 +69,15 @@ const KnowledgeFilter = ({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs">
+        <WorkbenchAction
+          kind="ghost"
+          size="compact"
+          className="h-7 gap-2 text-xs"
+          disabled={disabled}
+        >
           <Filter className="h-3.5 w-3.5" /> Filter
           {active && <span className="h-1.5 w-1.5 rounded-full bg-info" />}
-        </Button>
+        </WorkbenchAction>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-56 p-0">
         <Command>
@@ -154,25 +161,37 @@ const collectExpandIds = (nodes: DocTreeNode[], acc: string[]): string[] => {
 export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Element => {
   const [tag, setTag] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const { notes, error, createDoc, renameDoc, moveDoc, deleteDoc } = useKnowledgeDocs({
-    tag,
-    status,
-  });
-  const { tags, statuses } = useKnowledgeFacets();
+  const { notes, loading, error, reload, createDoc, renameDoc, moveDoc, deleteDoc } =
+    useKnowledgeDocs({ tag, status });
+  const {
+    tags,
+    statuses,
+    loading: facetsLoading,
+    error: facetsError,
+    reload: reloadFacets,
+  } = useKnowledgeFacets();
   const filtering = tag !== null || status !== null;
   // Body-aware search (vision-loop-08): a non-empty query switches the tree to
   // a flat hit list served by GET /knowledge/search (the ONE Bundle.search verb).
   const [search, setSearch] = useState("");
   const [searchHits, setSearchHits] = useState<KnowledgeSearchRow[]>([]);
   const [searchTruncated, setSearchTruncated] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchRequestVersion, setSearchRequestVersion] = useState(0);
   useEffect(() => {
+    void searchRequestVersion;
     const query = search.trim();
     if (!query) {
       setSearchHits([]);
       setSearchTruncated(false);
+      setSearchLoading(false);
+      setSearchError(null);
       return;
     }
     let cancelled = false;
+    setSearchLoading(true);
+    setSearchError(null);
     const handle = window.setTimeout(() => {
       void workspaceApi
         .searchKnowledge(query)
@@ -181,30 +200,70 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
           setSearchHits(response.hits);
           setSearchTruncated(response.truncated);
         })
-        .catch(() => {
-          if (!cancelled) setSearchHits([]);
+        .catch((err) => {
+          if (!cancelled) {
+            setSearchError(
+              err instanceof Error ? err.message : "Failed to search knowledge documents",
+            );
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setSearchLoading(false);
         });
     }, 300);
     return () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [search]);
+  }, [search, searchRequestVersion]);
   const searching = search.trim().length > 0;
+  const handleSearchChange = (value: string): void => {
+    setSearch(value);
+    setSearchError(null);
+    if (value.trim()) {
+      setSearchLoading(true);
+      return;
+    }
+    setSearchLoading(false);
+    setSearchHits([]);
+    setSearchTruncated(false);
+  };
   const { prompt, dialog: promptDialog } = usePrompt();
   const { confirm, dialog: confirmDialog } = useConfirm();
-  const { alert, dialog: alertDialog } = useAlert();
+  const [operationLabel, setOperationLabel] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [operationSuccess, setOperationSuccess] = useState<string | null>(null);
+  const [operationRetry, setOperationRetry] = useState<{
+    runningLabel: string;
+    successLabel: string;
+    run: () => Promise<void>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!operationSuccess) return;
+    const handle = window.setTimeout(() => setOperationSuccess(null), 3000);
+    return () => window.clearTimeout(handle);
+  }, [operationSuccess]);
 
   const tree = buildDocTree(notes.map((n) => ({ relPath: n.relPath, name: n.name })));
 
-  const guard = async (label: string, run: () => Promise<void>): Promise<void> => {
+  const guard = async (
+    runningLabel: string,
+    successLabel: string,
+    run: () => Promise<void>,
+  ): Promise<void> => {
+    setOperationLabel(runningLabel);
+    setOperationError(null);
+    setOperationSuccess(null);
+    setOperationRetry(null);
     try {
       await run();
+      setOperationSuccess(successLabel);
     } catch (err) {
-      await alert({
-        title: label,
-        description: err instanceof Error ? err.message : String(err),
-      });
+      setOperationError(err instanceof Error ? err.message : String(err));
+      setOperationRetry({ runningLabel, successLabel, run });
+    } finally {
+      setOperationLabel(null);
     }
   };
 
@@ -216,7 +275,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
       confirmLabel: "Create",
     });
     if (!name) return;
-    await guard("Failed to create document", () => createDoc(name));
+    await guard("Creating document…", "Document created.", () => createDoc(name));
   };
 
   const handleCreateChild = async (parentPath: string): Promise<void> => {
@@ -227,7 +286,9 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
       confirmLabel: "Create",
     });
     if (!name) return;
-    await guard("Failed to create document", () => createDoc(name, parentPath));
+    await guard("Creating child document…", "Child document created.", () =>
+      createDoc(name, parentPath),
+    );
   };
 
   const handleRename = async (path: string, current: string): Promise<void> => {
@@ -238,7 +299,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
       confirmLabel: "Rename",
     });
     if (!name || name === current) return;
-    await guard("Failed to rename document", () => renameDoc(path, name));
+    await guard("Renaming document…", "Document renamed.", () => renameDoc(path, name));
   };
 
   const handleMove = async (path: string): Promise<void> => {
@@ -250,7 +311,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
       confirmLabel: "Move",
     });
     if (!parentPath) return;
-    await guard("Failed to move document", () => moveDoc(path, parentPath));
+    await guard("Moving document…", "Document moved.", () => moveDoc(path, parentPath));
   };
 
   const handleDelete = async (path: string, name: string): Promise<void> => {
@@ -258,15 +319,15 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
       title: "Delete document?",
       description: (
         <>
-          Document <code className="rounded bg-muted px-1 py-0.5 text-xs">{name}</code> and its
-          child documents will be permanently removed.
+          Document <code className="rounded bg-muted px-1 py-1 text-xs">{name}</code> and its child
+          documents will be permanently removed.
         </>
       ),
       confirmLabel: "Delete",
       destructive: true,
     });
     if (!confirmed) return;
-    await guard("Failed to delete document", () => deleteDoc(path));
+    await guard("Deleting document…", "Document deleted.", () => deleteDoc(path));
   };
 
   const docActions = (node: DocTreeNode): TreeNodeAction[] => {
@@ -277,24 +338,28 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
         id: "new-child",
         label: "New child document",
         icon: FilePlus,
+        disabled: operationLabel !== null,
         onSelect: () => void handleCreateChild(path),
       },
       {
         id: "rename",
         label: "Rename",
         icon: Pencil,
+        disabled: operationLabel !== null,
         onSelect: () => void handleRename(path, node.name),
       },
       {
         id: "move",
         label: "Move",
         icon: FolderInput,
+        disabled: operationLabel !== null,
         onSelect: () => void handleMove(path),
       },
       {
         id: "delete",
         label: "Delete",
         icon: Trash2,
+        disabled: operationLabel !== null,
         destructive: true,
         separatorBefore: true,
         onSelect: () => void handleDelete(path, node.name),
@@ -329,7 +394,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
         id: node.id,
         label,
         icon,
-        iconClassName: isKb ? "text-blue-500" : "text-muted-foreground",
+        iconClassName: "text-muted-foreground",
         labelClassName: "font-semibold",
         actions: isKb
           ? [
@@ -337,6 +402,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
                 id: "new-doc",
                 label: "New document",
                 icon: Plus,
+                disabled: operationLabel !== null,
                 onSelect: () => void handleCreateRoot(),
               },
             ]
@@ -356,85 +422,233 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
 
   const nodes = tree.map(toTreeNode);
   const expandPath = collectExpandIds(tree, []);
+  const emptyTitle = filtering ? "No matching documents" : "No documents yet";
+  const emptyDetail = filtering
+    ? "No documents match the current tag/status filter."
+    : "Create a document to start your knowledge base.";
+  const treeContent =
+    nodes.length === 0 ? (
+      <WorkbenchOperationState
+        kind="empty"
+        density="compact"
+        title={emptyTitle}
+        detail={emptyDetail}
+      />
+    ) : (
+      <TreeView nodes={nodes} activeId={activeId} expandPath={expandPath} />
+    );
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" aria-busy={loading || searchLoading || operationLabel !== null}>
       <div className="flex items-center justify-between gap-1 px-1">
         <KnowledgeFilter
           tags={tags}
           statuses={statuses}
           tag={tag}
           status={status}
+          disabled={operationLabel !== null}
           onTagChange={setTag}
           onStatusChange={setStatus}
         />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 text-xs"
+        <WorkbenchAction
+          kind="ghost"
+          size="compact"
+          className="h-7 gap-2 text-xs"
+          disabled={operationLabel !== null}
           onClick={() => void handleCreateRoot()}
         >
           <Plus className="h-3.5 w-3.5" /> New doc
-        </Button>
+        </WorkbenchAction>
       </div>
       <div className="px-1">
         <Input
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => handleSearchChange(e.target.value)}
           placeholder="Search notes (title, tags, body)…"
           className="h-7 text-xs"
           aria-label="Search knowledge"
         />
       </div>
-      {error && <p className="px-2 text-xs text-destructive">{error}</p>}
-      {searching ? (
-        <div className="space-y-0.5 px-1">
-          {searchHits.length === 0 ? (
-            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-              No matches — the search covers titles, tags, paths, and note bodies.
-            </p>
-          ) : (
-            searchHits.map((hit) => (
-              <button
-                type="button"
-                key={hit.path}
-                onClick={() => onSelect(selectionForSearchHit(hit))}
-                className={cn(
-                  "block w-full rounded-sm px-2 py-1.5 text-left hover:bg-muted",
-                  activeId === hit.path && "bg-muted",
-                )}
+      {facetsLoading && tags.length === 0 && statuses.length === 0 && (
+        <WorkbenchOperationState
+          kind="loading"
+          density="inline"
+          title="Loading knowledge filters…"
+          className="px-2"
+        />
+      )}
+      {facetsError && (
+        <WorkbenchOperationState
+          kind="error"
+          density="compact"
+          title="Knowledge filters unavailable"
+          detail={facetsError}
+          action={
+            <WorkbenchAction kind="secondary" size="compact" onClick={() => void reloadFacets()}>
+              Retry
+            </WorkbenchAction>
+          }
+        />
+      )}
+      {operationLabel && (
+        <WorkbenchOperationState kind="running" density="compact" title={operationLabel} />
+      )}
+      {operationError && (
+        <WorkbenchOperationState
+          kind="error"
+          density="compact"
+          title="Document operation failed"
+          detail={operationError}
+          action={
+            <div className="flex items-center gap-2">
+              {operationRetry && (
+                <WorkbenchAction
+                  kind="secondary"
+                  size="compact"
+                  onClick={() =>
+                    void guard(
+                      operationRetry.runningLabel,
+                      operationRetry.successLabel,
+                      operationRetry.run,
+                    )
+                  }
+                >
+                  Retry
+                </WorkbenchAction>
+              )}
+              <WorkbenchAction
+                kind="ghost"
+                size="compact"
+                onClick={() => {
+                  setOperationError(null);
+                  setOperationRetry(null);
+                }}
               >
-                <span className="block truncate text-sm text-foreground">{hit.title}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">{hit.path}</span>
-                {hit.snippet && (
-                  <span className="block truncate text-[11px] italic text-muted-foreground">
-                    {hit.snippet}
+                Dismiss
+              </WorkbenchAction>
+            </div>
+          }
+        />
+      )}
+      {operationSuccess && (
+        <WorkbenchOperationState kind="success" density="compact" title={operationSuccess} />
+      )}
+      {searching ? (
+        <div className="space-y-1 px-1">
+          {searchLoading ? (
+            <WorkbenchOperationState
+              kind="loading"
+              density="compact"
+              title="Searching knowledge…"
+              skeletonRows={3}
+            />
+          ) : searchError ? (
+            <WorkbenchOperationState
+              kind="error"
+              density="compact"
+              title="Knowledge search failed"
+              detail={searchError}
+              action={
+                <WorkbenchAction
+                  kind="secondary"
+                  size="compact"
+                  onClick={() => setSearchRequestVersion((version) => version + 1)}
+                >
+                  Retry
+                </WorkbenchAction>
+              }
+            />
+          ) : searchHits.length === 0 ? (
+            <WorkbenchOperationState
+              kind="empty"
+              density="compact"
+              title="No matching documents"
+              detail="Search covers titles, tags, paths, and note bodies."
+            />
+          ) : (
+            <>
+              <WorkbenchOperationState
+                kind="success"
+                density="inline"
+                title={`${searchHits.length} matching document${searchHits.length === 1 ? "" : "s"}`}
+                className="sr-only"
+              />
+              {searchHits.map((hit) => (
+                <button
+                  type="button"
+                  key={hit.path}
+                  onClick={() => onSelect(selectionForSearchHit(hit))}
+                  className={cn(
+                    "block w-full rounded-sm px-2 py-2 text-left hover:bg-muted",
+                    activeId === hit.path && "bg-muted",
+                  )}
+                >
+                  <span className="block truncate text-sm text-foreground">{hit.title}</span>
+                  <span className="block truncate text-micro text-muted-foreground">
+                    {hit.path}
                   </span>
-                )}
-              </button>
-            ))
+                  {hit.snippet && (
+                    <span className="block truncate text-micro italic text-muted-foreground">
+                      {hit.snippet}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </>
           )}
           {searchTruncated && (
-            <p className="px-2 text-[11px] text-muted-foreground">…truncated — refine the query.</p>
+            <p className="px-2 text-micro text-muted-foreground">…truncated — refine the query.</p>
           )}
         </div>
-      ) : (
-        <TreeView
-          nodes={nodes}
-          activeId={activeId}
-          expandPath={expandPath}
-          emptyTitle={filtering ? "No matching documents" : "No documents yet"}
-          emptyDescription={
-            filtering
-              ? "No documents match the current tag/status filter."
-              : "Create a document to start your knowledge base."
-          }
-          emptyIcon={<BookOpen className="h-8 w-8" />}
+      ) : loading && notes.length === 0 ? (
+        <WorkbenchOperationState
+          kind="loading"
+          density="compact"
+          title="Loading knowledge documents…"
+          skeletonRows={5}
         />
+      ) : error && notes.length === 0 ? (
+        <WorkbenchOperationState
+          kind="error"
+          density="compact"
+          title="Could not load knowledge documents"
+          detail={error}
+          action={
+            <WorkbenchAction kind="secondary" size="compact" onClick={() => void reload()}>
+              Retry
+            </WorkbenchAction>
+          }
+        />
+      ) : (
+        <>
+          {error && (
+            <WorkbenchOperationState
+              kind="error"
+              density="compact"
+              title="Could not refresh knowledge documents"
+              detail={error}
+              action={
+                <WorkbenchAction kind="secondary" size="compact" onClick={() => void reload()}>
+                  Retry
+                </WorkbenchAction>
+              }
+            />
+          )}
+          {loading ? (
+            <WorkbenchOperationState
+              kind="running"
+              density="compact"
+              title="Refreshing knowledge documents…"
+            >
+              {treeContent}
+            </WorkbenchOperationState>
+          ) : (
+            treeContent
+          )}
+        </>
       )}
       {promptDialog}
       {confirmDialog}
-      {alertDialog}
     </div>
   );
 };

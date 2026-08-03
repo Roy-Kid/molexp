@@ -1,15 +1,16 @@
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Breadcrumb } from "@/app/entities/Breadcrumb";
 import { buildTrail } from "@/app/entities/breadcrumbTrail";
 import { GlobalCommandPalette } from "@/app/entities/GlobalCommandPalette";
 import { ContextBar } from "@/app/layout/ContextBar";
+import { ArtifactsSlot, LogsSlot, ProblemsSlot, RunsSlot } from "@/app/panels/BottomPanelContent";
 import { CenterPanel } from "@/app/panels/CenterPanel";
 import { LeftPanel } from "@/app/panels/LeftPanel";
 import { RightPanel } from "@/app/panels/RightPanel";
+import { RunInspector, type RunInspectorRegistration } from "@/app/runs/inspector/RunInspector";
 import { type InspectedTask, InspectedTaskContext } from "@/app/state/inspectedTask";
 import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
-import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import {
   Sheet,
@@ -19,6 +20,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { BottomPanel, WorkbenchToggleAction } from "@/components/workbench";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 
 interface AppShellProps {
@@ -39,6 +41,19 @@ interface AppShellProps {
 
 const NAV_SIZE = { default: 22, min: 16, max: 30 };
 const INSPECTOR_SIZE = { default: 30, min: 20, max: 45 };
+const SHELL_PANEL_IDS = ["navigator", "workspace"];
+
+const bottomContextLabel = (selection: Selection | null): string | null => {
+  if (!selection) return null;
+  if (selection.objectType === "run") return `run ${selection.objectId}`;
+  if (selection.objectType === "task") {
+    return `task ${selection.taskId} · run ${selection.runId}`;
+  }
+  if (selection.objectType === "workflow") return `workflow ${selection.objectId}`;
+  if (selection.objectType === "experiment") return `experiment ${selection.objectId}`;
+  if (selection.objectType === "project") return `project ${selection.objectId}`;
+  return selection.objectType;
+};
 
 export const AppShell = ({
   leftPanelView,
@@ -59,12 +74,11 @@ export const AppShell = ({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [inspectedTask, setInspectedTask] = useState<InspectedTask | null>(null);
+  const [runInspector, setRunInspector] = useState<RunInspectorRegistration | null>(null);
+  const registeredRunId = useRef<string | null>(null);
   const isMobile = useIsMobile();
 
   const inspectTask = useCallback((taskId: string, runId: string): void => {
-    // Pin the node to the right inspector and open the panel in-place — never
-    // navigate. This is what makes a node click expand the sidebar instead of
-    // jumping to a standalone task page.
     setInspectedTask({ taskId, runId });
     setInspectorOpen(true);
   }, []);
@@ -73,28 +87,29 @@ export const AppShell = ({
     setInspectedTask(null);
   }, []);
 
+  const handleRunInspectorChange = useCallback(
+    (registration: RunInspectorRegistration | null): void => {
+      const nextRunId = registration?.run?.id ?? null;
+      setRunInspector(registration);
+      if (nextRunId && nextRunId !== registeredRunId.current) {
+        setInspectorOpen(true);
+      }
+      registeredRunId.current = nextRunId;
+    },
+    [],
+  );
+
   const inspectedTaskContext = useMemo(
     () => ({ inspectedTask, inspectTask, clearInspectedTask }),
     [inspectedTask, inspectTask, clearInspectedTask],
   );
 
-  // A pinned task only applies while we are still on the run it was opened
-  // from; navigating to any other object drops back to that object's own
-  // inspector. Checking validity at render time (rather than clearing via an
-  // effect) keeps the pin self-invalidating with no extra re-render.
   const pinnedTaskActive =
     inspectedTask !== null &&
     ((selection?.objectType === "run" && selection.objectId === inspectedTask.runId) ||
-      // Preview (compiled, un-run) workflows are inspected from the workflow
-      // entity's Graph tab — there is no run to scope the pin to. The same graph
-      // is also reachable from an experiment's Workflow tab (page selection stays
-      // ``experiment``), so a node clicked there pins to the task inspector too.
       selection?.objectType === "workflow" ||
       selection?.objectType === "experiment");
 
-  // The right inspector shows the pinned task when one is active, otherwise the
-  // page's own object. The synthetic `task` Selection is never routed to the
-  // URL — it only lets the renderer registry resolve the task inspector.
   const inspectorSelection: Selection | null =
     inspectedTask && pinnedTaskActive
       ? {
@@ -105,17 +120,20 @@ export const AppShell = ({
         }
       : selection;
 
-  const inspectorVisible = inspectorOpen && Boolean(inspectorSelection);
-  const toggleDisabled = !inspectorSelection;
+  const hasInspectorContent = Boolean(runInspector || inspectorSelection);
+  const inspectorVisible = inspectorOpen && hasInspectorContent;
+  const toggleDisabled = !hasInspectorContent;
   const toggleLabel = inspectorVisible ? "Hide details" : "Show details";
+  const inspectorPanelIds = useMemo(
+    () => (inspectorVisible ? ["work-surface", "inspector"] : ["work-surface"]),
+    [inspectorVisible],
+  );
 
   const trail = useMemo(
     () => buildTrail(selection, leftPanelView, snapshot),
     [selection, leftPanelView, snapshot],
   );
 
-  // On mobile the nav drawer is dismissed once a selection is made so the
-  // freshly-selected object is visible in the full-width center pane.
   const handleNavSelect = useCallback(
     (next: Selection): void => {
       onSelectionChange(next);
@@ -143,20 +161,18 @@ export const AppShell = ({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setInspectorOpen((current) => !current)}
+          <WorkbenchToggleAction
+            label={toggleLabel}
+            pressed={inspectorVisible}
             disabled={toggleDisabled}
-            aria-label={toggleLabel}
+            onClick={() => setInspectorOpen((current) => !current)}
           >
             {inspectorVisible ? (
               <PanelRightClose className="h-4 w-4" />
             ) : (
               <PanelRightOpen className="h-4 w-4" />
             )}
-          </Button>
+          </WorkbenchToggleAction>
         </TooltipTrigger>
         <TooltipContent side="left">{toggleLabel}</TooltipContent>
       </Tooltip>
@@ -164,25 +180,29 @@ export const AppShell = ({
   );
 
   const centerContent = (
-    <div className="flex h-full flex-col">
-      <div className="flex h-9 items-center justify-between gap-2 border-b border-border/70 bg-muted/10 px-3">
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Work-surface header: breadcrumb left, primary chrome right — 40px */}
+      <div className="flex h-10 flex-none items-center justify-between gap-2 border-b border-border bg-surface px-3">
         <Breadcrumb items={trail} />
         {inspectorToggle}
       </div>
-      <div className="flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden bg-canvas">
         <CenterPanel
           selection={selection}
           snapshot={snapshot}
           leftPanelView={leftPanelView}
           inspectorTarget={inspectorTarget}
           onInspectorTargetChange={onInspectorTargetChange}
+          onRunInspectorChange={handleRunInspectorChange}
           onRefresh={onWorkspaceRefresh}
         />
       </div>
     </div>
   );
 
-  const inspectorContent = (
+  const inspectorContent = runInspector ? (
+    <RunInspector {...runInspector} className="border-l-0 bg-surface-subtle" />
+  ) : (
     <RightPanel
       selection={inspectorSelection}
       snapshot={snapshot}
@@ -190,6 +210,111 @@ export const AppShell = ({
       onInspectorTargetChange={onInspectorTargetChange}
       onRefresh={onWorkspaceRefresh}
     />
+  );
+
+  const contextualSelection: Selection | null = runInspector?.run
+    ? { objectType: "run", objectId: runInspector.run.id }
+    : inspectorSelection;
+
+  const handleBottomSelectRun = useCallback(
+    (runId: string): void => {
+      onSelectionChange({ objectType: "run", objectId: runId });
+    },
+    [onSelectionChange],
+  );
+
+  const bottomSlots = useMemo(
+    () => ({
+      logs: <LogsSlot selection={contextualSelection ?? selection} snapshot={snapshot} />,
+      problems: <ProblemsSlot />,
+      runs: <RunsSlot snapshot={snapshot} onSelectRun={handleBottomSelectRun} />,
+      artifacts: <ArtifactsSlot selection={contextualSelection ?? selection} snapshot={snapshot} />,
+    }),
+    [contextualSelection, handleBottomSelectRun, selection, snapshot],
+  );
+
+  const statusContext = bottomContextLabel(contextualSelection ?? selection);
+
+  const bottomPanel = (
+    <BottomPanel
+      contextLabel={statusContext}
+      slots={bottomSlots}
+      onRefresh={onActiveRefresh}
+      isRefreshing={isRefreshing}
+    />
+  );
+
+  const workbenchColumns = isMobile ? (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">{centerContent}</div>
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="w-[85vw] max-w-sm p-0">
+          <SheetHeader className="sr-only">
+            <SheetTitle>Navigation</SheetTitle>
+            <SheetDescription>Workspace tree and views</SheetDescription>
+          </SheetHeader>
+          <div className="h-full overflow-hidden">{navContent}</div>
+        </SheetContent>
+      </Sheet>
+      <Sheet open={inspectorVisible} onOpenChange={setInspectorOpen}>
+        <SheetContent side="right" className="w-[85vw] max-w-md p-0">
+          <SheetHeader className="sr-only">
+            <SheetTitle>Inspector</SheetTitle>
+            <SheetDescription>Details for the selected object</SheetDescription>
+          </SheetHeader>
+          <div className="h-full overflow-hidden bg-surface-subtle">{inspectorContent}</div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  ) : (
+    <ResizablePanelGroup
+      id="molexp-workbench-shell"
+      direction="horizontal"
+      autoSaveId="molexp.workbench.shell"
+      autoSavePanelIds={SHELL_PANEL_IDS}
+      className="min-h-0 flex-1"
+    >
+      <ResizablePanel
+        id="navigator"
+        defaultSize={NAV_SIZE.default}
+        minSize={NAV_SIZE.min}
+        maxSize={NAV_SIZE.max}
+      >
+        <div className="h-full overflow-hidden border-r border-border bg-surface">{navContent}</div>
+      </ResizablePanel>
+      <ResizableHandle withHandle />
+      <ResizablePanel id="workspace" defaultSize={100 - NAV_SIZE.default}>
+        <ResizablePanelGroup
+          id="molexp-workbench-detail"
+          direction="horizontal"
+          autoSaveId="molexp.workbench.detail"
+          autoSavePanelIds={inspectorPanelIds}
+          className="h-full"
+        >
+          <ResizablePanel
+            id="work-surface"
+            defaultSize={inspectorVisible ? 100 - INSPECTOR_SIZE.default : 100}
+          >
+            {centerContent}
+          </ResizablePanel>
+          {inspectorVisible && (
+            <>
+              <ResizableHandle withHandle />
+              <ResizablePanel
+                id="inspector"
+                defaultSize={INSPECTOR_SIZE.default}
+                minSize={INSPECTOR_SIZE.min}
+                maxSize={INSPECTOR_SIZE.max}
+              >
+                <div className="mol-motion-enter-from-right h-full overflow-hidden border-l border-border bg-surface-subtle">
+                  {inspectorContent}
+                </div>
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 
   return (
@@ -203,67 +328,11 @@ export const AppShell = ({
           isRefreshing={isRefreshing}
           onMenuClick={isMobile ? () => setMobileNavOpen(true) : undefined}
         />
-        <main className="flex flex-1 flex-col overflow-hidden">
-          {isMobile ? (
-            // Small screens: a single full-width center pane. The nav and the
-            // inspector each move into an edge drawer so neither is squeezed to
-            // an unusable width by the fixed-percentage desktop split.
-            <>
-              <div className="flex-1 overflow-hidden">{centerContent}</div>
-              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-                <SheetContent side="left" className="w-[85vw] max-w-sm p-0">
-                  <SheetHeader className="sr-only">
-                    <SheetTitle>Navigation</SheetTitle>
-                    <SheetDescription>Workspace tree and views</SheetDescription>
-                  </SheetHeader>
-                  <div className="h-full overflow-hidden">{navContent}</div>
-                </SheetContent>
-              </Sheet>
-              <Sheet open={inspectorVisible} onOpenChange={setInspectorOpen}>
-                <SheetContent side="right" className="w-[85vw] max-w-md p-0">
-                  <SheetHeader className="sr-only">
-                    <SheetTitle>Inspector</SheetTitle>
-                    <SheetDescription>Details for the selected object</SheetDescription>
-                  </SheetHeader>
-                  <div className="h-full overflow-hidden bg-muted/10">{inspectorContent}</div>
-                </SheetContent>
-              </Sheet>
-            </>
-          ) : (
-            <ResizablePanelGroup direction="horizontal" className="flex-1">
-              <ResizablePanel
-                defaultSize={NAV_SIZE.default}
-                minSize={NAV_SIZE.min}
-                maxSize={NAV_SIZE.max}
-              >
-                {navContent}
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel defaultSize={100 - NAV_SIZE.default}>
-                <ResizablePanelGroup direction="horizontal" className="h-full">
-                  <ResizablePanel
-                    defaultSize={inspectorVisible ? 100 - INSPECTOR_SIZE.default : 100}
-                  >
-                    {centerContent}
-                  </ResizablePanel>
-                  {inspectorVisible && (
-                    <>
-                      <ResizableHandle withHandle />
-                      <ResizablePanel
-                        defaultSize={INSPECTOR_SIZE.default}
-                        minSize={INSPECTOR_SIZE.min}
-                        maxSize={INSPECTOR_SIZE.max}
-                      >
-                        <div className="h-full overflow-hidden border-l border-border/70 bg-muted/10">
-                          {inspectorContent}
-                        </div>
-                      </ResizablePanel>
-                    </>
-                  )}
-                </ResizablePanelGroup>
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          )}
+        {/* Columns above a full-width bottom panel (workbench archetype). */}
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {workbenchColumns}
+          {/* Bottom strip: ♡ heartbeat · Logs · Problems · Runs · Artifacts */}
+          {bottomPanel}
         </main>
       </div>
     </InspectedTaskContext.Provider>

@@ -7,6 +7,7 @@ export { CancelablePromise, CancelError } from './core/CancelablePromise';
 export { OpenAPI } from './core/OpenAPI';
 export type { OpenAPIConfig } from './core/OpenAPI';
 
+export type { AgentSystemPromptResponse } from './models/AgentSystemPromptResponse';
 export type { AgentTaskListResponse } from './models/AgentTaskListResponse';
 export { AgentTaskResponse } from './models/AgentTaskResponse';
 export type { AgentToolListResponse } from './models/AgentToolListResponse';
@@ -77,6 +78,7 @@ export type { LammpsLogResponse } from './models/LammpsLogResponse';
 export type { LammpsThermoStage } from './models/LammpsThermoStage';
 export type { LoopCompletedEvent } from './models/LoopCompletedEvent';
 export type { LoopStartedEvent } from './models/LoopStartedEvent';
+export type { LoopSuspendedEvent } from './models/LoopSuspendedEvent';
 export type { McpServerListResponse } from './models/McpServerListResponse';
 export type { McpServerResponse } from './models/McpServerResponse';
 export type { McpServerUpsertRequest } from './models/McpServerUpsertRequest';

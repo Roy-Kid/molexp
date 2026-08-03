@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
-import { Card, CardContent } from "@/components/ui/card";
+import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
 
 // Lazy-loaded so `@monaco-editor/react` stays out of the initial page-load
 // bundle. This is the second Monaco consumer alongside the `editor` plugin's
@@ -12,6 +12,9 @@ export const WorkflowSourceViewer = ({ selection, snapshot }: RendererProps): JS
   const [content, setContent] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
+  const [settledWorkflowId, setSettledWorkflowId] = useState<string | null>(null);
+  const [requestVersion, setRequestVersion] = useState(0);
 
   const workflow = snapshot.workflows.find((w) => w.id === selection.objectId);
   // The summary often contains the file path, or we can try to derive it via ID if formatted "workflow:<id>"
@@ -22,7 +25,15 @@ export const WorkflowSourceViewer = ({ selection, snapshot }: RendererProps): JS
   // So we can find the experiment by ID (experimentId is in workflow summary)
 
   useEffect(() => {
-    if (!workflow) return;
+    void requestVersion;
+    if (!workflow) {
+      setContent("");
+      setIsLoading(false);
+      setError(null);
+      setUnavailableReason(null);
+      setSettledWorkflowId(null);
+      return;
+    }
 
     // Use summary as path for now, as consistent with api.ts mapping
     const path = workflow.summary;
@@ -31,6 +42,9 @@ export const WorkflowSourceViewer = ({ selection, snapshot }: RendererProps): JS
     // Based on api.ts mapWorkflows, it's just `workflowPath` string.
 
     setIsLoading(true);
+    setError(null);
+    setUnavailableReason(null);
+    setContent("");
     // If it's a relative path, we might need to know the project path.
     // Usually these paths are relative to workspace root or project?
     // Let's assume relative to workspace root for now or try to fetch.
@@ -42,60 +56,114 @@ export const WorkflowSourceViewer = ({ selection, snapshot }: RendererProps): JS
     const experiment = snapshot.experiments.find((e) => e.id === workflow?.experimentId);
     // experiment.workflowFile seems to be the path.
     const actualPath = experiment?.workflowFile || path;
+    if (!actualPath) {
+      setUnavailableReason("No source path is configured for this workflow.");
+      setIsLoading(false);
+      setSettledWorkflowId(workflow.id);
+      return;
+    }
 
+    let cancelled = false;
     workspaceApi
       .getWorkspaceFileText(actualPath)
       .then((text) => {
+        if (cancelled) return;
         setContent(text);
         setError(null);
       })
       .catch((err) => {
+        if (cancelled) return;
         console.warn("Failed to fetch workflow source", err);
-        setError("Source code not available or could not be loaded.");
-        setContent("# Source not available");
+        setError(err instanceof Error ? err.message : "Source code could not be loaded.");
+        setContent("");
       })
       .finally(() => {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+          setSettledWorkflowId(workflow.id);
+        }
       });
-  }, [workflow, snapshot.experiments]);
+    return () => {
+      cancelled = true;
+    };
+  }, [requestVersion, workflow, snapshot.experiments]);
 
-  if (isLoading) {
+  if (!workflow) {
     return (
-      <Card className="h-full border-0 shadow-none">
-        <CardContent className="h-full flex items-center justify-center text-muted-foreground text-sm">
-          Loading source...
-        </CardContent>
-      </Card>
+      <WorkbenchOperationState
+        kind="empty"
+        title="Workflow source unavailable"
+        detail="The selected workflow is not present in the current workspace snapshot."
+      />
+    );
+  }
+
+  const sourcePending = isLoading || settledWorkflowId !== workflow.id;
+
+  if (sourcePending) {
+    return <WorkbenchOperationState kind="loading" title="Loading workflow source…" />;
+  }
+
+  if (unavailableReason) {
+    return (
+      <WorkbenchOperationState
+        kind="disabled"
+        title="Workflow source unavailable"
+        detail={unavailableReason}
+      />
+    );
+  }
+
+  if (error) {
+    return (
+      <WorkbenchOperationState
+        kind="error"
+        title="Could not load workflow source"
+        detail={error}
+        action={
+          <WorkbenchAction
+            kind="secondary"
+            size="compact"
+            onClick={() => {
+              setIsLoading(true);
+              setRequestVersion((version) => version + 1);
+            }}
+          >
+            Retry
+          </WorkbenchAction>
+        }
+      />
+    );
+  }
+
+  if (content.length === 0) {
+    return (
+      <WorkbenchOperationState
+        kind="empty"
+        title="Workflow source is empty"
+        detail="The source file loaded successfully but contains no text."
+      />
     );
   }
 
   return (
-    <Card className="h-full border-0 shadow-none">
-      <CardContent className="h-full p-0">
-        {error && (
-          <div className="border-b border-border px-4 py-2 text-sm text-destructive">{error}</div>
-        )}
-        <Suspense
-          fallback={
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              Loading editor…
-            </div>
-          }
-        >
-          <Editor
-            height="100%"
-            language="yaml"
-            value={content}
-            theme="light"
-            options={{
-              readOnly: true,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              lineNumbers: "on",
-            }}
-          />
-        </Suspense>
-      </CardContent>
-    </Card>
+    <div className="flex h-full min-h-0 flex-col">
+      <Suspense
+        fallback={<WorkbenchOperationState kind="loading" title="Loading source editor…" />}
+      >
+        <Editor
+          height="100%"
+          language="yaml"
+          value={content}
+          theme="light"
+          options={{
+            readOnly: true,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            lineNumbers: "on",
+          }}
+        />
+      </Suspense>
+    </div>
   );
 };

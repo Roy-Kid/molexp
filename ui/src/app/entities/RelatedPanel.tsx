@@ -37,9 +37,9 @@ const RelatedRow = ({
       onClick={() => {
         if (path) navigate(path);
       }}
-      className="group flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-muted/60 disabled:opacity-40"
+      className="group flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left transition-colors hover:bg-muted/60 disabled:opacity-40"
     >
-      <Icon className={`h-3.5 w-3.5 flex-none ${meta.accent}`} />
+      <Icon className={`h-3.5 w-3.5 flex-none ${meta.iconClassName}`} />
       <span className="min-w-0 flex-1 truncate text-xs text-foreground">
         {refItem.label ?? refItem.id}
       </span>
@@ -58,13 +58,13 @@ export const RelatedPanel = ({ entity, snapshot }: RelatedPanelProps): JSX.Eleme
 
   return (
     <section className="border-t border-border/70 px-2 py-3">
-      <h3 className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <h3 className="px-2 pb-2 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
         Related
       </h3>
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         {groups.map((g) => (
           <div key={g.relation}>
-            <p className="px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+            <p className="px-2 pb-1 text-micro font-medium uppercase tracking-wide text-muted-foreground/70">
               {g.label}
               {g.refs.length > 1 && (
                 <span className="ml-1 tabular-nums opacity-60">{g.refs.length}</span>

@@ -20,7 +20,7 @@ import {
   useState,
 } from "react";
 import { type ApiCommand, commandsApi } from "@/app/state/api";
-import { Badge } from "@/components/ui/badge";
+import { WorkbenchTag } from "@/components/workbench";
 
 const PALETTE_HEIGHT_PX = 220;
 
@@ -237,7 +237,7 @@ export const CommandPalette = ({
       ref={popoverRef}
       role="listbox"
       aria-label="Slash commands"
-      className="z-50 overflow-y-auto rounded-md border border-border bg-popover shadow-md"
+      className="z-50 overflow-y-auto rounded-[var(--radius-overlay)] border border-border bg-popover shadow-overlay"
       style={position}
     >
       <ul className="flex flex-col-reverse divide-y divide-border divide-y-reverse text-sm">
@@ -257,31 +257,34 @@ export const CommandPalette = ({
                 }}
                 onClick={() => onPick(cmd)}
                 onMouseEnter={() => state.setActiveIndex(idx)}
-                className={`flex w-full items-start gap-2 px-3 py-2 text-left transition ${
-                  active ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                className={`flex w-full items-start gap-2 px-3 py-2 text-left transition-colors ${
+                  // Soft highlight only — solid bg-accent + muted text is unreadable.
+                  active ? "bg-muted text-foreground" : "text-foreground hover:bg-muted/60"
                 }`}
               >
-                <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-70" />
-                <div className="flex-1 min-w-0">
+                <Icon
+                  className={`mt-1 h-3.5 w-3.5 shrink-0 ${active ? "text-primary" : "opacity-70"}`}
+                />
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs">/{cmd.slashName}</span>
+                    <span className="font-mono text-xs font-medium text-foreground">
+                      /{cmd.slashName}
+                    </span>
                     <span className="truncate text-xs text-muted-foreground">{cmd.name}</span>
                     {cmd.defaultPlanMode ? (
-                      <Badge variant="outline" className="text-[10px]">
+                      <WorkbenchTag meaning="metadata" className="text-micro">
                         plan
-                      </Badge>
+                      </WorkbenchTag>
                     ) : null}
                     {cmd.isBuiltin ? (
-                      <Badge variant="secondary" className="text-[10px]">
-                        builtin
-                      </Badge>
+                      <WorkbenchTag className="text-micro">builtin</WorkbenchTag>
                     ) : null}
                   </div>
                   {cmd.description ? (
                     <div className="truncate text-xs text-muted-foreground">{cmd.description}</div>
                   ) : null}
                   {cmd.parameters.length > 0 ? (
-                    <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                    <div className="mt-1 font-mono text-micro text-muted-foreground">
                       {cmd.parameters.map((p) => `${p.name}=…`).join("  ")}
                     </div>
                   ) : null}

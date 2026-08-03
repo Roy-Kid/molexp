@@ -16,8 +16,8 @@ import { KnowledgeBacklinksCard } from "@/app/components/entity/KnowledgeBacklin
 import { formatScalar } from "@/app/renderers/dashboardData";
 import { RunExecutionsPanel } from "@/app/renderers/RunExecutionsPanel";
 import { RunLogsPanel } from "@/app/renderers/RunLogsPanel";
+import { RunOutputsPanel } from "@/app/renderers/run/RunOutputsPanel";
 import { useRunViewer } from "@/app/renderers/useRunViewer";
-import { RunMetricsView } from "@/app/runs/metrics/RunMetricsView";
 import { POST_DISPATCH_TAB, RunToolbar } from "@/app/runs/RunToolbar";
 import { workspaceApi } from "@/app/state/api";
 import { useDiscoveredFileTypesForRun } from "@/app/state/useDiscoveredFileTypes";
@@ -124,12 +124,7 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
         </StatGrid>
       </div>
 
-      <DashboardCard
-        title="Summary"
-        description="Timing and placement"
-        className="lg:col-span-8"
-        bodyClassName="space-y-4"
-      >
+      <DashboardCard title="Summary" className="lg:col-span-8" bodyClassName="space-y-4">
         <MetaGrid columns={3}>
           <MetaField
             label="Started"
@@ -283,27 +278,25 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
   );
 
   const hasLogs = Boolean(logs?.stdout || logs?.stderr);
+  const outputResults = resultEntries.map(([key, value]) => ({ key, value }));
+  const outputsContent = <RunOutputsPanel assets={runAssets} results={outputResults} />;
   const tabs = [
     { value: "overview", label: "Overview", content: overviewContent },
+    {
+      value: "outputs",
+      label:
+        runAssets.length + resultEntries.length > 0
+          ? `Outputs (${runAssets.length + resultEntries.length})`
+          : "Outputs",
+      content: outputsContent,
+    },
     {
       value: "executions",
       label: attemptCount ? `Executions (${attemptCount})` : "Executions",
       content: executionsContent,
     },
     ...(hasLogs ? [{ value: "logs", label: "Logs", content: logsContent }] : []),
-    {
-      value: "metrics",
-      label: "Metrics",
-      content:
-        activeTab === "metrics" ? (
-          <RunMetricsView
-            key={run.id}
-            projectId={run.projectId}
-            experimentId={run.experimentId}
-            runId={run.id}
-          />
-        ) : null,
-    },
+    // Domain tabs (molvis, metrics plugin if metrics.jsonl present, …) — data-driven only.
     ...runTabContributions.map((tab) => {
       const TabComponent = tab.Component;
       return {
@@ -312,19 +305,17 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
         content: activeTab === tab.value ? <TabComponent key={selectedRunId} {...props} /> : null,
       };
     }),
-    ...discoveredPlugins
-      .filter(({ contribution }) => contribution.value !== "metrics")
-      .map(({ contribution, files }) => {
-        const PluginComponent = contribution.Component;
-        return {
-          value: contribution.value,
-          label: `${contribution.label} (${files.length})`,
-          content:
-            activeTab === contribution.value ? (
-              <PluginComponent key={selectedRunId} {...props} discoveredFiles={files} />
-            ) : null,
-        };
-      }),
+    ...discoveredPlugins.map(({ contribution, files }) => {
+      const PluginComponent = contribution.Component;
+      return {
+        value: contribution.value,
+        label: `${contribution.label} (${files.length})`,
+        content:
+          activeTab === contribution.value ? (
+            <PluginComponent key={selectedRunId} {...props} discoveredFiles={files} />
+          ) : null,
+      };
+    }),
   ];
 
   return (

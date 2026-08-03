@@ -400,6 +400,67 @@ export const agentAdminHandlers = [
 
   http.get("/api/agent/provider", () => HttpResponse.json(_provider)),
 
+  // Knowledge package pin — stored on the molmcp MCP server entry
+  http.get("/api/agent/knowledge-sources", () => {
+    const entry = _mcpServers.find((s) => s.name === "molmcp");
+    const env =
+      entry && entry.spec.type === "stdio" ? (entry.spec.env as Record<string, string>) : {};
+    const raw = env?.MOLMCP_SOURCES ?? "";
+    const sources = raw
+      ? raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    return HttpResponse.json({
+      sources,
+      knownPackages: [
+        "molpy",
+        "molpack",
+        "molvis",
+        "molplot",
+        "molq",
+        "molcfg",
+        "atomiverse",
+        "lammps",
+      ],
+      unrestricted: sources.length === 0,
+      serverName: entry?.name ?? "molmcp",
+      scope: entry?.scope ?? "user",
+      configured: Boolean(entry),
+    });
+  }),
+  http.put("/api/agent/knowledge-sources", async ({ request }) => {
+    const body = (await request.json()) as { sources?: string[] };
+    const sources = Array.isArray(body.sources)
+      ? body.sources.map((s) => String(s).trim()).filter(Boolean)
+      : [];
+    const entry = _mcpServers.find((s) => s.name === "molmcp");
+    if (entry && entry.spec.type === "stdio") {
+      const env = { ...(entry.spec.env as Record<string, string>) };
+      if (sources.length) env.MOLMCP_SOURCES = sources.join(",");
+      else delete env.MOLMCP_SOURCES;
+      entry.spec = { ...entry.spec, env };
+    }
+    return HttpResponse.json({
+      sources,
+      knownPackages: [
+        "molpy",
+        "molpack",
+        "molvis",
+        "molplot",
+        "molq",
+        "molcfg",
+        "atomiverse",
+        "lammps",
+      ],
+      unrestricted: sources.length === 0,
+      serverName: entry?.name ?? "molmcp",
+      scope: entry?.scope ?? "user",
+      configured: Boolean(entry),
+    });
+  }),
+
   // Provider plugin registry (spec §7.1) — lights up the registry-driven
   // ProviderTab. The shape mirrors `ProviderRegistryResponse` in
   // `ui/src/app/renderers/agent_settings/providerRegistry.ts`. Until the
@@ -824,8 +885,9 @@ export const agentAdminHandlers = [
     if (!skill) return HttpResponse.json({ detail: "not found" }, { status: 404 });
     const body = (await request
       .json()
-      .catch(() => ({}))) as { plan_mode?: boolean; parameters?: Record<string, unknown> };
-    const planMode = body.plan_mode ?? skill.defaultPlanMode;
+      .catch(() => ({}))) as { mode?: "chat" | "plan"; parameters?: Record<string, unknown> };
+    const planMode =
+      body.mode === "plan" || (body.mode == null && Boolean(skill.defaultPlanMode));
     return HttpResponse.json({
       sessionId: `session-${Math.random().toString(36).slice(2, 10)}`,
       status: "running",

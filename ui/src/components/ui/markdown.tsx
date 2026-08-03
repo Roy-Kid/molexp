@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import { normalizeDisplayMath } from "@/lib/markdown-math";
+import { prepareMarkdownMath } from "@/lib/markdown-math";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,12 +17,10 @@ import { cn } from "@/lib/utils";
  * tight editor-density rhythm throughout.
  *
  * Math renders through remark-math + rehype-katex: `$...$` inline and
- * `$$...$$` display formulas (the notation LLM-generated reports and
- * knowledge notes carry). Whole-line `$$…$$` is normalized to the fenced
- * form first (see lib/markdown-math.ts) — remark-math otherwise parses it
- * as INLINE math and KaTeX renders it squashed and un-centered. KaTeX runs
- * with `strict: "ignore"` so Unicode inside formulas (σ, ε, Å) renders
- * instead of warning.
+ * `$$...$$` display. `prepareMarkdownMath` first rewrites LaTeX delimiters
+ * (`\(...\)` / `\[...\]`) and whole-line `$$…$$` into the shapes remark-math
+ * understands — otherwise LLM output shows as raw `(\nu)` text. KaTeX runs
+ * with `strict: "ignore"` so Unicode inside formulas (σ, ε, Å) renders.
  */
 
 const MARKDOWN_CLASS = [
@@ -30,24 +28,24 @@ const MARKDOWN_CLASS = [
   // paragraphs + vertical rhythm
   "[&_p]:my-2 [&_>*:first-child]:mt-0 [&_>*:last-child]:mb-0",
   // headings — compact editor scale, weight carries hierarchy
-  "[&_h1]:mt-4 [&_h1]:mb-1.5 [&_h1]:text-base [&_h1]:font-semibold",
-  "[&_h2]:mt-3.5 [&_h2]:mb-1 [&_h2]:text-[0.9375rem] [&_h2]:font-semibold",
+  "[&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold",
+  "[&_h2]:mt-4 [&_h2]:mb-1 [&_h2]:text-body-lg [&_h2]:font-semibold",
   "[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold",
-  "[&_h4]:mt-2.5 [&_h4]:mb-0.5 [&_h4]:text-sm [&_h4]:font-medium",
+  "[&_h4]:mt-3 [&_h4]:mb-1 [&_h4]:text-sm [&_h4]:font-medium",
   // lists
-  "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5",
-  "[&_li]:my-0.5 [&_li_>_ul]:my-1 [&_li_>_ol]:my-1",
+  "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6",
+  "[&_li]:my-1 [&_li_>_ul]:my-1 [&_li_>_ol]:my-1",
   // inline code
   "[&_:not(pre)>code]:rounded-sm [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1",
-  "[&_:not(pre)>code]:py-px [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.85em]",
+  "[&_:not(pre)>code]:py-px [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-label",
   // fenced code blocks
   "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border",
-  "[&_pre]:border-border/60 [&_pre]:bg-muted/50 [&_pre]:px-3 [&_pre]:py-2.5",
+  "[&_pre]:border-border/60 [&_pre]:bg-muted/50 [&_pre]:px-3 [&_pre]:py-3",
   "[&_pre]:font-mono [&_pre]:text-xs [&_pre]:leading-relaxed",
   // links
   "[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:opacity-80",
   // quotes — conventional muted markdown affordance
-  "[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-border",
+  "[&_blockquote]:my-2 [&_blockquote]:border-l [&_blockquote]:border-border",
   "[&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground",
   // GFM tables
   "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs",
@@ -59,7 +57,7 @@ const MARKDOWN_CLASS = [
   "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-md [&_img]:border [&_img]:border-border/60",
   // KaTeX math — display blocks get breathing room + safe horizontal scroll
   "[&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden",
-  "[&_.katex-display]:py-0.5 [&_.katex]:text-[1.06em]",
+  "[&_.katex-display]:py-1 [&_.katex]:text-title",
 ].join(" ");
 
 export const MarkdownContent = ({
@@ -83,9 +81,46 @@ export const MarkdownContent = ({
               {children}
             </a>
           ),
+        // Relative / workspace PNG paths break in chat (no static file server).
+        // Prefer ```molplot fences (Vega-Lite via molplot) over Markdown images.
+        img: ({ src, alt }) => {
+          const s = typeof src === "string" ? src : "";
+          const ok =
+            s.startsWith("data:") ||
+            s.startsWith("http://") ||
+            s.startsWith("https://") ||
+            s.startsWith("/api/");
+          if (ok && s) {
+            return (
+              <img
+                src={s}
+                alt={alt ?? ""}
+                className="my-2 max-w-full rounded-md border border-border/60"
+              />
+            );
+          }
+          return (
+            <div className="my-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">
+                {alt?.trim() || "Chart"} (image not embedded)
+              </p>
+              <p className="mt-1">
+                Chat cannot load workspace file paths
+                {s ? (
+                  <>
+                    {" "}
+                    (<code className="font-mono text-micro">{s}</code>)
+                  </>
+                ) : null}
+                . Prefer a <code className="font-mono text-micro">```molplot</code> Vega-Lite fence
+                (molplot) instead of PNG Markdown.
+              </p>
+            </div>
+          );
+        },
       }}
     >
-      {normalizeDisplayMath(text)}
+      {prepareMarkdownMath(text)}
     </ReactMarkdown>
   </div>
 );

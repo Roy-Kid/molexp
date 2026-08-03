@@ -2,7 +2,7 @@
 // Entity model — the single source of truth for "what kinds of things exist and
 // how they look". Every navigable thing in the workspace is an ``EntityRef``:
 // a (kind, id) pair plus optional carried context. Icons, labels, and accent
-// colors live here once, so the left nav, breadcrumb, related panel, and
+// classes live here once, so the left nav, breadcrumb, related panel, and
 // command palette all render an entity identically no matter where it surfaces.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -41,8 +41,8 @@ export interface EntityKindMeta {
   label: string;
   plural: string;
   icon: ComponentType<{ className?: string }>;
-  /** Tailwind text-color class for the icon, keyed per kind for at-a-glance ID. */
-  accent: string;
+  /** Entity type is carried by the Lucide glyph; its colour stays neutral. */
+  iconClassName: string;
 }
 
 export const ENTITY_META: Record<EntityKind, EntityKindMeta> = {
@@ -51,63 +51,63 @@ export const ENTITY_META: Record<EntityKind, EntityKindMeta> = {
     label: "Project",
     plural: "Projects",
     icon: Blocks,
-    accent: "text-blue-500",
+    iconClassName: "text-muted-foreground",
   },
   experiment: {
     kind: "experiment",
     label: "Experiment",
     plural: "Experiments",
     icon: FlaskConical,
-    accent: "text-purple-500",
+    iconClassName: "text-muted-foreground",
   },
   run: {
     kind: "run",
     label: "Run",
     plural: "Runs",
     icon: PlayCircle,
-    accent: "text-emerald-500",
+    iconClassName: "text-muted-foreground",
   },
   task: {
     kind: "task",
     label: "Task",
     plural: "Tasks",
     icon: Box,
-    accent: "text-teal-500",
+    iconClassName: "text-muted-foreground",
   },
   workflow: {
     kind: "workflow",
     label: "Workflow",
     plural: "Workflows",
     icon: WorkflowIcon,
-    accent: "text-sky-500",
+    iconClassName: "text-muted-foreground",
   },
   asset: {
     kind: "asset",
     label: "Asset",
     plural: "Assets",
     icon: Archive,
-    accent: "text-amber-500",
+    iconClassName: "text-muted-foreground",
   },
   agent: {
     kind: "agent",
     label: "Agent Task",
     plural: "Agent Tasks",
     icon: Bot,
-    accent: "text-violet-500",
+    iconClassName: "text-muted-foreground",
   },
   "workspace-file": {
     kind: "workspace-file",
     label: "File",
     plural: "Files",
     icon: FileText,
-    accent: "text-muted-foreground",
+    iconClassName: "text-muted-foreground",
   },
   knowledge: {
     kind: "knowledge",
     label: "Knowledge",
     plural: "Knowledge",
     icon: BookOpen,
-    accent: "text-amber-500",
+    iconClassName: "text-muted-foreground",
   },
 };
 

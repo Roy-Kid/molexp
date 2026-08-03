@@ -1,4 +1,6 @@
+import { registerFileTypeContribution } from "@/app/registry";
 import type { UiPluginModule } from "@/plugins/types";
+import { MolplotObservablesTab } from "./MolplotObservablesTab";
 
 export { MolplotBarChart } from "./MolplotBarChart";
 export { MolplotGanttChart } from "./MolplotGanttChart";
@@ -6,20 +8,42 @@ export { MolplotLineChart, type MolplotLineChartHandle } from "./MolplotLineChar
 export { MolplotRawChart } from "./MolplotRawChart";
 
 /**
- * molexp-side integration of `@molcrafts/molplot` — the standalone
- * Vega-Lite charting package (its own MolCrafts repo, formerly a plotly
- * sub-package of molvis). Like the `molvis` plugin (which integrates the
- * babylon.js 3D viewer), each chart is a thin React wrapper that
- * lazy-imports molplot so its vega runtime lands in an async chunk.
+ * molplot UI plugin — activates when run products look plottable.
  *
- * The wrappers are consumed directly as components (no file-type or preview
- * contribution to register), so `register()` is intentionally empty. The
- * module is still installed in `bootPlugins()` for symmetry with the other
- * internal plugins and as the home for any future molplot contributions.
+ * Science path: molpy writes MolRec with ``observables/`` → molexp stores
+ * the record under the run → this plugin matches (tags / marker files) and
+ * offers a Plots tab. Core never imports chart code for that path.
  */
 const molplotPlugin: UiPluginModule = {
   id: "molplot",
-  register: () => {},
+  register: () => {
+    registerFileTypeContribution({
+      id: "molplot:run-tab",
+      objectType: "run",
+      value: "plots",
+      label: "Plots",
+      priority: 45,
+      matcher: {
+        patterns: [
+          "**/.molexp-artifact.json",
+          "**/observables/**",
+          "*.vl.json",
+          "**/*.vl.json",
+          "**/plot*.json",
+        ],
+        matches: (file) => {
+          const blob = `${file.name} ${file.relPath}`.toLowerCase();
+          return (
+            blob.includes("molrec") ||
+            blob.includes("observable") ||
+            blob.endsWith(".vl.json") ||
+            blob.includes("plot")
+          );
+        },
+      },
+      Component: MolplotObservablesTab,
+    });
+  },
 };
 
 export default molplotPlugin;

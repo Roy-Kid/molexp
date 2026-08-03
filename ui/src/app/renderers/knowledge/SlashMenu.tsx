@@ -21,7 +21,6 @@ import { type ComponentType, type JSX, type ReactNode, useState } from "react";
 import type { EmbedResponse } from "@/api/generated/models/EmbedResponse";
 import { type EmbedTargetKind, workspaceApi } from "@/app/state/api";
 import type { WorkspaceSnapshot } from "@/app/types";
-import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -32,6 +31,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { WorkbenchAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 import { SLASH_COMMANDS, slashCommandMarkdown } from "./slashCommands";
 
@@ -148,9 +148,9 @@ export const SlashMenu = ({
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         {trigger ?? (
-          <Button type="button" variant="ghost" size="sm" className="h-7 gap-1.5 text-xs">
+          <WorkbenchAction kind="ghost" size="compact" type="button" className="h-7 gap-2 text-xs">
             <Slash className="h-3.5 w-3.5" /> Insert
-          </Button>
+          </WorkbenchAction>
         )}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-0">
@@ -175,7 +175,7 @@ export const SlashMenu = ({
                       >
                         <Icon className="h-4 w-4 text-muted-foreground" />
                         <span className="flex-1">{command.label}</span>
-                        <span className="text-[11px] text-muted-foreground">
+                        <span className="text-micro text-muted-foreground">
                           {command.description}
                         </span>
                       </CommandItem>
@@ -208,10 +208,10 @@ export const SlashMenu = ({
                   <ChevronLeft className="h-4 w-4 text-muted-foreground" />
                   <span>Back to blocks</span>
                 </CommandItem>
-                {error && <p className="px-3 py-1.5 text-xs text-destructive">{error}</p>}
+                {error && <p className="px-3 py-2 text-xs text-destructive">{error}</p>}
                 {embedding && (
-                  <p className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Embedding…
+                  <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                    <Loader2 className="mol-motion-progress-spin h-3.5 w-3.5" /> Embedding…
                   </p>
                 )}
                 <CommandEmpty>No entities to embed.</CommandEmpty>

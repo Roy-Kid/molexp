@@ -16,8 +16,11 @@ export type AgentTaskResponse = {
     activeTurnId?: (string | null);
     createdAt: string;
     events?: Array<SessionEventResponse>;
+    experimentId?: (string | null);
     goal: string;
     planMode?: boolean;
+    projectId?: (string | null);
+    runId?: (string | null);
     sessionId: string;
     skillId?: (string | null);
     stats?: SessionStatsResponse;

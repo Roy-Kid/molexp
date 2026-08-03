@@ -65,7 +65,7 @@ export const RunsStatusProgress = ({
           );
         })}
       </div>
-      <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+      <ul className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
         {segments.map((segment) => {
           const dimmed = segment.count === 0;
           const clickable = onSelectStatus !== undefined && !dimmed;
@@ -91,7 +91,7 @@ export const RunsStatusProgress = ({
                   />
                   <span className="truncate">{segment.spec.label}</span>
                 </span>
-                <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
+                <span className="flex shrink-0 items-center gap-2 tabular-nums">
                   <span className="font-medium text-foreground">{segment.count}</span>
                   <span className="w-8 text-right text-muted-foreground">
                     {(segment.ratio * 100).toFixed(0)}%

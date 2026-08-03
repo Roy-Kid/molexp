@@ -23,26 +23,28 @@ export const RunsTimelineView = ({
   onSelectRun,
   onSelectExecution,
 }: RunsTimelineViewProps): JSX.Element => (
-  <div className="flex h-full min-h-0 flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-none">
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0 space-y-0.5">
-        <h3 className="text-sm font-medium text-foreground">Run timeline</h3>
+  <section className="flex h-full min-h-0 flex-col" aria-labelledby="runs-timeline-heading">
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 pb-3">
+      <div className="min-w-0 space-y-1">
+        <h3 id="runs-timeline-heading" className="text-sm font-medium text-foreground">
+          Run timeline
+        </h3>
         <p className="text-xs text-muted-foreground">
           Click a bar to load it in the inspector. Faded bars are queued or pending.
         </p>
       </div>
       <Tabs value={mode} onValueChange={(next) => onModeChange(next as GanttMode)}>
-        <TabsList className="h-8 p-0.5">
-          <TabsTrigger value="runs" className={cn("h-7 px-2.5 text-xs font-medium")}>
+        <TabsList className="h-8 p-1">
+          <TabsTrigger value="runs" className={cn("h-7 px-3 text-xs font-medium")}>
             By runs
           </TabsTrigger>
-          <TabsTrigger value="executions" className={cn("h-7 px-2.5 text-xs font-medium")}>
+          <TabsTrigger value="executions" className={cn("h-7 px-3 text-xs font-medium")}>
             By executions
           </TabsTrigger>
         </TabsList>
       </Tabs>
     </div>
-    <div className="min-h-0 flex-1">
+    <div className="min-h-0 flex-1 pt-3">
       <RunsGanttChart
         rows={rows}
         mode={mode}
@@ -50,5 +52,5 @@ export const RunsTimelineView = ({
         onSelectExecution={onSelectExecution}
       />
     </div>
-  </div>
+  </section>
 );

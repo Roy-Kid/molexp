@@ -40,7 +40,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -66,6 +65,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 
 function errMessage(err: unknown): string {
   if (err && typeof err === "object" && "body" in err) {
@@ -209,10 +209,10 @@ export function RunToolbar({
             }}
           >
             <DialogTrigger asChild>
-              <Button size="sm" className="h-7 gap-1">
+              <WorkbenchAction kind="primary" size="compact" className="h-7 gap-1">
                 <Play className="h-3.5 w-3.5" />
                 Start
-              </Button>
+              </WorkbenchAction>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[480px]">
               <DialogHeader>
@@ -220,8 +220,8 @@ export function RunToolbar({
                 <DialogDescription className="sr-only">Inputs and target</DialogDescription>
               </DialogHeader>
               <div className="grid gap-3 py-2">
-                <div className="grid gap-1.5">
-                  <Label>Inputs</Label>
+                <div className="grid gap-2">
+                  <span className="text-label font-medium">Inputs</span>
                   {inputSchema ? (
                     <SchemaForm
                       key={String(startOpen)}
@@ -237,7 +237,7 @@ export function RunToolbar({
                     />
                   )}
                 </div>
-                <div className="grid gap-1.5">
+                <div className="grid gap-2">
                   <Label htmlFor="start-target">Target</Label>
                   <Select value={target} onValueChange={setTarget}>
                     <SelectTrigger id="start-target">
@@ -248,7 +248,7 @@ export function RunToolbar({
                         <SelectItem key={t.name} value={t.name}>
                           <span className="flex items-center gap-2">
                             <span className="font-medium">{t.name}</span>
-                            <span className="text-[10px] uppercase text-muted-foreground">
+                            <span className="text-micro uppercase text-muted-foreground">
                               {t.isRemote ? "remote" : "local"}
                             </span>
                           </span>
@@ -260,9 +260,14 @@ export function RunToolbar({
                 {startError && <p className="text-sm text-destructive">{startError}</p>}
               </div>
               <DialogFooter>
-                <Button disabled={starting || !target} onClick={() => void handleStart()}>
+                <WorkbenchAction
+                  kind="primary"
+                  size="default"
+                  disabled={starting || !target}
+                  onClick={() => void handleStart()}
+                >
                   {starting ? "…" : "Start"}
-                </Button>
+                </WorkbenchAction>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -270,8 +275,9 @@ export function RunToolbar({
 
         {showRetry && (
           <>
-            <Button
-              size="sm"
+            <WorkbenchAction
+              kind="primary"
+              size="compact"
               className="h-7 gap-1"
               disabled={busy}
               title="Continue last execution"
@@ -283,10 +289,10 @@ export function RunToolbar({
             >
               <Play className="h-3.5 w-3.5" />
               Resume
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
+            </WorkbenchAction>
+            <WorkbenchAction
+              kind="secondary"
+              size="compact"
               className="h-7 gap-1"
               disabled={busy}
               title="New execution from top"
@@ -298,10 +304,10 @@ export function RunToolbar({
             >
               <RefreshCw className="h-3.5 w-3.5" />
               Rerun
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
+            </WorkbenchAction>
+            <WorkbenchAction
+              kind="ghost"
+              size="compact"
               className="h-7 px-2 text-muted-foreground"
               disabled={busy}
               title="Rerun without cache"
@@ -312,14 +318,14 @@ export function RunToolbar({
               }
             >
               Fresh
-            </Button>
+            </WorkbenchAction>
           </>
         )}
 
         {showCancel && (
-          <Button
-            size="sm"
-            variant="outline"
+          <WorkbenchAction
+            kind="secondary"
+            size="compact"
             className="h-7 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={() => {
               void onCancel();
@@ -327,7 +333,7 @@ export function RunToolbar({
           >
             <Ban className="h-3.5 w-3.5" />
             Cancel
-          </Button>
+          </WorkbenchAction>
         )}
 
         {/* ── Knowledge (outcome only) ────────────────────────────────── */}
@@ -343,9 +349,9 @@ export function RunToolbar({
         {/* ── Utilities ───────────────────────────────────────────────── */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="More">
+            <WorkbenchIconAction label="More" kind="ghost" className="h-7 w-7" aria-label="More">
               <MoreHorizontal className="h-4 w-4" />
-            </Button>
+            </WorkbenchIconAction>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuItem asChild>

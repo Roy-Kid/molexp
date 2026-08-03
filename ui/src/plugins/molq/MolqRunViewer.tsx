@@ -16,10 +16,10 @@ import { RunExecutionsPanel } from "@/app/renderers/RunExecutionsPanel";
 import { RunLogsPanel } from "@/app/renderers/RunLogsPanel";
 import { RunViewer } from "@/app/renderers/RunViewer";
 import { useRunViewer } from "@/app/renderers/useRunViewer";
-import { RunMetricsView } from "@/app/runs/metrics/RunMetricsView";
+
 import { POST_DISPATCH_TAB, RunToolbar } from "@/app/runs/RunToolbar";
 import type { RendererProps } from "@/app/types";
-import { Button } from "@/components/ui/button";
+import { WorkbenchAction } from "@/components/workbench";
 
 const getExecutorEntry = (
   executorInfo: Record<string, string>,
@@ -88,7 +88,7 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
       <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
         {entries.map(([key, value]) => (
           <div key={key} className="min-w-0">
-            <dt className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">
+            <dt className="truncate text-micro uppercase tracking-wide text-muted-foreground">
               {key}
             </dt>
             <dd className="truncate font-mono text-xs text-foreground" title={formatScalar(value)}>
@@ -153,7 +153,6 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
                 label: `Executions${attemptCount ? ` (${attemptCount})` : ""}`,
               },
               { value: "logs", label: "Logs" },
-              { value: "metrics", label: "Metrics" },
               ...runTabContributions.map((tab) => ({ value: tab.value, label: tab.label })),
               { value: "scheduler", label: "Scheduler" },
             ]}
@@ -178,25 +177,25 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
               <DashboardCard title="Scheduler" className="lg:col-span-5">
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
                   <div className="min-w-0">
-                    <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <dt className="text-micro uppercase tracking-wide text-muted-foreground">
                       Job ID
                     </dt>
                     <dd className="truncate font-mono text-xs text-foreground">{jobId}</dd>
                   </div>
                   <div className="min-w-0">
-                    <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <dt className="text-micro uppercase tracking-wide text-muted-foreground">
                       Scheduler Job ID
                     </dt>
                     <dd className="truncate font-mono text-xs text-foreground">{schedulerJobId}</dd>
                   </div>
                   <div className="min-w-0">
-                    <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <dt className="text-micro uppercase tracking-wide text-muted-foreground">
                       Backend
                     </dt>
                     <dd className="truncate font-mono text-xs text-foreground">molq</dd>
                   </div>
                   <div className="min-w-0">
-                    <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <dt className="text-micro uppercase tracking-wide text-muted-foreground">
                       Cluster
                     </dt>
                     <dd className="truncate font-mono text-xs text-foreground">{cluster}</dd>
@@ -205,29 +204,29 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
               </DashboardCard>
 
               <DashboardCard title="Lineage" className="lg:col-span-7">
-                <div className="flex flex-wrap gap-1.5">
-                  <Button
-                    variant="outline"
-                    size="sm"
+                <div className="flex flex-wrap gap-2">
+                  <WorkbenchAction
+                    kind="secondary"
+                    size="compact"
                     className="h-7 px-2 text-xs"
                     onClick={() => setSelection({ objectType: "project", objectId: run.projectId })}
                   >
                     Project · {project?.name || run.projectId}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
+                  </WorkbenchAction>
+                  <WorkbenchAction
+                    kind="secondary"
+                    size="compact"
                     className="h-7 px-2 text-xs"
                     onClick={() =>
                       setSelection({ objectType: "experiment", objectId: run.experimentId })
                     }
                   >
                     Experiment · {experiment?.name || run.experimentId}
-                  </Button>
+                  </WorkbenchAction>
                   {workflow && (
-                    <Button
-                      variant="outline"
-                      size="sm"
+                    <WorkbenchAction
+                      kind="secondary"
+                      size="compact"
                       className="h-7 px-2 text-xs"
                       onClick={() =>
                         setSelection({
@@ -238,7 +237,7 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
                       }
                     >
                       Workflow · {workflow.name}
-                    </Button>
+                    </WorkbenchAction>
                   )}
                 </div>
               </DashboardCard>
@@ -284,7 +283,7 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
 
           <EntityTabContent
             value="logs"
-            className="m-0 flex flex-1 flex-col overflow-hidden bg-zinc-950 p-0 text-zinc-50 dark:bg-black"
+            className="m-0 flex flex-1 flex-col overflow-hidden bg-canvas p-0 text-foreground"
           >
             <RunLogsPanel
               logs={logs}
@@ -293,17 +292,6 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
               attemptLabel={selectedExecutionId ? selectedExecutionId : "latest attempt"}
               onViewLatest={() => setSelectedExecutionId(null)}
             />
-          </EntityTabContent>
-
-          <EntityTabContent value="metrics">
-            {activeTab === "metrics" && (
-              <RunMetricsView
-                key={run.id}
-                projectId={run.projectId}
-                experimentId={run.experimentId}
-                runId={run.id}
-              />
-            )}
           </EntityTabContent>
 
           {runTabContributions.map((tab) => {
@@ -318,7 +306,7 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
           <EntityTabContent value="scheduler">
             <div className="flex-1 overflow-auto p-4">
               <section>
-                <h3 className="flex items-center gap-1.5 text-[11px] font-medium uppercase text-muted-foreground">
+                <h3 className="flex items-center gap-2 text-micro font-medium uppercase text-muted-foreground">
                   <Boxes className="h-3.5 w-3.5" />
                   Normalized Executor Info
                 </h3>

@@ -16,9 +16,19 @@ import {
 import type { ComponentType } from "react";
 import type { ApiSessionEvent } from "@/app/types";
 
+export interface ExperimentCatalogEntry {
+  project_id: string;
+  experiment_id: string;
+  label: string;
+}
+
 export interface PendingUserRequest {
   requestId: string;
   prompt: string | null;
+  /** When set, the conversation bubble shows a structured form. */
+  contextKind?: string | null;
+  catalog?: ExperimentCatalogEntry[];
+  allowCreate?: boolean;
 }
 
 export interface EventMeta {
@@ -96,10 +106,16 @@ export const normalizeStreamFrame = (data: Record<string, unknown>): ApiSessionE
   const ctrl = data.type;
   if (ctrl === "done" || ctrl === "waiting") return null;
   if (typeof data.kind === "string") {
+    // Match server snapshot wire shape (`_event_to_wire`): type=kind, ts=timestamp,
+    // payload = model_dump without `timestamp`. Keeping the full frame (incl.
+    // timestamp) as payload makes SSE rows fail equality checks against
+    // getSession snapshots and doubles every event — most visibly two
+    // loop_started rows → Task + You bubbles for the same prompt.
+    const { timestamp, ...payload } = data;
     return {
       type: data.kind,
-      ts: typeof data.timestamp === "string" ? data.timestamp : "",
-      payload: data,
+      ts: typeof timestamp === "string" ? timestamp : "",
+      payload,
     };
   }
   // Already a {type, ts, payload} envelope (e.g. a snapshot event echoed back).
@@ -110,19 +126,91 @@ export const normalizeStreamFrame = (data: Record<string, unknown>): ApiSessionE
   };
 };
 
+/** Structural equality for stream dedupe (order-stable JSON). */
+export const sameSessionEvent = (a: ApiSessionEvent, b: ApiSessionEvent): boolean =>
+  a.type === b.type &&
+  a.ts === b.ts &&
+  JSON.stringify(a.payload ?? {}) === JSON.stringify(b.payload ?? {});
+
+const _DELTA_TYPES = new Set(["thinking_delta", "token_delta"]);
+
+/**
+ * Merge consecutive thinking/token deltas into one event each.
+ *
+ * The agent stream often emits one event per token (1000+ rows). Keeping
+ * them raw freezes the UI (re-render + layout thrash) and restarts CSS
+ * spinners on every poll/SSE tick. Display and append paths both use this
+ * so the transcript stays O(tools + turns), not O(tokens).
+ */
+export const coalesceStreamEvents = (events: ApiSessionEvent[]): ApiSessionEvent[] => {
+  if (events.length < 2) return events;
+  const out: ApiSessionEvent[] = [];
+  for (const ev of events) {
+    if (!_DELTA_TYPES.has(ev.type)) {
+      out.push(ev);
+      continue;
+    }
+    const last = out[out.length - 1];
+    if (last && last.type === ev.type) {
+      const prev = (last.payload ?? {}) as Record<string, unknown>;
+      const next = (ev.payload ?? {}) as Record<string, unknown>;
+      const prevText = typeof prev.text === "string" ? prev.text : "";
+      const nextText = typeof next.text === "string" ? next.text : "";
+      out[out.length - 1] = {
+        ...last,
+        ts: ev.ts || last.ts,
+        payload: { ...prev, ...next, text: prevText + nextText },
+      };
+      continue;
+    }
+    out.push(ev);
+  }
+  return out;
+};
+
+/** Append one live frame, coalescing into the previous delta when kinds match. */
+export const appendCoalescedEvent = (
+  prev: ApiSessionEvent[],
+  event: ApiSessionEvent,
+): ApiSessionEvent[] => {
+  if (prev.some((e) => sameSessionEvent(e, event))) return prev;
+  if (!_DELTA_TYPES.has(event.type) || prev.length === 0) return [...prev, event];
+  const last = prev[prev.length - 1];
+  if (!last || last.type !== event.type) return [...prev, event];
+  const prevPayload = (last.payload ?? {}) as Record<string, unknown>;
+  const nextPayload = (event.payload ?? {}) as Record<string, unknown>;
+  const prevText = typeof prevPayload.text === "string" ? prevPayload.text : "";
+  const nextText = typeof nextPayload.text === "string" ? nextPayload.text : "";
+  const merged: ApiSessionEvent = {
+    ...last,
+    ts: event.ts || last.ts,
+    payload: { ...prevPayload, ...nextPayload, text: prevText + nextText },
+  };
+  return [...prev.slice(0, -1), merged];
+};
+
 /**
  * Walk an event log backwards to detect whether the agent is currently
  * waiting on the user. In the snake_case vocabulary the only such event is
  * `clarification_required` (a PlanMode prompt); it carries `questions` rather
- * than a `request_id`, so a `gate`/synthetic id is used. Resolved once a
- * later `loop_completed` / `approval_decided` supersedes it.
+ * than a `request_id`, so a `gate`/synthetic id is used.
  *
- * Largely inactive until the clarification/approval path fires agent-side.
+ * The question itself is rendered as the turn answer in the transcript.
+ * This helper only drives composer routing (reply vs stop). Cleared once a
+ * later terminal or follow-up boundary supersedes it
+ * (`loop_completed` / `loop_started` / `plan_emitted` / `approval_decided`).
  */
 export const derivePendingUserRequest = (events: ApiSessionEvent[]): PendingUserRequest | null => {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
-    if (ev.type === "loop_completed" || ev.type === "approval_decided") return null;
+    if (
+      ev.type === "loop_completed" ||
+      ev.type === "loop_started" ||
+      ev.type === "plan_emitted" ||
+      ev.type === "approval_decided"
+    ) {
+      return null;
+    }
     if (ev.type === "clarification_required") {
       const payload = (ev.payload ?? {}) as Record<string, unknown>;
       const rid =
@@ -131,9 +219,20 @@ export const derivePendingUserRequest = (events: ApiSessionEvent[]): PendingUser
           : typeof payload.gate === "string"
             ? payload.gate
             : "clarification";
+      const catalogRaw = Array.isArray(payload.catalog) ? payload.catalog : [];
+      const catalog: ExperimentCatalogEntry[] = catalogRaw
+        .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
+        .map((row) => ({
+          project_id: String(row.project_id ?? ""),
+          experiment_id: String(row.experiment_id ?? ""),
+          label: String(row.label ?? `${row.project_id ?? ""} / ${row.experiment_id ?? ""}`),
+        }));
       return {
         requestId: rid,
         prompt: typeof payload.questions === "string" ? payload.questions : null,
+        contextKind: typeof payload.context_kind === "string" ? payload.context_kind : null,
+        catalog,
+        allowCreate: payload.allow_create !== false,
       };
     }
   }
@@ -171,9 +270,20 @@ const isResultEvent = (event: ApiSessionEvent): boolean =>
   // Terminal plan failure (message + detail) — treat as the turn answer so the
   // chat never ends with a green "plan ready" when status is failed.
   event.type === "error" ||
+  // Durable park (approval / should_stop suspend) — ends the turn without a
+  // completion; without this the turn stays inProgress forever and the UI
+  // freezes in the "streaming" treatment.
+  event.type === "loop_suspended" ||
   // plan_emitted IS the agent's answer for a plan-mode turn — the user reviews
   // and approves it as the headline; a later loop_completed overrides it.
-  event.type === "plan_emitted";
+  event.type === "plan_emitted" ||
+  // Clarifying questions (e.g. which project/experiment) are the turn's
+  // conversational answer — not a composer banner.
+  event.type === "clarification_required";
+
+/** Progress breadcrumbs that should surface in the open turn (not only in steps). */
+export const isProgressEvent = (event: ApiSessionEvent): boolean =>
+  event.type === "stage_started" || event.type === "stage_completed";
 
 const eventKey = (event: ApiSessionEvent, fallback: number): string =>
   `${event.type}-${event.ts}-${fallback}`;
@@ -182,7 +292,8 @@ const eventKey = (event: ApiSessionEvent, fallback: number): string =>
  * Group events into conversational turns. Each turn begins with a
  * `loop_started` event (carrying the turn's `user_input`): the first one is
  * absorbed into the implicit goal turn, and every subsequent `loop_started`
- * opens a new turn. A turn closes on `loop_completed` / `plan_emitted`.
+ * opens a new turn. A turn closes on `loop_completed` / `loop_suspended` /
+ * `plan_emitted` / `error`.
  *
  * Intermediate events (tool calls, …) are surfaced as `steps` so the UI can
  * collapse them; a `loop_started` boundary is not itself a step row.
@@ -206,14 +317,39 @@ export const groupEventsIntoTurns = (
 
   events.forEach((event, idx) => {
     if (event.type === "loop_started") {
-      if (!sawFirstLoopStarted) {
-        // The first loop_started opens the implicit goal turn — absorb it.
-        sawFirstLoopStarted = true;
-        current.startedTs = event.ts;
-        return;
-      }
       const payload = (event.payload ?? {}) as Record<string, unknown>;
       const question = typeof payload.user_input === "string" ? payload.user_input : "";
+      if (!sawFirstLoopStarted) {
+        sawFirstLoopStarted = true;
+        // Create-plan can emit clarification_required *before* any loop_started.
+        // A later scope reply's loop_started must open a NEW live turn — if we
+        // "absorb" into the already-closed goal bubble, stages/thinking vanish
+        // under a finished clarification answer (UI looks frozen).
+        if (current.result || !current.inProgress) {
+          current.inProgress = false;
+          turns.push(current);
+          current = {
+            key: eventKey(event, idx),
+            question: question || current.question,
+            source: "user",
+            result: null,
+            steps: [],
+            inProgress: true,
+            startedTs: event.ts,
+          };
+          return;
+        }
+        // Normal case: first loop_started opens the implicit goal turn.
+        current.startedTs = event.ts;
+        if (question && !current.question) current.question = question;
+        return;
+      }
+      // Duplicate stream/snapshot loop_started for the *same* open turn (same
+      // prompt, no terminal result yet) must not open a second You bubble.
+      if (current.inProgress && !current.result && question && question === current.question) {
+        if (!current.startedTs) current.startedTs = event.ts;
+        return;
+      }
       current.inProgress = false;
       turns.push(current);
       current = {
@@ -250,11 +386,10 @@ const _payload = (event: ApiSessionEvent): Record<string, unknown> =>
 const _str = (value: unknown): string => (typeof value === "string" ? value : "");
 
 /**
- * Locator for a structured PlanMode deliverable, lifted off the terminal
- * `loop_completed` event's open payload (`payload.plan`, written by the server's
- * plan-record synthesizer). Present on Plan turns inside a mixed chat task;
- * tasks without a completed Plan turn return null. Drives the Deliverables panel, which fetches the full plan via
- * `GET /projects/{projectId}/experiments/{experimentId}/plans/{runId}`.
+ * Locator for a structured PlanMode deliverable. Prefer event payloads
+ * (`loop_completed.plan` or `plan_emitted`); session metadata is a fallback so
+ * the Deliverables panel opens at the review gate, not only after materialize.
+ * Fetches via `GET /projects/{projectId}/experiments/{experimentId}/plans/{runId}`.
  */
 export interface PlanRef {
   runId: string;
@@ -265,28 +400,67 @@ export interface PlanRef {
   hasWorkflow: boolean;
 }
 
+export type PlanRefFallback = {
+  runId?: string | null;
+  projectId?: string | null;
+  experimentId?: string | null;
+  title?: string | null;
+};
+
+const _planRefFromPayload = (
+  payload: Record<string, unknown>,
+  fallback?: PlanRefFallback | null,
+): PlanRef | null => {
+  const nested = (payload.plan ?? null) as Record<string, unknown> | null;
+  const plan = nested && typeof nested === "object" ? nested : payload;
+  const runId =
+    _str(plan.run_id) ||
+    _str(plan.plan_id) ||
+    _str(payload.run_id) ||
+    _str(payload.plan_id) ||
+    _str(fallback?.runId);
+  const projectId = _str(plan.project_id) || _str(payload.project_id) || _str(fallback?.projectId);
+  const experimentId =
+    _str(plan.experiment_id) || _str(payload.experiment_id) || _str(fallback?.experimentId);
+  if (!runId || !projectId || !experimentId) return null;
+  return {
+    runId,
+    projectId,
+    experimentId,
+    title: _str(plan.title) || _str(payload.title) || _str(fallback?.title),
+    stepCount:
+      typeof plan.step_count === "number"
+        ? plan.step_count
+        : typeof payload.step_count === "number"
+          ? payload.step_count
+          : 0,
+    hasWorkflow: plan.has_workflow === true || payload.has_workflow === true,
+  };
+};
+
 /**
- * Walk events backward for the terminal `loop_completed` carrying a `plan`
- * locator. Returns null unless all three ids are present (a partial locator
- * can't address a plan, so the panel falls back to the chat-artifact view).
+ * Walk events backward for a plan locator. Sources (newest first):
+ * 1. `loop_completed` / `plan_emitted` payloads
+ * 2. optional session metadata fallback (runId / projectId / experimentId)
  */
-export const derivePlanRef = (events: ApiSessionEvent[]): PlanRef | null => {
+export const derivePlanRef = (
+  events: ApiSessionEvent[],
+  fallback?: PlanRefFallback | null,
+): PlanRef | null => {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
-    if (ev.type !== "loop_completed") continue;
-    const plan = (_payload(ev).plan ?? null) as Record<string, unknown> | null;
-    if (!plan || typeof plan !== "object") continue;
-    const runId = _str(plan.run_id);
-    const projectId = _str(plan.project_id);
-    const experimentId = _str(plan.experiment_id);
-    if (!runId || !projectId || !experimentId) return null;
+    if (ev.type !== "loop_completed" && ev.type !== "plan_emitted") continue;
+    const ref = _planRefFromPayload(_payload(ev), fallback);
+    if (ref) return ref;
+  }
+  if (fallback?.runId && fallback.projectId && fallback.experimentId) {
     return {
-      runId,
-      projectId,
-      experimentId,
-      title: _str(plan.title),
-      stepCount: typeof plan.step_count === "number" ? plan.step_count : 0,
-      hasWorkflow: plan.has_workflow === true,
+      runId: String(fallback.runId),
+      projectId: String(fallback.projectId),
+      experimentId: String(fallback.experimentId),
+      title: _str(fallback.title),
+      stepCount: 0,
+      hasWorkflow: false,
     };
   }
   return null;
@@ -303,9 +477,13 @@ export const collectArtifacts = (events: ApiSessionEvent[]): Record<string, unkn
   for (const ev of events) {
     if (ev.type !== "tool_call_completed") continue;
     const p = _payload(ev);
-    const result = (p.result as Record<string, unknown> | undefined) ?? p;
-    const artifacts = Array.isArray(result.artifacts) ? result.artifacts : [];
-    for (const a of artifacts) {
+    const result = (p.result as Record<string, unknown> | undefined) ?? {};
+    const raw = Array.isArray(p.artifacts)
+      ? p.artifacts
+      : Array.isArray(result.artifacts)
+        ? result.artifacts
+        : [];
+    for (const a of raw) {
       if (a && typeof a === "object") out.push(a as Record<string, unknown>);
     }
   }

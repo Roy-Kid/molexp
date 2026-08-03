@@ -1047,8 +1047,8 @@ export class AgentNotConfiguredError extends Error {
  * with :class:`molexp.server.schemas.requests.GoalCreateRequest`.
  */
 export interface SessionLaunchOptions {
+  /** Canonical agent for the first turn — only ``mode``, never plan_mode. */
   mode?: "chat" | "plan";
-  planMode?: boolean;
   instructionsOverride?: string;
   skillId?: string;
   /** Mount scope (vision-loop-11): the entity whose state seeds the session. */
@@ -1072,6 +1072,9 @@ interface ApiAgentTask {
   activeTurnId?: string | null;
   activePlanTaskId?: string | null;
   skillId?: string | null;
+  projectId?: string | null;
+  experimentId?: string | null;
+  runId?: string | null;
 }
 
 const normalizeAgentTask = (task: ApiAgentTask): ApiAgentSession => ({
@@ -1090,6 +1093,9 @@ const normalizeAgentTask = (task: ApiAgentTask): ApiAgentSession => ({
   activeTurnId: task.activeTurnId ?? null,
   activePlanTaskId: task.activePlanTaskId ?? null,
   skillId: task.skillId ?? null,
+  projectId: task.projectId ?? null,
+  experimentId: task.experimentId ?? null,
+  runId: task.runId ?? null,
 });
 
 export const agentApi = {
@@ -1119,7 +1125,7 @@ export const agentApi = {
       description,
       success_criteria: successCriteria,
     };
-    if (options.planMode !== undefined) body.plan_mode = options.planMode;
+    // Canonical field only — never dual-write plan_mode.
     if (options.mode !== undefined) body.mode = options.mode;
     if (options.instructionsOverride !== undefined)
       body.instructions_override = options.instructionsOverride;
@@ -1170,7 +1176,24 @@ export const agentApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, request_id: requestId, mode }),
     });
-    if (!response.ok) throw new Error(`Failed to post message: ${response.statusText}`);
+    if (!response.ok) {
+      // Surface FastAPI `detail` (e.g. missing model) — statusText alone is useless.
+      let detail = "";
+      try {
+        const body = (await response.json()) as { detail?: unknown };
+        if (typeof body.detail === "string") detail = body.detail;
+        else if (Array.isArray(body.detail))
+          detail = body.detail
+            .map((d) => (typeof d === "object" && d && "msg" in d ? String(d.msg) : String(d)))
+            .join("; ");
+        else if (body.detail != null) detail = JSON.stringify(body.detail);
+      } catch {
+        /* ignore non-JSON error bodies */
+      }
+      throw new Error(
+        detail || `Failed to post message: ${response.status} ${response.statusText}`,
+      );
+    }
   },
 
   /** Stop the in-flight turn for a task (idempotent when already idle). */
@@ -1210,6 +1233,8 @@ export interface ApiMcpServer {
   args: string[];
   url: string | null;
   envKeys: string[];
+  /** Non-secret env literals (e.g. MOLMCP_SOURCES) for the editor. */
+  env?: Record<string, string>;
   headerKeys: string[];
   secretRefs: string[];
   unresolvedSecrets: string[];
@@ -1217,6 +1242,8 @@ export interface ApiMcpServer {
   valid: boolean;
   invalidReason: string;
   auth: ApiMcpAuthSummary | null;
+  /** Parsed MOLMCP_SOURCES when this is a molmcp server. */
+  knowledgeSources?: string[];
 }
 
 export interface ApiMcpOAuthStatus {
@@ -1447,6 +1474,15 @@ const _toProviderBody = (input: ProviderUpdateInput): Record<string, unknown> =>
   return body;
 };
 
+export type ApiKnowledgeSources = {
+  sources: string[];
+  knownPackages: string[];
+  unrestricted: boolean;
+  serverName: string;
+  scope: string;
+  configured: boolean;
+};
+
 export const agentAdminApi = {
   // Probe endpoint: routed through probeOnce so an unconfigured agent stack
   // (503) is detected once and never re-requested (see agentProbe.ts).
@@ -1457,6 +1493,32 @@ export const agentAdminApi = {
       if (!response.ok) throw new Error(`Failed to fetch provider: ${response.statusText}`);
       return response.json();
     }),
+
+  getKnowledgeSources: (): Promise<ApiKnowledgeSources> =>
+    probeOnce("agent-knowledge-sources", async () => {
+      const response = await fetch("/api/agent/knowledge-sources");
+      if (response.status === 503) {
+        throw new AgentUnavailableError("/api/agent/knowledge-sources");
+      }
+      if (!response.ok) {
+        throw new Error(`Failed to fetch knowledge sources: ${response.statusText}`);
+      }
+      return response.json();
+    }),
+
+  updateKnowledgeSources: async (sources: string[]): Promise<ApiKnowledgeSources> => {
+    const response = await fetch("/api/agent/knowledge-sources", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sources }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to update knowledge sources: ${response.statusText} ${detail}`);
+    }
+    resetAgentProbes();
+    return response.json();
+  },
 
   updateProvider: async (input: ProviderUpdateInput): Promise<ApiAgentProvider> => {
     const response = await fetch("/api/agent/provider", {
@@ -1698,10 +1760,10 @@ export const agentAdminApi = {
   launchSkill: async (
     skillId: string,
     parameters: Record<string, unknown> = {},
-    options: { planMode?: boolean } = {},
+    options: { mode?: "chat" | "plan" } = {},
   ): Promise<ApiAgentSession> => {
     const body: Record<string, unknown> = { parameters };
-    if (options.planMode !== undefined) body.plan_mode = options.planMode;
+    if (options.mode !== undefined) body.mode = options.mode;
     const response = await fetch(`/api/agent/skills/${skillId}/launch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1740,9 +1802,20 @@ export const commandsApi = {
 // ── Per-session prompt inspection ─────────────────────────────────────────
 
 export const planApi = {
-  getSystemPrompt: async (sessionId: string): Promise<ApiAgentSystemPrompt> => {
-    const response = await fetch(`/api/agent/sessions/${sessionId}/system-prompt`);
-    if (!response.ok) throw new Error(`Failed to fetch system prompt: ${response.statusText}`);
+  /**
+   * System-prompt breakdown for the task inspector.
+   *
+   * Live surface is `/api/agent-tasks/{id}/system-prompt` (accepts task id or
+   * runtime session id). The legacy `/api/agent/sessions/.../system-prompt`
+   * path is retired and always 503s.
+   */
+  getSystemPrompt: async (taskOrSessionId: string): Promise<ApiAgentSystemPrompt> => {
+    const response = await fetch(`/api/agent-tasks/${taskOrSessionId}/system-prompt`);
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      const suffix = detail ? ` — ${detail.slice(0, 200)}` : "";
+      throw new Error(`Failed to fetch system prompt: ${response.statusText}${suffix}`);
+    }
     return response.json();
   },
 };

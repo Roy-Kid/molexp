@@ -7,18 +7,19 @@ import { cn } from "@/lib/utils";
 import { PLAN_STAGES } from "./planStages";
 
 // ---------------------------------------------------------------------------
-// Vertical PlanMode progress rail — a breadcrumb down the left edge of a plan
-// session that shows how far the pipeline ran AND navigates the right panel:
-// clicking a stage selects it (single highlight) and the Deliverables panel
-// shows that stage's document, or an empty panel when the stage produced none.
-// Stage list comes from the shared `planStages` source.
+// Vertical PlanMode progress rail — breadcrumb + navigator for Deliverables.
+//
+// Completion sources (merged):
+//   1. `tool_call_completed` events with `payload.result.artifact`
+//   2. live `artifactKinds` from GET /plans/{runId} (disk truth while SSE lags)
 // ---------------------------------------------------------------------------
 
 type StageState = "done" | "current" | "failed" | "pending";
 
 const StepNode = ({ state }: { state: StageState }): JSX.Element => {
   if (state === "done") return <CheckCircle2 className="h-4 w-4 text-success" />;
-  if (state === "current") return <Loader2 className="h-4 w-4 animate-spin text-info" />;
+  if (state === "current")
+    return <Loader2 className="h-4 w-4 mol-motion-progress-spin text-info" />;
   if (state === "failed") return <XCircle className="h-4 w-4 text-destructive" />;
   return <Circle className="h-4 w-4 text-muted-foreground/40" />;
 };
@@ -28,23 +29,33 @@ export const PlanProgressRail = ({
   status,
   selectedKind,
   onSelectStage,
+  artifactKinds = [],
 }: {
   events: ApiSessionEvent[];
   status: string;
   selectedKind: string;
   onSelectStage: (kind: string) => void;
+  /** Authoritative kinds from GET /plans — keeps the rail honest while events lag. */
+  artifactKinds?: readonly string[];
 }): JSX.Element => {
-  const completed = completedStageKinds(events);
+  const fromEvents = completedStageKinds(events);
+  const completed = new Set<string>([...fromEvents, ...artifactKinds]);
   // The --execute tail is opt-in: its stages appear only when the plan
   // actually produced their artifacts (a nine-step plan shows nine steps).
   const stages = PLAN_STAGES.filter((s) => !s.executeTail || completed.has(s.kind));
   const lastDone = stages.reduce((acc, s, i) => (completed.has(s.kind) ? i : acc), -1);
   const succeeded = status === "succeeded" || status === "completed";
   const failed = status === "failed" || status === "cancelled";
+  const running = status === "running" || status === "waiting_approval";
 
   const stateOf = (i: number): StageState => {
-    if (succeeded || i <= lastDone) return "done";
-    if (i === lastDone + 1) return failed ? "failed" : "current";
+    if (completed.has(stages[i]?.kind ?? "")) return "done";
+    if (succeeded) return "done";
+    if (i === lastDone + 1) {
+      if (failed) return "failed";
+      if (running || !succeeded) return "current";
+    }
+    if (i < lastDone) return "done";
     return "pending";
   };
 
@@ -55,7 +66,6 @@ export const PlanProgressRail = ({
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <ol className="relative px-4 pb-4">
-          {/* connector spine, behind the nodes (aligned to node centers) */}
           <div className="absolute bottom-5 left-[30px] top-4 w-px bg-border/70" aria-hidden />
           {stages.map((stage, i) => {
             const state = stateOf(i);

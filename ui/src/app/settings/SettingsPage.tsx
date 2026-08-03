@@ -18,7 +18,6 @@ export function SettingsPage(): JSX.Element {
       <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
         <header className="space-y-1">
           <h2 className="text-base font-semibold text-foreground">Settings</h2>
-          <p className="text-xs text-muted-foreground">LLM / keys → Agent Tasks → gear</p>
         </header>
         <Tabs defaultValue={TAB_REMOTE_WORKSPACES} className="space-y-4">
           <TabsList>

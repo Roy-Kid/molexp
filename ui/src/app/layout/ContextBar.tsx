@@ -1,8 +1,8 @@
 import { Loader2, Menu, RefreshCw, Search } from "lucide-react";
 import { ApprovalsBell } from "@/app/components/ApprovalsBell";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { WorkbenchIconAction } from "@/components/workbench";
 
 interface ContextBarProps {
   searchQuery: string;
@@ -21,40 +21,34 @@ export const ContextBar = ({
   onMenuClick,
 }: ContextBarProps): JSX.Element => {
   return (
-    <header className="border-b border-border bg-background/95 backdrop-blur">
-      <div className="flex items-center justify-between gap-2 px-3 py-2 sm:gap-6 sm:px-4 md:px-6">
-        <div className="flex items-center gap-2">
+    <header className="flex h-11 flex-none items-center border-b border-border bg-background">
+      <div className="flex h-full w-full items-center justify-between gap-2 px-3 sm:gap-4 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
           {onMenuClick && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 flex-none md:hidden"
+            <WorkbenchIconAction
+              label="Open navigation"
+              size="default"
+              className="flex-none md:hidden"
               onClick={onMenuClick}
-              aria-label="Open navigation"
             >
               <Menu className="h-4 w-4" />
-            </Button>
+            </WorkbenchIconAction>
           )}
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-xs font-semibold uppercase tracking-[0.2em] text-background">
-            M
-          </div>
-          <span className="hidden text-sm font-semibold tracking-tight text-foreground sm:inline">
-            molexp
-          </span>
+          {/* Product identity once, top-left — constitution §7 */}
+          <span className="text-title font-semibold tracking-tight text-foreground">MolExp</span>
         </div>
 
         <div className="flex flex-1 items-center justify-end gap-2">
           <div className="relative w-full max-w-md">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="h-8 pl-9 pr-12"
+              className="h-8 pl-8 pr-8"
               placeholder="Filter"
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
               aria-label="Filter list"
             />
-            {/* List filter only; ⌘K jumps across the workspace. */}
-            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-2 py-1 text-micro font-medium text-muted-foreground">
               ⌘K
             </kbd>
           </div>
@@ -62,20 +56,19 @@ export const ContextBar = ({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 flex-none"
+                <WorkbenchIconAction
+                  label="Refresh"
+                  size="default"
+                  className="flex-none"
                   onClick={onRefresh}
                   disabled={isRefreshing}
-                  aria-label="Refresh"
                 >
                   {isRefreshing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="mol-motion-progress-spin h-4 w-4" />
                   ) : (
                     <RefreshCw className="h-4 w-4" />
                   )}
-                </Button>
+                </WorkbenchIconAction>
               </TooltipTrigger>
               <TooltipContent side="bottom">Refresh current view</TooltipContent>
             </Tooltip>

@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 
+import { pulseSync } from "@/app/state/syncPulse";
+
 import { workspaceRunsApi } from "./api";
 import type { WorkspaceRunRow, WorkspaceRunsResponse, WorkspaceRunsStats } from "./types";
 
@@ -84,6 +86,8 @@ const fetchOnce = async (silent: boolean): Promise<void> => {
         };
         notify();
       }
+      // Poll completed even when payload is unchanged — still breathe.
+      pulseSync();
       return;
     }
     snapshot = {
@@ -96,10 +100,12 @@ const fetchOnce = async (silent: boolean): Promise<void> => {
       lastSyncedAt: new Date(),
     };
     notify();
+    pulseSync();
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     snapshot = { ...snapshot, loading: false, error: message };
     notify();
+    pulseSync();
   }
 };
 

@@ -17,14 +17,25 @@ function ResizablePanelGroup({
   className,
   direction,
   autoSaveId,
+  autoSavePanelIds,
   ...props
 }: Omit<React.ComponentProps<typeof ResizablePrimitive.Group>, "orientation"> & {
   direction?: ResizablePrimitive.Orientation;
   autoSaveId?: string;
+  /**
+   * Stable panel ids for persisted groups. Conditional groups use the id
+   * combination as a separate layout key, so hiding a panel does not overwrite
+   * the last multi-panel layout.
+   */
+  autoSavePanelIds?: string[];
 }) {
   const persisted = ResizablePrimitive.useDefaultLayout(
     autoSaveId
-      ? { id: autoSaveId, storage: globalThis.localStorage }
+      ? {
+          id: autoSaveId,
+          panelIds: autoSavePanelIds,
+          storage: globalThis.localStorage,
+        }
       : // No persistence requested: a stable unused id keeps hook order stable.
         { id: "resizable-ephemeral" },
   );

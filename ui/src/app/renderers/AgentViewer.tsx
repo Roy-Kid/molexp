@@ -1,17 +1,5 @@
-import {
-  Bot,
-  ChevronDown,
-  ChevronRight,
-  Cpu,
-  HelpCircle,
-  Loader2,
-  Send,
-  Settings,
-  ShieldAlert,
-  Square,
-  XCircle,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Send, Settings, ShieldAlert, Square, XCircle } from "lucide-react";
+import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommandPalette, useCommandPalette } from "@/app/components/CommandPalette";
 import { EntityHeader, StatusBadge } from "@/app/components/entity";
 import {
@@ -21,27 +9,33 @@ import {
   agentAdminApi,
   agentApi,
   commandsApi,
+  workspaceApi,
 } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAgentSession, ApiSessionEvent, RendererProps } from "@/app/types";
-import { Button } from "@/components/ui/button";
+import { ProgressSpinner } from "@/components/ui/progress-spinner";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 import { buildEntityLinkIndex } from "@/lib/entity-linkify";
+import { cn } from "@/lib/utils";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
 import { ApprovalsInbox } from "./agent/ApprovalsInbox";
 import { type AgentMode, nextAgentMode } from "./agent/agentMode";
 import { ConversationTurnView } from "./agent/conversation";
 import { DeliverablesPanel, hasDeliverables } from "./agent/DeliverablesPanel";
 import { PlanProgressRail } from "./agent/PlanProgressRail";
-import { DEFAULT_PLAN_STAGE } from "./agent/planStages";
+import { DEFAULT_PLAN_STAGE, PLAN_STAGES } from "./agent/planStages";
 import {
+  appendCoalescedEvent,
+  coalesceStreamEvents,
   derivePendingUserRequest,
   derivePlanRef,
   groupEventsIntoTurns,
   normalizeStreamFrame,
+  sameSessionEvent,
 } from "./agentEvents";
 
 // ---------------------------------------------------------------------------
@@ -51,10 +45,15 @@ import {
 
 const COLUMN = "mx-auto w-full max-w-3xl";
 
-const COMPOSER_SHELL =
-  "flex items-end gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-xs " +
-  "transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 " +
-  "focus-within:ring-ring/25";
+/** Mode-tinted composer shell — Chat neutral; Plan light blue border only (readable text). */
+const composerShellClass = (mode: AgentMode): string =>
+  cn(
+    "flex items-end gap-2 rounded-lg border px-3 py-2 bg-card",
+    "transition-[border-color,box-shadow,background-color] focus-within:ring-2",
+    mode === "plan"
+      ? "border-info/50 bg-info-soft/25 focus-within:border-info focus-within:ring-info/15"
+      : "border-border focus-within:border-ring focus-within:ring-ring/25",
+  );
 
 const COMPOSER_BAR = "border-t border-border/60 bg-background px-4 pb-4 pt-3 md:px-8";
 
@@ -134,24 +133,29 @@ const useMessageHistory = (
   );
 };
 
+/** Single control: click (or Shift+Tab) cycles Chat ↔ Plan. */
 const ModeToggle = ({
   mode,
   onChange,
 }: {
   mode: AgentMode;
   onChange: (mode: AgentMode) => void;
-}) => (
+}): JSX.Element => (
   <button
     type="button"
     onClick={() => onChange(nextAgentMode(mode))}
-    className={
-      "rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors " +
-      (mode === "plan"
-        ? "bg-primary/10 text-primary hover:bg-primary/15"
-        : "hover:bg-muted hover:text-foreground")
+    className={cn(
+      "rounded-md px-2.5 py-1 text-micro font-medium transition-colors",
+      mode === "plan"
+        ? "bg-info-soft/40 text-info-foreground hover:bg-info-soft/55"
+        : "bg-muted/60 text-foreground hover:bg-muted",
+    )}
+    title={
+      mode === "chat"
+        ? "Chat mode — click to switch to Plan (Shift+Tab)"
+        : "Plan mode — click to switch to Chat (Shift+Tab)"
     }
-    title="Switch agent mode (Shift+Tab)"
-    aria-label={`Agent mode: ${mode}`}
+    aria-label={`Agent mode: ${mode}. Click to switch.`}
   >
     {mode === "chat" ? "Chat" : "Plan"}
   </button>
@@ -164,6 +168,7 @@ const ModeToggle = ({
 const ChatBox = ({
   awaitingRequestId,
   awaitingPrompt,
+  scopeFormActive,
   disabled,
   isRunning,
   mode,
@@ -173,8 +178,13 @@ const ChatBox = ({
 }: {
   awaitingRequestId: string | null;
   awaitingPrompt: string | null;
+  /** Scope is filled via in-bubble form — hide free-text reply. */
+  scopeFormActive?: boolean;
   disabled: boolean;
-  /** True while a turn is in flight — primary action becomes Stop. */
+  /**
+   * True while a turn is exclusive (running or waiting_approval) — primary
+   * action becomes Stop so a refresh cannot leave the user without a way out.
+   */
   isRunning: boolean;
   mode: AgentMode;
   onModeChange: (mode: AgentMode) => void;
@@ -230,26 +240,19 @@ const ChatBox = ({
     }
   };
 
+  // Clarifying questions render in the transcript as the agent answer;
+  // the composer only changes placeholder so the user knows to reply.
   const placeholder = showStop
-    ? "Agent is running… (⌘+Enter to stop)"
-    : awaitingRequestId
-      ? "Reply to the agent's question…"
-      : "Message the agent… (⌘+Enter to send)";
+    ? "Turn in progress — stop to send another message (⌘+Enter)"
+    : scopeFormActive
+      ? "Use the form in the conversation above…"
+      : awaitingRequestId
+        ? "Reply in the conversation… (⌘+Enter to send)"
+        : "Message the agent… (⌘+Enter to send)";
 
   return (
     <div className={COMPOSER_BAR}>
-      {awaitingRequestId && (
-        <div
-          className={`${COLUMN} mb-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-xs text-warning-foreground`}
-        >
-          <HelpCircle className="mt-0.5 h-3.5 w-3.5 flex-none" />
-          <p className="flex-1">
-            <span className="font-semibold">Agent is waiting</span>
-            {awaitingPrompt ? `: ${awaitingPrompt}` : "."}
-          </p>
-        </div>
-      )}
-      <div className={`${COLUMN} ${COMPOSER_SHELL}`}>
+      <div className={`${COLUMN} ${composerShellClass(mode)}`}>
         <textarea
           rows={1}
           className={TEXTAREA_CLASS}
@@ -257,47 +260,55 @@ const ChatBox = ({
           value={content}
           onChange={(e) => setContent(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={disabled || showStop}
+          disabled={disabled || showStop || Boolean(scopeFormActive)}
+          aria-label={
+            scopeFormActive
+              ? "Scope form is above — fill project and experiment there"
+              : awaitingRequestId
+                ? awaitingPrompt
+                  ? `Reply to agent: ${awaitingPrompt}`
+                  : "Reply to the agent's question"
+                : undefined
+          }
         />
         {showStop ? (
-          <Button
-            size="icon"
-            variant="destructive"
+          <WorkbenchIconAction
+            label="Stop agent"
+            kind="danger"
             onClick={() => {
               void handleStop();
             }}
             disabled={stopping}
-            className="h-8 w-8 flex-none rounded-md"
-            aria-label="Stop agent"
+            size="default"
+            className="flex-none"
             title="Stop this turn"
           >
             {stopping ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <ProgressSpinner label="Stopping" />
             ) : (
               <Square className="h-3 w-3 fill-current" />
             )}
-          </Button>
+          </WorkbenchIconAction>
         ) : (
-          <Button
-            size="icon"
+          <WorkbenchIconAction
+            label="Send message"
+            kind="primary"
             onClick={() => {
               void handleSend();
             }}
-            disabled={disabled || sending || !content.trim()}
-            className="h-8 w-8 flex-none rounded-md"
-            aria-label="Send message"
+            disabled={disabled || sending || !content.trim() || Boolean(scopeFormActive)}
+            size="default"
+            className="flex-none"
           >
-            {sending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Send className="h-3.5 w-3.5" />
-            )}
-          </Button>
+            {sending ? <ProgressSpinner label="Sending" /> : <Send className="h-3.5 w-3.5" />}
+          </WorkbenchIconAction>
         )}
       </div>
-      <div className={`${COLUMN} mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground`}>
+      <div className={`${COLUMN} mt-2 flex items-center gap-2 text-micro text-muted-foreground`}>
         <ModeToggle mode={mode} onChange={onModeChange} />
-        <span className="ml-auto">Shift+Tab to switch · ⌘+Enter to send</span>
+        <span className="ml-auto hidden sm:inline">
+          {scopeFormActive ? "Fill the form above" : "Shift+Tab · ⌘+Enter"}
+        </span>
       </div>
     </div>
   );
@@ -329,9 +340,9 @@ export type LaunchIntent =
 
 const HELP_TEXT_LINES = [
   "Available commands:",
-  "  /plan      — toggle the auditable nine-step Plan agent for the next turn",
+  "  /plan      — toggle Plan mode for the next turn",
   "  /clear     — clear the input",
-  "  /model     — open Provider settings to change the active model",
+  "  /model     — open Agent Settings (provider / models / API keys)",
   "  /help      — show this list",
   "Skills with a slash name appear here too. Type the name and press Tab to autocomplete.",
 ];
@@ -348,12 +359,9 @@ const GoalInput = ({
   placeholder?: string;
 }): JSX.Element => {
   const [description, setDescription] = useState("");
-  const [overrideText, setOverrideText] = useState("");
   const [mode, setMode] = useState<AgentMode>("chat");
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [providerLabel, setProviderLabel] = useState<string>("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const palette = useCommandPalette();
@@ -364,24 +372,6 @@ const GoalInput = ({
     palette.syncFromValue(description);
   }, [description, palette]);
 
-  // Fetch the active provider/model once so the input can show it inline.
-  // Soft-fail: missing provider means no badge.
-  useEffect(() => {
-    let cancelled = false;
-    agentAdminApi
-      .getProvider()
-      .then((p) => {
-        if (cancelled) return;
-        setProviderLabel(p.model || p.provider);
-      })
-      .catch(() => {
-        if (!cancelled) setProviderLabel("");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const dispatchIntent = useCallback(
     async (intent: LaunchIntent): Promise<void> => {
       setError(null);
@@ -390,7 +380,6 @@ const GoalInput = ({
         await onSubmit(intent);
         if (intent.kind === "goal") rememberMessage(intent.description);
         setDescription("");
-        setOverrideText("");
       } catch (err) {
         setError(String(err));
       }
@@ -408,15 +397,17 @@ const GoalInput = ({
           return;
         case "clear":
           setDescription("");
-          setOverrideText("");
           setMode("chat");
-          setShowAdvanced(false);
           setInfo("Input cleared.");
           return;
         case "model":
           setDescription("");
-          setInfo("Open Settings → Provider to change the model.");
-          onOpenSettings?.();
+          if (onOpenSettings) {
+            onOpenSettings();
+            setInfo("Opened Agent Settings — choose the model under Provider.");
+          } else {
+            setInfo("Open Agent Settings → Provider to switch models.");
+          }
           return;
         case "help":
           setDescription("");
@@ -432,15 +423,13 @@ const GoalInput = ({
   const submitGoal = useCallback(async (): Promise<void> => {
     const trimmed = description.trim();
     if (!trimmed) return;
-    const override = overrideText.trim() || undefined;
     await dispatchIntent({
       kind: "goal",
       description: trimmed,
       criteria: [],
       mode,
-      instructionsOverride: override,
     });
-  }, [description, dispatchIntent, overrideText, mode]);
+  }, [description, dispatchIntent, mode]);
 
   const submitSlash = useCallback(async (): Promise<void> => {
     const raw = description.trim();
@@ -522,40 +511,19 @@ const GoalInput = ({
   return (
     <div className={COMPOSER_BAR}>
       {info && (
-        <div
-          className={`${COLUMN} mb-2 rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs`}
-        >
+        <div className={`${COLUMN} mb-2 border-l border-border/60 px-3 py-1 text-xs`}>
           <pre className="whitespace-pre-wrap font-mono">{info}</pre>
         </div>
       )}
       {error && (
         <div
-          className={`${COLUMN} mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive`}
+          className={`${COLUMN} mb-2 border-y border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive`}
         >
           {error}
         </div>
       )}
-      {showAdvanced && (
-        <div className={`${COLUMN} mb-2 rounded-md border border-border/60 bg-card p-3`}>
-          <label
-            htmlFor="prompt-override"
-            className="mb-1 block text-xs font-medium text-muted-foreground"
-          >
-            System prompt override (replaces workspace + skill layers)
-          </label>
-          <textarea
-            id="prompt-override"
-            rows={4}
-            className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 font-mono text-[11px] focus:outline-none focus:ring-2 focus:ring-ring"
-            placeholder="Custom instructions for this single task..."
-            value={overrideText}
-            onChange={(e) => setOverrideText(e.target.value)}
-            disabled={disabled}
-          />
-        </div>
-      )}
       <div className={`${COLUMN} relative`}>
-        <div ref={anchorRef} className={COMPOSER_SHELL}>
+        <div ref={anchorRef} className={composerShellClass(mode)}>
           <textarea
             ref={textareaRef}
             rows={1}
@@ -566,50 +534,34 @@ const GoalInput = ({
             onKeyDown={handleKeyDown}
             disabled={disabled}
           />
-          <Button
-            size="icon"
+          <WorkbenchIconAction
+            label="Start agent task"
+            kind="primary"
             onClick={handleSendButton}
             disabled={disabled || !description.trim()}
             className="h-8 w-8 flex-none rounded-md"
             aria-label="Start agent task"
           >
-            {disabled ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Send className="h-3.5 w-3.5" />
-            )}
-          </Button>
+            {disabled ? <ProgressSpinner label="Starting" /> : <Send className="h-3.5 w-3.5" />}
+          </WorkbenchIconAction>
         </div>
         <CommandPalette state={palette} anchorRef={anchorRef} onPick={handlePaletteSelect} />
       </div>
-      <div className={`${COLUMN} mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground`}>
-        {providerLabel ? (
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] transition-colors hover:bg-muted hover:text-foreground"
-            title="Active model — click to change in Settings"
-          >
-            <Cpu className="h-3 w-3 opacity-60" />
-            <span>{providerLabel}</span>
-          </button>
-        ) : null}
+      <div className={`${COLUMN} mt-2 flex items-center gap-2 text-micro text-muted-foreground`}>
         <ModeToggle mode={mode} onChange={setMode} />
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-muted hover:text-foreground"
-          title="Show advanced options (system prompt override)"
-          aria-expanded={showAdvanced}
-        >
-          {showAdvanced ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-          <span>Advanced</span>
-        </button>
-        <span className="ml-auto">Shift+Tab to switch · ⌘+Enter to send · / for commands</span>
+        {onOpenSettings ? (
+          <WorkbenchIconAction
+            label="Agent settings"
+            kind="ghost"
+            size="compact"
+            className="h-7 w-7"
+            onClick={onOpenSettings}
+            title="Provider, models, API keys, MCP"
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </WorkbenchIconAction>
+        ) : null}
+        <span className="ml-auto hidden sm:inline">Shift+Tab · ⌘+Enter · / commands</span>
       </div>
     </div>
   );
@@ -626,15 +578,15 @@ const AgentHealthBanner = ({
   health: ApiAgentHealth;
   onOpenSettings: () => void;
 }): JSX.Element => (
-  <div className="flex items-start gap-3 rounded-md border border-warning/30 bg-warning-soft px-4 py-3 text-sm">
-    <ShieldAlert className="mt-0.5 h-5 w-5 flex-none text-warning" />
+  <div className="flex items-start gap-3 border-y border-warning/30 bg-warning-soft px-4 py-3 text-sm">
+    <ShieldAlert className="mt-1 h-5 w-5 flex-none text-warning" />
     <div className="flex-1 text-warning-foreground">
       <p className="font-medium">Agent not ready</p>
-      <p className="mt-0.5 text-xs opacity-90">{health.reason}</p>
+      <p className="mt-1 text-xs opacity-90">{health.reason}</p>
     </div>
-    <Button size="sm" variant="outline" onClick={onOpenSettings}>
+    <WorkbenchAction kind="secondary" size="compact" onClick={onOpenSettings}>
       Configure provider
-    </Button>
+    </WorkbenchAction>
   </div>
 );
 
@@ -643,16 +595,16 @@ const AgentHealthBanner = ({
 // ---------------------------------------------------------------------------
 
 const HeaderSettingsAction = ({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element => (
-  <Button
-    variant="ghost"
-    size="icon"
+  <WorkbenchIconAction
+    label="Agent settings"
+    kind="ghost"
     className="h-7 w-7"
     onClick={onOpenSettings}
     title="Agent settings"
     aria-label="Agent settings"
   >
     <Settings className="h-4 w-4" />
-  </Button>
+  </WorkbenchIconAction>
 );
 
 const SessionHeader = ({ session }: { session: ApiAgentSession }): JSX.Element => (
@@ -678,17 +630,17 @@ const NewSessionHeader = ({ onOpenSettings }: { onOpenSettings: () => void }): J
 };
 
 // ---------------------------------------------------------------------------
-// Loading skeleton — sketches two turn cards instead of a centered spinner.
+// Loading skeleton — sketches two conversation rows instead of a centered spinner.
 // ---------------------------------------------------------------------------
 
 const SessionSkeleton = (): JSX.Element => (
-  <div className={`${COLUMN} space-y-4 px-4 pb-6 pt-4 md:px-8`}>
+  <div className={`${COLUMN} divide-y divide-border/60 border-y border-border/60 px-4 md:px-8`}>
     {["first", "second"].map((slot) => (
-      <div key={slot} className="overflow-hidden rounded-lg border border-border/70 bg-card">
-        <div className="border-b border-border/60 bg-muted/30 px-4 py-2.5">
+      <div key={slot} className="py-4">
+        <div className="pb-3">
           <Skeleton className="h-4 w-2/5" />
         </div>
-        <div className="space-y-2.5 px-4 py-3">
+        <div className="space-y-3">
           <Skeleton className="h-3 w-full" />
           <Skeleton className="h-3 w-4/5" />
           <Skeleton className="h-3 w-3/5" />
@@ -736,8 +688,12 @@ const AgentSessionViewer = ({
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<ApiAgentHealth | null>(null);
   const [composerMode, setComposerMode] = useState<AgentMode>("chat");
-  // Which PlanMode stage the progress rail has selected; drives the right panel.
+  // PlanMode progress rail selection → which document the right panel shows.
   const [selectedStage, setSelectedStage] = useState<string>(DEFAULT_PLAN_STAGE);
+  // Bumped after approve / terminal events so Deliverables re-fetch GET /plans.
+  const [planRefreshKey, setPlanRefreshKey] = useState(0);
+  // Live artifact kinds from GET /plans — keeps the progress rail honest.
+  const [planArtifactKinds, setPlanArtifactKinds] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
   // Known-entity link index for conversation prose (vision-loop-10).
@@ -765,11 +721,15 @@ const AgentSessionViewer = ({
     nav.setSelection({ objectType: "agent", objectId: "settings" });
   }, [nav]);
 
-  // Load session when sessionId changes
+  // Load session when the selected task changes — not when onRefresh identity
+  // changes (that would re-fetch and snap composerMode back to disk activeMode,
+  // undoing a Chat↔Plan toggle the user just made).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only re-load on task switch
   useEffect(() => {
     if (!sessionId) {
       setSession(null);
       setEvents([]);
+      setComposerMode("chat");
       return;
     }
     setLoading(true);
@@ -778,21 +738,26 @@ const AgentSessionViewer = ({
       .getSession(sessionId)
       .then((s) => {
         setSession(s);
-        setEvents(s.events ?? []);
-        setComposerMode(s.activeMode ?? "chat");
+        setEvents(coalesceStreamEvents(s.events ?? []));
+        setComposerMode(s.activeMode ?? (s.planMode ? "plan" : "chat"));
         onRefresh();
       })
       .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
-  }, [sessionId, onRefresh]);
+  }, [sessionId]);
 
-  // SSE stream for running sessions. Depend on sessionId+status only —
-  // including the whole `session` object would resubscribe on every poll
-  // tick (the polling effect mutates the reference) and the mock SSE
-  // handler would re-deliver the same events, growing state forever.
+  // Live statuses that should keep an event stream open (plan also parks on
+  // waiting_approval / awaiting_user — not only chat "running").
+  const isLiveStatus =
+    session?.status === "running" ||
+    session?.status === "waiting_approval" ||
+    session?.status === "awaiting_user";
+
+  // SSE stream. Depend on sessionId+status only — including the whole
+  // `session` object would resubscribe on every poll tick.
   useEffect(() => {
     if (!sessionId) return;
-    if (session?.status !== "running") return;
+    if (!isLiveStatus) return;
     const es = agentApi.streamEvents(sessionId);
     esRef.current = es;
     const closeStream = (): void => {
@@ -804,10 +769,23 @@ const AgentSessionViewer = ({
         .getSession(sessionId)
         .then((s) => {
           setSession((prev) => {
-            if (!prev || getAgentTaskId(prev) !== sessionId) return s;
-            return { ...prev, status: s.status, stats: s.stats };
+            if (!prev) return s;
+            // Match by task id OR session id — plan tasks often use task-… as both,
+            // chat uses distinct taskId / sessionId.
+            const prevId = getAgentTaskId(prev);
+            if (prevId !== sessionId && prev.sessionId !== sessionId) return s;
+            return {
+              ...prev,
+              ...s,
+              // Keep whichever id the route used so navigation stays stable.
+              taskId: prev.taskId ?? s.taskId,
+              sessionId: prev.sessionId || s.sessionId,
+            };
           });
-          setEvents(s.events ?? []);
+          setEvents((current) => {
+            const next = coalesceStreamEvents(s.events ?? []);
+            return next.length >= current.length || current.length === 0 ? next : current;
+          });
         })
         .catch(() => {});
     };
@@ -823,15 +801,9 @@ const AgentSessionViewer = ({
         // {type, ts, payload} shape; `waiting` (and any control frame) → null.
         const normalized = normalizeStreamFrame(data);
         if (normalized) {
-          setEvents((prev) => {
-            const duplicate = prev.some(
-              (event) =>
-                event.type === normalized.type &&
-                event.ts === normalized.ts &&
-                JSON.stringify(event.payload) === JSON.stringify(normalized.payload),
-            );
-            return duplicate ? prev : [...prev, normalized];
-          });
+          // Merge consecutive thinking/token deltas — per-token rows thrash
+          // React and restart CSS spinners (looks "frozen").
+          setEvents((prev) => appendCoalescedEvent(prev, normalized));
         }
       } catch {
         // ignore parse errors
@@ -844,7 +816,7 @@ const AgentSessionViewer = ({
     return () => {
       closeStream();
     };
-  }, [sessionId, session?.status]);
+  }, [sessionId, isLiveStatus]);
 
   // Auto-scroll: jump to the latest activity when a session loads, then
   // follow the stream only while the user is already reading the tail
@@ -871,25 +843,43 @@ const AgentSessionViewer = ({
     }
   }, [events, scrollViewport]);
 
-  // While running, poll session stats so token/usage counts stay live
-  // even though they aren't part of the SSE event payloads. Depend on
-  // sessionId+status only — including the session ref would re-create
-  // the interval on every tick.
+  // Poll while live so plan events written to disk (and status flips to
+  // waiting_approval / completed) land even if SSE blips. Fire once immediately
+  // — do not wait a full interval after "foo / bar" kicks off the plan.
   useEffect(() => {
     if (!sessionId) return;
-    if (session?.status !== "running") return;
+    if (!isLiveStatus) return;
     let cancelled = false;
     const tick = async (): Promise<void> => {
       try {
         const fresh = await agentApi.getSession(sessionId);
         if (cancelled) return;
-        setEvents((current) =>
-          (fresh.events?.length ?? 0) >= current.length ? (fresh.events ?? current) : current,
-        );
+        setEvents((current) => {
+          const next = coalesceStreamEvents(fresh.events ?? []);
+          // Prefer coalesced server snapshot when it has at least as many
+          // non-delta facts; length alone is wrong after coalesce (1 vs 1000).
+          if (next.length === 0) return current;
+          if (current.length === 0) return next;
+          // Keep the previous array identity when content is unchanged so
+          // React does not thrash the tree (and restart CSS spinners) every poll.
+          if (
+            current.length === next.length &&
+            current.every((ev, i) => {
+              const other = next[i];
+              return other != null && sameSessionEvent(ev, other);
+            })
+          ) {
+            return current;
+          }
+          return next;
+        });
         setSession((prev) => {
-          if (!prev || prev.sessionId !== sessionId) return prev;
+          if (!prev) return fresh;
+          const prevId = getAgentTaskId(prev);
+          if (prevId !== sessionId && prev.sessionId !== sessionId) return prev;
           if (
             prev.status === fresh.status &&
+            prev.activePlanTaskId === fresh.activePlanTaskId &&
             JSON.stringify(prev.stats ?? null) === JSON.stringify(fresh.stats ?? null)
           ) {
             return prev;
@@ -901,18 +891,23 @@ const AgentSessionViewer = ({
             activeMode: fresh.activeMode,
             activeTurnId: fresh.activeTurnId,
             activePlanTaskId: fresh.activePlanTaskId,
+            projectId: fresh.projectId ?? prev.projectId,
+            experimentId: fresh.experimentId ?? prev.experimentId,
+            runId: fresh.runId ?? prev.runId,
+            events: fresh.events,
           };
         });
       } catch {
         // ignore transient polling errors
       }
     };
-    const id = setInterval(tick, 3000);
+    void tick();
+    const id = setInterval(tick, 1500);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [sessionId, session?.status]);
+  }, [sessionId, isLiveStatus]);
 
   const handleLaunchIntent = useCallback(
     async (intent: LaunchIntent) => {
@@ -929,10 +924,13 @@ const AgentSessionViewer = ({
                 runId: mountScope?.runId,
               })
             : await agentAdminApi.launchSkill(intent.skillId, intent.parameters, {
-                planMode: intent.mode === "plan",
+                mode: intent.mode,
               });
         setSession(created);
-        setEvents(created.events ?? []);
+        setEvents(coalesceStreamEvents(created.events ?? []));
+        setComposerMode(
+          created.activeMode ?? (created.planMode || intent.mode === "plan" ? "plan" : "chat"),
+        );
         nav.setSelection({ objectType: "agent", objectId: getAgentTaskId(created) });
         onRefresh();
       } catch (err) {
@@ -958,24 +956,43 @@ const AgentSessionViewer = ({
       if (!session) return;
       const taskId = getAgentTaskId(session);
       try {
-        // Optimistically show the user's message and flip status so the SSE
-        // stream re-subscribes for the new turn (postMessage continues the
-        // same session — it does NOT create a new task).
-        const now = new Date().toISOString();
-        setEvents((prev) => [
-          ...prev,
-          {
-            type: "loop_started",
-            ts: now,
-            payload: { user_input: content, kind: "loop_started", mode },
-          },
-        ]);
+        // Status flip only — transcript events come from the single server
+        // source (agent/_tasks events.json). Do not invent a local loop_started
+        // (it duplicated server writes and split turns).
         setSession((prev) => (prev ? { ...prev, status: "running" } : prev));
         await agentApi.postMessage(taskId, content, requestId, mode);
-        onRefresh();
+        // Reload transcript so server-side errors (start_plan, etc.) show in-chat.
+        try {
+          const fresh = await agentApi.getSession(taskId);
+          setSession(fresh);
+          setEvents(coalesceStreamEvents(fresh.events ?? []));
+          // Keep composer on the mode the server actually ran (plan vs chat).
+          if (fresh.activeMode === "plan" || fresh.activeMode === "chat") {
+            setComposerMode(fresh.activeMode);
+          } else if (mode === "plan" || mode === "chat") {
+            setComposerMode(mode);
+          }
+        } catch {
+          onRefresh();
+        }
       } catch (err) {
         setSession((prev) => (prev ? { ...prev, status: session.status } : prev));
-        setError(String(err));
+        const raw = err instanceof Error ? err.message : String(err);
+        const conflict = /already in flight|409|Conflict/i.test(raw) && !/stop/i.test(raw);
+        setError(
+          conflict
+            ? `${raw}\n\nA turn is still active on this task. Press Stop, then send again.`
+            : raw,
+        );
+        // Pull any error events the server recorded before raising.
+        // Also re-sync status so Stop appears for running / waiting_approval.
+        try {
+          const fresh = await agentApi.getSession(taskId);
+          setSession(fresh);
+          setEvents(coalesceStreamEvents(fresh.events ?? []));
+        } catch {
+          /* keep optimistic transcript */
+        }
       }
     },
     [session, onRefresh],
@@ -1000,6 +1017,75 @@ const AgentSessionViewer = ({
 
   // Detect whether the agent is currently waiting on the user's reply.
   const pendingUserRequest = useMemo(() => derivePendingUserRequest(events), [events]);
+  const scopeFormActive = pendingUserRequest?.contextKind === "experiment";
+
+  const handleScopeSubmit = useCallback(
+    async (scope: string) => {
+      await handleChatSubmit(scope, pendingUserRequest?.requestId ?? null, "plan");
+    },
+    [handleChatSubmit, pendingUserRequest?.requestId],
+  );
+
+  // Plan products (board → workflow source) live in the right panel, not chat.
+  // Computed before the loading/session early returns so the polling effect
+  // below keeps a stable hook order (no hooks after conditional returns).
+  const planRef = session
+    ? derivePlanRef(events, {
+        runId: session.runId,
+        projectId: session.projectId,
+        experimentId: session.experimentId,
+        title: session.title ?? session.goal,
+      })
+    : null;
+
+  // Poll plan artifacts while a plan run is live so the rail / deliverables
+  // advance even when the event stream only carries stage_started breadcrumbs.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedStage read intentionally not a dep
+  useEffect(() => {
+    if (loading || !planRef?.projectId || !planRef.experimentId || !planRef.runId) {
+      setPlanArtifactKinds([]);
+      return;
+    }
+    let cancelled = false;
+    const pull = (): void => {
+      void workspaceApi
+        .getPlan(planRef.projectId, planRef.experimentId, planRef.runId)
+        .then((detail) => {
+          if (cancelled) return;
+          const kinds = detail.artifactKinds ?? [];
+          setPlanArtifactKinds(kinds);
+          // Prefer the newest completed stage when the user hasn't clicked away
+          // from the default, so Approve → workflow source is visible.
+          if (kinds.length > 0) {
+            const last = [...kinds]
+              .reverse()
+              .find((k) => PLAN_STAGES.some((s) => s.kind === k && !s.executeTail));
+            if (last && selectedStage === DEFAULT_PLAN_STAGE) {
+              setSelectedStage(last);
+            }
+          }
+        })
+        .catch(() => {
+          /* plan may not be readable yet */
+        });
+    };
+    pull();
+    const live =
+      session?.status === "running" || session?.status === "waiting_approval" || planRefreshKey > 0;
+    if (!live) return;
+    const id = window.setInterval(pull, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [
+    loading,
+    planRef?.projectId,
+    planRef?.experimentId,
+    planRef?.runId,
+    session?.status,
+    planRefreshKey,
+  ]);
 
   // --- "new" state: quiet empty state with the composer at the bottom ---
   if (!sessionId || (!loading && !session)) {
@@ -1014,29 +1100,35 @@ const AgentSessionViewer = ({
               <AgentHealthBanner health={health} onOpenSettings={openSettings} />
             )}
             {error && (
-              <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+              <div className="flex items-center justify-between gap-3 border-y border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
                 <span className="flex-1">{error}</span>
                 {notReady && (
-                  <Button size="sm" variant="outline" onClick={openSettings}>
+                  <WorkbenchAction kind="secondary" size="compact" onClick={openSettings}>
                     Open agent settings
-                  </Button>
+                  </WorkbenchAction>
                 )}
               </div>
             )}
 
-            <ApprovalsInbox onDecided={onRefresh} />
+            <ApprovalsInbox
+              variant="list"
+              onOpenItem={(item) =>
+                nav.setSelection({ objectType: "agent", objectId: item.taskId })
+              }
+              onDecided={onRefresh}
+            />
 
             <div className="flex flex-col items-center gap-2 pt-4 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border/60 bg-card">
-                <Bot className="h-5 w-5 text-muted-foreground" />
-              </div>
+              <Bot className="h-5 w-5 text-muted-foreground" />
               <h2 className="text-base font-semibold text-foreground">Start an agent task</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                Describe a goal, then switch between Chat and the auditable nine-step Plan agent for
-                each turn.
+                <strong className="font-medium text-foreground">Chat</strong> explores and runs
+                scratch scripts under <code className="text-xs">agent/.scratch/</code> (no default
+                project/run land). <strong className="font-medium text-foreground">Plan</strong>{" "}
+                builds a reviewable workflow graph. Switch with Shift+Tab.
               </p>
               {mountScope && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
                   Mounted on{" "}
                   <span className="font-medium text-foreground">
                     {mountScope.runId
@@ -1050,20 +1142,22 @@ const AgentSessionViewer = ({
             </div>
 
             {recent.length > 0 && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <p className="px-1 text-xs font-medium text-muted-foreground">Recent tasks</p>
-                {recent.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => nav.setSelection({ objectType: "agent", objectId: s.id })}
-                    className="flex w-full items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2 text-left transition-colors hover:bg-muted/40"
-                  >
-                    <Bot className="h-4 w-4 flex-none text-muted-foreground" />
-                    <p className="flex-1 truncate text-sm">{s.goal}</p>
-                    <StatusBadge status={s.status} size="sm" />
-                  </button>
-                ))}
+                <div className="divide-y divide-border/60 border-y border-border/60">
+                  {recent.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => nav.setSelection({ objectType: "agent", objectId: s.id })}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40"
+                    >
+                      <Bot className="h-4 w-4 flex-none text-muted-foreground" />
+                      <p className="flex-1 truncate text-sm">{s.goal}</p>
+                      <StatusBadge status={s.status} size="sm" />
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -1085,52 +1179,98 @@ const AgentSessionViewer = ({
     );
   }
 
-  if (error) {
+  if (!session) return null;
+
+  if (loading) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-        <XCircle className="h-10 w-10 text-destructive" />
-        <p className="text-sm text-muted-foreground">{error}</p>
-        <Button variant="outline" size="sm" onClick={() => setError(null)}>
-          Dismiss error
-        </Button>
+      <div className="flex h-full flex-col bg-background">
+        <SessionSkeleton />
       </div>
     );
   }
 
   if (!session) return null;
 
-  const isRunning = session.status === "running";
+  // Stop for any exclusive turn — including plan gates. Sending is blocked
+  // server-side for these statuses; without Stop the UI looks dead after refresh.
+  const isRunning = session.status === "running" || session.status === "waiting_approval";
   const turns = groupEventsIntoTurns(events, session.goal);
-  // Pull the agent's products (plan/spec/script, or chat artifacts) into a
-  // dedicated panel; a session with no products stays a single conversation
-  // column rather than being squeezed into a half-width view.
-  const showSplit = hasDeliverables(events);
-  // A PlanMode session also gets a left progress rail tracking its pipeline.
-  const planRef = derivePlanRef(events);
+  const showSplit = hasDeliverables(events) || planRef !== null;
+
+  const refreshAfterPlanDecision = (): void => {
+    onRefresh();
+    setPlanRefreshKey((k) => k + 1);
+    setSelectedStage("bound_workflow");
+    // Realization continues after approve — poll so workflow_source lands.
+    const id = getAgentTaskId(session);
+    let n = 0;
+    const tick = (): void => {
+      void agentApi.getSession(id).then((s) => {
+        setSession(s);
+        setEvents(coalesceStreamEvents(s.events ?? []));
+        setPlanRefreshKey((k) => k + 1);
+      });
+      n += 1;
+      if (n < 12) window.setTimeout(tick, 2000);
+    };
+    tick();
+  };
+
+  const errorBanner = error ? (
+    <div
+      className={`${COLUMN} mx-4 mt-3 flex items-start gap-2 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive md:mx-6`}
+      role="alert"
+    >
+      <XCircle className="mt-0.5 h-4 w-4 flex-none" />
+      <p className="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">{error}</p>
+      <WorkbenchAction kind="ghost" size="compact" onClick={() => setError(null)}>
+        Dismiss
+      </WorkbenchAction>
+    </div>
+  ) : null;
 
   const conversation = (
     <div className="flex h-full min-h-0 flex-col">
+      {errorBanner}
       <ScrollArea className="min-h-0 flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
-        <div className={`${COLUMN} flex flex-col gap-5 px-4 pb-6 pt-4 md:px-6`}>
-          {turns.map((turn) => (
-            <ConversationTurnView key={turn.key} turn={turn} linkIndex={linkIndex} />
+        <div className={`${COLUMN} flex flex-col gap-6 px-4 pb-6 pt-4 md:px-6`}>
+          {turns.map((turn, idx) => (
+            <ConversationTurnView
+              key={turn.key}
+              turn={turn}
+              linkIndex={linkIndex}
+              interactiveClarification={Boolean(scopeFormActive) && idx === turns.length - 1}
+              onScopeSubmit={scopeFormActive ? handleScopeSubmit : undefined}
+              showLandDecision={
+                !isRunning &&
+                idx === turns.length - 1 &&
+                !turn.inProgress &&
+                session.activeMode !== "plan"
+              }
+              onLandDecide={!isRunning ? (msg) => handleChatSubmit(msg, null, "chat") : undefined}
+              planDecisionTaskId={
+                // Show decide strip on the plan answer whenever we are (or were)
+                // at the review gate — bar hides itself if no pending item.
+                idx === turns.length - 1 && turn.result?.type === "plan_emitted"
+                  ? getAgentTaskId(session)
+                  : null
+              }
+              planDecisionRunId={
+                idx === turns.length - 1 && turn.result?.type === "plan_emitted"
+                  ? (session.runId ?? planRef?.runId ?? null)
+                  : null
+              }
+              onPlanDecided={refreshAfterPlanDecision}
+            />
           ))}
         </div>
       </ScrollArea>
-
-      {session.status === "waiting_approval" && (
-        <div className={`${COLUMN} px-4 pb-2 md:px-6`}>
-          <ApprovalsInbox
-            taskId={session.activePlanTaskId ?? getAgentTaskId(session)}
-            onDecided={onRefresh}
-          />
-        </div>
-      )}
 
       {/* Always continue the same session — GoalInput (create) is only for /new. */}
       <ChatBox
         awaitingRequestId={pendingUserRequest?.requestId ?? null}
         awaitingPrompt={pendingUserRequest?.prompt ?? null}
+        scopeFormActive={scopeFormActive}
         disabled={false}
         isRunning={isRunning}
         mode={composerMode}
@@ -1147,14 +1287,15 @@ const AgentSessionViewer = ({
 
       {showSplit ? (
         <div className="flex min-h-0 flex-1">
-          {planRef && (
+          {planRef ? (
             <PlanProgressRail
               events={events}
               status={session.status}
               selectedKind={selectedStage}
               onSelectStage={setSelectedStage}
+              artifactKinds={planArtifactKinds}
             />
-          )}
+          ) : null}
           <ResizablePanelGroup
             direction="horizontal"
             autoSaveId="agent-session-split"
@@ -1165,7 +1306,12 @@ const AgentSessionViewer = ({
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={42} minSize={26}>
-              <DeliverablesPanel events={events} activeStageKind={selectedStage} />
+              <DeliverablesPanel
+                events={events}
+                activeStageKind={selectedStage}
+                planFallback={planRef}
+                refreshKey={planRefreshKey}
+              />
             </ResizablePanel>
           </ResizablePanelGroup>
         </div>

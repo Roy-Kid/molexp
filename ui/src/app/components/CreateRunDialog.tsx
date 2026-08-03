@@ -13,7 +13,6 @@ import {
 } from "@/app/runs/SchemaForm";
 import { AddTargetDialog } from "@/app/settings/AddTargetDialog";
 import { workspaceApi } from "@/app/state/api";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WorkbenchAction } from "@/components/workbench";
 
 const NO_TARGET_VALUE = "__none__";
 
@@ -118,10 +118,10 @@ export function CreateRunDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger === undefined ? (
         <DialogTrigger asChild>
-          <Button size="sm" className="gap-1">
+          <WorkbenchAction kind="primary" size="compact">
             <Plus className="h-3.5 w-3.5" />
             New run
-          </Button>
+          </WorkbenchAction>
         </DialogTrigger>
       ) : (
         trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -147,9 +147,9 @@ export function CreateRunDialog({
               />
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-start sm:gap-4">
-              <Label className="pt-2 text-left sm:text-right">
+              <p className="pt-2 text-left text-label font-medium sm:text-right">
                 {inputSchema ? "Inputs" : "Parameters"}
-              </Label>
+              </p>
               <div className="col-span-3">
                 {inputSchema ? (
                   <SchemaForm schema={inputSchema} value={parameters} onChange={setParameters} />
@@ -162,7 +162,7 @@ export function CreateRunDialog({
               <Label htmlFor="run-target" className="pt-2 text-left sm:text-right">
                 Target
               </Label>
-              <div className="col-span-3 space-y-1.5">
+              <div className="col-span-3 space-y-2">
                 <Select value={target} onValueChange={setTarget}>
                   <SelectTrigger id="run-target">
                     <SelectValue placeholder="No target — local in-process" />
@@ -173,7 +173,7 @@ export function CreateRunDialog({
                       <SelectItem key={t.name} value={t.name}>
                         <span className="flex items-center gap-2">
                           <span className="font-medium">{t.name}</span>
-                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          <span className="text-micro uppercase tracking-wide text-muted-foreground">
                             {t.isRemote ? "remote" : "local"}
                           </span>
                         </span>
@@ -197,12 +197,16 @@ export function CreateRunDialog({
                 />
               </div>
             </div>
-            {error && <div className="text-sm text-red-500 col-span-4 text-center">{error}</div>}
+            {error && (
+              <div className="text-sm text-status-failed-foreground col-span-4 text-center">
+                {error}
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isLoading}>
+            <WorkbenchAction kind="primary" type="submit" disabled={isLoading}>
               {isLoading ? "…" : "Create"}
-            </Button>
+            </WorkbenchAction>
           </DialogFooter>
         </form>
       </DialogContent>

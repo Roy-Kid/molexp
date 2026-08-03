@@ -28,11 +28,11 @@ export const EntityTabBar = ({
   triggerClassName,
 }: EntityTabBarProps): JSX.Element => {
   return (
-    <div className={cn("shrink-0 border-b border-border/60 bg-background px-4 md:px-5", className)}>
+    <div className={cn("shrink-0 border-b border-border/60 bg-background px-4", className)}>
       <TabsList
         variant="line"
         className={cn(
-          "h-10 w-full justify-start gap-4 overflow-x-auto rounded-none bg-transparent p-0 sm:gap-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          "h-10 w-full justify-start gap-4 overflow-x-auto rounded-none bg-transparent p-0 sm:gap-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
           listClassName,
         )}
       >
@@ -42,7 +42,7 @@ export const EntityTabBar = ({
             value={tab.value}
             disabled={tab.disabled}
             className={cn(
-              "h-10 flex-none rounded-none border-0 border-b-2 border-transparent px-0 py-0 text-sm font-medium text-muted-foreground shadow-none after:hidden data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none",
+              "h-10 flex-none rounded-none border-0 border-b border-transparent px-0 py-0 text-sm font-medium text-muted-foreground shadow-none after:hidden data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none",
               triggerClassName,
             )}
           >

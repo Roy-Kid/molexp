@@ -1,25 +1,80 @@
 /**
- * Display-math normalization for the markdown → remark-math pipeline.
+ * Math normalization for the markdown → remark-math → KaTeX pipeline.
  *
- * remark-math (v6 / micromark-extension-math) only recognizes *flow* (display)
- * math when the `$$` fences sit on their own lines. A formula written as a
- * single line — `$$V(r) = 4\varepsilon[...]$$` — parses as `inlineMath`
- * (`math-inline`), so KaTeX renders it in textstyle: fractions squashed, no
- * centering. LLM-generated reports and knowledge notes overwhelmingly use the
- * single-line form to mean display math (verified against the live pipeline:
- * a lone `$$…$$` paragraph yields `.katex`, never `.katex-display`).
+ * remark-math only understands `$…$` (inline) and `$$…$$` (display). LLMs
+ * routinely emit LaTeX delimiters `\(...\)` / `\[...\]` instead. Bare
+ * backslash-paren is *not* special to CommonMark, so `\(` becomes `(` and the
+ * formula renders as raw text like `(\nu) in (R_g \sim N^\nu)` — the bug
+ * operators report as "公式没渲染".
  *
- * `normalizeDisplayMath` rewrites a whole-line `$$…$$` into the fenced
- * three-line form remark-math parses as a `math` (display) node. It is
- * deliberately conservative:
- *   - only whole lines (`$$` opens the line, `$$` ends it) are rewritten —
- *     a mid-sentence `$$x$$` stays inline;
- *   - lines inside fenced code blocks (``` / ~~~) are never touched;
- *   - a line carrying more than one `$$…$$` pair is left alone.
+ * Pipeline:
+ *   1. `normalizeLatexDelimiters` — `\(...\)` → `$…$`, `\[...\]` → fenced `$$`
+ *   2. `normalizeDisplayMath` — whole-line `$$…$$` → three-line display fence
+ *      (remark-math only treats display as *flow* when fences are alone on lines)
+ *
+ * Both steps skip fenced code (``` / ~~~).
  */
 
 const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/;
 const WHOLE_LINE_DISPLAY_RE = /^(\s{0,3})\$\$(.+)\$\$\s*$/;
+
+/** Split text into alternating outside/code segments (code keeps fences). */
+const splitCodeFences = (text: string): { code: boolean; text: string }[] => {
+  const parts: { code: boolean; text: string }[] = [];
+  let fenceChar: string | null = null;
+  let buf: string[] = [];
+  const flush = (code: boolean): void => {
+    if (buf.length === 0) return;
+    parts.push({ code, text: buf.join("\n") });
+    buf = [];
+  };
+  for (const line of text.split("\n")) {
+    const fence = line.match(FENCE_RE);
+    if (fence) {
+      if (fenceChar === null) {
+        flush(false);
+        fenceChar = fence[1][0];
+        buf.push(line);
+      } else if (fence[1][0] === fenceChar) {
+        buf.push(line);
+        flush(true);
+        fenceChar = null;
+      } else {
+        buf.push(line);
+      }
+      continue;
+    }
+    buf.push(line);
+  }
+  flush(fenceChar !== null);
+  return parts;
+};
+
+/**
+ * Convert LaTeX `\(...\)` / `\[...\]` to remark-math `$` / `$$` form.
+ * Non-greedy; does not cross already-dollar math (no nested `$` inside).
+ */
+export const normalizeLatexDelimiters = (text: string): string => {
+  if (!text.includes("\\(") && !text.includes("\\[")) return text;
+  return splitCodeFences(text)
+    .map((part) => {
+      if (part.code) return part.text;
+      // Display first so `\[` is not partially eaten by a later rule.
+      let out = part.text.replace(/\\\[((?:\\.|[^\\])+?)\\\]/g, (_m, body: string) => {
+        const inner = body.trim();
+        return inner ? `$$\n${inner}\n$$` : _m;
+      });
+      out = out.replace(/\\\(((?:\\.|[^\\])+?)\\\)/g, (_m, body: string) => {
+        const inner = body.trim();
+        // Keep single-line inline; multi-line → display block.
+        if (!inner) return _m;
+        if (inner.includes("\n")) return `$$\n${inner}\n$$`;
+        return `$${inner}$`;
+      });
+      return out;
+    })
+    .join("\n");
+};
 
 /** Rewrite whole-line `$$…$$` into fenced display-math blocks. */
 export const normalizeDisplayMath = (text: string): string => {
@@ -28,7 +83,6 @@ export const normalizeDisplayMath = (text: string): string => {
   const lines = text.split("\n").map((line) => {
     const fence = line.match(FENCE_RE);
     if (fence) {
-      // Opening/closing fenced code — flip state, never rewrite inside.
       if (fenceChar === null) fenceChar = fence[1][0];
       else if (fence[1][0] === fenceChar) fenceChar = null;
       return line;
@@ -37,10 +91,12 @@ export const normalizeDisplayMath = (text: string): string => {
     const match = line.match(WHOLE_LINE_DISPLAY_RE);
     if (!match) return line;
     const [, indent, body] = match;
-    // Two formulas on one line ("$$a$$ … $$b$$") — greedy capture would merge
-    // them into one bogus block; leave the line for inline parsing instead.
     if (body.includes("$$") || !body.trim()) return line;
     return `${indent}$$\n${indent}${body.trim()}\n${indent}$$`;
   });
   return lines.join("\n");
 };
+
+/** Full prep before remark-math: LaTeX delimiters + display-fence shape. */
+export const prepareMarkdownMath = (text: string): string =>
+  normalizeDisplayMath(normalizeLatexDelimiters(text));

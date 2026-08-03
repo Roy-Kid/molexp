@@ -12,9 +12,9 @@ interface MolplotRawChartProps {
  * React wrapper around molplot's ``RawChart`` — for callers that receive
  * arbitrary Vega-Lite specs (e.g. agent-emitted visualizations).
  *
- * Spec updates flow through ``RawChart.update()`` (a cheap re-embed) rather than
- * tearing down + re-mounting, so an SSE-driven caller that hands a new spec
- * object every render gets incremental redraws.
+ * Spec updates flow through ``RawChart.update()`` only when the serialized
+ * payload changes — parent re-renders with a new object identity must not
+ * re-embed (that wipes pan/zoom).
  */
 export const MolplotRawChart = ({ spec, className, style }: MolplotRawChartProps): JSX.Element => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -22,11 +22,8 @@ export const MolplotRawChart = ({ spec, className, style }: MolplotRawChartProps
     dispose: () => void;
     update: (spec: RawChartConfig) => Promise<void>;
   } | null>(null);
-  // Keep the latest spec in a ref so the mount-once effect can hand it
-  // to the constructor without listing `spec` as a dep (which would
-  // tear down + re-mount on every spec change).
   const specRef = useRef(spec);
-  specRef.current = spec;
+  const lastJsonRef = useRef<string>("");
 
   useEffect(() => {
     const container = containerRef.current;
@@ -35,7 +32,12 @@ export const MolplotRawChart = ({ spec, className, style }: MolplotRawChartProps
     void (async () => {
       const { RawChart } = await import("@molcrafts/molplot");
       if (cancelled) return;
-      chartRef.current = new RawChart(container, specRef.current);
+      const initial = specRef.current;
+      lastJsonRef.current = JSON.stringify(initial);
+      chartRef.current = new RawChart(container, {
+        ...initial,
+        interactive: initial.interactive !== false,
+      });
     })();
     return () => {
       cancelled = true;
@@ -45,10 +47,30 @@ export const MolplotRawChart = ({ spec, className, style }: MolplotRawChartProps
   }, []);
 
   useEffect(() => {
-    // Fire-and-forget update; if the chart hasn't mounted yet, the
-    // mount effect above will pick up the latest specRef value.
-    void chartRef.current?.update(spec);
+    const nextJson = JSON.stringify(spec);
+    if (nextJson === lastJsonRef.current) return;
+    lastJsonRef.current = nextJson;
+    specRef.current = spec;
+    void chartRef.current?.update({
+      ...spec,
+      interactive: spec.interactive !== false,
+    });
   }, [spec]);
+
+  // Non-passive native wheel trap: React onWheel is often passive under
+  // ScrollArea, so preventDefault would be ignored and the chat would scroll
+  // instead of molplot axis-zoom.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    // preventDefault only — do not stopPropagation (capture stop would block
+    // molplot/vega listeners on descendants from seeing the wheel).
+    const onWheel = (e: WheelEvent): void => {
+      e.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => el.removeEventListener("wheel", onWheel, { capture: true });
+  }, []);
 
   return <div ref={containerRef} className={className} style={style} />;
 };

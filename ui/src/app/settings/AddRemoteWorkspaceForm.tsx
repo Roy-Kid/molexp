@@ -10,9 +10,9 @@ import { useState } from "react";
 import type { WorkspaceTargetCreateRequest } from "@/api/generated/models/WorkspaceTargetCreateRequest";
 import type { WorkspaceTargetResponse } from "@/api/generated/models/WorkspaceTargetResponse";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { WorkbenchAction } from "@/components/workbench";
 
 const DEFAULT_CACHE_TTL_SECONDS = 300;
 
@@ -77,9 +77,7 @@ export function AddRemoteWorkspaceForm({
   };
 
   const formClass =
-    variant === "card"
-      ? "space-y-3 rounded-md border border-border bg-muted/20 p-4 self-start"
-      : "space-y-3";
+    variant === "card" ? "self-start space-y-3 border-t border-border/60 pt-4" : "space-y-3";
 
   return (
     <form onSubmit={handleSubmit} className={formClass}>
@@ -185,16 +183,16 @@ export function AddRemoteWorkspaceForm({
           </div>
         </details>
       </div>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-status-failed-foreground">{error}</p>}
       <div className="flex justify-end gap-2">
         {onCancel && (
-          <Button type="button" variant="ghost" onClick={onCancel}>
+          <WorkbenchAction kind="ghost" size="default" type="button" onClick={onCancel}>
             Cancel
-          </Button>
+          </WorkbenchAction>
         )}
-        <Button type="submit" disabled={submitting}>
+        <WorkbenchAction kind="primary" size="default" type="submit" disabled={submitting}>
           {submitting ? "Adding…" : "Add remote workspace"}
-        </Button>
+        </WorkbenchAction>
       </div>
     </form>
   );

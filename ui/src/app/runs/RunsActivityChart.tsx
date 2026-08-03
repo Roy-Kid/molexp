@@ -10,10 +10,10 @@ interface RunsActivityChartProps {
 }
 
 const SERIES_COLORS = {
-  succeeded: "#10b981",
-  failed: "#ef4444",
-  cancelled: "#71717a",
-  started: "#3b82f6",
+  succeeded: "var(--status-completed)",
+  failed: "var(--status-failed)",
+  cancelled: "var(--status-cancelled)",
+  started: "var(--status-running)",
 };
 
 const formatHour = (date: Date): string =>
@@ -111,7 +111,7 @@ interface LegendDotProps {
 }
 
 const LegendDot = ({ color, label }: LegendDotProps): JSX.Element => (
-  <span className="inline-flex items-center gap-1.5">
+  <span className="inline-flex items-center gap-2">
     <span
       aria-hidden="true"
       className="inline-block h-1.5 w-1.5 rounded-full"

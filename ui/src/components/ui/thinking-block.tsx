@@ -25,16 +25,24 @@ export const ThinkingBlock = ({
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-xs transition-colors hover:text-foreground"
+        className="flex items-center gap-2 rounded-sm px-1 py-1 text-xs transition-colors hover:text-foreground"
         aria-expanded={expanded}
         aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
       >
         {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        <Brain className={`h-3 w-3 ${streaming ? "motion-safe:animate-pulse" : ""}`} />
-        <span className="italic">{streaming ? "Thinking…" : "Thought process"}</span>
+        <Brain className="h-3 w-3" />
+        <span className={streaming ? "italic text-muted-foreground" : "italic"}>
+          {streaming ? "Thinking…" : "Thought process"}
+        </span>
+        {streaming ? (
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full bg-status-running mol-motion-progress-pulse"
+            aria-hidden
+          />
+        ) : null}
       </button>
       {expanded && (
-        <pre className="mt-1 whitespace-pre-wrap rounded-md border border-border/50 bg-muted/40 px-3 py-2 text-[11px] italic leading-relaxed text-muted-foreground">
+        <pre className="mt-1 whitespace-pre-wrap rounded-md border border-border/50 bg-muted/40 px-3 py-2 text-micro italic leading-relaxed text-muted-foreground">
           {thinking}
         </pre>
       )}

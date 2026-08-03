@@ -25,7 +25,7 @@ export const RunLogsPanel = ({
   onViewLatest,
 }: RunLogsPanelProps): JSX.Element => (
   <>
-    <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-1 font-mono text-[11px] text-muted-foreground">
+    <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-1 font-mono text-micro text-muted-foreground">
       <div className="flex items-center gap-2">
         <Terminal className="h-3 w-3" />
         <span>stdout/stderr</span>
@@ -48,7 +48,7 @@ export const RunLogsPanel = ({
       ) : logs ? (
         <div className="space-y-4">
           <section>
-            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+            <div className="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
               stdout
             </div>
             <pre className="whitespace-pre-wrap text-foreground">
@@ -56,7 +56,7 @@ export const RunLogsPanel = ({
             </pre>
           </section>
           <section>
-            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+            <div className="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
               stderr
             </div>
             <pre className="whitespace-pre-wrap text-destructive/90">

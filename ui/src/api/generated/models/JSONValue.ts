@@ -1,14 +1,16 @@
-/* generated using openapi-typescript-codegen — circular-safe override.
- * openapi-typescript-codegen emits a self-referential JSONValue that tsc rejects
- * (TS2456). Keep a structural JSON type without circular alias.
- */
+/* generated using openapi-typescript-codegen -- do not edit */
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type JSONValue =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: unknown }
-  | unknown[];
+/**
+ * OpenAPI ``JSONValue`` — broken into interface forms so TypeScript does not
+ * reject the recursive alias (``Record<string, JSONValue>`` self-reference).
+ * ``scripts/patch-generated-api.mjs`` re-applies this after ``generate:api``.
+ */
+export type JSONValue = string | number | boolean | null | JSONArray | JSONObject;
+
+export interface JSONObject {
+    [key: string]: JSONValue;
+}
+
+export interface JSONArray extends Array<JSONValue> {}

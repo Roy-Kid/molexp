@@ -26,22 +26,17 @@ function SheetOverlay({
   return (
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
-      className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
-        className,
-      )}
+      className={cn("mol-motion-overlay fixed inset-0 z-50 bg-overlay-scrim", className)}
       {...props}
     />
   );
 }
 
 const SIDE_CLASSES = {
-  left: "inset-y-0 left-0 h-full w-3/4 max-w-sm border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
-  right:
-    "inset-y-0 right-0 h-full w-3/4 max-w-sm border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
-  top: "inset-x-0 top-0 h-auto border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
-  bottom:
-    "inset-x-0 bottom-0 h-auto border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
+  left: "inset-y-0 left-0 h-full w-3/4 max-w-sm border-r",
+  right: "inset-y-0 right-0 h-full w-3/4 max-w-sm border-l",
+  top: "inset-x-0 top-0 h-auto border-b",
+  bottom: "inset-x-0 bottom-0 h-auto border-t",
 } as const;
 
 function SheetContent({
@@ -59,8 +54,9 @@ function SheetContent({
       <SheetOverlay />
       <SheetPrimitive.Content
         data-slot="sheet-content"
+        data-side={side}
         className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 flex flex-col gap-4 shadow-lg outline-none duration-200",
+          "mol-motion-sheet fixed z-50 flex flex-col gap-4 bg-background shadow-overlay outline-none",
           SIDE_CLASSES[side],
           className,
         )}
@@ -83,11 +79,7 @@ function SheetContent({
 
 function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div
-      data-slot="sheet-header"
-      className={cn("flex flex-col gap-1.5 p-4", className)}
-      {...props}
-    />
+    <div data-slot="sheet-header" className={cn("flex flex-col gap-2 p-4", className)} {...props} />
   );
 }
 

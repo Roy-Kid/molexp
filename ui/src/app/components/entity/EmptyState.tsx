@@ -13,7 +13,7 @@ export interface EmptyStateProps {
 }
 
 const CONTAINER: Record<EmptyStateDensity, string> = {
-  default: "flex flex-col items-center gap-3 py-14 text-center",
+  default: "flex flex-col items-center gap-3 py-8 text-center",
   compact: "flex flex-col items-center gap-2 py-8 text-center",
   inline: "px-2 py-1 text-left",
 };
@@ -28,16 +28,16 @@ export const EmptyState = ({
   return (
     <div className={CONTAINER[density]}>
       {icon && density !== "inline" && (
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-card text-muted-foreground/50 shadow-none">
+        <div className="flex size-10 items-center justify-center text-muted-foreground/50">
           {icon}
         </div>
       )}
       {icon && density === "inline" && <div className="mb-1 text-muted-foreground/40">{icon}</div>}
-      <div className={cn(density === "inline" ? "space-y-0.5" : "max-w-sm space-y-1")}>
+      <div className={cn(density === "inline" ? "space-y-1" : "max-w-sm space-y-1")} role="status">
         <p
           className={cn(
             "font-medium text-foreground",
-            density === "default" ? "text-sm" : "text-xs",
+            density === "default" ? "text-body" : "text-label",
           )}
         >
           {title}
@@ -46,14 +46,14 @@ export const EmptyState = ({
           <p
             className={cn(
               "text-muted-foreground",
-              density === "default" ? "text-sm leading-relaxed" : "text-xs leading-relaxed",
+              density === "default" ? "text-body leading-relaxed" : "text-label leading-relaxed",
             )}
           >
             {description}
           </p>
         )}
       </div>
-      {action && <div className={cn(density === "default" ? "mt-1" : "mt-0.5")}>{action}</div>}
+      {action && <div className={cn(density === "default" ? "mt-1" : "mt-1")}>{action}</div>}
     </div>
   );
 };

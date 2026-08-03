@@ -2,10 +2,8 @@ import { Save } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
 import { filePreviewPluginRegistry } from "@/lib/file-preview-plugins";
 
 /**
@@ -40,13 +38,9 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
   }, [selection]);
 
   const language = useMemo(() => {
-    // If not a file, default to text. Though logic suggests it handles files usually.
     if (selection.objectType !== "workspace-file") {
-      // Could be 'project' json metadata if inspector is not used?
-      // But typically TextEditor is for files.
       return "plaintext";
     }
-    // Mapping file extensions/kinds to Monaco languages
     const kind = selection.fileKind;
     if (kind === "json") return "json";
     if (kind === "yaml") return "yaml";
@@ -57,7 +51,6 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
   }, [selection]);
 
   useEffect(() => {
-    // Only load if it's a file
     if (selection.objectType !== "workspace-file") {
       return;
     }
@@ -66,7 +59,7 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
     setStatus("loading");
     setError(null);
     workspaceApi
-      .getWorkspaceFileText(selection.objectId) // objectId is the path for workspace-file
+      .getWorkspaceFileText(selection.objectId)
       .then((content) => {
         if (isMounted) {
           setValue(content);
@@ -83,7 +76,7 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
     return () => {
       isMounted = false;
     };
-  }, [selection]); // Re-fetch when selection changes
+  }, [selection]);
 
   const handleSave = async () => {
     if (selection.objectType !== "workspace-file") return;
@@ -99,41 +92,50 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
   };
 
   return (
-    <Card className="flex h-full flex-col border-border/60 bg-background">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <div className="space-y-1">
-          <CardTitle className="text-lg font-semibold">Text Editor</CardTitle>
-          <p className="text-sm text-muted-foreground break-all">{selection.objectId}</p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
+    <div className="flex h-full min-h-0 flex-col bg-canvas">
+      <header className="flex h-10 flex-none items-center justify-between gap-2 border-b border-border px-3">
+        <p className="min-w-0 truncate font-mono text-label text-muted-foreground tabular-nums">
+          {selection.objectId}
+        </p>
+        <WorkbenchAction
+          kind="secondary"
+          size="compact"
+          icon={<Save className="h-3.5 w-3.5" />}
           onClick={handleSave}
           disabled={status === "loading" || status === "saving"}
-          className="gap-2"
         >
-          <Save className="h-4 w-4" />
-          {status === "saving" ? "Saving..." : "Save"}
-        </Button>
-      </CardHeader>
-      <Separator />
-      <CardContent className="flex-1 pt-4 p-0 min-h-0">
-        {status === "error" ? (
-          <div className="p-4 text-sm text-destructive">{error}</div>
+          {status === "saving" ? "Saving…" : "Save"}
+        </WorkbenchAction>
+      </header>
+      <div className="min-h-0 flex-1">
+        {status === "loading" && !value ? (
+          <WorkbenchOperationState kind="loading" title="Loading file…" skeletonRows={6} />
+        ) : status === "error" ? (
+          <WorkbenchOperationState
+            kind="error"
+            title="Could not load file"
+            detail={error ?? undefined}
+          />
         ) : (
-          <Tabs defaultValue="edit" className="flex h-full flex-col">
+          <Tabs defaultValue="edit" className="flex h-full flex-col gap-0">
             {previewPlugin ? (
-              <div className="border-b border-border/60 px-4 py-2">
-                <TabsList className="h-auto w-fit rounded-md bg-muted/30 p-1">
-                  <TabsTrigger value="edit">Edit</TabsTrigger>
-                  <TabsTrigger value="preview">Preview</TabsTrigger>
+              <div className="flex-none border-b border-border px-3 py-2">
+                <TabsList className="h-7 w-fit rounded-[var(--radius-control)] bg-muted p-1">
+                  <TabsTrigger value="edit" className="h-6 text-label">
+                    Edit
+                  </TabsTrigger>
+                  <TabsTrigger value="preview" className="h-6 text-label">
+                    Preview
+                  </TabsTrigger>
                 </TabsList>
               </div>
             ) : null}
 
-            <TabsContent value="edit" className="m-0 flex-1 min-h-0">
+            <TabsContent value="edit" className="m-0 min-h-0 flex-1">
               <Suspense
-                fallback={<div className="p-4 text-sm text-muted-foreground">Loading editor…</div>}
+                fallback={
+                  <div className="p-3 text-label text-muted-foreground">Loading editor…</div>
+                }
               >
                 <Editor
                   height="100%"
@@ -153,7 +155,7 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
             </TabsContent>
 
             {previewPlugin && selection.objectType === "workspace-file" ? (
-              <TabsContent value="preview" className="m-0 flex-1 overflow-auto">
+              <TabsContent value="preview" className="m-0 min-h-0 flex-1 overflow-auto">
                 <previewPlugin.Component
                   content={value}
                   name={selection.filePath.split("/").pop() ?? selection.filePath}
@@ -167,7 +169,7 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
             ) : null}
           </Tabs>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 };

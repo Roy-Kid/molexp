@@ -30,9 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WorkbenchTag } from "@/components/workbench";
 import { FlowgramCanvas } from "@/components/workflow/flowgram-canvas";
 import { FlowgramCanvasToolbar } from "@/components/workflow/flowgram-canvas-toolbar";
 import {
@@ -147,14 +145,9 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
 
   if (!workflow) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Workflow Graph</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">No workflow data found.</p>
-        </CardContent>
-      </Card>
+      <div className="flex h-full items-center justify-center px-4 text-label text-muted-foreground">
+        No workflow data found.
+      </div>
     );
   }
 
@@ -164,66 +157,61 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
   const parallelCount = graph?.links.filter((link) => link.kind === "parallel").length ?? 0;
 
   return (
-    <Card className="flex h-full flex-col overflow-hidden border-0 shadow-none">
-      <CardContent className="flex-1 p-0">
-        {/* The canvas wrapper is the positioning context: controls float over the
-            canvas (no dedicated header row) — count tags left, icon-only
-            save/discard right. */}
-        <div className="relative h-full w-full">
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex flex-col gap-2 px-3 py-2.5">
-            <div className="flex items-start justify-between gap-2">
-              <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-background/75 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
-                <Badge variant="outline">{taskCount} tasks</Badge>
-                <Badge variant="outline">{linkCount} links</Badge>
-                <Badge variant="outline">{parallelCount} parallel</Badge>
-              </div>
-              <div className="pointer-events-auto flex items-center rounded-md border border-border/50 bg-background/75 px-1 py-0.5 shadow-sm backdrop-blur">
-                <FlowgramCanvasToolbar
-                  onSave={handleSave}
-                  onDiscard={handleDiscard}
-                  saving={saving}
-                  dirty={dirty}
-                />
-              </div>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="relative min-h-0 w-full flex-1">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex flex-col gap-2 px-3 py-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-border bg-background/90 px-2 py-1 text-micro text-muted-foreground">
+              <WorkbenchTag meaning="metadata">{taskCount} tasks</WorkbenchTag>
+              <WorkbenchTag meaning="metadata">{linkCount} links</WorkbenchTag>
+              <WorkbenchTag meaning="metadata">{parallelCount} parallel</WorkbenchTag>
             </div>
-
-            {error && (
-              <div
-                role="alert"
-                className="pointer-events-auto flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive shadow-sm backdrop-blur"
-              >
-                <span>{error}</span>
-                <button
-                  type="button"
-                  onClick={() => setError(null)}
-                  aria-label="Dismiss error"
-                  className="-mr-1 shrink-0 rounded-sm p-0.5 text-destructive/80 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
+            <div className="pointer-events-auto flex items-center rounded-[var(--radius-control)] border border-border bg-background/90 px-1 py-1">
+              <FlowgramCanvasToolbar
+                onSave={handleSave}
+                onDiscard={handleDiscard}
+                saving={saving}
+                dirty={dirty}
+              />
+            </div>
           </div>
 
-          {isEmpty ? (
-            <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-              <p className="text-sm font-medium text-foreground">No tasks in this workflow yet</p>
-              <p className="max-w-sm text-xs text-muted-foreground">
-                Its graph is empty or hasn't been compiled. Open the Source tab to view or edit the
-                workflow definition.
-              </p>
+          {error && (
+            <div
+              role="alert"
+              className="pointer-events-auto flex items-start justify-between gap-3 rounded-[var(--radius-control)] border border-status-failed/30 bg-status-failed-soft px-3 py-2 text-body text-status-failed-foreground"
+            >
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                aria-label="Dismiss error"
+                className="-mr-1 shrink-0 rounded-sm p-1 text-status-failed-foreground/80 transition-colors hover:text-status-failed-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-failed/40"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
-          ) : (
-            <FlowgramCanvas
-              key={`${workflow.id}:${revision}`}
-              document={document}
-              editable
-              onChange={setDraft}
-              onNodeClick={(taskId) => inspectTask(taskId, "")}
-            />
           )}
         </div>
-      </CardContent>
+
+        {isEmpty ? (
+          <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+            <p className="text-body font-medium text-foreground">No tasks in this workflow yet</p>
+            <p className="max-w-sm text-label text-muted-foreground">
+              Its graph is empty or hasn&apos;t been compiled. Open the Source tab to view or edit
+              the workflow definition.
+            </p>
+          </div>
+        ) : (
+          <FlowgramCanvas
+            key={`${workflow.id}:${revision}`}
+            document={document}
+            editable
+            onChange={setDraft}
+            onNodeClick={(taskId) => inspectTask(taskId, "")}
+          />
+        )}
+      </div>
 
       <AlertDialog
         open={blocker.state === "blocked"}
@@ -235,20 +223,17 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
           <AlertDialogHeader>
             <AlertDialogTitle>Leave with unsaved changes?</AlertDialogTitle>
             <AlertDialogDescription>
-              Your edits to this workflow graph haven't been saved. Leaving now discards them.
+              Your edits to this workflow graph haven&apos;t been saved. Leaving now discards them.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => blocker.reset?.()}>Stay</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "destructive" })}
-              onClick={() => blocker.proceed?.()}
-            >
+            <AlertDialogAction intent="danger" onClick={() => blocker.proceed?.()}>
               Leave
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </div>
   );
 };

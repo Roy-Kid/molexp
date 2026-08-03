@@ -101,7 +101,7 @@ const TreeRow = ({
       <span className={`min-w-0 flex-1 truncate ${node.labelClassName ?? ""}`}>{node.label}</span>
       {node.right && <span className="flex-none">{node.right}</span>}
       {node.meta !== undefined && node.meta !== null && (
-        <span className="flex-none font-mono text-[10px] text-muted-foreground">{node.meta}</span>
+        <span className="flex-none font-mono text-micro text-muted-foreground">{node.meta}</span>
       )}
     </button>
   );
@@ -142,7 +142,7 @@ const TreeRow = ({
 
   return (
     <div>
-      <div className="flex items-center gap-0.5" style={{ paddingLeft: `${depth * INDENT}px` }}>
+      <div className="flex items-center gap-1" style={{ paddingLeft: `${depth * INDENT}px` }}>
         {hasChildren ? (
           <button
             type="button"
@@ -232,7 +232,7 @@ export const TreeView = ({
   const reserveChevron = nodes.some((n) => n.children !== undefined);
 
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-1">
       {nodes.map((node) => (
         <TreeRow
           key={node.id}

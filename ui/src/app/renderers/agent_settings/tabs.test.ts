@@ -2,9 +2,8 @@ import { describe, expect, it } from "@rstest/core";
 import { AGENT_SETTINGS_TABS } from "./tabs";
 
 describe("Agent settings navigation", () => {
-  it("uses capability-level Claude Code-style sections", () => {
+  it("uses capability-level sections without a separate Agents tab", () => {
     expect(AGENT_SETTINGS_TABS.map((tab) => tab.value)).toEqual([
-      "agents",
       "model",
       "instructions",
       "skills",
@@ -12,10 +11,10 @@ describe("Agent settings navigation", () => {
     ]);
   });
 
-  it("opens on the static agents overview before network-backed settings", () => {
+  it("opens on Model (mode overview + providers live there)", () => {
     expect(AGENT_SETTINGS_TABS[0]).toMatchObject({
-      value: "agents",
-      contentKey: "agents-overview",
+      value: "model",
+      contentKey: "providers-form",
     });
   });
 

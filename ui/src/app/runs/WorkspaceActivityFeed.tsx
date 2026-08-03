@@ -2,6 +2,7 @@ import type { JSX } from "react";
 import { useEffect, useState } from "react";
 
 import { WorkspaceService } from "@/api/generated";
+import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
 import { formatRelative, formatTimestamp } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
@@ -34,10 +35,13 @@ export const WorkspaceActivityFeed = ({
 }: WorkspaceActivityFeedProps): JSX.Element => {
   const [events, setEvents] = useState<WorkspaceEventRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
+    void tick;
     let cancelled = false;
-    const tick = async (): Promise<void> => {
+    const tickOnce = async (): Promise<void> => {
       try {
         const rows = await WorkspaceService.getWorkspaceEventsApiEventsGet(
           undefined,
@@ -50,37 +54,61 @@ export const WorkspaceActivityFeed = ({
         }
       } catch (err) {
         if (!cancelled) setError(String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
-    void tick();
-    const id = setInterval(() => void tick(), POLL_INTERVAL_MS);
+    void tickOnce();
+    const id = setInterval(() => void tickOnce(), POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [max]);
+  }, [max, tick]);
 
+  if (loading && events.length === 0 && !error) {
+    return <WorkbenchOperationState kind="loading" density="compact" skeletonRows={3} />;
+  }
   if (error && events.length === 0) {
-    return <p className="text-sm text-muted-foreground">{error}</p>;
+    return (
+      <WorkbenchOperationState
+        kind="error"
+        density="compact"
+        title="Could not load activity"
+        detail={error}
+        action={
+          <WorkbenchAction
+            kind="secondary"
+            size="compact"
+            onClick={() => {
+              setLoading(true);
+              setTick((t) => t + 1);
+            }}
+          >
+            Retry
+          </WorkbenchAction>
+        }
+      />
+    );
   }
   if (events.length === 0) {
-    return <p className="text-sm text-muted-foreground">{FEED_EMPTY_TEXT}</p>;
+    return <WorkbenchOperationState kind="empty" density="compact" title={FEED_EMPTY_TEXT} />;
   }
 
   return (
-    <ol className="space-y-0.5">
+    <ol className="space-y-1">
       {events.map((event) => {
         const visual = eventVisualFor(event.type);
         const Icon = visual.icon;
         return (
           <li
             key={event.id}
-            className="flex items-start gap-2.5 rounded-md px-1.5 py-1.5 text-xs transition-colors hover:bg-muted/40"
+            className="flex items-start gap-3 rounded-[var(--radius-control)] px-2 py-2 text-label transition-colors duration-[var(--motion-fast)] ease-[var(--motion-ease)] hover:bg-interactive/50"
           >
             <span
               aria-hidden="true"
               className={cn(
-                "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
+                "mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
                 visual.dotClass,
               )}
             >
@@ -90,16 +118,16 @@ export const WorkspaceActivityFeed = ({
               <div className="flex items-baseline justify-between gap-2">
                 <span className="truncate font-medium text-foreground">
                   {visual.label}
-                  <span className="ml-1.5 font-normal text-muted-foreground">· {event.actor}</span>
+                  <span className="ml-2 font-normal text-muted-foreground">· {event.actor}</span>
                 </span>
                 <span
-                  className="shrink-0 tabular-nums text-[11px] text-muted-foreground"
+                  className="shrink-0 tabular-nums text-micro text-muted-foreground"
                   title={formatTimestamp(event.created_at)}
                 >
                   {formatRelative(event.created_at)}
                 </span>
               </div>
-              <span className="mt-0.5 flex flex-wrap gap-x-2 font-mono text-[11px] text-muted-foreground">
+              <span className="mt-1 flex flex-wrap gap-x-2 font-mono text-micro text-muted-foreground">
                 {event.refs.map((ref) => {
                   const resolved = resolveEventRef(ref, event.type, knownRunIds, event.payload);
                   if (resolved.kind === "run") {

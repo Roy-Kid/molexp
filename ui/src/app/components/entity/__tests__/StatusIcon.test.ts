@@ -2,14 +2,14 @@ import { describe, expect, it } from "@rstest/core";
 import { statusIconMeta } from "@/app/components/entity";
 
 describe("statusIconMeta", () => {
-  it("maps terminal success statuses to the success tone", () => {
-    expect(statusIconMeta("succeeded").tone).toBe("success");
-    expect(statusIconMeta("completed").tone).toBe("success");
+  it("maps terminal success statuses to the canonical completed tone", () => {
+    expect(statusIconMeta("succeeded").tone).toBe("completed");
+    expect(statusIconMeta("completed").tone).toBe("completed");
   });
 
-  it("maps failed statuses to the error tone", () => {
-    expect(statusIconMeta("failed").tone).toBe("error");
-    expect(statusIconMeta("timed_out").tone).toBe("error");
+  it("maps failed statuses to the canonical failed tone", () => {
+    expect(statusIconMeta("failed").tone).toBe("failed");
+    expect(statusIconMeta("timed_out").tone).toBe("failed");
   });
 
   it("marks running as animated info", () => {
@@ -18,8 +18,13 @@ describe("statusIconMeta", () => {
     expect(meta.spin).toBe(true);
   });
 
-  it("keeps pending and skipped visually quiet", () => {
-    expect(statusIconMeta("pending").tone).toBe("neutral");
-    expect(statusIconMeta("skipped").tone).toBe("neutral");
+  it("keeps pending and skipped in their canonical quiet tones", () => {
+    expect(statusIconMeta("pending").tone).toBe("queued");
+    expect(statusIconMeta("skipped").tone).toBe("cancelled");
+  });
+
+  it("maps suspended agent states to warning", () => {
+    expect(statusIconMeta("waiting_approval").tone).toBe("warning");
+    expect(statusIconMeta("awaiting_user").tone).toBe("warning");
   });
 });

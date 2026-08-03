@@ -36,3 +36,4 @@ export {
   statusIconMeta,
   statusKey,
 } from "./StatusIcon";
+export { type CanonicalStatus, canonicalStatusFor } from "./status";

@@ -10,23 +10,9 @@
  */
 
 import { type JSX, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ParameterField, type ParameterFieldDescriptor } from "@/components/workbench";
 
-export interface InputField {
-  name: string;
-  type: "number" | "integer" | "text" | "boolean" | "enum";
-  default: unknown;
-  options?: (string | number)[];
-}
+export type InputField = ParameterFieldDescriptor;
 
 /**
  * Read the workflow's declared input schema out of an experiment's workflow IR
@@ -78,72 +64,18 @@ export function SchemaForm({ schema, value, onChange }: SchemaFormProps): JSX.El
   };
 
   return (
-    <div className="space-y-2.5">
-      {schema.map((field) => {
-        const current = values[field.name];
-        return (
-          <div
-            key={field.name}
-            className="grid grid-cols-1 items-center gap-1 sm:grid-cols-3 sm:gap-3"
-          >
-            <Label htmlFor={`f-${field.name}`} className="font-mono text-xs sm:text-right">
-              {field.name}
-            </Label>
-            <div className="sm:col-span-2">
-              {field.type === "enum" ? (
-                <Select value={String(current ?? "")} onValueChange={(v) => set(field.name, v)}>
-                  <SelectTrigger id={`f-${field.name}`} className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(field.options ?? []).map((opt) => (
-                      <SelectItem key={String(opt)} value={String(opt)}>
-                        {String(opt)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : field.type === "boolean" ? (
-                <input
-                  id={`f-${field.name}`}
-                  type="checkbox"
-                  checked={Boolean(current)}
-                  onChange={(e) => set(field.name, e.target.checked)}
-                  className="h-4 w-4 rounded border-border"
-                />
-              ) : field.type === "number" || field.type === "integer" ? (
-                <Input
-                  id={`f-${field.name}`}
-                  type="number"
-                  step={field.type === "integer" ? "1" : "any"}
-                  value={current === null || current === undefined ? "" : String(current)}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    if (raw === "") return set(field.name, null);
-                    const n = field.type === "integer" ? parseInt(raw, 10) : Number(raw);
-                    set(field.name, Number.isNaN(n) ? raw : n);
-                  }}
-                  className="h-8 font-mono text-xs"
-                />
-              ) : (
-                <Input
-                  id={`f-${field.name}`}
-                  type="text"
-                  value={current === null || current === undefined ? "" : String(current)}
-                  onChange={(e) => set(field.name, e.target.value)}
-                  className="h-8 font-mono text-xs"
-                />
-              )}
-            </div>
-          </div>
-        );
-      })}
+    <div className="space-y-3">
+      {schema.map((field) => (
+        <ParameterField
+          key={field.name}
+          field={field}
+          value={values[field.name]}
+          onChange={(v) => set(field.name, v)}
+        />
+      ))}
       {schema.length === 0 && (
-        <p className="text-xs italic text-muted-foreground">This workflow declares no inputs.</p>
+        <p className="text-label italic text-muted-foreground">This workflow declares no inputs.</p>
       )}
-      <span className="sr-only">
-        <Button type="button" tabIndex={-1} />
-      </span>
     </div>
   );
 }

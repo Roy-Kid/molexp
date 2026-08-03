@@ -1,9 +1,10 @@
 import { ExternalLink, GitCompareArrows } from "lucide-react";
 import type { JSX } from "react";
 import { useMemo } from "react";
-import { EmptyState, StatusBadge } from "@/app/components/entity";
+import { EmptyState } from "@/app/components/entity";
 import { formatScalar } from "@/app/renderers/dashboardData";
 import type { RunSummary } from "@/app/types";
+import { RunStatusBadge } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 
 interface ExperimentCompareProps {
@@ -60,7 +61,7 @@ const RowGroup = ({
       <tr>
         <td
           colSpan={runIds.length + 1}
-          className="border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+          className="border-b border-border/60 bg-muted/40 px-3 py-2 text-micro font-semibold uppercase tracking-wide text-muted-foreground"
         >
           {title}
           <span className="ml-2 font-normal normal-case text-muted-foreground/70">
@@ -73,15 +74,15 @@ const RowGroup = ({
           key={`${title}:${row.key}`}
           className={cn(
             "border-b border-border/40 last:border-b-0",
-            row.varies ? "bg-amber-500/[0.04]" : "",
+            row.varies ? "bg-diff-modified-soft" : "",
           )}
         >
           <th
             scope="row"
             className={cn(
-              "sticky left-0 z-10 max-w-[180px] truncate border-r border-border/60 bg-background px-3 py-1.5 text-left align-top font-mono text-xs font-medium",
+              "sticky left-0 z-10 max-w-[180px] truncate border-r border-border/60 bg-background px-3 py-2 text-left align-top font-mono text-xs font-medium",
               row.varies
-                ? "border-l-2 border-l-amber-500 text-foreground"
+                ? "border-l border-l-diff-modified text-foreground"
                 : "text-muted-foreground",
             )}
             title={row.key}
@@ -92,7 +93,7 @@ const RowGroup = ({
             <td
               key={`${row.key}:${runIds[idx] ?? idx}`}
               className={cn(
-                "border-r border-border/40 px-3 py-1.5 align-top font-mono text-xs last:border-r-0",
+                "border-r border-border/40 px-3 py-2 align-top font-mono text-xs last:border-r-0",
                 row.varies ? "text-foreground" : "text-muted-foreground",
                 value === "—" && "text-muted-foreground/50",
               )}
@@ -156,7 +157,7 @@ export const ExperimentCompare = ({ runs, onOpenRun }: ExperimentCompareProps): 
       <table className="w-full border-collapse text-xs">
         <thead className="sticky top-0 z-20">
           <tr>
-            <th className="sticky left-0 z-30 border-b border-r border-border/60 bg-muted/60 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <th className="sticky left-0 z-30 border-b border-r border-border/60 bg-muted/60 px-3 py-2 text-left text-micro font-semibold uppercase tracking-wide text-muted-foreground">
               Field
             </th>
             {ordered.map((run) => (
@@ -175,9 +176,9 @@ export const ExperimentCompare = ({ runs, onOpenRun }: ExperimentCompareProps): 
                   </span>
                   <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
                 </button>
-                <div className="mt-1 flex items-center gap-1.5">
-                  <StatusBadge status={run.status} size="sm" />
-                  <span className="font-mono text-[10px] text-muted-foreground">
+                <div className="mt-1 flex items-center gap-2">
+                  <RunStatusBadge status={run.status} size="sm" />
+                  <span className="font-mono text-micro text-muted-foreground">
                     {run.id.substring(0, 8)}
                   </span>
                 </div>
@@ -190,8 +191,8 @@ export const ExperimentCompare = ({ runs, onOpenRun }: ExperimentCompareProps): 
           <RowGroup title="Results" rows={resultRows} runIds={ordered.map((r) => r.id)} />
         </tbody>
       </table>
-      <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
-        <span className="inline-block h-2.5 w-1 rounded-sm bg-amber-500" />
+      <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-micro text-muted-foreground">
+        <span className="inline-block h-3 w-1 rounded-sm bg-diff-modified" />
         <span>Highlighted rows differ across runs.</span>
       </div>
     </div>

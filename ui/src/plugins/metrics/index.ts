@@ -1,22 +1,19 @@
-import { registerFileTypeContribution } from "@/app/registry";
+/**
+ * Retired product surface.
+ *
+ * Charts and scientific series are owned by the **molplot** plugin only.
+ * This module remains only so old imports of `smoothEma` can resolve; it
+ * no longer registers any run tabs.
+ */
+
 import type { UiPluginModule } from "@/plugins/types";
-import { RunMetricsTab } from "./RunMetricsTab";
 
 const metricsPlugin: UiPluginModule = {
   id: "metrics",
   register: () => {
-    registerFileTypeContribution({
-      id: "metrics:run-tab",
-      objectType: "run",
-      value: "metrics",
-      label: "Metrics",
-      priority: 50,
-      matcher: {
-        patterns: ["metrics.jsonl", "metrics/*.jsonl", "**/metrics.jsonl"],
-      },
-      Component: RunMetricsTab,
-    });
+    // intentionally empty — no Metrics / Telemetry tab
   },
 };
 
 export default metricsPlugin;
+export { smoothEma } from "./smoothing";

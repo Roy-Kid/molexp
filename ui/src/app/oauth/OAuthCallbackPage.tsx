@@ -114,12 +114,12 @@ export const OAuthCallbackPage = (): JSX.Element => {
 
 const Center = ({ children }: { children: React.ReactNode }): JSX.Element => (
   <div className="flex min-h-screen items-center justify-center bg-background p-6">
-    <div className="max-w-md space-y-3 rounded-lg border bg-card p-6 shadow-sm">{children}</div>
+    <main className="max-w-md space-y-3 border-y border-border/60 py-6">{children}</main>
   </div>
 );
 
 const Title = ({ children }: { children: React.ReactNode }): JSX.Element => (
-  <h1 className="text-lg font-semibold">{children}</h1>
+  <h1 className="text-heading font-semibold">{children}</h1>
 );
 
 const Body = ({ children }: { children: React.ReactNode }): JSX.Element => (

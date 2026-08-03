@@ -61,7 +61,7 @@ const SeriesCard = ({ series, xMode, yScale }: SeriesCardProps): JSX.Element => 
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-foreground">{series.tag}</div>
-          <div className="font-mono text-[11px] text-muted-foreground">
+          <div className="font-mono text-micro text-muted-foreground">
             {series.points.length} pts · {series.logdir || "."}
           </div>
         </div>
@@ -180,7 +180,7 @@ export const TensorBoardTab = ({ selection, snapshot }: TensorBoardTabProps): JS
 
   return (
     <div className="flex-1 overflow-auto bg-background">
-      <div className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-4 md:px-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 md:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-muted-foreground" />
@@ -207,7 +207,7 @@ export const TensorBoardTab = ({ selection, snapshot }: TensorBoardTabProps): JS
                 key={mode}
                 type="button"
                 onClick={() => setXMode(mode)}
-                className={`rounded px-2 py-0.5 transition-colors ${
+                className={`rounded px-2 py-1 transition-colors ${
                   xMode === mode
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -224,7 +224,7 @@ export const TensorBoardTab = ({ selection, snapshot }: TensorBoardTabProps): JS
                 key={scale}
                 type="button"
                 onClick={() => setYScale(scale)}
-                className={`rounded px-2 py-0.5 transition-colors ${
+                className={`rounded px-2 py-1 transition-colors ${
                   yScale === scale
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"

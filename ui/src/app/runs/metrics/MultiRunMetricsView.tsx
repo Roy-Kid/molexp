@@ -4,7 +4,6 @@ import { type JSX, useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/app/components/entity";
 import { type MetricRecord, workspaceApi } from "@/app/state/api";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -19,8 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WorkbenchAction } from "@/components/workbench";
 import { MolplotLineChart } from "@/plugins/molplot";
-
 import {
   type AggregateOptions,
   buildErrorbandConfig,
@@ -288,17 +287,17 @@ export const MultiRunMetricsView = ({
 
         <Dialog open={configOpen} onOpenChange={setConfigOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="ml-auto h-7 gap-1.5">
+            <WorkbenchAction kind="secondary" size="compact" className="ml-auto h-7 gap-2">
               <Settings2 className="h-3.5 w-3.5" />
               Aggregation
-            </Button>
+            </WorkbenchAction>
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Aggregate metrics</DialogTitle>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-2 text-sm">
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-2">
                 <span className="font-medium text-foreground">Operation</span>
                 <Select value={op} onValueChange={(value) => setOp(value as AggregateOp)}>
                   <SelectTrigger>
@@ -312,7 +311,7 @@ export const MultiRunMetricsView = ({
                 </Select>
               </div>
 
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-2">
                 <span className="font-medium text-foreground">Metric</span>
                 <Select value={metricKey} onValueChange={setMetricKey}>
                   <SelectTrigger>
@@ -328,7 +327,7 @@ export const MultiRunMetricsView = ({
                 </Select>
               </div>
 
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-2">
                 <span className="font-medium text-foreground">Smoothing</span>
                 <div className="flex items-center gap-2">
                   <input
@@ -348,7 +347,7 @@ export const MultiRunMetricsView = ({
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-2">
                   <span className="font-medium text-foreground">X axis</span>
                   <Select value={xMode} onValueChange={(value) => setXMode(value as XMode)}>
                     <SelectTrigger>
@@ -360,7 +359,7 @@ export const MultiRunMetricsView = ({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-2">
                   <span className="font-medium text-foreground">Y axis</span>
                   <Select value={yScale} onValueChange={(value) => setYScale(value as YScale)}>
                     <SelectTrigger>
@@ -382,7 +381,7 @@ export const MultiRunMetricsView = ({
         <MolplotLineChart config={config} style={{ width: "100%", height: "100%" }} />
       </div>
 
-      <div className="flex flex-wrap gap-x-4 gap-y-0.5 border-t border-border px-4 py-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-4 py-2 text-xs text-muted-foreground">
         <span>{picked.length} runs aggregated</span>
         {dropped > 0 && <span>{dropped} unaligned steps dropped</span>}
         {failures.length > 0 && <span>{failures.length} runs failed to load</span>}

@@ -11,6 +11,7 @@ import {
   mapWorkspaceTree,
   workspaceApi,
 } from "@/app/state/api";
+import { pulseSync } from "@/app/state/syncPulse";
 import type {
   ExperimentSummary,
   LeftPanelView,
@@ -255,6 +256,8 @@ export const useWorkspaceState = (activeView?: LeftPanelView): WorkspaceState =>
       })
       .finally(() => {
         inflightRef.current = false;
+        // Every completed poll / refresh breathes the bottom-strip heartbeat.
+        pulseSync();
       });
   }, []);
 

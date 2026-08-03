@@ -5,7 +5,6 @@
 import { Grid3x3 } from "lucide-react";
 import { useState } from "react";
 import { workspaceApi } from "@/app/state/api";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
+import { WorkbenchAction } from "@/components/workbench";
 
 interface CreateSweepDialogProps {
   projectId: string;
@@ -76,10 +76,10 @@ export function CreateSweepDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="h-7 gap-1">
+        <WorkbenchAction kind="secondary" size="compact" className="h-7 gap-1">
           <Grid3x3 className="h-3.5 w-3.5" />
           Sweep
-        </Button>
+        </WorkbenchAction>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
@@ -87,11 +87,11 @@ export function CreateSweepDialog({
           <DialogDescription className="sr-only">One axis, one run per value.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 py-2">
-          <div className="grid gap-1.5">
+          <div className="grid gap-2">
             <Label htmlFor="sweep-key">Parameter</Label>
             <Input id="sweep-key" value={paramKey} onChange={(e) => setParamKey(e.target.value)} />
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-2">
             <Label htmlFor="sweep-values">Values</Label>
             <Input
               id="sweep-values"
@@ -103,9 +103,14 @@ export function CreateSweepDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
-          <Button disabled={busy} onClick={() => void submit()}>
+          <WorkbenchAction
+            kind="primary"
+            size="default"
+            disabled={busy}
+            onClick={() => void submit()}
+          >
             {busy ? "…" : "Create"}
-          </Button>
+          </WorkbenchAction>
         </DialogFooter>
       </DialogContent>
     </Dialog>

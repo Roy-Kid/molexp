@@ -37,7 +37,7 @@ To regenerate the client:
 2. Generate the `openapi.json` spec:
    ```bash
    cd ../../molexp
-   python3 -c "from src.molexp.server.app import app; import json; print(json.dumps(app.openapi()))" > openapi.json
+   python3 -c "from molexp.server.app import create_app; import json; print(json.dumps(create_app().openapi()))" > openapi.json
    ```
 3. Run the generator script:
    ```bash

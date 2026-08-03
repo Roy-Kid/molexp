@@ -18,8 +18,8 @@ import { EntityRefCard } from "@/app/renderers/knowledge/EntityRefCard";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
-import { Button } from "@/components/ui/button";
 import { MarkdownContent } from "@/components/ui/markdown";
+import { WorkbenchAction } from "@/components/workbench";
 
 // Lazy-loaded so Milkdown / ProseMirror (a heavy dependency graph) is split
 // into an async chunk fetched only when the user enters edit mode, keeping the
@@ -121,9 +121,9 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
           actions={
             <>
               {note && (
-                <Button
-                  variant="ghost"
-                  size="sm"
+                <WorkbenchAction
+                  kind="ghost"
+                  size="compact"
                   onClick={() => setEditing((prev) => !prev)}
                   aria-pressed={editing}
                 >
@@ -136,18 +136,18 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
                       <Pencil className="h-4 w-4" /> Edit
                     </>
                   )}
-                </Button>
+                </WorkbenchAction>
               )}
               {/* Portable-Markdown download: a plain <a href> so the server's
                   Content-Disposition attachment header drives the browser save. */}
-              <Button variant="ghost" size="sm" asChild>
+              <WorkbenchAction kind="ghost" size="compact" asChild>
                 <a href={workspaceApi.knowledgeDocExportUrl(relPath)} download>
                   <Download className="h-4 w-4" /> Export
                 </a>
-              </Button>
-              <Button variant="ghost" size="sm" onClick={back}>
+              </WorkbenchAction>
+              <WorkbenchAction kind="ghost" size="compact" onClick={back}>
                 <ArrowLeft className="h-4 w-4" /> Back
-              </Button>
+              </WorkbenchAction>
             </>
           }
         />
@@ -176,7 +176,7 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Embedded entities ({note.cards.length})
                   </h3>
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     {note.cards.map((card) => (
                       <EntityRefCard
                         key={`${card.kind}:${card.id}`}
@@ -203,9 +203,9 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
           icon={FileText}
           title={ref.title ?? ref.name}
           actions={
-            <Button variant="ghost" size="sm" onClick={back}>
+            <WorkbenchAction kind="ghost" size="compact" onClick={back}>
               <ArrowLeft className="h-4 w-4" /> Back
-            </Button>
+            </WorkbenchAction>
           }
         />
         <div className={`${COLUMN} flex-1 space-y-2 overflow-auto px-4 py-6 text-sm md:px-8`}>
@@ -268,17 +268,17 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Notes ({notes.length})
             </h3>
-            <ul className="overflow-hidden rounded-lg border border-border/60 bg-card">
+            <ul className="divide-y divide-border/50 border-y border-border/60">
               {notes.map((n) => (
-                <li key={n.relPath} className="border-b border-border/50 last:border-b-0">
+                <li key={n.relPath}>
                   <button
                     type="button"
                     onClick={() =>
                       nav.setSelection({ objectType: "knowledge", objectId: n.relPath })
                     }
-                    className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                    className="flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/40"
                   >
-                    <NotebookPen className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" />
+                    <NotebookPen className="mt-1 h-4 w-4 flex-none text-muted-foreground" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-foreground">
                         {n.name}
@@ -299,17 +299,17 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               References ({references.length})
             </h3>
-            <ul className="overflow-hidden rounded-lg border border-border/60 bg-card">
+            <ul className="divide-y divide-border/50 border-y border-border/60">
               {references.map((r) => (
-                <li key={r.relPath} className="border-b border-border/50 last:border-b-0">
+                <li key={r.relPath}>
                   <button
                     type="button"
                     onClick={() =>
                       nav.setSelection({ objectType: "knowledge", objectId: r.relPath })
                     }
-                    className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                    className="flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/40"
                   >
-                    <FileText className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" />
+                    <FileText className="mt-1 h-4 w-4 flex-none text-muted-foreground" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-foreground">
                         {r.title ?? r.name}

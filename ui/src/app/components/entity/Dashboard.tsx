@@ -1,21 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Dashboard primitives — the card / chart vocabulary every entity Overview is
-// built from. Built on shadcn Card so project / experiment / run / execution
-// surfaces share one premium, quiet look. Pure presentation only.
+// Dashboard primitives — section / chart vocabulary for entity Overviews.
+// Pure presentation only; no shadcn Card layout wrappers.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { JSX, ReactNode } from "react";
+import { type JSX, type ReactNode, useId } from "react";
 
 import { STATUS_GROUPS } from "@/app/runs/statusGroups";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 /** Minimal status rollup shape (mirrors RunStatusCounts without importing it). */
@@ -131,20 +122,19 @@ export const StatCard = ({
       </div>
       <div
         className={cn(
-          "mt-2 text-2xl font-semibold leading-none tracking-tight tabular-nums",
+          "mt-2 text-display font-semibold leading-none tracking-tight tabular-nums",
           muted ? "text-muted-foreground/45" : STAT_VALUE_TONE[tone],
         )}
       >
         {value}
       </div>
       {hint != null && hint !== "" && (
-        <div className="mt-1.5 truncate text-xs text-muted-foreground">{hint}</div>
+        <div className="mt-2 truncate text-xs text-muted-foreground">{hint}</div>
       )}
     </>
   );
 
-  const shell =
-    "flex h-full flex-col rounded-lg border bg-card px-3.5 py-3 text-left shadow-none transition-colors";
+  const shell = "flex h-full flex-col px-3 py-3 text-left transition-colors";
 
   if (onClick) {
     return (
@@ -153,15 +143,15 @@ export const StatCard = ({
         onClick={onClick}
         className={cn(
           shell,
-          "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          active ? "border-primary/40 ring-1 ring-inset ring-primary/25" : "border-border",
+          "rounded-md hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          active && "bg-primary/5 ring-1 ring-inset ring-primary/25",
         )}
       >
         {body}
       </button>
     );
   }
-  return <div className={cn(shell, "border-border")}>{body}</div>;
+  return <div className={shell}>{body}</div>;
 };
 
 interface StatGridProps {
@@ -172,7 +162,10 @@ interface StatGridProps {
 /** Responsive grid for a row of StatCard. */
 export const StatGrid = ({ children, className }: StatGridProps): JSX.Element => (
   <div
-    className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5", className)}
+    className={cn(
+      "grid grid-cols-2 gap-x-3 gap-y-4 border-y border-border/60 py-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
+      className,
+    )}
   >
     {children}
   </div>
@@ -192,7 +185,7 @@ interface DashboardCardProps {
   variant?: "default" | "destructive";
 }
 
-/** A titled surface that groups related content on a dashboard (shadcn Card). */
+/** A titled section that groups related content on a dashboard (no Card chrome). */
 export const DashboardCard = ({
   title,
   description,
@@ -201,36 +194,37 @@ export const DashboardCard = ({
   className,
   bodyClassName,
   variant = "default",
-}: DashboardCardProps): JSX.Element => (
-  <Card
-    className={cn(
-      "gap-0 py-0 shadow-none",
-      variant === "destructive" && "border-destructive/30 bg-destructive/5",
-      className,
-    )}
-  >
-    {(title != null || action != null || description != null) && (
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 border-b border-border/60 px-4 py-3">
-        <div className="min-w-0 space-y-0.5">
-          {title != null && (
-            <CardTitle className="text-sm font-medium leading-none text-foreground">
-              {title}
-            </CardTitle>
-          )}
-          {description != null && (
-            <CardDescription className="text-xs leading-relaxed">{description}</CardDescription>
-          )}
-        </div>
-        {action != null && (
-          <CardAction className="static col-auto row-auto self-center justify-self-auto">
-            {action}
-          </CardAction>
-        )}
-      </CardHeader>
-    )}
-    <CardContent className={cn("px-4 py-4", bodyClassName)}>{children}</CardContent>
-  </Card>
-);
+}: DashboardCardProps): JSX.Element => {
+  const headingId = useId();
+
+  return (
+    <section
+      aria-labelledby={title != null ? headingId : undefined}
+      className={cn(
+        "flex flex-col",
+        variant === "destructive" && "border-y border-status-failed/30 bg-status-failed-soft px-3",
+        className,
+      )}
+    >
+      {(title != null || action != null || description != null) && (
+        <header className="flex flex-row items-start justify-between gap-3 border-b border-border/60 pb-2">
+          <div className="min-w-0 space-y-1">
+            {title != null && (
+              <h3 id={headingId} className="text-body font-medium leading-none text-foreground">
+                {title}
+              </h3>
+            )}
+            {description != null && (
+              <p className="text-label leading-relaxed text-muted-foreground">{description}</p>
+            )}
+          </div>
+          {action != null && <div className="flex-none self-center">{action}</div>}
+        </header>
+      )}
+      <div className={cn("pt-3", bodyClassName)}>{children}</div>
+    </section>
+  );
+};
 
 // ── Status distribution ──────────────────────────────────────────────────────
 
@@ -274,7 +268,7 @@ export const StatusDistribution = ({
           })}
       </div>
       {legend && (
-        <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+        <ul className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
           {STATUS_GROUPS.map((group) => {
             const value = counts[group.id];
             return (
@@ -383,15 +377,15 @@ export const StatusDonut = ({
           </g>
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-semibold leading-none tabular-nums text-foreground">
+          <span className="text-display font-semibold leading-none tabular-nums text-foreground">
             {centerValue ?? total}
           </span>
           {centerLabel && (
-            <span className="mt-0.5 text-[10px] text-muted-foreground">{centerLabel}</span>
+            <span className="mt-1 text-micro text-muted-foreground">{centerLabel}</span>
           )}
         </div>
       </div>
-      <ul className="min-w-0 flex-1 space-y-1.5">
+      <ul className="min-w-0 flex-1 space-y-2">
         {segments.map((seg) => {
           const pct = total > 0 ? (seg.value / total) * 100 : 0;
           return (
@@ -436,7 +430,7 @@ export const MiniBars = ({ data, max, emptyLabel = "No data." }: MiniBarsProps):
   }
   const ceiling = max ?? Math.max(1, ...data.map((d) => d.value));
   return (
-    <ul className="space-y-2.5">
+    <ul className="space-y-3">
       {data.map((datum) => {
         const pct = Math.max(datum.value > 0 ? 4 : 0, (datum.value / ceiling) * 100);
         const row = (
@@ -522,7 +516,7 @@ export const EntityPath = ({ segments, trailing, className }: EntityPathProps): 
         </span>
       );
     })}
-    {trailing != null && <span className="ml-auto font-mono text-[11px]">{trailing}</span>}
+    {trailing != null && <span className="ml-auto font-mono text-micro">{trailing}</span>}
   </div>
 );
 
@@ -539,7 +533,7 @@ export const ParamChip = ({ name, value, className }: ParamChipProps): JSX.Eleme
   <Badge
     variant="outline"
     className={cn(
-      "max-w-[140px] gap-1 rounded-md border-border/70 bg-muted/30 px-1.5 py-0.5 font-normal",
+      "max-w-[140px] gap-1 rounded-md border-border/70 bg-muted/30 px-2 py-1 font-normal",
       className,
     )}
     title={`${name}=${value}`}
@@ -559,7 +553,7 @@ interface DashboardGridProps {
 /** Scroll container + responsive 12-col grid the Overview lays cards onto. */
 export const DashboardGrid = ({ children, className }: DashboardGridProps): JSX.Element => (
   <div className="flex-1 overflow-auto">
-    <div className={cn("grid grid-cols-1 gap-4 p-4 md:p-5 lg:grid-cols-12", className)}>
+    <div className={cn("grid grid-cols-1 gap-4 p-4 md:p-4 lg:grid-cols-12", className)}>
       {children}
     </div>
   </div>

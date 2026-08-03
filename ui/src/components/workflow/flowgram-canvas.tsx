@@ -34,18 +34,17 @@ import {
   useRef,
   useState,
 } from "react";
-import { StatusIcon, type StatusKey, statusKey } from "@/app/components/entity";
-import { Button } from "@/components/ui/button";
+import { type StatusKey, statusKey } from "@/app/components/entity";
+import { canonicalStatusFor } from "@/app/components/entity/status";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { WorkbenchIconAction, WorkflowNode } from "@/components/workbench";
 import {
   buildFlowgramDocument,
   type FlowgramDocument,
   type FlowgramNodeData,
 } from "@/components/workflow/flowgram-document";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
-
-const prefersReducedMotion = (): boolean =>
-  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 /**
  * Node display data keyed by task id. flowgram drops arbitrary node `data` for
@@ -73,43 +72,9 @@ export interface FlowgramCanvasProps {
   className?: string;
 }
 
-// SHAPE encodes the graph ROLE (UML activity-diagram glyph) — only the silhouette
-// (border-radius + border treatment), never the colour:
-//   input  → initial node (solid "start" pill — UML's filled disc, labelled)
-//   output → activity final (double-ring "bullseye" pill)
-//   task   → action (rounded rectangle)
-const ROLE_SHAPE: Record<"input" | "output" | "task", string> = {
-  input: "rounded-full border-2",
-  output: "rounded-full border-[3px] border-double",
-  task: "rounded-md border-2",
-};
-
-// Leading UML glyph for terminal roles (initial ●, final ◉).
-const ROLE_GLYPH: Partial<Record<"input" | "output" | "task", string>> = {
-  input: "●",
-  output: "◉",
-};
-
-// COLOUR encodes execution STATUS — border + soft fill (+ a steady glow ring for
-// running). Drawn on top of the role shape so type and state read independently.
-// (The workflow template is all `pending`; colours diverge once a run executes.)
-const STATUS_VISUAL: Record<StatusKey, string> = {
-  running:
-    "border-info bg-info-soft text-foreground ring-4 ring-info/25 shadow-[0_0_12px_-2px_hsl(var(--info)/0.55)]",
-  success: "border-success bg-success-soft text-foreground",
-  failed: "border-destructive bg-destructive/12 text-foreground",
-  skipped: "border-muted-foreground/40 border-dashed bg-muted/30 text-muted-foreground",
-  pending: "border-border bg-muted/40 text-foreground",
-};
-
 /**
- * molexp-styled node body, rendered as a UML activity-diagram element. Renders
- * inside flowgram's `WorkflowNodeRenderer` (which owns the ports / drag
- * affordances) but the visible card is pure shadcn/Tailwind:
- *   - role → glyph (initial ● / final ◉ / action rectangle);
- *   - a parallel fan-out body → stacked "∥×N" expansion region (run per element);
- *   - the corner dot → execution status.
- * Clicking surfaces the task id to the host.
+ * Canvas node body — shared {@link WorkflowNode} chrome inside flowgram's
+ * `WorkflowNodeRenderer` (ports / drag stay with flowgram).
  */
 const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): JSX.Element => {
   const render = useNodeRender();
@@ -117,74 +82,39 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
   const expandSubworkflow = useContext(SubworkflowExpandContext);
   const data = nodeDataById.get(render.id) ?? {};
   const taskId = data.taskId ?? render.id;
-  const role = data.role ?? "task";
+  const role = (data.role ?? "task") as "input" | "output" | "task";
   const status = data.status ?? "pending";
   const parallel = data.parallel ?? false;
   const subworkflow = data.subworkflow;
-  const visual = STATUS_VISUAL[statusKey(status)];
-  // Show WHY a node broke: when it failed, surface the recorded error both in
-  // the hover tooltip and as a truncated inline line on the (red) card.
   const failed = statusKey(status) === "failed";
   const error = failed ? data.error : undefined;
-  // Fake stacked cards behind the node = UML expansion-region multiplicity.
-  const stack = parallel ? "shadow-[5px_5px_0_-2px] shadow-violet-300 dark:shadow-violet-800" : "";
-  // A subworkflow node also reads as a (UML rake-glyph) composite — render the
-  // expand affordance and a ▣ badge so it is visually distinct.
+  const displayStatus = canonicalStatusFor(status) ?? "ready";
+  const titleTip = `${taskId} · ${role}${parallel ? " · parallel ×N" : ""}${subworkflow ? " · subworkflow" : ""} · ${displayStatus}${error ? `\n${error}` : ""}`;
+
   return (
-    <div className="relative">
-      <button
-        type="button"
-        title={`${taskId} · ${role}${parallel ? " · parallel ×N" : ""}${subworkflow ? " · subworkflow" : ""} · ${status}${error ? `\n${error}` : ""}`}
-        className={`relative flex min-w-[150px] max-w-[260px] cursor-pointer flex-col px-3 py-2 text-left transition-[filter] hover:brightness-95 ${ROLE_SHAPE[role]} ${visual} ${stack}`}
-        onClick={() => onNodeClick?.(taskId)}
-      >
-        <StatusIcon status={status} className="absolute right-1.5 top-1.5 h-3.5 w-3.5" />
-        <span className="flex items-center gap-1 truncate pr-4 text-xs font-semibold">
-          {ROLE_GLYPH[role] && (
-            <span className="shrink-0 text-[10px] leading-none" aria-hidden>
-              {ROLE_GLYPH[role]}
-            </span>
-          )}
-          {parallel && (
-            <span
-              className="shrink-0 rounded bg-violet-600 px-1 text-[9px] font-bold text-white"
-              aria-hidden
-            >
-              ∥×N
-            </span>
-          )}
-          {subworkflow && (
-            <span
-              className="shrink-0 rounded bg-sky-600 px-1 text-[9px] font-bold text-white"
-              aria-hidden
-            >
-              ▣ sub
-            </span>
-          )}
-          <span className="truncate">{data.title ?? taskId}</span>
-        </span>
-        <span className="truncate font-mono text-[10px] opacity-70">
-          [{data.taskType ?? data.subtitle ?? ""}]
-        </span>
-        {error && (
-          <span className="mt-1 line-clamp-2 border-t border-destructive/30 pt-1 font-mono text-[10px] leading-tight text-destructive">
-            {error}
-          </span>
-        )}
-      </button>
+    <div className="relative" title={titleTip}>
+      <WorkflowNode
+        title={data.title ?? taskId}
+        taskType={data.taskType ?? data.subtitle ?? null}
+        status={status}
+        canvasRole={role}
+        parallel={parallel}
+        subworkflow={Boolean(subworkflow)}
+        error={error}
+        density="compact"
+        onActivate={onNodeClick ? () => onNodeClick(taskId) : undefined}
+      />
       {subworkflow && expandSubworkflow && (
-        <button
-          type="button"
-          title="Open inner workflow"
-          aria-label={`Open inner workflow of ${taskId}`}
-          className="absolute -right-2 -bottom-2 flex h-5 w-5 items-center justify-center rounded-full border border-sky-600 bg-card text-sky-600 shadow-sm transition-colors hover:bg-sky-600 hover:text-white"
+        <WorkbenchIconAction
+          label={`Open inner workflow of ${taskId}`}
+          className="absolute -right-2 -bottom-2 size-5 rounded-full border border-border bg-card"
           onClick={(event) => {
             event.stopPropagation();
             expandSubworkflow(taskId, subworkflow);
           }}
         >
           <Layers className="h-3 w-3" />
-        </button>
+        </WorkbenchIconAction>
       )}
     </div>
   );
@@ -249,67 +179,38 @@ const AutoLayoutOnMount = ({ settledRef }: { settledRef: MutableRefObject<boolea
 const FlowgramCanvasControls = ({ editable }: { editable: boolean }): JSX.Element => {
   const tools = usePlaygroundTools();
   const ctx = useClientContext();
-  const easing = !prefersReducedMotion();
+  const reducedMotion = useReducedMotion();
+  const easing = !reducedMotion;
   const zoomPct = Math.round((tools.zoom ?? 1) * 100);
 
   return (
-    <div className="absolute right-3 bottom-3 z-10 flex items-center gap-0.5 rounded-md border border-border bg-card p-1 shadow-sm">
+    <div className="absolute right-3 bottom-3 z-10 flex items-center gap-1 rounded-[var(--radius-control)] border border-border bg-surface p-1 mol-motion-fade">
       {editable && (
         <>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Undo"
-            onClick={() => ctx.history.undo()}
-          >
+          <WorkbenchIconAction label="Undo" onClick={() => ctx.history.undo()}>
             <Undo2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Redo"
-            onClick={() => ctx.history.redo()}
-          >
+          </WorkbenchIconAction>
+          <WorkbenchIconAction label="Redo" onClick={() => ctx.history.redo()}>
             <Redo2 className="h-3.5 w-3.5" />
-          </Button>
-          <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-border" />
+          </WorkbenchIconAction>
+          <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
         </>
       )}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Zoom out"
-        onClick={() => tools.zoomout(easing)}
-      >
+      <WorkbenchIconAction label="Zoom out" onClick={() => tools.zoomout(easing)}>
         <Minus className="h-3.5 w-3.5" />
-      </Button>
+      </WorkbenchIconAction>
       <span
         aria-live="polite"
-        className="min-w-[3.5ch] text-center text-[11px] tabular-nums text-muted-foreground"
+        className="min-w-[3.5ch] text-center text-micro tabular-nums text-muted-foreground"
       >
         {zoomPct}%
       </span>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Zoom in"
-        onClick={() => tools.zoomin(easing)}
-      >
+      <WorkbenchIconAction label="Zoom in" onClick={() => tools.zoomin(easing)}>
         <Plus className="h-3.5 w-3.5" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Fit to view"
-        onClick={() => tools.fitView(easing)}
-      >
+      </WorkbenchIconAction>
+      <WorkbenchIconAction label="Fit to view" onClick={() => tools.fitView(easing)}>
         <Maximize2 className="h-3.5 w-3.5" />
-      </Button>
+      </WorkbenchIconAction>
     </div>
   );
 };
@@ -365,12 +266,12 @@ export const FlowgramCanvas = ({
       // to recolour the gradient stops (success green, skipped grey).
       lineColor: {
         hidden: "transparent",
-        default: "hsl(var(--muted-foreground))",
-        drawing: "hsl(var(--primary))",
-        hovered: "hsl(var(--primary))",
-        selected: "hsl(var(--primary))",
-        error: "hsl(var(--destructive))",
-        flowing: "hsl(var(--info))",
+        default: "var(--molexp-muted-foreground)",
+        drawing: "var(--molexp-accent)",
+        hovered: "var(--molexp-accent)",
+        selected: "var(--molexp-accent)",
+        error: "var(--status-failed)",
+        flowing: "var(--status-running)",
       },
       isFlowingLine: (_ctx, line) => lineStatus(line) === "running",
       setLineClassName: (_ctx, line) => `molexp-edge-${lineStatus(line)}`,
@@ -438,7 +339,7 @@ export const FlowgramCanvas = ({
         <DialogContent className="flex h-[80vh] max-w-5xl flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 font-mono text-sm">
-              <Layers className="h-4 w-4 text-sky-600" />
+              <Layers className="h-4 w-4 text-muted-foreground" />
               {expanded?.taskId}
               <span className="text-muted-foreground">· inner workflow</span>
               {expanded?.inner.name && (

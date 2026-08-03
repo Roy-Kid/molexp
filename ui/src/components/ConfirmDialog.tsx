@@ -71,7 +71,7 @@ export const useConfirm = (): UseConfirmReturn => {
           <AlertDialogAction
             className={cn(
               state?.destructive &&
-                "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20",
+                "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20",
             )}
             onClick={() => close(true)}
           >

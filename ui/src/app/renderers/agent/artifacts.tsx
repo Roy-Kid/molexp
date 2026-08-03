@@ -1,12 +1,12 @@
-import type { VegaLiteSpec } from "@molcrafts/molplot";
 import type { JSX } from "react";
-import { MolplotRawChart } from "@/plugins/molplot";
+import { AgentPlotChart } from "./AgentPlotChart";
+import { InlineStructureViewer } from "./inlineStructure";
 
 // ---------------------------------------------------------------------------
 // Artifact body (inline plot / table / text)
 //
 // Shared by the conversation transcript (artifacts folded into a tool result)
-// and the Deliverables panel (a chat session's artifacts pulled out for review).
+// and the inspector Artifacts tab.
 // ---------------------------------------------------------------------------
 
 export const ArtifactBody = ({
@@ -19,16 +19,17 @@ export const ArtifactBody = ({
   const inner = (payload.payload as Record<string, unknown> | undefined) ?? payload;
 
   if (kind === "plot") {
-    // Agent-emitted plot artifacts are Vega-Lite specs — render as-is.
-    return (
-      <div className="space-y-2 rounded-md border border-border/60 bg-card p-3">
-        {title && <p className="text-xs font-medium text-foreground">{title}</p>}
-        <MolplotRawChart
-          spec={{ spec: inner as VegaLiteSpec }}
-          style={{ width: "100%", height: 300 }}
-        />
-      </div>
-    );
+    return <AgentPlotChart title={title} spec={inner} />;
+  }
+
+  if (kind === "structure") {
+    const content = typeof inner.content === "string" ? inner.content : "";
+    const filename =
+      typeof inner.filename === "string"
+        ? inner.filename
+        : `structure.${typeof inner.format === "string" ? inner.format : "xyz"}`;
+    if (!content) return null;
+    return <InlineStructureViewer content={content} filename={filename} title={title} />;
   }
 
   if (kind === "table") {
@@ -46,7 +47,7 @@ export const ArtifactBody = ({
           <thead className="bg-muted/30">
             <tr>
               {columns.map((c) => (
-                <th key={`col-${c}`} className="px-3 py-1.5 text-left font-medium">
+                <th key={`col-${c}`} className="px-3 py-2 text-left font-medium">
                   {c}
                 </th>
               ))}
@@ -68,7 +69,7 @@ export const ArtifactBody = ({
           </tbody>
         </table>
         {rows.length > 50 && (
-          <p className="border-t border-border/40 bg-muted/20 px-3 py-1 text-[10px] text-muted-foreground">
+          <p className="border-t border-border/40 bg-muted/20 px-3 py-1 text-micro text-muted-foreground">
             Showing 50 of {rows.length} rows
           </p>
         )}
@@ -78,7 +79,7 @@ export const ArtifactBody = ({
 
   if (kind === "text" && typeof inner.body === "string") {
     return (
-      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-[11px] text-foreground">
+      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-micro text-foreground">
         {inner.body}
       </pre>
     );
@@ -94,15 +95,25 @@ export const ArtifactBody = ({
  * and dispatches each entry to ArtifactBody. Falls back silently when the
  * tool call carried no inline artifacts.
  */
+/** Collect embed artifacts from a tool_call_completed event payload. */
+export const artifactsFromPayload = (
+  payload: Record<string, unknown>,
+): Record<string, unknown>[] => {
+  const result = (payload.result as Record<string, unknown> | undefined) ?? {};
+  const raw = Array.isArray(payload.artifacts)
+    ? payload.artifacts
+    : Array.isArray(result.artifacts)
+      ? result.artifacts
+      : [];
+  return raw.filter((a): a is Record<string, unknown> => Boolean(a) && typeof a === "object");
+};
+
 export const ToolResultArtifacts = ({
   payload,
 }: {
   payload: Record<string, unknown>;
 }): JSX.Element | null => {
-  const result = (payload.result as Record<string, unknown> | undefined) ?? payload;
-  const artifacts = Array.isArray(result.artifacts)
-    ? (result.artifacts as Record<string, unknown>[])
-    : [];
+  const artifacts = artifactsFromPayload(payload);
   if (artifacts.length === 0) return null;
   return (
     <div className="space-y-2">
@@ -111,8 +122,31 @@ export const ToolResultArtifacts = ({
         // identity is `kind:title`, falling back to a JSON fingerprint
         // so two identical-kind artifacts still get distinct keys.
         const title = typeof artifact.title === "string" && artifact.title ? artifact.title : "";
-        const fingerprint = title || JSON.stringify(artifact.payload ?? artifact);
+        const fingerprint = title || JSON.stringify(artifact.payload ?? artifact).slice(0, 120);
         const key = `${String(artifact.kind ?? "?")}:${fingerprint}`;
+        return <ArtifactBody key={key} payload={artifact} />;
+      })}
+    </div>
+  );
+};
+
+/** All embed artifacts from a turn's step events (chat deliverables). */
+export const TurnEmbedArtifacts = ({
+  events,
+}: {
+  events: { type: string; payload?: Record<string, unknown> | null }[];
+}): JSX.Element | null => {
+  const artifacts: Record<string, unknown>[] = [];
+  for (const ev of events) {
+    if (ev.type !== "tool_call_completed") continue;
+    artifacts.push(...artifactsFromPayload((ev.payload ?? {}) as Record<string, unknown>));
+  }
+  if (artifacts.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {artifacts.map((artifact, i) => {
+        const title = typeof artifact.title === "string" && artifact.title ? artifact.title : "";
+        const key = `${String(artifact.kind ?? "?")}:${title}:${i}`;
         return <ArtifactBody key={key} payload={artifact} />;
       })}
     </div>

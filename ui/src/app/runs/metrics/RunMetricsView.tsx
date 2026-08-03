@@ -103,15 +103,16 @@ export const groupSeries = (series: ScalarSeries[]): Array<[string, ScalarSeries
 
 // Exported so the multi-run aggregation view (aggregateSeries.ts) cycles the
 // same 8 colors across runs that the single-run view cycles across series.
+/** Categorical series colors (chart freedom; not run-status tokens). */
 export const PALETTE = [
-  "#2563eb", // blue
-  "#dc2626", // red
-  "#16a34a", // green
-  "#d97706", // amber
-  "#7c3aed", // violet
-  "#0891b2", // cyan
-  "#db2777", // pink
-  "#65a30d", // lime
+  "oklch(0.55 0.18 255)",
+  "oklch(0.55 0.19 25)",
+  "oklch(0.58 0.14 150)",
+  "oklch(0.68 0.14 70)",
+  "oklch(0.55 0.19 295)",
+  "oklch(0.6 0.12 210)",
+  "oklch(0.58 0.18 350)",
+  "oklch(0.62 0.14 130)",
 ];
 
 interface ChartConfigOptions {
@@ -240,11 +241,11 @@ const MetricPanel = ({
   // not a time series — show the number, not an empty one-point chart.
   if (series.points.length <= 1) {
     return (
-      <section className="min-w-0 rounded-md border border-border bg-background p-3">
-        <div className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <section className="min-w-0 border-l border-border/60 py-1 pl-3">
+        <div className="truncate text-micro font-medium uppercase tracking-wide text-muted-foreground">
           {series.key}
         </div>
-        <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">
+        <div className="mt-1 font-mono text-display font-semibold tabular-nums text-foreground">
           {formatValue(series.latest)}
         </div>
       </section>
@@ -321,7 +322,7 @@ const OtherRecords = ({ records }: { records: MetricRecord[] }): JSX.Element | n
 
   return (
     <OverviewSection title="Other Events">
-      <div className="divide-y divide-border rounded-md border border-border">
+      <div className="divide-y divide-border border-y border-border">
         {nonScalar.map((record) => (
           <div
             key={`${record.k}:${record.t}:${record.s ?? ""}:${record.w ?? ""}`}
@@ -361,7 +362,7 @@ const ChartControls = ({
   onYScaleChange,
 }: ControlsProps): JSX.Element => (
   <div className="flex flex-col gap-4 text-xs">
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <span className="font-medium text-foreground">Smoothing</span>
       <div className="flex items-center gap-2">
         <input
@@ -379,7 +380,7 @@ const ChartControls = ({
         </span>
       </div>
     </div>
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <span className="font-medium text-foreground">X axis</span>
       <div className="grid grid-cols-2 gap-1">
         {(["step", "wall"] as const).map((mode) => (
@@ -398,7 +399,7 @@ const ChartControls = ({
         ))}
       </div>
     </div>
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <span className="font-medium text-foreground">Y axis</span>
       <div className="grid grid-cols-2 gap-1">
         {(["linear", "log"] as const).map((scale) => (
@@ -540,7 +541,7 @@ export const RunMetricsView = ({
           />
         )}
 
-        <div className="mt-auto flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
+        <div className="mt-auto flex flex-col gap-1 border-t border-border pt-3 text-xs text-muted-foreground">
           <span>{records.length} records</span>
           <span>{scalarSeries.length} scalar series</span>
           {parseErrors > 0 && <span>{parseErrors} parse errors</span>}
@@ -548,7 +549,7 @@ export const RunMetricsView = ({
       </aside>
 
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-4 md:px-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 md:px-6">
           {grouped.length > 0 ? (
             grouped.map(([groupName, items]) => (
               <OverviewSection key={groupName || "_root"} title={groupName ? groupName : "Scalars"}>
@@ -568,7 +569,7 @@ export const RunMetricsView = ({
             ))
           ) : (
             <OverviewSection title="Scalars">
-              <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+              <div className="border-y border-dashed border-border/70 py-6 text-center text-sm text-muted-foreground">
                 No scalar metrics recorded.
               </div>
             </OverviewSection>

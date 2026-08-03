@@ -1,48 +1,41 @@
 import type { JSX } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { ProgressSpinner } from "@/components/ui/progress-spinner";
 import { cn } from "@/lib/utils";
 
-export type StatusTone = "success" | "error" | "running" | "neutral" | "warning";
+import { type CanonicalStatus, canonicalStatusFor } from "./status";
 
-const STATUS_TONE: Record<string, StatusTone> = {
-  active: "success",
-  succeeded: "success",
-  completed: "success",
-  failed: "error",
-  error: "error",
-  running: "running",
-  pending: "neutral",
-  waiting_for_review: "warning",
-  waiting_approval: "warning",
-  approved: "success",
-  rejected: "error",
-  expired: "neutral",
-  archived: "neutral",
-  cancelled: "neutral",
-  draft: "warning",
-  skipped: "warning",
-};
+export type StatusTone = CanonicalStatus;
 
 const TONE_CLASSES: Record<StatusTone, string> = {
-  success: "border-success/25 bg-success-soft text-success-foreground hover:bg-success-soft",
-  error: "border-destructive/25 bg-destructive/10 text-destructive hover:bg-destructive/10",
-  running: "border-info/25 bg-info-soft text-info-foreground hover:bg-info-soft",
-  neutral: "border-border bg-muted text-muted-foreground hover:bg-muted",
-  warning: "border-warning/25 bg-warning-soft text-warning-foreground hover:bg-warning-soft",
+  draft: "bg-status-draft/10 text-muted-foreground",
+  ready: "bg-status-ready/10 text-status-ready-foreground",
+  queued: "bg-status-queued/10 text-foreground",
+  running: "bg-status-running-soft text-status-running-foreground hover:bg-status-running-soft",
+  completed:
+    "bg-status-completed-soft text-status-completed-foreground hover:bg-status-completed-soft",
+  failed: "bg-status-failed-soft text-status-failed-foreground hover:bg-status-failed-soft",
+  cancelled: "bg-status-cancelled/10 text-muted-foreground",
+  cached: "bg-status-cached/10 text-foreground",
+  warning: "bg-status-warning-soft text-status-warning-foreground hover:bg-status-warning-soft",
 };
 
 const DOT_CLASSES: Record<StatusTone, string> = {
-  success: "bg-success",
-  error: "bg-destructive",
-  running: "bg-info",
-  neutral: "bg-muted-foreground/40",
-  warning: "bg-warning",
+  draft: "bg-status-draft",
+  ready: "bg-status-ready",
+  queued: "bg-status-queued",
+  running: "bg-status-running",
+  completed: "bg-status-completed",
+  failed: "bg-status-failed",
+  cancelled: "bg-status-cancelled",
+  cached: "bg-status-cached",
+  warning: "bg-status-warning",
 };
 
 const SIZE_CLASSES: Record<StatusBadgeSize, string> = {
-  sm: "px-1.5 py-0 text-[10px] font-medium",
-  md: "px-2 py-0.5 text-xs font-medium",
+  sm: "px-2 py-0 text-micro font-medium",
+  md: "px-2 py-1 text-label font-medium",
 };
 
 export type StatusBadgeSize = "sm" | "md";
@@ -50,16 +43,15 @@ export type StatusBadgeSize = "sm" | "md";
 export interface StatusBadgeProps {
   status: string | null | undefined;
   size?: StatusBadgeSize;
-  pulse?: boolean;
-  /** Show a leading colored dot (matching tone). */
+  /** Show a leading colored dot (matching tone). Ignored for `running` — that
+   *  state always uses a spinning indicator (the single "in progress" affordance). */
   dot?: boolean;
-  /** Set false to render only the dot without the text label. */
+  /** Set false to render only the status indicator without its canonical label. */
   showLabel?: boolean;
 }
 
 const resolveTone = (status: string | null | undefined): StatusTone => {
-  if (!status) return "neutral";
-  return STATUS_TONE[status.toLowerCase()] ?? "neutral";
+  return canonicalStatusFor(status) ?? "ready";
 };
 
 export const statusToneFor = resolveTone;
@@ -69,21 +61,47 @@ export const statusDotClass = (status: string | null | undefined): string =>
 export const StatusBadge = ({
   status,
   size = "md",
-  pulse,
   dot = false,
   showLabel = true,
 }: StatusBadgeProps): JSX.Element | null => {
   if (!status) return null;
   const tone = resolveTone(status);
-  const shouldPulse = pulse ?? tone === "running";
+  const label = tone;
+  const sourceStatus = status.toLowerCase();
+  const isRunning = tone === "running";
+
+  if (isRunning) {
+    return (
+      <Badge
+        variant="outline"
+        aria-label={showLabel ? undefined : label}
+        title={sourceStatus === label ? label : `Reported as ${sourceStatus}`}
+        className={cn(
+          TONE_CLASSES.running,
+          SIZE_CLASSES[size],
+          "inline-flex items-center gap-2",
+          size === "sm" ? "px-1" : "px-2",
+        )}
+      >
+        <ProgressSpinner
+          className="text-status-running"
+          size={size === "sm" ? "sm" : "md"}
+          label={label}
+        />
+        {showLabel && <span>{label}</span>}
+      </Badge>
+    );
+  }
+
   return (
     <Badge
       variant="outline"
+      aria-label={showLabel ? undefined : label}
+      title={sourceStatus === label ? label : `Reported as ${sourceStatus}`}
       className={cn(
         TONE_CLASSES[tone],
         SIZE_CLASSES[size],
-        "inline-flex items-center gap-1.5",
-        shouldPulse && "animate-pulse",
+        "mol-motion-state inline-flex items-center gap-2",
       )}
     >
       {dot && (
@@ -92,7 +110,7 @@ export const StatusBadge = ({
           className={cn("inline-block h-1.5 w-1.5 rounded-full", DOT_CLASSES[tone])}
         />
       )}
-      {showLabel && <span>{status}</span>}
+      {showLabel && <span>{label}</span>}
     </Badge>
   );
 };

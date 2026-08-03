@@ -22,7 +22,7 @@ export const MolqExecutionDetail = ({ execution }: ExecutionDetailRenderProps): 
   }
 
   return (
-    <dl className="space-y-1.5 text-xs">
+    <dl className="space-y-2 text-xs">
       {execution.schedulerJobId && (
         <Row label="scheduler_job_id" value={execution.schedulerJobId} />
       )}

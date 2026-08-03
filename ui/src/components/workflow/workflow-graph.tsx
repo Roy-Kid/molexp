@@ -74,7 +74,7 @@ export const WorkflowGraph = ({
         <FlowgramCanvas document={document} onNodeClick={onNodeClick} />
       </div>
       {invalidLinks.length > 0 && (
-        <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+        <p className="mt-1 text-micro text-status-warning-foreground">
           {invalidLinks.length} link
           {invalidLinks.length === 1 ? "" : "s"} reference {invalidLinks.length === 1 ? "an" : ""}{" "}
           unknown task {invalidLinks.length === 1 ? "id" : "ids"} and were skipped.

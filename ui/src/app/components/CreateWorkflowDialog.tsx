@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { workflowApi, workspaceApi } from "@/app/state/api";
 import type { ProjectSummary } from "@/app/types";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WorkbenchAction } from "@/components/workbench";
 
 /** Wire IR seeded onto a brand-new workflow so the canvas opens empty. */
 const EMPTY_WORKFLOW_DOCUMENT = { task_configs: [], links: [] };
@@ -115,12 +115,14 @@ export function CreateWorkflowDialog({
                 required
               />
             </div>
-            {error && <div className="text-sm text-red-500 text-center">{error}</div>}
+            {error && (
+              <div className="text-sm text-status-failed-foreground text-center">{error}</div>
+            )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isLoading || !projectId}>
+            <WorkbenchAction kind="primary" type="submit" disabled={isLoading || !projectId}>
               {isLoading ? "Creating..." : "Create"}
-            </Button>
+            </WorkbenchAction>
           </DialogFooter>
         </form>
       </DialogContent>

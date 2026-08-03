@@ -8,7 +8,6 @@ import { useState } from "react";
 import { TargetCreateRequest } from "@/api/generated/models/TargetCreateRequest";
 import type { TargetResponse } from "@/api/generated/models/TargetResponse";
 import { TargetsService } from "@/api/generated/services/TargetsService";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -18,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WorkbenchAction } from "@/components/workbench";
 
 type Scheduler = TargetCreateRequest.scheduler;
 
@@ -82,9 +82,7 @@ export function AddTargetForm({
   };
 
   const formClass =
-    variant === "card"
-      ? "space-y-3 rounded-md border border-border bg-muted/20 p-4 self-start"
-      : "space-y-3";
+    variant === "card" ? "self-start space-y-3 border-t border-border/60 pt-4" : "space-y-3";
 
   return (
     <form onSubmit={handleSubmit} className={formClass}>
@@ -168,16 +166,16 @@ export function AddTargetForm({
           </>
         ) : null}
       </div>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-status-failed-foreground">{error}</p>}
       <div className="flex justify-end gap-2">
         {onCancel && (
-          <Button type="button" variant="ghost" onClick={onCancel}>
+          <WorkbenchAction kind="ghost" size="default" type="button" onClick={onCancel}>
             Cancel
-          </Button>
+          </WorkbenchAction>
         )}
-        <Button type="submit" disabled={submitting}>
+        <WorkbenchAction kind="primary" size="default" type="submit" disabled={submitting}>
           {submitting ? "Adding…" : "Add target"}
-        </Button>
+        </WorkbenchAction>
       </div>
     </form>
   );

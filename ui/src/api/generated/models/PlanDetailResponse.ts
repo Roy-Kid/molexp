@@ -5,22 +5,16 @@
 import type { PlanFile } from './PlanFile';
 import type { PlanTaskInfo } from './PlanTaskInfo';
 /**
- * The full generated plan: every deliverable the 9-step pipeline produced.
+ * Full plan deliverables for PlanOrchestrator (and legacy nine-step artifacts).
  *
- * One field per UI deliverable view. ``experimentReport`` is the human-readable
- * proposal (step 1); ``experimentSpec`` (+ ``experimentSpecYaml``) is the
- * concrete spec (step 2); ``capabilities`` is the resolved toolchain catalog
- * (step 3); ``tasks`` + ``workflowSource`` are the bound tasks + runnable source
- * (steps 4-5); ``inputSet`` is the parameter-space sweep (step 6); ``dryRun`` is
- * the compile/dry-run result (step 7); ``executionReport`` is the where/how
- * hand-off (step 9). The ``--execute`` tail adds ``execution`` (the REAL
- * workflow execution_result — same artifact kind as the dry-run, split by
- * ``metadata.mode``), ``finalReport``, and ``auditReport``. All are ``None``
- * when the step has not run.
+ * Primary kinds: ``experimentPlan`` (spec + task board), ``planReport``,
+ * ``frozenExperimentPlan``, ``boundWorkflow``, then codegen/compile outputs.
+ * Legacy nine-step fields remain so older runs still render.
  */
 export type PlanDetailResponse = {
     artifactKinds: Array<string>;
     auditReport: (Record<string, any> | null);
+    boundWorkflow?: (Record<string, any> | null);
     capabilities: (string | null);
     capabilitySelection: (Record<string, any> | null);
     draft: string;
@@ -28,12 +22,16 @@ export type PlanDetailResponse = {
     execution: (Record<string, any> | null);
     executionReport: (Record<string, any> | null);
     experimentId: string;
+    experimentPlan?: (Record<string, any> | null);
     experimentReport: (Record<string, any> | null);
     experimentSpec: (Record<string, any> | null);
     experimentSpecYaml: (string | null);
     finalReport: (Record<string, any> | null);
+    frozenExperimentPlan?: (Record<string, any> | null);
     hasWorkflow: boolean;
     inputSet: (Record<string, any> | null);
+    interventionRequest?: (Record<string, any> | null);
+    planReport?: (Record<string, any> | null);
     planReview: (Record<string, any> | null);
     projectId: string;
     runId: string;

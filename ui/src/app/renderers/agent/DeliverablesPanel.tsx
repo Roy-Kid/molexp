@@ -737,18 +737,114 @@ const EmptyStage = ({ label }: { label: string }): JSX.Element => (
   </div>
 );
 
+const BoardTasksView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
+  const ep = (plan.experimentPlan ?? plan.frozenExperimentPlan) as
+    | { board?: { tasks?: unknown[] }; spec?: Record<string, unknown> }
+    | null
+    | undefined;
+  const rawTasks = ep?.board?.tasks;
+  const boardTasks = Array.isArray(rawTasks) ? rawTasks : [];
+  if (boardTasks.length === 0 && plan.tasks.length === 0) {
+    return (
+      <p className="text-sm italic text-muted-foreground">
+        No task board yet — still drafting, or the plan was not frozen.
+      </p>
+    );
+  }
+  if (boardTasks.length === 0) {
+    return <PlanView plan={plan} />;
+  }
+  return (
+    <div className="space-y-3">
+      <PanelSection title={`Task board (${boardTasks.length})`}>
+        <ol className="space-y-1.5">
+          {boardTasks.map((raw, idx) => {
+            const t = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+            const id = String(t.id ?? `task-${idx}`);
+            const name = String(t.name ?? t.title ?? id);
+            const acceptance = Array.isArray(t.acceptance) ? t.acceptance.map(String) : [];
+            return (
+              <li key={id} className="rounded-md border border-border/50 bg-card px-3 py-2">
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded bg-muted text-[11px] font-medium tabular-nums text-muted-foreground">
+                    {idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">{name}</p>
+                    <p className="font-mono text-[11px] text-muted-foreground">{id}</p>
+                    {acceptance.length > 0 ? (
+                      <ul className="mt-1 list-disc pl-4 text-xs text-muted-foreground">
+                        {acceptance.slice(0, 4).map((a) => (
+                          <li key={a}>{a}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </PanelSection>
+    </div>
+  );
+};
+
+const BoundWorkflowView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
+  const bound = plan.boundWorkflow as { tasks?: unknown[] } | null | undefined;
+  const tasks = Array.isArray(bound?.tasks) ? bound.tasks : [];
+  if (tasks.length === 0) {
+    return (
+      <p className="text-sm italic text-muted-foreground">
+        Bound workflow not ready — appears after the plan is approved and realization starts.
+      </p>
+    );
+  }
+  return (
+    <PanelSection title={`Bound tasks (${tasks.length})`}>
+      <ol className="space-y-1.5">
+        {tasks.map((raw, idx) => {
+          const t = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+          const id = String(t.id ?? `bound-${idx}`);
+          const cap = String(t.capability_id ?? t.callable ?? "");
+          const name =
+            typeof t.provenance === "object" && t.provenance
+              ? String((t.provenance as Record<string, unknown>).task_name ?? id)
+              : id;
+          return (
+            <li key={id} className="rounded-md border border-border/50 bg-card px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm text-foreground">{id}</span>
+                {cap ? (
+                  <Badge variant="secondary" className="h-4 px-1 font-mono text-[10px]">
+                    {cap}
+                  </Badge>
+                ) : null}
+              </div>
+              {name !== id ? <p className="mt-0.5 text-xs text-muted-foreground">{name}</p> : null}
+            </li>
+          );
+        })}
+      </ol>
+    </PanelSection>
+  );
+};
+
 const PlanDeliverables = ({
   planRef,
   activeStageKind,
+  refreshKey = 0,
 }: {
   planRef: PlanRef;
   activeStageKind: string;
+  refreshKey?: number;
 }): JSX.Element => {
   const navigate = useNavigate();
   const [plan, setPlan] = useState<PlanDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is an intentional re-fetch trigger, not captured in the body
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -767,7 +863,7 @@ const PlanDeliverables = ({
     return () => {
       cancelled = true;
     };
-  }, [planRef.projectId, planRef.experimentId, planRef.runId]);
+  }, [planRef.projectId, planRef.experimentId, planRef.runId, refreshKey]);
 
   const title = plan?.title || planRef.title || "Experiment plan";
   const status = (plan?.status ?? "succeeded") as SemanticStatus;
@@ -777,7 +873,7 @@ const PlanDeliverables = ({
     if (loading)
       return (
         <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin text-info" />
+          <Loader2 className="h-4 w-4 mol-motion-progress-spin text-info" />
           Loading deliverables…
         </div>
       );
@@ -795,8 +891,29 @@ const PlanDeliverables = ({
       </ScrollArea>
     );
     switch (stage?.view) {
+      case "board":
+        return inScroll(<BoardTasksView plan={plan} />);
+      case "frozen":
+        return inScroll(
+          plan.frozenExperimentPlan ? (
+            <BoardTasksView
+              plan={{
+                ...plan,
+                experimentPlan: plan.frozenExperimentPlan,
+              }}
+            />
+          ) : (
+            <EmptyStage label="Plan not frozen yet — approve the review gate first" />
+          ),
+        );
+      case "bound":
+        return inScroll(<BoundWorkflowView plan={plan} />);
       case "report":
-        return inScroll(<SpecView report={plan.experimentReport} />);
+        return inScroll(
+          <SpecView
+            report={(plan.planReport as Record<string, unknown> | null) ?? plan.experimentReport}
+          />,
+        );
       case "spec":
         return inScroll(<SpecYamlView plan={plan} />);
       case "capabilities":
@@ -804,7 +921,21 @@ const PlanDeliverables = ({
       case "topology":
         return inScroll(<WorkflowIrView plan={plan} />);
       case "script":
-        return inScroll(<MultiFileView plan={plan} />);
+        return inScroll(
+          plan.workflowSource?.trim() || plan.workflowFiles.length > 0 ? (
+            <MultiFileView plan={plan} />
+          ) : (
+            <EmptyStage label="Workflow source not generated yet — appears after approve + realization" />
+          ),
+        );
+      case "tests":
+        return inScroll(
+          plan.testFiles.length > 0 ? (
+            <MultiFileView plan={{ ...plan, workflowFiles: plan.testFiles, testFiles: [] }} />
+          ) : (
+            <EmptyStage label="Per-task tests not generated yet" />
+          ),
+        );
       case "inputs":
         return inScroll(<InputSetView inputSet={plan.inputSet} />);
       case "dryrun":
@@ -872,22 +1003,35 @@ const ChatArtifacts = ({ artifacts }: { artifacts: Record<string, unknown>[] }):
 );
 
 /**
- * The right-hand deliverables panel. Renders a PlanMode plan (Spec/Plan/Script)
- * when the session carries a plan locator, otherwise a chat session's inline
- * artifacts. The parent only mounts this when {@link hasDeliverables} is true,
- * so the empty branch is a defensive fallback.
+ * The right-hand deliverables panel. Renders a PlanMode plan (board / bound /
+ * workflow source / …) when the session carries a plan locator, otherwise a
+ * chat session's inline artifacts. The parent mounts this when
+ * {@link hasDeliverables} is true or a plan fallback exists.
  */
 export const DeliverablesPanel = ({
   events,
   activeStageKind,
+  planFallback = null,
+  refreshKey = 0,
 }: {
   events: ApiSessionEvent[];
   activeStageKind: string;
+  /** Session metadata fallback when events lack plan_emitted yet. */
+  planFallback?: PlanRef | null;
+  /** Bump after approve so GET /plans reloads post-realization artifacts. */
+  refreshKey?: number;
 }): JSX.Element => {
-  const planRef = useMemo(() => derivePlanRef(events), [events]);
+  const planRef = useMemo(() => derivePlanRef(events) ?? planFallback, [events, planFallback]);
   const artifacts = useMemo(() => collectArtifacts(events), [events]);
 
-  if (planRef) return <PlanDeliverables planRef={planRef} activeStageKind={activeStageKind} />;
+  if (planRef)
+    return (
+      <PlanDeliverables
+        planRef={planRef}
+        activeStageKind={activeStageKind}
+        refreshKey={refreshKey}
+      />
+    );
   if (artifacts.length > 0) return <ChatArtifacts artifacts={artifacts} />;
   return (
     <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">

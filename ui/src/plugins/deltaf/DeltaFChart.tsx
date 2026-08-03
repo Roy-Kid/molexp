@@ -24,10 +24,10 @@ interface DeltaFReport {
 
 // Stable display order + human labels for the ΔF decomposition keys produced
 // by eval_df.compute_deltaF (phase1).
-// Bars grouped by effect type, coloured with the SciencePlots "science" cycle
-// (MIT-licensed style; these are plain hex config values). Short tick labels
-// (long ones need `automargin`, which oscillates margins on zoom → jitter); the
-// full description lives in the hover. Each tuple = [reportKey, tick, hover].
+// Bars grouped by effect type. Scientific series palette (oklch categorical —
+// not brand/status tokens). Short tick labels (long ones need `automargin`,
+// which oscillates margins on zoom → jitter); full description in hover.
+// Each tuple = [reportKey, tick, hover].
 type Member = readonly [string, string, string];
 const GROUPS: ReadonlyArray<{
   id: string;
@@ -38,7 +38,7 @@ const GROUPS: ReadonlyArray<{
   {
     id: "inference",
     label: "inference (bf16 forward)",
-    color: "#0C5DA5", // science blue
+    color: "oklch(0.52 0.14 250)",
     members: [
       ["infer_effect_on_fp32w", "infer·fp32w", "inference bf16, fp32 weights"],
       ["infer_effect_on_bf16w", "infer·bf16w", "inference bf16, bf16 weights"],
@@ -47,7 +47,7 @@ const GROUPS: ReadonlyArray<{
   {
     id: "training",
     label: "training precision",
-    color: "#FF9500", // science amber
+    color: "oklch(0.72 0.16 70)",
     members: [
       ["train_effect_fp64", "train·fp64", "fp64 training vs fp32"],
       ["train_effect_bf16", "train·bf16", "bf16 training vs fp32"],
@@ -56,7 +56,7 @@ const GROUPS: ReadonlyArray<{
   {
     id: "combined",
     label: "combined / reference",
-    color: "#845B97", // science purple
+    color: "oklch(0.55 0.14 310)",
     members: [
       ["combined_e2e_bf16", "e2e·bf16", "combined end-to-end bf16"],
       ["fp64_native_vs_gold", "fp64·native", "fp64 native vs gold"],
@@ -150,7 +150,7 @@ export const DeltaFChart = ({
     return <div className="p-4 text-sm text-muted-foreground">No run selected.</div>;
   }
   if (error) {
-    return <div className="p-4 text-sm text-red-500">ΔF report: {error}</div>;
+    return <div className="p-4 text-sm text-status-failed-foreground">ΔF report: {error}</div>;
   }
   if (!config) {
     return <div className="p-4 text-sm text-muted-foreground">Loading ΔF report…</div>;

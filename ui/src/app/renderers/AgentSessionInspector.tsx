@@ -1,21 +1,28 @@
 /**
  * AgentSessionInspector — right-panel details for an agent session.
  *
- * Hosts the token/usage statistics that previously lived in the center
- * panel as a stats strip, plus session metadata (status, goal, timing).
+ * Tabs:
+ *   * **Details** — mode, task metadata, usage, system prompt, slash history
+ *   * **Artifacts** — chat embed plots/tables/structures (not a forced center
+ *     split; Plan deliverables still use the plan split when a plan locator
+ *     exists)
+ *
  * The main agent view owns live SSE/stat refresh; the inspector fetches the
  * selected task snapshot without starting a second poller for the same task.
  */
 
-import { Bot, ChevronRight, FileText, Lock, Slash } from "lucide-react";
+import { Bot, ChevronRight, FileText, Lock, Package, Slash } from "lucide-react";
 import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { SessionStatsResponse } from "@/api/generated";
 import { StatusBadge } from "@/app/components/entity";
+import { ArtifactBody } from "@/app/renderers/agent/artifacts";
 import { isLegacySession, legacyBadgeMeta } from "@/app/renderers/agent_session/inspectorHelpers";
+import { collectArtifacts } from "@/app/renderers/agentEvents";
 import { type ApiAgentSystemPrompt, agentApi, planApi } from "@/app/state/api";
 import type { ApiAgentSession, RendererProps } from "@/app/types";
-import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WorkbenchTag } from "@/components/workbench";
 
 const COMPACT_NUMBER = new Intl.NumberFormat(undefined, {
   notation: "compact",
@@ -149,36 +156,98 @@ export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
 
   const legacy = isLegacySession(session);
   const legacyMeta = legacy ? legacyBadgeMeta() : null;
+  const artifacts = useMemo(() => collectArtifacts(session?.events ?? []), [session?.events]);
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex items-center justify-between border-b border-border/70 bg-muted/20 px-3 py-1.5">
-        <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center justify-between border-b border-border/70 bg-muted/20 px-3 py-2">
+        <h2 className="flex items-center gap-2 text-micro font-medium uppercase tracking-wide text-muted-foreground">
           <Bot className="h-3.5 w-3.5" /> Task details
         </h2>
         {legacyMeta ? (
-          <Badge
-            variant="outline"
-            className="h-5 gap-1 px-1.5 text-[10px] uppercase tracking-wide"
+          <WorkbenchTag
+            meaning="metadata"
+            className="h-5 gap-1 px-2 text-micro uppercase tracking-wide"
             title={legacyMeta.tooltip}
           >
             <Lock className="h-3 w-3" /> {legacyMeta.label}
-          </Badge>
+          </WorkbenchTag>
         ) : session?.status ? (
           <StatusBadge status={session.status} size="sm" dot />
         ) : null}
       </div>
 
-      <div className="flex-1 overflow-auto">
-        {!sessionId && <p className="px-3 py-2 text-xs text-muted-foreground">No task selected.</p>}
-        {error && <p className="px-3 py-2 text-xs text-destructive">{error}</p>}
+      {!sessionId && <p className="px-3 py-2 text-xs text-muted-foreground">No task selected.</p>}
+      {error && <p className="px-3 py-2 text-xs text-destructive">{error}</p>}
 
-        {session && <ModeSection session={session} />}
-        {sessionRows.length > 0 && <Section title="Task" rows={sessionRows} />}
-        {statsRows.length > 0 && <Section title="Usage" rows={statsRows} />}
-        {session && <SystemPromptSection sessionId={session.sessionId} />}
-        {session && <CommandsHistorySection session={session} />}
+      {session ? (
+        <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col gap-0">
+          <TabsList
+            variant="line"
+            className="h-9 w-full justify-start rounded-none border-b border-border/60 bg-transparent px-2"
+          >
+            <TabsTrigger value="details" className="text-xs">
+              Details
+            </TabsTrigger>
+            <TabsTrigger value="artifacts" className="gap-1.5 text-xs">
+              Artifacts
+              {artifacts.length > 0 ? (
+                <WorkbenchTag className="h-4 min-w-4 px-1 text-micro tabular-nums">
+                  {artifacts.length}
+                </WorkbenchTag>
+              ) : null}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="details" className="min-h-0 flex-1 overflow-auto">
+            <ModeSection session={session} />
+            {sessionRows.length > 0 && <Section title="Task" rows={sessionRows} />}
+            {statsRows.length > 0 && <Section title="Usage" rows={statsRows} />}
+            <SystemPromptSection taskId={session.taskId ?? session.sessionId} session={session} />
+            <CommandsHistorySection session={session} />
+          </TabsContent>
+          <TabsContent value="artifacts" className="min-h-0 flex-1 overflow-auto">
+            <ArtifactsTab artifacts={artifacts} />
+          </TabsContent>
+        </Tabs>
+      ) : null}
+    </div>
+  );
+};
+
+const ArtifactsTab = ({ artifacts }: { artifacts: Record<string, unknown>[] }): JSX.Element => {
+  if (artifacts.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+        <Package className="h-5 w-5 text-muted-foreground" />
+        <p className="text-xs text-muted-foreground">
+          No chat artifacts yet. Plots and structures from{" "}
+          <code className="text-micro">embed_plot</code> /{" "}
+          <code className="text-micro">embed_structure</code> appear here.
+        </p>
       </div>
+    );
+  }
+  return (
+    <div className="space-y-3 px-3 py-3">
+      <p className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
+        Conversation artifacts
+      </p>
+      {artifacts.map((artifact) => {
+        const kind = String(artifact.kind ?? "item");
+        const title = typeof artifact.title === "string" && artifact.title ? artifact.title : "";
+        // Artifacts carry no stable id; identity is `kind:title` with a JSON
+        // fingerprint fallback so two identical-kind items stay distinct.
+        const fingerprint = title || JSON.stringify(artifact.payload ?? artifact).slice(0, 120);
+        return (
+          <div key={`${kind}:${fingerprint}`} className="space-y-1">
+            <p className="text-micro text-muted-foreground">
+              <span className="font-mono">{kind}</span>
+              {title ? ` · ${title}` : ""}
+            </p>
+            <ArtifactBody payload={artifact} />
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -187,26 +256,28 @@ const ModeSection = ({ session }: { session: ApiAgentSession }): JSX.Element | n
   if (session.activeMode !== "plan" && !session.skillId) return null;
   return (
     <div className="border-b border-border/40">
-      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className="px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
         Mode
       </p>
-      <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
+      <div className="flex flex-wrap items-center gap-2 px-3 pb-2">
         {session.activeMode === "plan" ? (
-          <Badge variant="outline" className="text-[10px] gap-1">
+          <WorkbenchTag meaning="metadata" className="text-micro gap-1">
             <FileText className="h-3 w-3" /> planning agent
-          </Badge>
+          </WorkbenchTag>
         ) : null}
-        {session.skillId ? (
-          <Badge variant="secondary" className="text-[10px]">
-            from skill
-          </Badge>
-        ) : null}
+        {session.skillId ? <WorkbenchTag className="text-micro">from skill</WorkbenchTag> : null}
       </div>
     </div>
   );
 };
 
-const SystemPromptSection = ({ sessionId }: { sessionId: string }): JSX.Element => {
+const SystemPromptSection = ({
+  taskId,
+  session,
+}: {
+  taskId: string;
+  session: ApiAgentSession;
+}): JSX.Element => {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<ApiAgentSystemPrompt | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -214,8 +285,9 @@ const SystemPromptSection = ({ sessionId }: { sessionId: string }): JSX.Element 
   useEffect(() => {
     if (!open || data) return;
     let cancelled = false;
+    // Prefer task id (agent-tasks live surface); fall back to session id.
     planApi
-      .getSystemPrompt(sessionId)
+      .getSystemPrompt(taskId || session.sessionId)
       .then((v) => {
         if (!cancelled) setData(v);
       })
@@ -225,35 +297,39 @@ const SystemPromptSection = ({ sessionId }: { sessionId: string }): JSX.Element 
     return () => {
       cancelled = true;
     };
-  }, [open, data, sessionId]);
+  }, [open, data, taskId, session.sessionId]);
 
   return (
     <div className="border-b border-border/40">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-3 pb-1 pt-2 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+        className="flex w-full items-center gap-2 px-3 pb-1 pt-2 text-left text-micro font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
       >
         <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
         System prompt
       </button>
       {open && (
         <div className="px-3 pb-2">
-          {error && <p className="text-[11px] text-destructive">{error}</p>}
+          {error && <p className="text-micro text-destructive">{error}</p>}
           {data ? (
             <>
-              <div className="mb-1 flex flex-wrap gap-1 text-[10px]">
-                {data.workspaceInstructions ? <Badge variant="secondary">workspace</Badge> : null}
-                {data.skillInstructions ? <Badge variant="secondary">skill</Badge> : null}
-                {data.sessionOverride !== null ? <Badge variant="default">override</Badge> : null}
-                {data.planMode ? <Badge variant="outline">plan addendum</Badge> : null}
+              <div className="mb-1 flex flex-wrap gap-1 text-micro">
+                {data.workspaceInstructions ? <WorkbenchTag>workspace</WorkbenchTag> : null}
+                {data.skillInstructions ? <WorkbenchTag>skill</WorkbenchTag> : null}
+                {data.sessionOverride !== null ? (
+                  <WorkbenchTag meaning="selection">override</WorkbenchTag>
+                ) : null}
+                {data.planMode ? (
+                  <WorkbenchTag meaning="metadata">plan addendum</WorkbenchTag>
+                ) : null}
               </div>
-              <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border/50 bg-muted/40 p-2 font-mono text-[10px] leading-snug">
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border/50 bg-muted/40 p-2 font-mono text-micro leading-snug">
                 {data.effective}
               </pre>
             </>
           ) : !error ? (
-            <p className="text-[11px] text-muted-foreground">Loading…</p>
+            <p className="text-micro text-muted-foreground">Loading…</p>
           ) : null}
         </div>
       )}
@@ -284,16 +360,16 @@ const CommandsHistorySection = ({ session }: { session: ApiAgentSession }): JSX.
 
   return (
     <div className="border-b border-border/40 last:border-b-0">
-      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className="px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
         Commands invoked
       </p>
-      <ul className="space-y-0.5 px-3 pb-2 text-[11px]">
+      <ul className="space-y-1 px-3 pb-2 text-micro">
         {commands.map((row) => (
           <li
             key={`${row.ts}-${row.slashName}`}
             className="flex items-center justify-between gap-2"
           >
-            <span className="flex items-center gap-1.5 font-mono">
+            <span className="flex items-center gap-2 font-mono">
               <Slash className="h-3 w-3 text-muted-foreground" />
               {row.slashName}
             </span>
@@ -312,13 +388,13 @@ const CommandsHistorySection = ({ session }: { session: ApiAgentSession }): JSX.
 
 const Section = ({ title, rows }: { title: string; rows: DetailRow[] }): JSX.Element => (
   <div className="border-b border-border/40 last:border-b-0">
-    <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <p className="px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
       {title}
     </p>
     <dl className="divide-y divide-border/40">
       {rows.map((row) => (
-        <div key={row.label} className="flex items-baseline justify-between gap-2 px-3 py-1.5">
-          <dt className="text-[11px] font-medium text-muted-foreground">{row.label}</dt>
+        <div key={row.label} className="flex items-baseline justify-between gap-2 px-3 py-2">
+          <dt className="text-micro font-medium text-muted-foreground">{row.label}</dt>
           <dd
             className="break-all text-right text-xs font-medium tabular-nums text-foreground"
             title={row.hint}

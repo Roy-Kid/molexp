@@ -12,7 +12,7 @@ import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
 import { WorkflowSourceViewer } from "@/app/renderers/WorkflowSourceViewer";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
-import { Button } from "@/components/ui/button";
+import { WorkbenchAction } from "@/components/workbench";
 import { formatDateTime } from "@/lib/datetime";
 
 const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Element | null => {
@@ -39,27 +39,27 @@ const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Eleme
           </OverviewSection>
 
           <OverviewSection title="Relationships">
-            <div className="flex flex-wrap gap-1.5">
-              <Button
-                variant="outline"
-                size="sm"
+            <div className="flex flex-wrap gap-2">
+              <WorkbenchAction
+                kind="secondary"
+                size="compact"
                 className="h-7 px-2 text-xs"
                 onClick={() =>
                   setSelection({ objectType: "project", objectId: workflow.projectId })
                 }
               >
                 Project: {project?.name || workflow.projectId}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
+              </WorkbenchAction>
+              <WorkbenchAction
+                kind="secondary"
+                size="compact"
                 className="h-7 px-2 text-xs"
                 onClick={() =>
                   setSelection({ objectType: "experiment", objectId: workflow.experimentId })
                 }
               >
                 Experiment: {experiment?.name || workflow.experimentId}
-              </Button>
+              </WorkbenchAction>
             </div>
           </OverviewSection>
         </>

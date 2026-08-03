@@ -1,12 +1,35 @@
 import { describe, expect, it } from "@rstest/core";
 
 import type { ApiSessionEvent } from "@/app/types";
-import { foldStreamedTurn } from "../agentEvents";
+import { appendCoalescedEvent, coalesceStreamEvents, foldStreamedTurn } from "../agentEvents";
 
 const ev = (type: string, payload: Record<string, unknown> = {}): ApiSessionEvent => ({
   type,
   ts: "2026-05-30T00:00:00Z",
   payload,
+});
+
+describe("coalesceStreamEvents", () => {
+  it("merges consecutive thinking and token deltas", () => {
+    const merged = coalesceStreamEvents([
+      ev("thinking_delta", { text: "a" }),
+      ev("thinking_delta", { text: "b" }),
+      ev("tool_call_started", { tool_name: "x" }),
+      ev("token_delta", { text: "1" }),
+      ev("token_delta", { text: "2" }),
+    ]);
+    expect(merged).toHaveLength(3);
+    expect(merged[0]).toMatchObject({ type: "thinking_delta", payload: { text: "ab" } });
+    expect(merged[1].type).toBe("tool_call_started");
+    expect(merged[2]).toMatchObject({ type: "token_delta", payload: { text: "12" } });
+  });
+
+  it("appendCoalescedEvent extends the last delta in place", () => {
+    let rows = [ev("thinking_delta", { text: "hi" })];
+    rows = appendCoalescedEvent(rows, ev("thinking_delta", { text: "!" }));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].payload).toMatchObject({ text: "hi!" });
+  });
 });
 
 describe("foldStreamedTurn", () => {
