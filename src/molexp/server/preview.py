@@ -4,7 +4,7 @@ A non-standard, framework-specific molecular dataset (reference case: a QM9
 dataset downloaded via molnex) carries its own loader as a *same-stem* ``.py``
 sidecar placed next to it: ``qm9.tar.bz2`` → ``qm9.py``. The sidecar defines
 **exactly one** concrete subclass of :class:`molpy.io.BaseTrajectoryReader` — a
-pure ``Iterable[molrs.Frame]`` reader. The sidecar knows nothing about molvis
+pure ``Iterable[molpy.Frame]`` reader. The sidecar knows nothing about molvis
 or the server; molexp (the host) imports it on an explicit preview request
 only, instantiates the single reader with the dataset path, takes a host-owned
 :func:`itertools.islice` of frames, and renders them.
@@ -52,11 +52,10 @@ from .exceptions import (
 )
 
 if TYPE_CHECKING:
-    # molpy (+ molrs.Frame) is an optional peer dependency (not declared in
-    # pyproject) — preview endpoints degrade gracefully when it is absent.
-    # As of molpy 0.8, Frame lives in molrs (no ``molpy.Frame``).
+    # molpy is a declared dependency. ``Frame`` is re-exported by molpy and
+    # reached ONLY through it — molexp never imports molrs directly.
+    from molpy import Frame  # ty: ignore[unresolved-import]
     from molpy.io import BaseTrajectoryReader  # ty: ignore[unresolved-import]
-    from molrs import Frame  # ty: ignore[unresolved-import]
 
 # Private module name for sidecar import — never ``"__main__"``, so the
 # sidecar's ``if __name__ == "__main__"`` guard stays dormant.
@@ -217,7 +216,7 @@ def preview_frames(
         limit: Maximum number of frames to materialize.
 
     Returns:
-        A list of up to ``limit`` :class:`molrs.Frame` objects.
+        A list of up to ``limit`` :class:`molpy.Frame` objects.
 
     Raises:
         MolExpError: Any typed preview error (propagated unchanged).

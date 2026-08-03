@@ -9,7 +9,7 @@ version = "0.0.2"
 description = "Agent-assisted scientific-workflow platform for FAIR research"
 authors = [{name = "molcrafts"}]
 license = {text = "BSD-3-Clause"}
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 
 dependencies = [
     "pydantic>=2.10",
@@ -22,6 +22,9 @@ dependencies = [
     "molcrafts-mollog>=1.0.0",
     "molcrafts-molcfg>=1.2.0",
     "molcrafts-molq>=0.2.0",
+    # molpy is a hard dependency (Frame/Block and the io readers); molrs is
+    # reached ONLY through molpy — never import molrs directly.
+    "molcrafts-molpy>=0.11.2",
     "tidewave[fastapi]",
 ]
 
@@ -50,6 +53,14 @@ dev = [
     "ruff==0.15.12",
     "ty==0.0.60",
     "tox>=4.23",
+    # Build binding only. molrs is molpy's dependency, not molexp's API — no
+    # molexp module may `import molrs` (Frame/Block come from molpy). It is
+    # named here solely because `[tool.uv.sources]` path overrides apply to a
+    # project's OWN requirements, not to transitive ones: without this line the
+    # local editable molpy resolves against the published molrs instead of the
+    # matching-minor sibling checkout. Under CI's UV_NO_SOURCES=1 it resolves
+    # from the index like any other package.
+    "molcrafts-molrs",
 ]
 docs = [
     "zensical>=0.0.45",
@@ -60,6 +71,8 @@ docs = [
 molcrafts-mollog = { path = "../mollog", editable = true }
 molcrafts-molcfg = { path = "../molcfg", editable = true }
 molcrafts-molq = { path = "../molq", editable = true }
+molcrafts-molpy = { path = "../molpy", editable = true }
+molcrafts-molrs = { path = "../molrs/molrs-python", editable = true }
 
 [project.scripts]
 molexp = "molexp.cli:app"
@@ -74,7 +87,7 @@ markers = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 extend-exclude = [
     "src/molexp/dist",
     "ui",
@@ -89,7 +102,7 @@ extend-exclude = [
 # Strict ruleset for the molexp Python codebase.
 #   E, W, F, I  — pycodestyle / pyflakes / isort baseline
 #   B           — flake8-bugbear
-#   UP          — pyupgrade (modern py312 syntax)
+#   UP          — pyupgrade (modern py314 syntax)
 #   SIM         — flake8-simplify
 #   RUF         — ruff-specific rules
 #   ANN         — flake8-annotations (drives ANN401: ban `Any`)
@@ -183,7 +196,7 @@ env_list = ["lint", "py"]
 [tool.tox.env.lint]
 description = "CI lint"
 skip_install = true
-base_python = ["python3.12"]
+base_python = ["python3.14"]
 deps = [
   "ruff==0.15.12",
   "ty==0.0.60",
@@ -194,7 +207,7 @@ commands = [
 
 [tool.tox.env.py]
 description = "CI test (non-editable package when package=wheel)"
-base_python = ["python3.12"]
+base_python = ["python3.14"]
 pass_env = [
   "HOME",
   "PATH",

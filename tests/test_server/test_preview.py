@@ -11,12 +11,6 @@ from pathlib import Path
 
 import pytest
 
-# molpy + matching molrs required (Frame lives in molrs). Absent → skip; an
-# INSTALLED-but-broken pair (molpy's version guard raising on a molrs minor
-# mismatch) must stay loud, so no exc_type widening here — fix the install.
-pytest.importorskip("molpy")
-pytest.importorskip("molrs")
-
 from molexp.server.preview import (
     AmbiguousReaderError,
     NoReaderInSidecarError,
@@ -35,7 +29,7 @@ _ZERO_READER_SRC = "VALUE = 42\n"
 # A sidecar that defines two concrete BaseTrajectoryReader subclasses.
 _TWO_READER_SRC = """
 from molpy.io import BaseTrajectoryReader
-from molrs import Frame
+from molpy import Frame
 
 
 class ReaderA(BaseTrajectoryReader):

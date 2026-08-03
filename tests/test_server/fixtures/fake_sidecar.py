@@ -14,7 +14,7 @@ The reader itself is a tiny in-memory :class:`molpy.io.BaseTrajectoryReader`
 subclass yielding ``element/x/y/z`` frames, so the happy-path tests need no
 real dataset on disk.
 
-As of molpy 0.8, :class:`molrs.Frame` is the frame type (no ``molpy.Frame``).
+``Frame`` is reached through molpy (``molpy.Frame``), never by importing molrs.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ import os
 from pathlib import Path
 
 import numpy as np
+from molpy import Frame
 from molpy.io import BaseTrajectoryReader
-from molrs import Frame
 
 # ── module-import sentinel ────────────────────────────────────────────────
 # Touched the instant the module body executes. The discovery test asserts

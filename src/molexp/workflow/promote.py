@@ -48,7 +48,7 @@ def _entrypoint_ref_of(fn: Callable) -> str | None:
         resolved: object = importlib.import_module(module)
         for part in qualname.split("."):
             resolved = getattr(resolved, part)
-    except (ImportError, AttributeError):
+    except ImportError, AttributeError:
         return None
     return f"{module}:{qualname}" if resolved is fn else None
 
@@ -127,14 +127,14 @@ class _EntryTask(Task):
         return self._entrypoint_ref
 
     async def execute(self, ctx: TaskContext) -> object:
-        if asyncio.iscoroutinefunction(self._fn):
+        if inspect.iscoroutinefunction(self._fn):
             return await self._fn(ctx._inputs, ctx._config)
         # Run sync bodies in a worker thread so blocking I/O (e.g.
         # ``time.sleep``) does not stall sibling replicas in the
         # same event loop. Preserve the original semantics where a
         # sync callable that returns an awaitable is still awaited.
         result = await asyncio.to_thread(self._fn, ctx._inputs, ctx._config)
-        if asyncio.iscoroutine(result) or inspect.isawaitable(result):
+        if inspect.isawaitable(result):
             return await result
         return result
 
