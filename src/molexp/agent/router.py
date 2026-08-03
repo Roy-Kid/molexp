@@ -176,6 +176,8 @@ class ToolResultChunk(BaseModel):
     """The return of a dispatched tool call.
 
     ``ok`` is ``False`` when the tool raised / produced a retry prompt.
+    ``artifacts`` carries full inline conversation embeds (molplot/molvis)
+    peeled from embed-tool JSON — never truncated like ``result_summary``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -184,6 +186,7 @@ class ToolResultChunk(BaseModel):
     tool_name: str
     result_summary: str = ""
     ok: bool = True
+    artifacts: tuple[dict[str, object], ...] = ()
 
 
 class FinalChunk(BaseModel):

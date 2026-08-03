@@ -436,6 +436,28 @@ class McpStore:
 
     # ── Secret substitution (runtime only) ─────────────────────────────────
 
+    def public_env(self, scope: McpScope, name: str) -> dict[str, str]:
+        """Return non-secret env literals for the settings UI (never secret values).
+
+        Values that use ``${SECRET:…}`` placeholders are omitted — only
+        plain env pins like ``MOLMCP_SOURCES=molpy,molvis`` are returned so
+        the editor can round-trip them without leaking keyring material.
+        """
+        raw = _read_servers(self.config_path(scope)).get(name)
+        if not isinstance(raw, dict):
+            return {}
+        env = raw.get("env")
+        if not isinstance(env, dict):
+            return {}
+        out: dict[str, str] = {}
+        for key, value in env.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                continue
+            if SECRET_REF_PATTERN.search(value):
+                continue
+            out[key] = value
+        return out
+
     def resolve(self, entry: McpServerEntry) -> ResolvedSpec:
         """Substitute ``${SECRET:K}`` in the entry's env/headers.
 

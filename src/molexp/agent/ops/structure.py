@@ -71,6 +71,49 @@ class WorkspaceStructureOps:
             path=str(exp.resolve()),
         )
 
+    def ensure_run(
+        self,
+        project: str,
+        experiment: str,
+        *,
+        params: dict[str, object] | None = None,
+        run_id: str | None = None,
+    ) -> EntityRef:
+        """Create-or-get a Run under *project*/*experiment*.
+
+        When *run_id* is set and the run already exists, returns it (params
+        are not rewritten). Otherwise mounts a new pending run ready for
+        ``code_write`` / ``code_run`` / ``run_land``.
+        """
+        from typing import cast
+
+        from molexp._typing import JSONValue
+
+        ws = self._ws()
+        proj = ws.get_project(project)
+        exp = proj.get_experiment(experiment)
+        if run_id is not None:
+            try:
+                existing = exp.get_run(run_id)
+                return EntityRef(
+                    kind="run",
+                    id=existing.id,
+                    name=existing.name,
+                    path=str(existing.resolve()),
+                )
+            except Exception:
+                pass
+        run = exp.add_run(
+            cast("dict[str, JSONValue] | None", params),
+            id=run_id,
+        )
+        return EntityRef(
+            kind="run",
+            id=run.id,
+            name=run.name,
+            path=str(run.resolve()),
+        )
+
     def inspect(self, path: str = ".") -> TreeView:
         try:
             target = safe_path(self._root, path)

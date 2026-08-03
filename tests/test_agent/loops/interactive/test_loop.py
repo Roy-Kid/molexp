@@ -145,11 +145,11 @@ class TestInteractiveLoop:
         assert isinstance(events[-1], LoopCompletedEvent)
         assert events[-1].text == "Looking into it. Done."
 
-    async def test_default_mode_mounts_code_tools_and_omits_lifecycle(self, tmp_path: Path) -> None:
-        """Default operation_mode is not a capability mask: code tools mount, lifecycle stays off."""
+    async def test_default_mode_mounts_chat_tools_and_omits_lifecycle(self, tmp_path: Path) -> None:
+        """Chat Mode default: scratch tools mount; no ensure/land; lifecycle stays off."""
         router = _ScriptedRouter()
         loop = InteractiveLoop(
-            config=InteractiveLoopConfig(workspace_root=tmp_path, operation_mode="readonly")
+            config=InteractiveLoopConfig(workspace_root=tmp_path, operation_mode="chat")
         )
         runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
         session = Session(storage=InMemorySessionStorage(), session_id="code-tools")
@@ -157,7 +157,9 @@ class TestInteractiveLoop:
         _ = [ev async for ev in runner.run_events(session, "write a script")]
 
         names = _tool_names(router.last_tools)
-        assert {"code_write", "code_run", "workspace_ensure", "discover"}.issubset(names)
+        assert {"code_write", "code_run", "workspace_inspect", "discover"}.issubset(names)
+        assert "workspace_ensure" not in names
+        assert "run_land" not in names
         assert "cancel_run" not in names
         assert "harvest_run" not in names
 

@@ -114,6 +114,17 @@ class StructureOps(Protocol):
         """Create-or-get an experiment under *project* (idempotent on slug)."""
         ...
 
+    def ensure_run(
+        self,
+        project: str,
+        experiment: str,
+        *,
+        params: dict[str, object] | None = None,
+        run_id: str | None = None,
+    ) -> EntityRef:
+        """Create-or-get a Run under *project*/*experiment*."""
+        ...
+
     def inspect(self, path: str = ".") -> TreeView:
         """List a workspace-relative (or under-root absolute) path."""
         ...

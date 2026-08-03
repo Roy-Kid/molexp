@@ -200,20 +200,46 @@ class PydanticAIRouter:
     # ── Preflight ───────────────────────────────────────────────────────────
 
     def preflight(self) -> None:
-        """Eagerly construct one text and one structured agent per tier.
+        """Eagerly resolve every tier's model and prime its text + structured agents.
 
-        No network I/O and no disk writes — ``Agent(...)`` construction is
-        where pydantic-ai validates provider credentials *and* constructor
-        kwargs, so priming both paths up front surfaces a missing API key
-        and a version-incompatible kwarg (the 1.x-only ``output_retries=``,
-        removed in 2.0, used to crash mid-pipeline at the first structured
-        call, long after a text-only preflight had passed). Primed agents
-        stay cached for real use; the structured probe schema occupies one
-        extra cache slot per tier.
+        No network I/O and no disk writes. Two distinct failure classes have to
+        surface here rather than mid-pipeline:
+
+        * **model id / provider credential** — resolved by
+          :meth:`_resolve_model` (see there: ``Agent(...)`` alone no longer
+          validates either under pydantic-ai 2.x);
+        * **version-incompatible constructor kwarg** — an ``Agent(...)`` kwarg
+          the installed major no longer accepts (the 1.x-only
+          ``output_retries=``, removed in 2.0, used to crash at the first
+          structured call, long after a text-only preflight had passed), which
+          is why the structured path is primed too.
+
+        Primed agents stay cached for real use; the structured probe schema
+        occupies one extra cache slot per tier.
         """
         for tier in ModelTier:
+            self._resolve_model(tier)
             self._text_agent(tier)
             self._structured_agent(tier, _PreflightProbe, "preflight probe")
+
+    def _resolve_model(self, tier: ModelTier) -> PydanticAiModel:
+        """Turn a tier's model *string* into a concrete pydantic-ai ``Model``.
+
+        pydantic-ai 2.x defers ``infer_model`` to the first run: ``Agent(...)``
+        construction touches neither the model registry nor the provider, so it
+        validates neither an unknown model id nor a missing API key. Resolving
+        here is what makes :meth:`preflight` — and the zero-residue ``molexp
+        plan`` guarantee built on it — real rather than a no-op.
+
+        The resolved instance is memoized back into the tier map, so the agents
+        primed right after share this exact provider (``"deepseek:*"`` values
+        arrive already resolved from :func:`_coerce_model_value`).
+        """
+        value = self._tier_models[tier]
+        if isinstance(value, str):
+            value = models.infer_model(value)
+            self._tier_models[tier] = value
+        return value
 
     # ── Usage accounting ────────────────────────────────────────────────────
 
@@ -866,10 +892,23 @@ def _tool_chunk(event: Any) -> ToolCallChunk | ToolResultChunk | None:  # noqa: 
         )
     if isinstance(event, FunctionToolResultEvent):
         part = event.part
+        raw = str(part.content)
+        ok = not isinstance(part, RetryPromptPart)
+        from molexp.agent.ops.embed import parse_tool_result_payload
+
+        summary, embed_ok, artifacts = parse_tool_result_payload(raw)
+        if artifacts:
+            ok = ok and embed_ok
+            return ToolResultChunk(
+                tool_name=part.tool_name,
+                result_summary=_truncate(summary),
+                ok=ok,
+                artifacts=tuple(artifacts),
+            )
         return ToolResultChunk(
             tool_name=part.tool_name,
-            result_summary=_truncate(str(part.content)),
-            ok=not isinstance(part, RetryPromptPart),
+            result_summary=_truncate(raw),
+            ok=ok,
         )
     return None
 

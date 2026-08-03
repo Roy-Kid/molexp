@@ -1,9 +1,4 @@
-"""Agent ops surface — stable tool adapter + auto-discovery law.
-
-Covers ``molexp.agent.ops.tools`` (the frozen stable tool-name set and the
-working tool callables) and the auto-discovery law (no hard-coded MCP /
-upstream tool tables) enforced across ``molexp.agent.ops``.
-"""
+"""Agent ops surface — chat vs full tool adapter + auto-discovery law."""
 
 from __future__ import annotations
 
@@ -12,43 +7,122 @@ from pathlib import Path
 
 from molexp.agent.execution_env import LocalExecutionEnv
 from molexp.agent.ops import (
+    ARCHIVE_TOOL_NAMES,
+    BUILTIN_TOOL_NAMES,
+    CHAT_TOOL_NAMES,
+    FULL_TOOL_NAMES,
     OPS_TOOL_NAMES,
     build_ops_tools,
     build_session_context,
+    builtin_tool_specs,
+    render_discovery_catalog,
 )
-from molexp.agent.ops.preamble import DEFAULT_OPS_PREAMBLE
+from molexp.agent.ops.preamble import CHAT_OPS_PREAMBLE, DEFAULT_OPS_PREAMBLE, FULL_OPS_PREAMBLE
 
 
 class TestBuildOpsTools:
-    def test_exposes_only_the_frozen_stable_tool_names(self, tmp_path: Path) -> None:
+    def test_chat_surface_excludes_ensure_and_land(self, tmp_path: Path) -> None:
         ctx = build_session_context(
             workspace_root=tmp_path,
             execution_env=LocalExecutionEnv(scratch_dir=tmp_path / "scratch"),
+            confine_code_to="agent/.scratch",
         )
-        names = {t.__name__ for t in build_ops_tools(ctx)}
-        assert names == OPS_TOOL_NAMES
+        names = {t.__name__ for t in build_ops_tools(ctx, surface="chat")}
+        assert names == CHAT_TOOL_NAMES
+        assert "run_land" not in names
+        assert "workspace_ensure" not in names
+        assert "code_write" in names and "discover" in names
 
-    def test_workspace_ensure_and_code_run_wire_through_to_backends(self, tmp_path: Path) -> None:
+    def test_full_surface_exposes_archive_tools(self, tmp_path: Path) -> None:
         ctx = build_session_context(
             workspace_root=tmp_path,
             execution_env=LocalExecutionEnv(scratch_dir=tmp_path / "scratch"),
         )
-        tools = {t.__name__: t for t in build_ops_tools(ctx)}
-        assert tools["workspace_ensure"]("project", "demo-xx").startswith("ok")
-        assert tools["workspace_ensure"]("experiment", "yy-scan", project="demo-xx").startswith(
-            "ok"
+        names = {t.__name__ for t in build_ops_tools(ctx, surface="full")}
+        assert names == FULL_TOOL_NAMES == BUILTIN_TOOL_NAMES == OPS_TOOL_NAMES
+        assert names >= ARCHIVE_TOOL_NAMES
+
+    def test_chat_code_write_confines_to_scratch(self, tmp_path: Path) -> None:
+        ctx = build_session_context(
+            workspace_root=tmp_path,
+            execution_env=LocalExecutionEnv(scratch_dir=tmp_path / "scratch"),
+            confine_code_to="agent/.scratch",
         )
-        assert (tmp_path / "projects" / "demo-xx").is_dir()
-        wrote = tools["code_write"]("scripts/t.py", "print(1+1)\n")
+        tools = {t.__name__: t for t in build_ops_tools(ctx, surface="chat")}
+        wrote = tools["code_write"]("pe_rg.py", "print(2)\n")
         assert wrote.startswith("wrote")
-        out = tools["code_run"](path="scripts/t.py")
+        assert "agent/.scratch" in wrote
+        assert (tmp_path / "agent" / ".scratch" / "pe_rg.py").is_file()
+        # Must not land under projects/
+        assert not (tmp_path / "projects").exists()
+        out = tools["code_run"](path="pe_rg.py")
         assert "exit_code=0" in out
         assert "2" in out
+        assert "agent/.scratch" in out  # chat hint + confine messaging
+
+    def test_chat_code_run_uses_scratch_cwd(self, tmp_path: Path) -> None:
+        """Chat Mode must not exec with workspace root as cwd (avoids relative projects/)."""
+        ctx = build_session_context(
+            workspace_root=tmp_path,
+            execution_env=LocalExecutionEnv(scratch_dir=tmp_path / "scratch"),
+            confine_code_to="agent/.scratch",
+        )
+        tools = {t.__name__: t for t in build_ops_tools(ctx, surface="chat")}
+        tools["code_write"](
+            "cwd_probe.py",
+            "import os\nfrom pathlib import Path\nprint(Path.cwd().resolve())\n",
+        )
+        out = tools["code_run"](path="cwd_probe.py")
+        assert "exit_code=0" in out
+        scratch = (tmp_path / "agent" / ".scratch").resolve()
+        assert str(scratch) in out
+        assert "Do not" in out or "add_project" in out
+
+    def test_full_run_land_attaches_artifacts_and_settles_run(self, tmp_path: Path) -> None:
+        ctx = build_session_context(
+            workspace_root=tmp_path,
+            execution_env=LocalExecutionEnv(scratch_dir=tmp_path / "scratch"),
+        )
+        tools = {t.__name__: t for t in build_ops_tools(ctx, surface="full")}
+        assert tools["workspace_ensure"]("project", "p1").startswith("ok")
+        assert tools["workspace_ensure"]("experiment", "e1", project="p1").startswith("ok")
+        run_out = tools["workspace_ensure"](
+            "run",
+            "rg-scan",
+            project="p1",
+            experiment="e1",
+            params_json='{"n": 10}',
+        )
+        assert run_out.startswith("ok kind=run")
+        run_id = run_out.split("id=")[1].split()[0]
+        (tmp_path / "plot.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+        (tmp_path / "analysis.py").write_text("print('ok')\n", encoding="utf-8")
+        land = tools["run_land"](
+            "p1",
+            "e1",
+            run_id,
+            files="plot.png",
+            sources="analysis.py",
+            results_json='{"rg_mean": 1.23}',
+        )
+        assert land.startswith("ok")
+        assert "status=succeeded" in land
+        assert "plot.png" in land
+        run_dir = tmp_path / "projects" / "p1" / "experiments" / "e1" / "runs" / f"run-{run_id}"
+        assert (run_dir / "artifacts" / "plot.png").is_file()
+        assert (run_dir / "source" / "analysis.py").is_file()
+        assert not (run_dir / "metrics" / "metrics.jsonl").exists()
+        assert "rg_mean" in land
 
 
 class TestAutoDiscoveryLaw:
-    def test_preamble_names_stable_tools_not_hardcoded_mcp_tools(self) -> None:
-        """Auto-discovery law: default preamble must not list concrete MCP tools."""
+    def test_chat_preamble_forbids_default_land(self) -> None:
+        text = DEFAULT_OPS_PREAMBLE
+        assert text == CHAT_OPS_PREAMBLE
+        assert "Chat Mode" in text
+        assert "no" in text.lower() and "run_land" in text
+        assert "Plan" in text
+        assert "agent/.scratch" in text
         banned = (
             "molexp_add_project",
             "molexp_materialize",
@@ -56,20 +130,32 @@ class TestAutoDiscoveryLaw:
             "write_file",
             "execute_python",
         )
-        text = DEFAULT_OPS_PREAMBLE
         for token in banned:
             assert token not in text, f"preamble hard-codes {token!r}"
-        assert "code_write" in text and "code_run" in text
-        assert "discover" in text
+
+    def test_full_preamble_documents_land(self) -> None:
+        assert "run_land" in FULL_OPS_PREAMBLE
+        assert "MolRec" in FULL_OPS_PREAMBLE
+
+    def test_catalog_lists_chat_builtins(self, tmp_path: Path) -> None:
+        ctx = build_session_context(
+            workspace_root=tmp_path,
+            execution_env=LocalExecutionEnv(scratch_dir=tmp_path / "scratch"),
+        )
+        catalog = render_discovery_catalog(ctx, surface="chat")
+        assert "surface=chat" in catalog
+        assert "`code_write`" in catalog
+        assert "`run_land`" not in catalog
+        specs = builtin_tool_specs(surface="chat")
+        assert all(s.source == "builtin" for s in specs)
+        assert {s.name for s in specs} == CHAT_TOOL_NAMES
 
     def test_ops_package_ships_no_upstream_symbol_table(self) -> None:
-        """ops/ must not ship a static list of molpy/molpack APIs."""
         ops_dir = Path(__file__).resolve().parents[3] / "src" / "molexp" / "agent" / "ops"
         for path in ops_dir.glob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):
                     v = node.value
-                    # Allow prose mentions of package names, not qualname tables.
                     assert "molpy.compute" not in v
                     assert "molpack." not in v or "molpack" in path.name

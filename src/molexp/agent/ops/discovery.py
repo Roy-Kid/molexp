@@ -1,7 +1,9 @@
-"""Runtime catalog discovery — MCP tool list + workspace knowledge.
+"""Runtime catalog discovery — builtins + MCP tool list + workspace knowledge.
 
-No hardcoded third-party API tables. MCP tool names come only from the
-*live* toolset objects passed in at session/turn open.
+* **Builtin** tools (``workspace_ensure``, ``run_land``, …) are always
+  enumerated from :mod:`molexp.agent.ops.builtins`.
+* **MCP** tool names come only from the *live* toolset objects passed in at
+  session/turn open — never a hand-maintained third-party table.
 """
 
 from __future__ import annotations
@@ -9,11 +11,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from molexp.agent.ops.builtins import builtin_tool_specs  # full catalog for search
 from molexp.agent.ops.protocols import Hit, ToolSpec
 
 
 class CatalogDiscovery:
-    """Discovery over (1) open MCP toolsets and (2) workspace knowledge."""
+    """Discovery over (0) builtins, (1) open MCP toolsets, (2) knowledge."""
 
     def __init__(
         self,
@@ -28,6 +31,7 @@ class CatalogDiscovery:
         self._specs = mcp_tool_specs
 
     def tools(self) -> tuple[ToolSpec, ...]:
+        """MCP-only catalog (builtins are separate — see :meth:`search`)."""
         if self._specs:
             return self._specs
         # Best-effort: many toolsets expose .tools or similar only when entered.
@@ -38,6 +42,19 @@ class CatalogDiscovery:
     def search(self, query: str, *, kind: str | None = None) -> tuple[Hit, ...]:
         q = query.strip().lower()
         hits: list[Hit] = []
+        if kind in (None, "builtin", "tool"):
+            for spec in builtin_tool_specs():
+                blob = f"{spec.name} {spec.description}".lower()
+                if not q or q in blob:
+                    hits.append(
+                        Hit(
+                            ref=spec.name,
+                            kind="builtin",
+                            title=spec.name,
+                            summary=spec.description[:200],
+                            score=1.0 if q and q in spec.name.lower() else 0.6,
+                        )
+                    )
         if kind in (None, "mcp_tool", "tool"):
             for spec in self.tools():
                 blob = f"{spec.name} {spec.description}".lower()
@@ -57,6 +74,9 @@ class CatalogDiscovery:
         return tuple(hits[:40])
 
     def describe(self, ref: str) -> str:
+        for spec in builtin_tool_specs():
+            if spec.name == ref:
+                return f"# tool {spec.name}\nsource: {spec.source}\n\n{spec.description}"
         for spec in self.tools():
             if spec.name == ref:
                 return f"# tool {spec.name}\nsource: {spec.source}\n\n{spec.description}"

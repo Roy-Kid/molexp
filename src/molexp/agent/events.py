@@ -269,12 +269,14 @@ class ToolCallCompletedEvent(_BaseEvent):
 
     ``ok`` is ``False`` when the tool raised / returned a retry prompt;
     ``result_summary`` is a short rendering of the return value.
+    ``artifacts`` is the full embed list (plot / structure / table) for the UI.
     """
 
     kind: Literal["tool_call_completed"] = "tool_call_completed"
     tool_name: str
     result_summary: str = ""
     ok: bool = True
+    artifacts: tuple[dict[str, object], ...] = ()
 
 
 AgentEvent = Annotated[

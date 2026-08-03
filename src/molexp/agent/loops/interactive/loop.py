@@ -46,7 +46,12 @@ from molexp.agent.events import (
 )
 from molexp.agent.loop import AgentLoop, AgentRunResult
 from molexp.agent.loops._compact import maybe_compact
-from molexp.agent.loops.hooks import LoopHooks, LoopState, invoke_should_stop
+from molexp.agent.loops.hooks import (
+    HookOutcome,
+    LoopHooks,
+    LoopState,
+    invoke_should_stop,
+)
 from molexp.agent.loops.interactive.lifecycle_tools import lifecycle_tools
 from molexp.agent.loops.interactive.mcp_toolsets import (
     list_mcp_tool_specs,
@@ -184,12 +189,15 @@ class InteractiveLoopConfig(BaseModel):
             after the preamble and ``system_prompt``.
         compaction: Context-compaction policy; pass
             ``CompactionSettings(enabled=False)`` to opt out.
-        operation_mode: Behavior label only — **not a capability mask**.
-            Ops tools (``code_write`` / ``code_run`` / …) are always
-            mounted. ``lifecycle`` additionally adds cancel/harvest.
-        behavior_preamble: Override :data:`DEFAULT_OPS_PREAMBLE`. Empty
-            keeps the default (stable ops names only — no hard-coded
-            third-party MCP tool list).
+        operation_mode: Tool surface + preamble policy:
+            * ``chat`` (default) — Chat Mode: inspect + scratch code +
+              discover; **no** ``workspace_ensure`` / ``run_land``;
+              writes confined to ``agent/.scratch/``.
+            * ``full`` / ``archive`` — include ensure + land (explicit archive).
+            * ``lifecycle`` — full + cancel/harvest.
+            * ``readonly`` — alias of ``chat`` (legacy).
+        behavior_preamble: Override the surface preamble. Empty keeps the
+            default for the active ``operation_mode``.
         max_passes: Hard safety bound on the outer steering loop — the
             maximum number of inner ReAct passes a single turn may run
             before it stops regardless of the ``should_stop`` guard (an
@@ -205,7 +213,7 @@ class InteractiveLoopConfig(BaseModel):
     workspace_root: Path | None = None
     context_block: str = ""
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
-    operation_mode: str = "readonly"
+    operation_mode: str = "chat"
     behavior_preamble: str = ""
     max_passes: int = Field(default=8, ge=1)
 
@@ -221,15 +229,11 @@ class InteractiveLoop(AgentLoop):
     injected :class:`~molexp.agent.loops.hooks.LoopHooks` bundle.
 
     Tools seam (constructor injection): ``tools`` defaults to ``()`` — the loop
-    then builds exactly its stable ops toolset (``build_ops_tools``, plus the
-    lifecycle tools when ``operation_mode == "lifecycle"``) and forwards that,
-    byte-identical to the pre-seam loop. When a non-empty ``tools`` tuple is
-    injected (the sanctioned harness-driven path — the emergent planning
-    ``InteractiveLoopPlanRunner`` hands the plan tools in, spec
-    ``plan-emergent-05c-orchestrator``) those callables are **appended** to the
-    ops toolset and forwarded to :meth:`~molexp.agent.router.Router.stream_agentic`
-    alongside it, so a planning turn can drive both the board tools and the ops
-    tools without the loop hard-coding either set.
+    then builds the ops surface for ``operation_mode`` (``chat`` by default —
+    no land/ensure; ``full``/``lifecycle`` add archive tools). When a non-empty
+    ``tools`` tuple is injected (Plan Mode board tools via
+    ``InteractiveLoopPlanRunner``) those callables are **appended** to the
+    chat/full ops toolset.
 
     Hooks seam (constructor injection):
 
@@ -274,6 +278,31 @@ class InteractiveLoop(AgentLoop):
         # :meth:`run`. Empty (the default) keeps the pre-seam behavior exactly.
         self._injected_tools = tuple(tools)
 
+    def _effective_hooks(self, *, surface: str) -> LoopHooks | None:
+        """Compose chat mutator deny with any injected hooks."""
+        if surface != "chat":
+            return self.hooks
+
+        from molexp.agent.ops.chat_policy import chat_before_tool
+
+        async def _chained_before(tool_name: str, args: object = None) -> HookOutcome:
+            from molexp.agent.loops.hooks import HookDecision
+
+            denied = await chat_before_tool(tool_name, args)
+            if denied.decision == HookDecision.DENY:
+                return denied
+            if self.hooks is not None and self.hooks.before_tool is not None:
+                return await self.hooks.before_tool(tool_name, args)  # type: ignore[misc]
+            return HookOutcome.proceed()
+
+        if self.hooks is None:
+            return LoopHooks(before_tool=_chained_before)
+        return LoopHooks(
+            before_tool=_chained_before,
+            after_tool=self.hooks.after_tool,
+            should_stop=self.hooks.should_stop,
+        )
+
     async def run(
         self,
         *,
@@ -301,6 +330,11 @@ class InteractiveLoop(AgentLoop):
         )
 
         workspace = self.config.workspace_root or Path.cwd()
+        mode = (self.config.operation_mode or "chat").strip().lower()
+        if mode == "readonly":
+            mode = "chat"
+        surface = "full" if mode in ("full", "archive", "lifecycle", "ops") else "chat"
+        confine = "agent/.scratch" if surface == "chat" else None
         # MCP toolsets + runtime list_tools catalog (auto-discovery law).
         toolsets = open_mcp_toolsets(workspace)
         try:
@@ -309,22 +343,27 @@ class InteractiveLoop(AgentLoop):
             # Catalog is best-effort; missing/broken MCP must not abort the turn.
             _LOG.warning(f"[interactive] MCP catalog list failed: {exc!r}")
             mcp_specs = ()
+        from molexp.agent.ops.preamble import DefaultOpsBehavior, FullOpsBehavior
+
+        behavior = DefaultOpsBehavior() if surface == "chat" else FullOpsBehavior()
         ctx = build_session_context(
             workspace_root=workspace,
             execution_env=runtime.execution_env,
             mcp_toolsets=toolsets,
             mcp_tool_specs=mcp_specs,
+            behavior=behavior,
+            confine_code_to=confine,
         )
-        tools = tuple(build_ops_tools(ctx))
-        if self.config.operation_mode == "lifecycle":
+        tools = tuple(build_ops_tools(ctx, surface=surface))
+        if mode == "lifecycle":
             tools = tools + tuple(lifecycle_tools(workspace_root=workspace))
-        # Harness-injected tools (empty by default → byte-identical pre-seam).
+        # Harness-injected tools (Plan board tools, etc.).
         tools = tools + self._injected_tools
 
         # Composition: ops preamble → optional live MCP catalog → user → context.
         preamble = self.config.behavior_preamble or ctx.behavior.system_preamble()
         parts = [preamble.strip()]
-        catalog = render_discovery_catalog(ctx)
+        catalog = render_discovery_catalog(ctx, surface=surface)
         if catalog:
             parts.append(catalog)
         if self.config.system_prompt.strip():
@@ -332,6 +371,9 @@ class InteractiveLoop(AgentLoop):
         if self.config.context_block.strip():
             parts.append(self.config.context_block.strip())
         system = "\n\n".join(parts)
+
+        # Chat: always wire before_tool deny for workspace mutators (MCP too).
+        effective_hooks = self._effective_hooks(surface=surface)
 
         # ── outer steering loop (per-pass) ───────────────────────────────────
         passes = 0
@@ -352,6 +394,7 @@ class InteractiveLoop(AgentLoop):
                 tools=tools,
                 toolsets=toolsets,
                 history=history,
+                hooks=effective_hooks,
             ):
                 if isinstance(chunk, ThinkingDeltaChunk):
                     await sink(ThinkingDeltaEvent(text=chunk.text))
@@ -371,6 +414,7 @@ class InteractiveLoop(AgentLoop):
                             tool_name=chunk.tool_name,
                             result_summary=chunk.result_summary,
                             ok=chunk.ok,
+                            artifacts=getattr(chunk, "artifacts", ()) or (),
                         )
                     )
                 elif isinstance(chunk, FinalChunk):
@@ -386,13 +430,13 @@ class InteractiveLoop(AgentLoop):
 
             # Outer-loop decision: proceed / steer / suspend, bounded by max_passes.
             if (
-                self.hooks is None
-                or self.hooks.should_stop is None
+                effective_hooks is None
+                or effective_hooks.should_stop is None
                 or passes >= self.config.max_passes
             ):
                 break
             outcome = await invoke_should_stop(
-                self.hooks.should_stop,
+                effective_hooks.should_stop,
                 state=LoopState(step=passes, last_tool=last_tool_name, draft_final=final_text),
             )
             if outcome.is_proceed:
@@ -443,6 +487,7 @@ class InteractiveLoop(AgentLoop):
         tools: tuple[object, ...],
         toolsets: tuple[object, ...],
         history: tuple[object, ...],
+        hooks: LoopHooks | None = None,
     ) -> AsyncIterator[AgenticChunk]:
         """Open one inner ReAct pass, wiring the hook bundle only when present.
 
@@ -450,21 +495,27 @@ class InteractiveLoop(AgentLoop):
         as ``None``), so the call is byte-identical to the pre-refactor loop and
         a router that predates the hook kwargs still accepts it.
         """
-        if self.hooks is None:
+        base = {
+            "prompt": prompt,
+            "system": system,
+            "tools": tools,
+            "toolsets": toolsets,
+            "message_history": history,
+        }
+        if hooks is None:
+            return runtime.router.stream_agentic(**base)  # type: ignore[arg-type]
+        # Test fakes may predate hook kwargs — only pass what the router accepts.
+        import inspect
+
+        try:
+            params = inspect.signature(runtime.router.stream_agentic).parameters
+        except (TypeError, ValueError):
+            params = {}
+        if "before_tool" in params:
             return runtime.router.stream_agentic(
-                prompt=prompt,
-                system=system,
-                tools=tools,
-                toolsets=toolsets,
-                message_history=history,
+                **base,  # type: ignore[arg-type]
+                before_tool=hooks.before_tool,
+                after_tool=hooks.after_tool,
+                should_stop=hooks.should_stop,
             )
-        return runtime.router.stream_agentic(
-            prompt=prompt,
-            system=system,
-            tools=tools,
-            toolsets=toolsets,
-            message_history=history,
-            before_tool=self.hooks.before_tool,
-            after_tool=self.hooks.after_tool,
-            should_stop=self.hooks.should_stop,
-        )
+        return runtime.router.stream_agentic(**base)  # type: ignore[arg-type]

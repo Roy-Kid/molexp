@@ -22,12 +22,22 @@ def build_session_context(
     mcp_toolsets: tuple[Any, ...] = (),
     mcp_tool_specs: tuple[ToolSpec, ...] = (),
     behavior: BehaviorPolicy | None = None,
+    confine_code_to: str | None = None,
 ) -> AgentSessionContext:
-    """Assemble the three ops implementations + behavior for one turn."""
+    """Assemble the three ops implementations + behavior for one turn.
+
+    Args:
+        confine_code_to: When set (Chat Mode: ``agent/.scratch``),
+            :class:`LocalCodeEnv` rewrites writes under that prefix.
+    """
     root = Path(workspace_root).resolve()
     return AgentSessionContext(
         workspace_root=root,
-        code=LocalCodeEnv(workspace_root=root, execution_env=execution_env),
+        code=LocalCodeEnv(
+            workspace_root=root,
+            execution_env=execution_env,
+            confine_to=confine_code_to,
+        ),
         structure=WorkspaceStructureOps(root),
         discovery=CatalogDiscovery(
             workspace_root=root,
