@@ -183,7 +183,7 @@ def _read_json_kind(store: FileArtifactStore, root: Path, kind: str) -> dict[str
             return None
     try:
         data = json.loads(raw)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return data if isinstance(data, dict) else None
 
@@ -211,7 +211,7 @@ def _split_execution_results(
                 continue
         try:
             data = json.loads(raw)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             continue
         if not isinstance(data, dict):
             continue
@@ -370,7 +370,7 @@ def _read_tasks(experiment: Experiment) -> list[PlanTaskInfo]:
         return []
     try:
         ir = json.loads(raw)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return []
     task_configs = ir.get("task_configs") if isinstance(ir, dict) else None
     if not isinstance(task_configs, list):

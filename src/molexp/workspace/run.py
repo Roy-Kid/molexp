@@ -374,7 +374,7 @@ class Run(Folder):
             return None
         try:
             data = read_versioned_json(run_json)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return None
         results = data.get("context", {}).get("results", {})
         if isinstance(results, dict) and key in results:

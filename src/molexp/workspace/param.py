@@ -25,7 +25,7 @@ class ParamSpace(ABC):
     """
 
     @abstractmethod
-    def __iter__(self) -> Generator[Params, None, None]:
+    def __iter__(self) -> Generator[Params]:
         """Generate parameter combinations."""
         ...
 
@@ -56,7 +56,7 @@ class GridSpace(ParamSpace):
         for values in self._param_values:
             self._total *= len(values)
 
-    def __iter__(self) -> Generator[Params, None, None]:
+    def __iter__(self) -> Generator[Params]:
         for combination in product(*self._param_values):
             yield dict(zip(self._param_names, combination, strict=False))
 
@@ -85,7 +85,7 @@ class UniformSpace(ParamSpace):
         self.n_samples = n_samples
         self.seed = seed
 
-    def __iter__(self) -> Generator[Params, None, None]:
+    def __iter__(self) -> Generator[Params]:
         rng = random.Random(self.seed)
         for _ in range(self.n_samples):
             params: Params = {}

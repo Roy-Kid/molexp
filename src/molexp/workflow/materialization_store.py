@@ -37,7 +37,7 @@ def _is_json_safe(value: object) -> bool:
     """Return True iff *value* round-trips through ``json.dumps`` cleanly."""
     try:
         json.dumps(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     return True
 

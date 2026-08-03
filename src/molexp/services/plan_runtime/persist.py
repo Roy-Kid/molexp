@@ -145,7 +145,7 @@ def _extract_input_schema(ir: dict[str, JSONValue], source: str) -> None:
         ftype, options = _annotation_to_ui_type(arg.annotation)
         try:
             default_value = ast.literal_eval(default)
-        except (ValueError, SyntaxError):
+        except ValueError, SyntaxError:
             default_value = None
         field: dict = {"name": name, "type": ftype, "default": default_value}
         if options is not None:

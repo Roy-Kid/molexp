@@ -828,7 +828,7 @@ class Bundle:
             if not st.is_file or st.size > _MAX_BODY_SEARCH_BYTES:
                 return None
             body = self._fs.read_text(body_path)
-        except (OSError, UnicodeDecodeError, ValueError):
+        except OSError, UnicodeDecodeError, ValueError:
             return None
         for line in body.splitlines():
             if needle in line.lower():

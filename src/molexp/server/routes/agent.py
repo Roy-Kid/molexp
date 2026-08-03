@@ -309,7 +309,7 @@ async def stream_events(session_id: str, *, workspace: Workspace) -> StreamingRe
             detail=f"agent session {session_id!r} not found",
         )
 
-    async def _generate() -> AsyncGenerator[str, None]:
+    async def _generate() -> AsyncGenerator[str]:
         from molexp.server.agent_runtime.serialize import (
             done_frame,
             error_frame,

@@ -309,7 +309,7 @@ def list_workspace_files(
     def _rel_for(node_path: Path) -> str | None:
         try:
             return node_path.resolve().relative_to(root).as_posix()
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return None
 
     def build_node(

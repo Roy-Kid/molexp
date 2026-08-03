@@ -62,7 +62,7 @@ class RunAssets:
         # nothing, per the spine's derived/non-fatal contract.
         try:
             event_root = Path(str(run.experiment.project.workspace.root))
-        except (RuntimeError, AttributeError):
+        except RuntimeError, AttributeError:
             # A detached run (bare test fixture) has no ownership chain.
             event_root = None
         self.artifact = ArtifactAccessor(

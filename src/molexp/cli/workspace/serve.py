@@ -255,7 +255,7 @@ def _stop_ui_dev_server(proc: subprocess.Popen[bytes] | None, *, timeout: float 
             proc.terminate()
         else:
             os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, OSError):
+    except ProcessLookupError, PermissionError, OSError:
         return
     try:
         proc.wait(timeout=timeout)

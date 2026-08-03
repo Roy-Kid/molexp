@@ -78,7 +78,7 @@ class PluginRegistry:
         try:
             self._cache[cap] = _LOADERS[cap]()
             return True
-        except (ImportError, KeyError):
+        except ImportError, KeyError:
             self._unavailable.add(cap)
             return False
 

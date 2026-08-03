@@ -748,7 +748,7 @@ def _read_workflow_tasks(experiment: Experiment) -> list[str]:
         return []
     try:
         ir = json.loads(raw)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return []
     tcs = ir.get("task_configs") if isinstance(ir, dict) else None
     if not isinstance(tcs, list):
@@ -892,6 +892,6 @@ def _read_artifact_json(run: Run, kind: str) -> dict[str, Any] | None:
             return None
     try:
         data = json.loads(raw)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return data if isinstance(data, dict) else None

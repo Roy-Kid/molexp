@@ -828,7 +828,7 @@ def _compose_system_prompt_response(
                 run_id=task_meta.run_id or None,
             )
             workspace_instructions = (block or "").strip()
-        except (ValueError, LookupError):
+        except ValueError, LookupError:
             # Scope ids on the task may be stale after a reorg — show base only.
             workspace_instructions = ""
 

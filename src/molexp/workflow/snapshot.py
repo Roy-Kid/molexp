@@ -85,7 +85,7 @@ def _normalized_source_hash(code: CodeType) -> str | None:
     try:
         source = inspect.getsource(code)
         normalized = _normalize_ast(source)
-    except (OSError, TypeError, SyntaxError):
+    except OSError, TypeError, SyntaxError:
         return None
     return hashlib.sha256(normalized.encode()).hexdigest()[:32]
 
@@ -159,7 +159,7 @@ class TaskSnapshot(BaseModel):
         config_clean: dict[str, JSONValue] = json.loads(config_raw)
         try:
             source = inspect.getsource(fn) if callable(fn) else ""
-        except (OSError, TypeError):
+        except OSError, TypeError:
             source = ""
         return cls(
             task_id=task_id,
@@ -191,7 +191,7 @@ class TaskSnapshot(BaseModel):
                 source = inspect.getsource(fn)
                 normalized = _normalize_ast(source)
                 return hashlib.sha256(normalized.encode()).hexdigest()[:32]
-            except (OSError, TypeError, SyntaxError):
+            except OSError, TypeError, SyntaxError:
                 pass
         logger.warning(
             f"Cannot compute reliable code hash for task {task_id} ({identity}). "

@@ -82,7 +82,7 @@ def _load_data_assets(scope_dir: Path) -> Iterator[Asset]:
         try:
             with open(record) as fh:  # noqa: PTH123
                 yield parse_asset(json.load(fh))
-        except (OSError, ValueError):
+        except OSError, ValueError:
             continue
 
 
@@ -120,7 +120,7 @@ def _kind_value(kind: str | type[Asset] | None) -> str | None:
         return kind
     try:
         return kind.model_fields["kind"].default  # type: ignore[attr-defined]
-    except (AttributeError, KeyError):
+    except AttributeError, KeyError:
         return None
 
 

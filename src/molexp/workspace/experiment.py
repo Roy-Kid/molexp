@@ -112,7 +112,7 @@ def _parse_ir_document(source: str | None) -> dict | None:
         return None
     try:
         doc = json.loads(source)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return doc if isinstance(doc, dict) else None
 

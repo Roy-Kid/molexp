@@ -305,7 +305,7 @@ class PlanOrchestrator:
         """
         try:
             parsed = json.loads(user_input)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             parsed = None
         if isinstance(parsed, dict):
             return parsed

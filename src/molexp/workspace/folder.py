@@ -607,7 +607,7 @@ class Folder:
         try:
             with self._fs.open(index_path) as fh:
                 raw: object = json.load(fh)
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             return []
         if not isinstance(raw, dict):
             return []
@@ -621,7 +621,7 @@ class Folder:
                 continue
             try:
                 loaded = cls.from_disk(child_dir, self)
-            except (FileNotFoundError, OSError):
+            except FileNotFoundError, OSError:
                 continue
             if isinstance(loaded, cls):
                 self._children_cache[loaded._name] = loaded
@@ -644,7 +644,7 @@ class Folder:
                 continue
             try:
                 child = cls.from_disk(entry_path, self)
-            except (FileNotFoundError, OSError):
+            except FileNotFoundError, OSError:
                 continue
             if isinstance(child, cls):
                 rows[child._name] = child._to_index_row()
@@ -680,7 +680,7 @@ class Folder:
             try:
                 with self._fs.open(fpath) as fh:
                     raw: object = json.load(fh)
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 raw = None
             if isinstance(raw, dict):
                 for k, v in raw.items():
@@ -696,7 +696,7 @@ class Folder:
         try:
             with self._fs.open(fpath) as fh:
                 raw: object = json.load(fh)
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             return
         if not isinstance(raw, dict):
             return

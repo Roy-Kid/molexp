@@ -223,7 +223,7 @@ def rebuild_metrics_index(run_dir: Path) -> dict[str, JSONValue]:
                     if not isinstance(parsed, dict):
                         raise ValueError("metric record must be a JSON object")
                     record = _validate_record(parsed)
-                except (json.JSONDecodeError, ValueError, TypeError):
+                except json.JSONDecodeError, ValueError, TypeError:
                     index["line_count"] = _coerce_int(index.get("line_count")) + 1
                     continue
                 _update_index_with_record(index, record)
@@ -265,7 +265,7 @@ def read_run_metrics(
 
             try:
                 record = _validate_record(json.loads(stripped))
-            except (json.JSONDecodeError, ValueError, TypeError):
+            except json.JSONDecodeError, ValueError, TypeError:
                 parse_errors += 1
                 continue
 

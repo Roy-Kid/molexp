@@ -90,7 +90,7 @@ def _is_json_safe(value: Any) -> bool:  # noqa: ANN401
     """True iff *value* round-trips through ``json.dumps`` without coercion."""
     try:
         json.dumps(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     return True
 
@@ -106,7 +106,7 @@ def _jsonable(value: Any) -> JSONValue:  # noqa: ANN401
     try:
         json.dumps(value)
         return value
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         pass
     if isinstance(value, dict):
         return {str(k): _jsonable(v) for k, v in list(value.items())[:20]}
@@ -166,7 +166,7 @@ def read_node_outputs(
         return {}
     try:
         data = json.loads(wf_path.read_text())
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return {}
     if not isinstance(data, dict):
         return {}
@@ -267,7 +267,7 @@ def filter_resume_seeds(
         return dict(seeds)
     try:
         data = json.loads(wf_path.read_text())
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return dict(seeds)
     if not isinstance(data, dict):
         return dict(seeds)
@@ -572,7 +572,7 @@ def _mutate_document(
     with _LOCK:
         try:
             data = json.loads(wf_path.read_text())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return
         if not isinstance(data, dict):
             return

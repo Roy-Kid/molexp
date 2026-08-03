@@ -269,7 +269,7 @@ class McpSecretsStore:
             return {}
         try:
             content = json.loads(self._path.read_text())
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             return {}
         secrets = content.get("secrets") if isinstance(content, dict) else None
         if not isinstance(secrets, dict):
@@ -655,7 +655,7 @@ def _read_servers(path: Path) -> dict[str, JSONValue]:
         return {}
     try:
         content = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
     raw = content.get("mcpServers") if isinstance(content, dict) else None
     if not isinstance(raw, dict):

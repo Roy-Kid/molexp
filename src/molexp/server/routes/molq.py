@@ -91,7 +91,7 @@ async def stream_logs(
     except JobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    async def _generate() -> AsyncGenerator[str, None]:
+    async def _generate() -> AsyncGenerator[str]:
         async for line in dashboard.tail_log(target, job_id, stream=stream):
             payload = json.dumps({"line": line})
             yield f"data: {payload}\n\n"

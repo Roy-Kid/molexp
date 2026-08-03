@@ -143,7 +143,7 @@ async def _repl(runner: AgentRunner, session: Session, ctx: _ReplContext) -> Non
     while True:
         try:
             user_input = await asyncio.to_thread(input, _PROMPT)
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             console.print("\n[dim]bye[/dim]")
             return
 

@@ -507,7 +507,7 @@ class CachedRemoteFileSystem:
                 names = tuple(payload.get("names", ()))
                 fetched_at = float(payload.get("fetched_at", 0.0))
                 self._dir_index[key] = _DirEntry(names=names, fetched_at=fetched_at)
-            except (AttributeError, TypeError, ValueError):
+            except AttributeError, TypeError, ValueError:
                 continue
 
     def _persist_sidecar(self) -> None:

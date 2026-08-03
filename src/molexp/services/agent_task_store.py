@@ -91,7 +91,7 @@ def _read_meta_file(meta_path: Path, task_id: str) -> PersistedAgentTask | None:
         return None
     try:
         raw = json.loads(meta_path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return None
     if not isinstance(raw, dict):
         return None
@@ -215,7 +215,7 @@ def read_agent_task_events(
         return []
     try:
         data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return []
     return data if isinstance(data, list) else []
 

@@ -53,7 +53,7 @@ def read_completed_node_outputs(run_dir: Path, execution_id: str) -> dict[str, N
     wf_path = Path(run_dir) / "executions" / execution_id / "workflow.json"
     try:
         data = json.loads(wf_path.read_text())
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return {}
     if not isinstance(data, dict):
         return {}

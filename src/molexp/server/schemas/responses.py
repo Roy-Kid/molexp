@@ -56,7 +56,7 @@ def _read_context_results(run: Run) -> dict[str, Any]:
     try:
         with open(run_json) as fh:  # noqa: PTH123
             data = json.load(fh)
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
     ctx = data.get("context") or {}
     results = ctx.get("results") or {}
