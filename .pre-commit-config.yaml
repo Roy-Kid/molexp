@@ -27,10 +27,28 @@ repos:
 
   - repo: local
     hooks:
+      # UV_NO_SOURCES=1 reproduces the CI resolution (published deps, no
+      # `[tool.uv.sources]` path overrides). It runs in its OWN environment:
+      # syncing that resolution into .venv would silently replace the editable
+      # sibling checkouts (molpy / molrs) a dev is working against.
       - id: ci-test
         name: "CI test (uv sync + pytest, UV_NO_SOURCES=1)"
-        entry: bash -c 'export UV_NO_SOURCES=1; uv sync --extra dev && uv run pytest tests/ -q --cov=src/molexp --cov-report=xml'
+        entry: bash -c 'export UV_NO_SOURCES=1 UV_PROJECT_ENVIRONMENT=.venv-ci; uv sync --extra dev && uv run pytest tests/ -q --cov=src/molexp --cov-report=xml'
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-push]
+
+      # Mirrors the ci.yml `ui` job command for command. That job is
+      # `continue-on-error` because the UI depends on @molcrafts/molplot and
+      # molvis through `file:../../` paths a CI clone does not have — so this
+      # hook is currently the ONLY place UI regressions are actually caught.
+      # Make the CI job blocking (and drop this note) once those packages are
+      # published.
+      - id: ui-checks
+        name: "CI ui (biome lint + tsc + vitest)"
+        entry: bash -c 'npm run lint && npm run typecheck && npm run test:ui'
+        language: system
+        pass_filenames: false
+        files: '^ui/'
         stages: [pre-push]

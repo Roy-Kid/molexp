@@ -33,6 +33,7 @@ __pypackages__/
 .spyproject
 .tox/
 .venv
+.venv-ci
 .webassets-cache
 *.cover
 *.egg
