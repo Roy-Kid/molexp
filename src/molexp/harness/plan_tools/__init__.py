@@ -22,6 +22,7 @@ from molexp.harness.plan_tools.board_tools import (
     inspect_artifact,
     inspect_task,
     list_tasks,
+    place_task,
     propose_plan_patch,
     update_task,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "inspect_artifact",
     "inspect_task",
     "list_tasks",
+    "place_task",
     "propose_plan_patch",
     "run_acceptance_test",
     "run_capability",

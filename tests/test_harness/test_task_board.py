@@ -74,6 +74,21 @@ class TestDefaults:
         assert task.feasibility is None
         assert task.status is TaskStatus.PENDING
 
+    def test_acceptance_string_is_one_criterion_not_char_split(self) -> None:
+        from molexp.harness.plan.task_board import coerce_acceptance
+
+        # Bare str must not become tuple("…") character shredding.
+        assert coerce_acceptance("脚本可对 N=10..50 生成链") == ("脚本可对 N=10..50 生成链",)
+        task = BoardTask(id="t1", name="build", acceptance="molexp 创建成功")  # type: ignore[arg-type]
+        assert task.acceptance == ("molexp 创建成功",)
+        # Legacy shredded boards re-join on validate.
+        shredded = BoardTask(
+            id="t2",
+            name="build",
+            acceptance=tuple("molexp"),  # type: ignore[arg-type]
+        )
+        assert shredded.acceptance == ("molexp",)
+
     def test_feasibility_defaults(self) -> None:
         ann = FeasibilityAnnotation(reachable=False)
         assert ann.difficulty is Difficulty.UNKNOWN

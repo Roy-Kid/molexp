@@ -3,7 +3,7 @@
 Pins the process-internal board tool surface that does NOT exist yet
 (``molexp.harness.plan_tools``): the :class:`PlanTool` descriptor, the
 :class:`PlanToolResult` payload, the :class:`TaskBoardHandle` Protocol, and the
-seven board-state tools (``list_tasks`` / ``inspect_task`` / ``inspect_artifact``
+eight board-state tools (``list_tasks`` / ``inspect_task`` / ``inspect_artifact``
 read-only; ``update_task`` / ``complete_task`` / ``block_task`` /
 ``propose_plan_patch`` mutating via the handle's immutable writes).
 
@@ -81,6 +81,10 @@ class _FakeBoard:
 
     def get_artifact(self, artifact_id: str) -> dict[str, object]:
         raise KeyError(artifact_id)
+
+    def place(self, *args: object, **kwargs: object) -> _FakeBoard:
+        self.calls.append(("place", args, kwargs))
+        return _FakeBoard(list(self._tasks), calls=self.calls)
 
     def with_task_updated(self, *args: object, **kwargs: object) -> _FakeBoard:
         self.calls.append(("with_task_updated", args, kwargs))
@@ -274,7 +278,7 @@ class TestBoardToolsDeclareEmptySideEffects:
     """All seven board tools present ``side_effects == []`` (gate bypass)."""
 
     def test_seven_board_tools_are_registered(self) -> None:
-        assert len(BOARD_TOOLS) == 7
+        assert len(BOARD_TOOLS) == 8
 
     def test_every_board_tool_declares_empty_side_effects(self) -> None:
         assert all(tool.side_effects == [] for tool in BOARD_TOOLS)
@@ -282,6 +286,7 @@ class TestBoardToolsDeclareEmptySideEffects:
     def test_board_tool_names_cover_the_full_facade(self) -> None:
         assert {tool.name for tool in BOARD_TOOLS} == {
             "list_tasks",
+            "place_task",
             "inspect_task",
             "inspect_artifact",
             "update_task",

@@ -1,4 +1,4 @@
-"""RED unit tests for :class:`EmergentPlanFormValidator` (spec plan-emergent-05b-guard).
+"""RED unit tests for :class:`PlanFormValidator` (spec plan-emergent-05b-guard).
 
 Mirrors the pure-function / one-code-per-defect / never-raises pattern of
 :class:`molexp.harness.validators.workflow_ir.WorkflowIRValidator`. The validator
@@ -7,7 +7,7 @@ returns a :class:`~molexp.harness.schemas.validation.PlanValidationReport` with
 ``target_kind="experiment_plan"`` (a new ``_TARGET_KINDS`` member).
 
 These tests are written before the production symbol exists, so importing
-``EmergentPlanFormValidator`` fails RED (ImportError) until it is authored.
+``PlanFormValidator`` fails RED (ImportError) until it is authored.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from molexp.harness.plan import (
     TaskBoard,
     TaskStatus,  # noqa: F401  (documented lifecycle vocab)
 )
-from molexp.harness.validators.emergent_plan_form import EmergentPlanFormValidator
+from molexp.harness.validators.emergent_plan_form import PlanFormValidator
 
 # --------------------------------------------------------------- builders
 
@@ -70,24 +70,24 @@ def _error_codes(report: object) -> list[str]:
     return [v.code for v in report.violations if v.severity == "error"]  # type: ignore[attr-defined]
 
 
-class TestEmergentPlanFormValidatorWellFormed:
+class TestPlanFormValidatorWellFormed:
     def test_well_formed_plan_passes_clean(self) -> None:
-        report = EmergentPlanFormValidator.validate(_plan())
+        report = PlanFormValidator.validate(_plan())
         assert report.passed is True
         assert report.violations == []
 
     def test_target_kind_is_experiment_plan(self) -> None:
-        report = EmergentPlanFormValidator.validate(_plan())
+        report = PlanFormValidator.validate(_plan())
         assert report.target_kind == "experiment_plan"
 
     def test_target_id_prefers_spec_id(self) -> None:
-        report = EmergentPlanFormValidator.validate(_plan())
+        report = PlanFormValidator.validate(_plan())
         assert report.target_id == "exp-1"
 
     def test_target_id_falls_back_to_title_then_default(self) -> None:
-        titled = EmergentPlanFormValidator.validate(_plan(spec={"title": "Zwitterion"}))
+        titled = PlanFormValidator.validate(_plan(spec={"title": "Zwitterion"}))
         assert titled.target_id == "Zwitterion"
-        default = EmergentPlanFormValidator.validate(
+        default = PlanFormValidator.validate(
             ExperimentPlan(spec={}, board=TaskBoard(tasks=(_task(),)))
         )
         assert default.target_id == "experiment_plan"
@@ -95,19 +95,19 @@ class TestEmergentPlanFormValidatorWellFormed:
 
 class TestSpecIncomplete:
     def test_empty_spec_is_incomplete(self) -> None:
-        report = EmergentPlanFormValidator.validate(
+        report = PlanFormValidator.validate(
             ExperimentPlan(spec={}, board=TaskBoard(tasks=(_task(),)))
         )
         assert "spec_incomplete" in _codes(report)
         assert report.passed is False
 
     def test_missing_title_and_objective_report_one_each(self) -> None:
-        report = EmergentPlanFormValidator.validate(_plan(spec={"id": "exp-1"}))
+        report = PlanFormValidator.validate(_plan(spec={"id": "exp-1"}))
         assert _codes(report).count("spec_incomplete") == 2
         assert report.passed is False
 
     def test_blank_objective_is_incomplete(self) -> None:
-        report = EmergentPlanFormValidator.validate(
+        report = PlanFormValidator.validate(
             _plan(spec={"id": "exp-1", "title": "T", "objective": ""})
         )
         assert "spec_incomplete" in _codes(report)
@@ -116,29 +116,29 @@ class TestSpecIncomplete:
 
 class TestBoardDefects:
     def test_empty_board_blocks(self) -> None:
-        report = EmergentPlanFormValidator.validate(_plan(tasks=()))
+        report = PlanFormValidator.validate(_plan(tasks=()))
         assert "empty_board" in _codes(report)
         assert report.passed is False
 
     def test_duplicate_task_id_blocks(self) -> None:
-        report = EmergentPlanFormValidator.validate(
+        report = PlanFormValidator.validate(
             _plan(tasks=(_task("dup"), _task("dup", name="Second")))
         )
         assert "duplicate_task_id" in _codes(report)
         assert report.passed is False
 
     def test_blank_task_id_blocks(self) -> None:
-        report = EmergentPlanFormValidator.validate(_plan(tasks=(_task(""),)))
+        report = PlanFormValidator.validate(_plan(tasks=(_task(""),)))
         assert "blank_task_id" in _codes(report)
         assert report.passed is False
 
     def test_task_missing_acceptance_blocks(self) -> None:
-        report = EmergentPlanFormValidator.validate(_plan(tasks=(_task(acceptance=()),)))
+        report = PlanFormValidator.validate(_plan(tasks=(_task(acceptance=()),)))
         assert "task_missing_acceptance" in _codes(report)
         assert report.passed is False
 
     def test_task_missing_feasibility_blocks(self) -> None:
-        report = EmergentPlanFormValidator.validate(
+        report = PlanFormValidator.validate(
             _plan(tasks=(BoardTask(id="t1", name="Build", acceptance=("crit",)),))
         )
         assert "task_missing_feasibility" in _codes(report)
@@ -150,7 +150,7 @@ class TestUnreachableWarning:
         unreachable = FeasibilityAnnotation(
             reachable=False, difficulty=Difficulty.HARD, rationale="no capability"
         )
-        report = EmergentPlanFormValidator.validate(_plan(tasks=(_task(feasibility=unreachable),)))
+        report = PlanFormValidator.validate(_plan(tasks=(_task(feasibility=unreachable),)))
         assert "task_unreachable" in _codes(report)
         assert _error_codes(report) == []
         assert report.passed is True
@@ -158,9 +158,7 @@ class TestUnreachableWarning:
 
 class TestNeverRaises:
     def test_degenerate_plan_does_not_raise(self) -> None:
-        report = EmergentPlanFormValidator.validate(
-            ExperimentPlan(spec={}, board=TaskBoard(tasks=()))
-        )
+        report = PlanFormValidator.validate(ExperimentPlan(spec={}, board=TaskBoard(tasks=())))
         assert report.passed is False
         assert "empty_board" in _codes(report)
         assert "spec_incomplete" in _codes(report)
@@ -168,6 +166,6 @@ class TestNeverRaises:
 
 class TestExportedFromValidatorsPackage:
     def test_symbol_is_re_exported(self) -> None:
-        from molexp.harness.validators import EmergentPlanFormValidator as Exported
+        from molexp.harness.validators import PlanFormValidator as Exported
 
-        assert Exported is EmergentPlanFormValidator
+        assert Exported is PlanFormValidator

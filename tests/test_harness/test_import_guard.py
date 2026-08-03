@@ -93,12 +93,12 @@ class TestImportGuard:
         loaded = [m for m in output.removeprefix("LOADED:").split(",") if m]
         assert loaded == [], f"forbidden modules imported transitively: {loaded}"
 
-    def test_import_emergent_plan_module_does_not_pull_forbidden_modules(self) -> None:
-        """ac-008: ``import molexp.harness.modes.emergent_plan`` stays SDK-free.
+    def test_import_plan_orchestrator_module_does_not_pull_forbidden_modules(self) -> None:
+        """ac-008: ``import molexp.harness.modes.plan_orchestrator`` stays SDK-free.
 
         ``InteractiveLoopPlanRunner.run_planning`` imports ``molexp.agent.loops``
         *inside the method body* (mirroring ``agent.AgentRunner.run()`` deferring
-        ``pydantic_ai``). Merely importing the ``molexp.harness.modes.emergent_plan``
+        ``pydantic_ai``). Merely importing the ``molexp.harness.modes.plan_orchestrator``
         module must therefore leave ``molexp.workflow`` — and the ``pydantic_ai`` /
         ``pydantic_graph`` SDKs it transitively loads — out of ``sys.modules``. Run
         in a fresh subprocess so a stale ``sys.modules`` from another test cannot
@@ -106,7 +106,7 @@ class TestImportGuard:
         """
         probe = (
             "import sys, importlib;"
-            "importlib.import_module('molexp.harness.modes.emergent_plan');"
+            "importlib.import_module('molexp.harness.modes.plan_orchestrator');"
             "loaded = [m for m in sys.modules if m in " + repr(list(_FORBIDDEN)) + "];"
             "print('LOADED:' + ','.join(loaded))"
         )
@@ -119,7 +119,9 @@ class TestImportGuard:
         output = result.stdout.strip()
         assert output.startswith("LOADED:"), output
         loaded = [m for m in output.removeprefix("LOADED:").split(",") if m]
-        assert loaded == [], f"forbidden modules imported transitively by emergent_plan: {loaded}"
+        assert loaded == [], (
+            f"forbidden modules imported transitively by plan_orchestrator: {loaded}"
+        )
 
     @pytest.mark.parametrize(
         "module",

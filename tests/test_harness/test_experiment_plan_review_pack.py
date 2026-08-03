@@ -92,15 +92,17 @@ class TestBuildExperimentPlanReviewPack:
 
         pack = build_experiment_plan_review_pack(ctx)
 
-        markdown = next(f for f in pack.form.fields if f.kind == "markdown")
-        content = markdown.content
-        assert _TITLE in content
-        assert _OBJECTIVE in content
-        assert "t-build" in content
-        assert "acceptance" in content.lower()
-        assert "feasibility" in content.lower()
+        # Title/objective live on the form shell; full plan book on summary_md.
+        assert pack.form.title == _TITLE or _TITLE in (pack.form.title or "")
+        assert pack.form.description_md is None or _OBJECTIVE in (pack.form.description_md or "")
+        assert "# Experiment Plan" in pack.summary_md
+        assert "## 1. Goal" in pack.summary_md
+        assert "## 7. Tasks" in pack.summary_md
+        assert "t-build" in pack.summary_md or "Build system" in pack.summary_md
+        assert "beads placed" in pack.summary_md
+        assert "feasibility" not in pack.summary_md.lower()
 
-    def test_form_has_operator_notes_and_required_confirmation(self, tmp_path: Path) -> None:
+    def test_form_is_comment_only(self, tmp_path: Path) -> None:
         ctx = _ctx(tmp_path)
         ctx.artifact_store.put_json(
             kind="experiment_plan",
@@ -111,12 +113,14 @@ class TestBuildExperimentPlanReviewPack:
 
         pack = build_experiment_plan_review_pack(ctx)
 
-        by_id = {f.id: f for f in pack.form.fields}
-        assert "operator_notes" in by_id
-        assert by_id["operator_notes"].required is False
-        confirm = by_id["confirm_plan"]
-        assert confirm.kind == "boolean"
-        assert confirm.required is True
+        assert len(pack.form.fields) == 1
+        field = pack.form.fields[0]
+        assert field.id == "operator_notes"
+        assert field.label == "Comment"
+        assert field.required is False
+        assert {f.id for f in pack.form.fields}.isdisjoint(
+            {"priority", "confirm_plan", "keep_tasks", "plan_summary"}
+        )
 
 
 class TestMissingArtifact:

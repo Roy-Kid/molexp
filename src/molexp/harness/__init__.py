@@ -15,13 +15,12 @@ environment) is owned by :mod:`molexp.workspace` (``RunMetadata`` /
 per-scope ``AssetManifest``); code-version and environment capture belong
 there, never here.
 
-Public surface (deliberately small): the Stage execution machinery, the one
-shipped pipeline (:class:`EmergentPlanOrchestrator`), the stores its artifacts
-and audit trail live in, the executor seam, the approval gate, and the agent
-gateway. Everything else — stage classes, schemas, validators, policies,
-curation actions — is imported via its full submodule path
-(``molexp.harness.stages`` / ``.schemas`` / ``.validators`` / …); those
-subpackages are stable import targets but are not re-exported here.
+Public surface (deliberately small): the Stage execution machinery, the two
+shipped modes (:class:`ChatMode` + :class:`PlanOrchestrator`), the stores
+their artifacts and audit trail live in, the executor seam, the approval
+gate, and the agent gateway. Everything else — stage classes, schemas,
+validators, policies, curation actions — is imported via its full submodule
+path (``molexp.harness.stages`` / ``.schemas`` / ``.validators`` / …).
 
 Dependency direction: ``molexp.harness → molexp.workspace`` plus a single
 sanctioned edge ``molexp.harness → molexp.agent.router`` (the SDK-free
@@ -39,7 +38,7 @@ from molexp.harness.core import HarnessRunContext, Stage, StageRunner
 from molexp.harness.errors import ApprovalPendingError, StageExecutionError
 from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
-from molexp.harness.modes import EmergentPlanOrchestrator
+from molexp.harness.modes import ChatMode, PlanOrchestrator, chat_loop_config
 from molexp.harness.registry import CapabilityRegistry
 from molexp.harness.schemas import ModeResult
 from molexp.harness.stages import ApprovalGate
@@ -57,13 +56,14 @@ __all__ = [
     "ApprovalPendingError",
     "ArtifactStore",
     "CapabilityRegistry",
+    "ChatMode",
     "DryRunExecutor",
-    "EmergentPlanOrchestrator",
     "Executor",
     "FileArtifactStore",
     "HarnessRunContext",
     "LocalExecutor",
     "ModeResult",
+    "PlanOrchestrator",
     "RouterBackedAgentGateway",
     "SQLiteApprovalStore",
     "SQLiteArtifactLineageStore",
@@ -71,5 +71,6 @@ __all__ = [
     "Stage",
     "StageExecutionError",
     "StageRunner",
+    "chat_loop_config",
     "replay_metadata",
 ]

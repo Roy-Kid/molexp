@@ -214,7 +214,9 @@ async def _check_store_first_suspend(root: Path) -> None:
     )
     store = _store(run)
     assert store.latest_by_kind(FROZEN_PLAN_KIND) is None, "nothing is frozen on suspend"
-    assert store.latest_by_kind("plan_report") is None, "nothing is rendered on suspend"
+    # Draft plan book is rendered before the human gate so the chat answer is
+    # a filled document while still waiting for approval.
+    assert store.latest_by_kind("plan_report") is not None, "plan book must render before suspend"
 
 
 async def _check_stored_grant_replay(root: Path) -> None:

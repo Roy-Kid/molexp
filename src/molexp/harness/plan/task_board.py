@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from molexp.harness.errors import HarnessError
 
@@ -30,10 +30,38 @@ __all__ = [
     "TaskNotFoundError",
     "TaskStatus",
     "annotate_feasibility",
+    "coerce_acceptance",
     "place_task",
     "remove_task",
     "set_task_status",
 ]
+
+
+def coerce_acceptance(value: object) -> tuple[str, ...]:
+    """Normalize acceptance criteria to a tuple of criterion strings.
+
+    LLM / tool adapters sometimes pass a bare ``str`` instead of a list.
+    ``tuple("foo")`` would explode that into per-character criteria and the
+    review pack then renders ``f; o; o`` — refuse that path.
+
+    Also re-join *already shredded* single-character sequences (legacy boards
+    written before this fix) so operators see readable prose.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        text = value.strip()
+        return (text,) if text else ()
+    if isinstance(value, (list, tuple)):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        if not items:
+            return ()
+        # Recover boards corrupted by ``tuple(str_acceptance)``.
+        if len(items) > 3 and all(len(item) == 1 for item in items):
+            return ("".join(items),)
+        return tuple(items)
+    text = str(value).strip()
+    return (text,) if text else ()
 
 
 class TaskStatus(StrEnum):
@@ -104,6 +132,11 @@ class BoardTask(BaseModel):
     acceptance: tuple[str, ...] = ()
     feasibility: FeasibilityAnnotation | None = None
     status: TaskStatus = TaskStatus.PENDING
+
+    @field_validator("acceptance", mode="before")
+    @classmethod
+    def _acceptance_not_char_split(cls, value: object) -> tuple[str, ...]:
+        return coerce_acceptance(value)
 
 
 class TaskBoard(BaseModel):

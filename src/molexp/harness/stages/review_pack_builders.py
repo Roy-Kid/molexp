@@ -83,14 +83,46 @@ def build_experiment_spec_review_pack(ctx: HarnessRunContext) -> ReviewPack:
     )
 
 
+def _clean_plan_display_text(raw: str, *, max_len: int = 240) -> str:
+    """Strip revision wrappers / multi-copy noise for human review UI.
+
+    Plan drafts sometimes carry ``Original request:… Revise the previous plan…``
+    templates; those must never appear as the form title or description.
+    """
+    text = " ".join((raw or "").split()).strip()
+    if not text:
+        return ""
+    # Drop common revision scaffolding prefixes (keep the first human goal).
+    for marker in (
+        "Revise the previous plan",
+        "Original request:",
+        "using this feedback:",
+    ):
+        if marker.lower() in text.lower():
+            # Prefer the segment before the first revision boilerplate.
+            lower = text.lower()
+            idx = lower.find("revise the previous plan")
+            if idx > 0:
+                text = text[:idx].strip()
+            idx = lower.find("original request:")
+            if idx == 0:
+                rest = text[len("Original request:") :].strip()
+                # Cut again if revise appears after
+                ridx = rest.lower().find("revise the previous plan")
+                text = rest[:ridx].strip() if ridx > 0 else rest
+            break
+    if len(text) > max_len:
+        text = text[: max_len - 1].rstrip() + "…"
+    return text
+
+
 def build_experiment_plan_review_pack(ctx: HarnessRunContext) -> ReviewPack:
     """Build a hard-review pack for the pre-approval ``experiment_plan``.
 
     Anchors on the **pre-approval** ``experiment_plan`` artifact — the frozen
     plan is a post-approval consequence and does not exist yet at gate-render,
     so this reads the mutable plan (spec + task board) via ``_require_kind`` and
-    renders a spec + task-board summary the operator confirms before the plan is
-    frozen.
+    renders a compact board checklist the operator confirms before freeze.
 
     Args:
         ctx: The harness run context whose artifact store holds the plan.
@@ -103,38 +135,23 @@ def build_experiment_plan_review_pack(ctx: HarnessRunContext) -> ReviewPack:
     """
     ref, raw = _require_kind(ctx, "experiment_plan", stage="build_experiment_plan_review_pack")
     plan = ExperimentPlan.model_validate(json.loads(raw))
-    title = str(plan.spec.get("title") or plan.spec.get("id") or ref.id)
-    objective = str(plan.spec.get("objective") or "")
+    raw_title = str(plan.spec.get("title") or plan.spec.get("id") or "Experiment plan")
+    raw_objective = str(plan.spec.get("objective") or "")
+    title = _clean_plan_display_text(raw_title, max_len=120) or "Experiment plan"
+    objective = _clean_plan_display_text(raw_objective, max_len=280)
 
-    lines = ["## Experiment plan", "", f"**{title}**", "", objective, "", "### Task board", ""]
-    for task in plan.board.tasks:
-        feasibility = task.feasibility
-        reachable = feasibility.reachable if feasibility is not None else "unprobed"
-        difficulty = feasibility.difficulty if feasibility is not None else "unknown"
-        lines.append(
-            f"- `{task.id}` [{task.status}] "
-            f"acceptance:{len(task.acceptance)} feasibility:{reachable}/{difficulty}"
-        )
-    summary = "\n".join(lines).strip()
+    from molexp.harness.plan.document import render_experiment_plan_document
 
+    # Full 12-section experiment plan book for audit / preview (not form fields).
+    summary = render_experiment_plan_document(plan, title_fallback=title)
+
+    # Operator form: comment only — Priority / keep_tasks / confirm checkbox removed.
     fields: list[FormField] = [
-        FormMarkdownField(
-            id="plan_summary",
-            label="Plan summary",
-            content=summary,
-            readonly=True,
-        ),
         FormTextField(
             id="operator_notes",
-            label="Operator notes",
-            help="Optional notes recorded with the approval decision.",
+            label="Comment",
             required=False,
-        ),
-        FormBooleanField(
-            id="confirm_plan",
-            label="I reviewed the spec and task board",
-            required=True,
-            default=False,
+            placeholder="Optional comment for this decision…",
         ),
     ]
     return ReviewPack(
@@ -147,8 +164,7 @@ def build_experiment_plan_review_pack(ctx: HarnessRunContext) -> ReviewPack:
         form=FormDocument(title=title, description_md=objective or None, fields=fields),
         decision_options=["approve", "reject", "revise"],
         audit_hints=[
-            "Confirm every task is reachable and acceptance-complete before freezing.",
-            "Reject to regenerate the plan; revise to edit the board and re-audit.",
+            "Approve freezes the board; revise re-opens planning with your comment.",
         ],
     )
 

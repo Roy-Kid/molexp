@@ -7,6 +7,13 @@ fields are the four narrative anchors — title, objective, system, design;
 everything else defaults to empty so an LLM proposal can omit fields it
 doesn't know without failing validation.
 
+The operator-facing **experiment plan book** is ``body_md`` — a full markdown
+document following the 12-section outline in
+:mod:`molexp.harness.plan.document` (Goal → Questions → Background →
+Hypotheses → Design → Workflow → Tasks → Analysis → Success → Risks →
+Outcomes → Deliverables → References). Structured fields remain for pipeline
+consumers; the UI prefers ``body_md`` when present.
+
 Frozen pydantic so a downstream stage that reads this report cannot mutate
 it mid-pipeline.
 """
@@ -33,3 +40,11 @@ class ExperimentReport(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     risks_or_uncertainties: list[str] = Field(default_factory=list)
     user_questions: list[str] = Field(default_factory=list)
+    #: Full 12-section experiment plan book (markdown). Preferred for UI/readout.
+    body_md: str | None = None
+
+    def to_document_md(self) -> str:
+        """Return the canonical plan book markdown (``body_md`` or reconstructed)."""
+        from molexp.harness.plan.document import experiment_report_to_document
+
+        return experiment_report_to_document(self)

@@ -1,26 +1,12 @@
-"""The seven board-state plan tools + the ``BOARD_TOOLS`` descriptor tuple.
+"""Board-state plan tools + the ``BOARD_TOOLS`` descriptor tuple.
 
-Three read tools (``list_tasks`` / ``inspect_task`` / ``inspect_artifact``) never
-touch the board's write surface; four write tools (``update_task`` /
-``complete_task`` / ``block_task`` / ``propose_plan_patch``) each route through
-EXACTLY ONE :class:`TaskBoardHandle` immutable-write and return the outcome as a
-:class:`PlanToolResult` — the input board is never mutated.
-
-Every tool takes the uniform keyword-only ``(*, ctx, board, …)`` signature so the
-adapter can wrap them uniformly. ``inspect_artifact`` reads through
-``ctx.artifact_store`` rather than the board, but keeps the same shape. Missing
-ids surface as typed errors (``inspect_task`` lets the board's lookup error
-propagate; ``inspect_artifact`` lets :class:`ArtifactNotFoundError` propagate) —
-never a silent ``None``.
-
-``BOARD_TOOLS`` exposes the seven functions as :class:`PlanTool` descriptors,
-each declaring ``side_effects == []`` (read/write-through-immutable-copy is not a
-destructive side effect on the harness store, so the approval gate is bypassed).
+Read tools never write; write tools each route through exactly one
+:class:`TaskBoardHandle` immutable-write and return a :class:`PlanToolResult`.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from molexp.harness.plan_tools.tool import PlanTool, PlanToolResult
 
@@ -35,6 +21,7 @@ __all__ = [
     "inspect_artifact",
     "inspect_task",
     "list_tasks",
+    "place_task",
     "propose_plan_patch",
     "update_task",
 ]
@@ -42,72 +29,45 @@ __all__ = [
 
 async def list_tasks(
     *,
-    ctx: HarnessRunContext,  # noqa: ARG001 — uniform plan-tool signature; reads the board only
+    ctx: HarnessRunContext,  # noqa: ARG001
     board: TaskBoardHandle,
 ) -> PlanToolResult:
-    """List every task on the board (read-only).
-
-    Args:
-        ctx: The harness run context (unused; kept for the uniform signature).
-        board: The task board to read.
-
-    Returns:
-        A successful :class:`PlanToolResult` carrying the task count.
-    """
+    """List every task on the board with structured fields."""
     tasks = board.list_tasks()
     return PlanToolResult(
-        ok=True, summary=f"{len(tasks)} task(s) on the board", data={"count": len(tasks)}
+        ok=True,
+        summary=f"{len(tasks)} task(s) on the board",
+        data={"count": len(tasks), "tasks": list(tasks)},
     )
 
 
 async def inspect_task(
     *,
-    ctx: HarnessRunContext,  # noqa: ARG001 — uniform plan-tool signature; reads the board only
+    ctx: HarnessRunContext,  # noqa: ARG001
     board: TaskBoardHandle,
     task_id: str,
 ) -> PlanToolResult:
-    """Inspect one task by id (read-only).
-
-    Args:
-        ctx: The harness run context (unused; kept for the uniform signature).
-        board: The task board to read.
-        task_id: The id of the task to inspect.
-
-    Returns:
-        A successful :class:`PlanToolResult` describing the task.
-
-    Raises:
-        Exception: Whatever the board's ``get_task`` raises for an unknown id
-            (typically ``KeyError``) — propagated, never swallowed to ``None``.
-    """
+    """Inspect one task by id (structured payload)."""
     task = board.get_task(task_id)
+    payload: dict[str, Any]
+    if isinstance(task, dict):
+        payload = dict(task)
+    else:
+        payload = {"task": task}
     return PlanToolResult(
         ok=True,
         summary=f"inspected task {task_id!r}",
-        data={"task_id": task_id, "task": repr(task)},
+        data={"task_id": task_id, "task": payload},
     )
 
 
 async def inspect_artifact(
     *,
     ctx: HarnessRunContext,
-    board: TaskBoardHandle,  # noqa: ARG001 — uniform plan-tool signature; reads the artifact store
+    board: TaskBoardHandle,  # noqa: ARG001
     artifact_id: str,
 ) -> PlanToolResult:
-    """Inspect one persisted artifact by id (read-only, via the artifact store).
-
-    Args:
-        ctx: The harness run context whose ``artifact_store`` is read.
-        board: The task board (unused; kept for the uniform signature).
-        artifact_id: The id of the artifact to read.
-
-    Returns:
-        A successful :class:`PlanToolResult` carrying the artifact byte size.
-
-    Raises:
-        ArtifactNotFoundError: If ``artifact_id`` is unknown — propagated, never
-            swallowed to ``None``.
-    """
+    """Inspect one persisted artifact by id via the artifact store."""
     raw = ctx.artifact_store.get(artifact_id)
     return PlanToolResult(
         ok=True,
@@ -116,75 +76,58 @@ async def inspect_artifact(
     )
 
 
+async def place_task(
+    *,
+    ctx: HarnessRunContext,  # noqa: ARG001
+    board: TaskBoardHandle,
+    task_id: str,
+    name: str,
+    acceptance: list[str] | None = None,
+) -> PlanToolResult:
+    """Upsert a task onto the board (create or replace by id)."""
+    board.place(task_id, name, acceptance=acceptance)
+    return PlanToolResult(
+        ok=True,
+        summary=f"placed task {task_id!r}",
+        data={
+            "task_id": task_id,
+            "name": name,
+            "acceptance": list(acceptance or ()),
+        },
+    )
+
+
 async def update_task(
     *,
-    ctx: HarnessRunContext,  # noqa: ARG001 — uniform plan-tool signature; writes through the board
+    ctx: HarnessRunContext,  # noqa: ARG001
     board: TaskBoardHandle,
     task_id: str,
     changes: dict[str, object],
 ) -> PlanToolResult:
-    """Apply ``changes`` to one task via the board's immutable write.
-
-    Calls exactly one ``board.with_task_updated(...)`` and returns success; the
-    input board is never mutated.
-
-    Args:
-        ctx: The harness run context (unused; kept for the uniform signature).
-        board: The task board to write through.
-        task_id: The id of the task to update.
-        changes: The field changes to apply.
-
-    Returns:
-        A successful :class:`PlanToolResult`.
-    """
+    """Apply ``changes`` to one task via the board's immutable write."""
     board.with_task_updated(task_id, changes)
     return PlanToolResult(ok=True, summary=f"updated task {task_id!r}", data={"task_id": task_id})
 
 
 async def complete_task(
     *,
-    ctx: HarnessRunContext,  # noqa: ARG001 — uniform plan-tool signature; writes through the board
+    ctx: HarnessRunContext,  # noqa: ARG001
     board: TaskBoardHandle,
     task_id: str,
 ) -> PlanToolResult:
-    """Mark one task complete via the board's immutable write.
-
-    Calls exactly one ``board.mark_complete(...)`` and returns success; the input
-    board is never mutated.
-
-    Args:
-        ctx: The harness run context (unused; kept for the uniform signature).
-        board: The task board to write through.
-        task_id: The id of the task to complete.
-
-    Returns:
-        A successful :class:`PlanToolResult`.
-    """
+    """Mark one task complete."""
     board.mark_complete(task_id)
     return PlanToolResult(ok=True, summary=f"completed task {task_id!r}", data={"task_id": task_id})
 
 
 async def block_task(
     *,
-    ctx: HarnessRunContext,  # noqa: ARG001 — uniform plan-tool signature; writes through the board
+    ctx: HarnessRunContext,  # noqa: ARG001
     board: TaskBoardHandle,
     task_id: str,
     reason: str,
 ) -> PlanToolResult:
-    """Mark one task blocked via the board's immutable write.
-
-    Calls exactly one ``board.mark_blocked(...)`` and returns success; the input
-    board is never mutated.
-
-    Args:
-        ctx: The harness run context (unused; kept for the uniform signature).
-        board: The task board to write through.
-        task_id: The id of the task to block.
-        reason: The reason the task is blocked.
-
-    Returns:
-        A successful :class:`PlanToolResult`.
-    """
+    """Mark one task blocked with a reason."""
     board.mark_blocked(task_id, reason)
     return PlanToolResult(
         ok=True, summary=f"blocked task {task_id!r}", data={"task_id": task_id, "reason": reason}
@@ -193,58 +136,74 @@ async def block_task(
 
 async def propose_plan_patch(
     *,
-    ctx: HarnessRunContext,  # noqa: ARG001 — uniform plan-tool signature; writes through the board
+    ctx: HarnessRunContext,  # noqa: ARG001
     board: TaskBoardHandle,
     patch: dict[str, object],
 ) -> PlanToolResult:
-    """Apply a plan-level ``patch`` via the board's immutable write.
-
-    Calls exactly one ``board.apply_patch(...)`` and returns success; the input
-    board is never mutated.
-
-    Args:
-        ctx: The harness run context (unused; kept for the uniform signature).
-        board: The task board to write through.
-        patch: The plan patch to apply.
-
-    Returns:
-        A successful :class:`PlanToolResult`.
-    """
+    """Apply a plan-level patch (place/update/remove tasks)."""
     board.apply_patch(patch)
     return PlanToolResult(ok=True, summary="applied plan patch", data={"patch": patch})
 
 
-# The seven board tools as PlanTool descriptors. Each declares no side effects,
-# so wrapping any of them via ``as_loop_tool`` bypasses the approval gate.
 BOARD_TOOLS: tuple[PlanTool, ...] = (
     PlanTool(
         name="list_tasks",
-        description="List every task on the board.",
+        description="List every task on the plan board with id, name, status, and acceptance.",
         fn=list_tasks,
         input_schema={"type": "object", "properties": {}},
         side_effects=[],
     ),
     PlanTool(
         name="inspect_task",
-        description="Inspect one task by id.",
+        description="Inspect one task by id (structured fields).",
         fn=inspect_task,
-        input_schema={"type": "object", "properties": {"task_id": {"type": "string"}}},
+        input_schema={
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}},
+            "required": ["task_id"],
+        },
         side_effects=[],
     ),
     PlanTool(
         name="inspect_artifact",
-        description="Inspect one persisted artifact by id.",
+        description="Inspect one persisted harness artifact by id.",
         fn=inspect_artifact,
-        input_schema={"type": "object", "properties": {"artifact_id": {"type": "string"}}},
+        input_schema={
+            "type": "object",
+            "properties": {"artifact_id": {"type": "string"}},
+            "required": ["artifact_id"],
+        },
+        side_effects=[],
+    ),
+    PlanTool(
+        name="place_task",
+        description=(
+            "Create or replace a task on the board. "
+            "Provide task_id, a human name, and acceptance criteria strings."
+        ),
+        fn=place_task,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string"},
+                "name": {"type": "string"},
+                "acceptance": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["task_id", "name"],
+        },
         side_effects=[],
     ),
     PlanTool(
         name="update_task",
-        description="Apply field changes to one task.",
+        description="Apply field changes to one task (name, acceptance, status).",
         fn=update_task,
         input_schema={
             "type": "object",
-            "properties": {"task_id": {"type": "string"}, "changes": {"type": "object"}},
+            "properties": {
+                "task_id": {"type": "string"},
+                "changes": {"type": "object"},
+            },
+            "required": ["task_id", "changes"],
         },
         side_effects=[],
     ),
@@ -252,7 +211,11 @@ BOARD_TOOLS: tuple[PlanTool, ...] = (
         name="complete_task",
         description="Mark one task complete.",
         fn=complete_task,
-        input_schema={"type": "object", "properties": {"task_id": {"type": "string"}}},
+        input_schema={
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}},
+            "required": ["task_id"],
+        },
         side_effects=[],
     ),
     PlanTool(
@@ -261,15 +224,26 @@ BOARD_TOOLS: tuple[PlanTool, ...] = (
         fn=block_task,
         input_schema={
             "type": "object",
-            "properties": {"task_id": {"type": "string"}, "reason": {"type": "string"}},
+            "properties": {
+                "task_id": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["task_id", "reason"],
         },
         side_effects=[],
     ),
     PlanTool(
         name="propose_plan_patch",
-        description="Apply a plan-level patch.",
+        description=(
+            "Apply a plan-level patch. Keys: tasks (list of {id,name,acceptance}), "
+            "update (map task_id→changes), remove (list of task ids)."
+        ),
         fn=propose_plan_patch,
-        input_schema={"type": "object", "properties": {"patch": {"type": "object"}}},
+        input_schema={
+            "type": "object",
+            "properties": {"patch": {"type": "object"}},
+            "required": ["patch"],
+        },
         side_effects=[],
     ),
 )

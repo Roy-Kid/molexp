@@ -1,16 +1,16 @@
 """RED tests for the production ``InteractiveLoopPlanRunner`` (plan-emergent-05c).
 
-``InteractiveLoopPlanRunner`` (``molexp.harness.modes.emergent_plan``, not yet
+``InteractiveLoopPlanRunner`` (``molexp.harness.modes.plan_orchestrator``, not yet
 written) is the private ``PlanLoopRunner`` impl and the **only** harness site
 importing ``molexp.agent.loops`` (lazily). It builds a phase-02 ``InteractiveLoop``
 + ``AgentRuntime`` + sink from the 05a gateway's ``Router`` and drives the
 emergent planning loop, injecting the phase-03 plan tools and the phase-05b
-``EmergentPlanFormValidator``-backed ``should_stop`` guard.
+``PlanFormValidator``-backed ``should_stop`` guard.
 
 These tests pin ac-005 offline with a **scripted fake ``Router``**: driving
 ``run_planning`` invokes ``Router.stream_agentic`` with the ``as_loop_tool``-
 adapted plan tools and a non-None ``should_stop`` guard; and an
-``EmergentPlanFormValidator``-backed guard denies a form-invalid board (steer)
+``PlanFormValidator``-backed guard denies a form-invalid board (steer)
 while allowing a form-valid one to terminate.
 
 BLOCKERS this test surfaces (see the file report):
@@ -26,7 +26,7 @@ BLOCKERS this test surfaces (see the file report):
    This test pins that the adapted plan tools reach ``stream_agentic``; a
    plan-tool injection seam on the loop is required for GREEN.
 
-RED until ``molexp.harness.modes.emergent_plan`` exists (and the blockers land).
+RED until ``molexp.harness.modes.plan_orchestrator`` exists (and the blockers land).
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ from molexp.agent.types import UsageBreakdown
 from molexp.harness.core.run_context import HarnessRunContext
 
 # RED: the module + its private loop runner do not exist yet.
-from molexp.harness.modes.emergent_plan import (
+from molexp.harness.modes.plan_orchestrator import (
     InteractiveLoopPlanRunner,
 )
 from molexp.harness.plan import (
@@ -63,7 +63,7 @@ from molexp.harness.plan_tools import BOARD_TOOLS, as_loop_tool
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
-from molexp.harness.validators import EmergentPlanFormValidator
+from molexp.harness.validators import PlanFormValidator
 
 pytestmark = pytest.mark.asyncio
 
@@ -180,11 +180,11 @@ class _BoardHolder:
 
 
 def _form_guard(holder: _BoardHolder):
-    """A ``ShouldStopGuard`` backed by ``EmergentPlanFormValidator`` over a board."""
+    """A ``ShouldStopGuard`` backed by ``PlanFormValidator`` over a board."""
 
     async def should_stop(*, state: LoopState) -> HookOutcome:
         del state
-        report = EmergentPlanFormValidator.validate(ExperimentPlan(spec=_SPEC, board=holder.board))
+        report = PlanFormValidator.validate(ExperimentPlan(spec=_SPEC, board=holder.board))
         if report.passed:
             return HookOutcome.proceed()
         return HookOutcome.deny("; ".join(v.message for v in report.violations))
