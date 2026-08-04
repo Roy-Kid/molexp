@@ -11,6 +11,7 @@ import type { EntityCard } from "@/api/generated/models/EntityCard";
 import { StatusBadge } from "@/app/components/entity";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { Selection, WorkspaceSnapshot } from "@/app/types";
+import { WorkbenchAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 
 const KIND_ICON: Record<string, ComponentType<{ className?: string }>> = {
@@ -71,14 +72,16 @@ export const EntityRefCard = ({
   const Icon = KIND_ICON[card.kind] ?? FileText;
 
   return (
-    <button
+    <WorkbenchAction
+      kind="ghost"
+      size="content"
       type="button"
       disabled={selection === null}
       onClick={() => {
         if (selection) nav.setSelection(selection);
       }}
       className={cn(
-        "group flex w-full items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2 text-left transition-colors",
+        "group flex w-full items-center gap-3 rounded-control border border-border/60 bg-card px-3 py-2 text-left transition-colors",
         selection ? "hover:border-border hover:bg-muted/40" : "cursor-default opacity-70",
       )}
     >
@@ -86,7 +89,9 @@ export const EntityRefCard = ({
         className={cn("h-4 w-4 flex-none", KIND_ICON_CLASS[card.kind] ?? "text-muted-foreground")}
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">{card.title}</span>
+        <span className="block truncate text-body-lg font-medium text-foreground">
+          {card.title}
+        </span>
         <span className="block truncate text-micro uppercase tracking-wide text-muted-foreground">
           {card.kind}
         </span>
@@ -95,6 +100,6 @@ export const EntityRefCard = ({
       {selection && (
         <ArrowUpRight className="h-3.5 w-3.5 flex-none text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
       )}
-    </button>
+    </WorkbenchAction>
   );
 };

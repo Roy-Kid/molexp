@@ -86,7 +86,9 @@ export function AddTargetForm({
 
   return (
     <form onSubmit={handleSubmit} className={formClass}>
-      {variant === "card" && <h3 className="text-sm font-semibold text-foreground">Add target</h3>}
+      {variant === "card" && (
+        <h3 className="text-body-lg font-semibold text-foreground">Add target</h3>
+      )}
       <div className="space-y-3">
         <div className="space-y-1">
           <Label htmlFor="add-target-name">Name</Label>
@@ -166,7 +168,7 @@ export function AddTargetForm({
           </>
         ) : null}
       </div>
-      {error && <p className="text-sm text-status-failed-foreground">{error}</p>}
+      {error && <p className="text-body-lg text-status-failed-foreground">{error}</p>}
       <div className="flex justify-end gap-2">
         {onCancel && (
           <WorkbenchAction kind="ghost" size="default" type="button" onClick={onCancel}>

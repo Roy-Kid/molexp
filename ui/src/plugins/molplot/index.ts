@@ -1,4 +1,5 @@
 import { registerFileTypeContribution } from "@/app/registry";
+import { RunMetricsTab } from "@/plugins/metrics/RunMetricsTab";
 import type { UiPluginModule } from "@/plugins/types";
 import { MolplotObservablesTab } from "./MolplotObservablesTab";
 
@@ -10,18 +11,44 @@ export { MolplotRawChart } from "./MolplotRawChart";
 /**
  * molplot UI plugin — activates when run products look plottable.
  *
- * Science path: molpy writes MolRec with ``observables/`` → molexp stores
- * the record under the run → this plugin matches (tags / marker files) and
- * offers a Plots tab. Core never imports chart code for that path.
+ * Paths:
+ * - MolRec metrics JSONL (``metrics/metrics.jsonl``) → run Metrics tab
+ *   (charts via molplot; API reads the same stream molexp/molnex write).
+ * - observables / Vega-Lite artifacts → Plots tab.
+ *
+ * Core never hard-wires chart tabs; matching is contribution-driven.
  */
 const molplotPlugin: UiPluginModule = {
   id: "molplot",
   register: () => {
     registerFileTypeContribution({
+      id: "molplot:run-metrics",
+      objectType: "run",
+      value: "metrics",
+      label: "Metrics",
+      priority: 40,
+      matcher: {
+        patterns: [
+          "metrics/metrics.jsonl",
+          "**/metrics/metrics.jsonl",
+          "**/metrics.jsonl",
+        ],
+        matches: (file) => {
+          const blob = `${file.name} ${file.relPath}`.toLowerCase().replace(/\\/g, "/");
+          return (
+            blob.endsWith("metrics/metrics.jsonl") ||
+            blob.endsWith("/metrics.jsonl") ||
+            blob === "metrics.jsonl"
+          );
+        },
+      },
+      Component: RunMetricsTab,
+    });
+    registerFileTypeContribution({
       id: "molplot:run-tab",
       objectType: "run",
       value: "plots",
-      label: "Plots",
+      label: "MolPlot",
       priority: 45,
       matcher: {
         patterns: [

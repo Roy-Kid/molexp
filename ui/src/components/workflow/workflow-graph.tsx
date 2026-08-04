@@ -59,7 +59,7 @@ export const WorkflowGraph = ({
     return (
       <p
         className={
-          "rounded-md border border-dashed border-border/60 bg-muted/10 px-3 py-2 text-xs italic text-muted-foreground " +
+          "rounded-control border border-dashed border-border/60 bg-muted/10 px-3 py-2 text-label italic text-muted-foreground " +
           (className ?? "")
         }
       >
@@ -70,7 +70,7 @@ export const WorkflowGraph = ({
 
   return (
     <div className={className}>
-      <div className="overflow-hidden rounded-md border border-border/60" style={{ height }}>
+      <div className="overflow-hidden rounded-control border border-border/60" style={{ height }}>
         <FlowgramCanvas document={document} onNodeClick={onNodeClick} />
       </div>
       {invalidLinks.length > 0 && (

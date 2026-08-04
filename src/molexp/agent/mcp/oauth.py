@@ -157,7 +157,7 @@ class FileTokenStorage(TokenStorage):
             return {}
         try:
             return json.loads(self._path.read_text())
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             return {}
 
     def _write(self, payload: dict) -> None:

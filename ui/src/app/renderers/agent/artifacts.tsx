@@ -1,4 +1,12 @@
 import type { JSX } from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { AgentPlotChart } from "./AgentPlotChart";
 import { InlineStructureViewer } from "./inlineStructure";
 
@@ -37,37 +45,37 @@ export const ArtifactBody = ({
     const rows = Array.isArray(inner.rows) ? (inner.rows as unknown[][]) : [];
     if (columns.length === 0 || rows.length === 0) return null;
     return (
-      <div className="overflow-x-auto rounded-md border border-border/60">
+      <div className="overflow-x-auto rounded-control border border-border/60">
         {title && (
-          <p className="border-b border-border/60 bg-muted/40 px-3 py-1 text-xs font-medium">
+          <p className="border-b border-border/60 bg-muted/40 px-3 py-1 text-label font-medium">
             {title}
           </p>
         )}
-        <table className="w-full text-xs">
-          <thead className="bg-muted/30">
-            <tr>
+        <Table className="w-full text-label">
+          <TableHeader className="bg-muted/30">
+            <TableRow>
               {columns.map((c) => (
-                <th key={`col-${c}`} className="px-3 py-2 text-left font-medium">
+                <TableHead key={`col-${c}`} className="px-3 py-2 text-left font-medium">
                   {c}
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.slice(0, 50).map((row) => {
               const rowKey = row.map((value) => String(value ?? "")).join("|");
               return (
-                <tr key={`row-${rowKey}`} className="border-t border-border/40">
+                <TableRow key={`row-${rowKey}`} className="border-t border-border/40">
                   {columns.map((column, colIdx) => (
-                    <td key={`cell-${column}`} className="px-3 py-1 tabular-nums">
+                    <TableCell key={`cell-${column}`} className="px-3 py-1 tabular-nums">
                       {String(row[colIdx] ?? "")}
-                    </td>
+                    </TableCell>
                   ))}
-                </tr>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
         {rows.length > 50 && (
           <p className="border-t border-border/40 bg-muted/20 px-3 py-1 text-micro text-muted-foreground">
             Showing 50 of {rows.length} rows
@@ -79,7 +87,7 @@ export const ArtifactBody = ({
 
   if (kind === "text" && typeof inner.body === "string") {
     return (
-      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-micro text-foreground">
+      <pre className="overflow-x-auto whitespace-pre-wrap rounded-control border border-border/60 bg-muted/40 px-3 py-2 text-micro text-foreground">
         {inner.body}
       </pre>
     );

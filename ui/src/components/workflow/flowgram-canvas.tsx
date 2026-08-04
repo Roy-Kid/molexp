@@ -184,7 +184,7 @@ const FlowgramCanvasControls = ({ editable }: { editable: boolean }): JSX.Elemen
   const zoomPct = Math.round((tools.zoom ?? 1) * 100);
 
   return (
-    <div className="absolute right-3 bottom-3 z-10 flex items-center gap-1 rounded-[var(--radius-control)] border border-border bg-surface p-1 mol-motion-fade">
+    <div className="absolute right-3 bottom-3 z-10 flex items-center gap-1 rounded-control border border-border bg-surface p-1 mol-motion-fade">
       {editable && (
         <>
           <WorkbenchIconAction label="Undo" onClick={() => ctx.history.undo()}>
@@ -336,9 +336,9 @@ export const FlowgramCanvas = ({
       </NodeDataContext.Provider>
 
       <Dialog open={expanded !== null} onOpenChange={(open) => !open && setExpanded(null)}>
-        <DialogContent className="flex h-[80vh] max-w-5xl flex-col">
+        <DialogContent className="flex h-dialog-scroll max-w-5xl flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 font-mono text-sm">
+            <DialogTitle className="flex items-center gap-2 font-mono text-body-lg">
               <Layers className="h-4 w-4 text-muted-foreground" />
               {expanded?.taskId}
               <span className="text-muted-foreground">· inner workflow</span>

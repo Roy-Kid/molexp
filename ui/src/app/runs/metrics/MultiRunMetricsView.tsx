@@ -18,7 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { WorkbenchAction } from "@/components/workbench";
+import { Slider } from "@/components/ui/slider";
+import { WorkbenchIconAction } from "@/components/workbench";
 import { MolplotLineChart } from "@/plugins/molplot";
 import {
   type AggregateOptions,
@@ -244,7 +245,7 @@ export const MultiRunMetricsView = ({
 
   if (loading && perRunAll.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center bg-background text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center bg-background text-body-lg text-muted-foreground">
         Loading metrics for {runIds.length} runs…
       </div>
     );
@@ -278,25 +279,24 @@ export const MultiRunMetricsView = ({
     <div className="flex flex-1 flex-col overflow-hidden bg-background">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         <Layers className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium text-foreground">
+        <span className="text-body-lg font-medium text-foreground">
           {OP_LABELS[op]} · {metricKey}
         </span>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-label text-muted-foreground">
           {picked.length}/{runIds.length} runs
         </span>
 
         <Dialog open={configOpen} onOpenChange={setConfigOpen}>
           <DialogTrigger asChild>
-            <WorkbenchAction kind="secondary" size="compact" className="ml-auto h-7 gap-2">
+            <WorkbenchIconAction label="Configure aggregation" className="ml-auto">
               <Settings2 className="h-3.5 w-3.5" />
-              Aggregation
-            </WorkbenchAction>
+            </WorkbenchIconAction>
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Aggregate metrics</DialogTitle>
             </DialogHeader>
-            <div className="flex flex-col gap-4 py-2 text-sm">
+            <div className="flex flex-col gap-4 py-2 text-body-lg">
               <div className="flex flex-col gap-2">
                 <span className="font-medium text-foreground">Operation</span>
                 <Select value={op} onValueChange={(value) => setOp(value as AggregateOp)}>
@@ -330,17 +330,16 @@ export const MultiRunMetricsView = ({
               <div className="flex flex-col gap-2">
                 <span className="font-medium text-foreground">Smoothing</span>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="range"
+                  <Slider
                     min={0}
                     max={0.99}
                     step={0.01}
-                    value={smoothing}
-                    onChange={(event) => setSmoothing(Number(event.target.value))}
-                    className="h-1 flex-1 cursor-pointer accent-primary"
+                    value={[smoothing]}
+                    onValueChange={([value]) => setSmoothing(value)}
+                    className="flex-1"
                     aria-label="EMA smoothing weight"
                   />
-                  <span className="w-9 text-right font-mono tabular-nums text-muted-foreground">
+                  <span className="w-control-comfortable text-right font-mono tabular-nums text-muted-foreground">
                     {smoothing.toFixed(2)}
                   </span>
                 </div>
@@ -381,7 +380,7 @@ export const MultiRunMetricsView = ({
         <MolplotLineChart config={config} style={{ width: "100%", height: "100%" }} />
       </div>
 
-      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-4 py-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-4 py-2 text-label text-muted-foreground">
         <span>{picked.length} runs aggregated</span>
         {dropped > 0 && <span>{dropped} unaligned steps dropped</span>}
         {failures.length > 0 && <span>{failures.length} runs failed to load</span>}

@@ -257,10 +257,36 @@ export const runHandlers = [
         ({ request }) => {
             const url = new URL(request.url);
             const path = url.searchParams.get("path") ?? "";
-            // Mock 2-frame XYZ trajectory (small molecule).
-            const content =
-                "3\nframe 0\nO 0.000 0.000 0.000\nH 0.957 0.000 0.000\nH -0.239 0.927 0.000\n" +
-                "3\nframe 1\nO 0.000 0.000 0.000\nH 0.967 0.000 0.000\nH -0.249 0.937 0.000\n";
+            const content = path.endsWith(".vl.json")
+                ? JSON.stringify({
+                      $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+                      title: "Potential energy convergence",
+                      width: "container",
+                      height: 300,
+                      data: {
+                          values: Array.from({ length: 32 }, (_, index) => ({
+                              step: index * 100,
+                              energy: -980 - 76 * (1 - Math.exp(-index / 8)) + Math.sin(index) * 2.4,
+                          })),
+                      },
+                      mark: { type: "line", point: false, strokeWidth: 2 },
+                      encoding: {
+                          x: { field: "step", type: "quantitative", title: "Step" },
+                          y: {
+                              field: "energy",
+                              type: "quantitative",
+                              title: "Potential energy (eV)",
+                              scale: { zero: false },
+                          },
+                          tooltip: [
+                              { field: "step", type: "quantitative" },
+                              { field: "energy", type: "quantitative", format: ".3f" },
+                          ],
+                      },
+                  })
+                : // Mock 2-frame XYZ trajectory (small molecule).
+                  "3\nframe 0\nO 0.000 0.000 0.000\nH 0.957 0.000 0.000\nH -0.239 0.927 0.000\n" +
+                  "3\nframe 1\nO 0.000 0.000 0.000\nH 0.967 0.000 0.000\nH -0.249 0.937 0.000\n";
             return HttpResponse.json({
                 path,
                 content,
@@ -450,6 +476,25 @@ export const runHandlers = [
                         children: [],
                     },
                     {
+                        name: "observables",
+                        relPath: "observables",
+                        type: "folder",
+                        modified: now,
+                        children: [
+                            {
+                                name: "energy.vl.json",
+                                relPath: "observables/energy.vl.json",
+                                type: "file",
+                                size: 4096,
+                                modified: now,
+                                assetId: `${run.id}-energy-plot`,
+                                assetKind: "plot",
+                                taskId: "simulate",
+                                children: [],
+                            },
+                        ],
+                    },
+                    {
                         name: "log.lammps",
                         relPath: "log.lammps",
                         type: "file",
@@ -461,8 +506,8 @@ export const runHandlers = [
                         children: [],
                     },
                     {
-                        name: "trajectory.lammpstrj",
-                        relPath: "trajectory.lammpstrj",
+                        name: "trajectory.xyz",
+                        relPath: "trajectory.xyz",
                         type: "file",
                         size: 8 * 1024 * 1024,
                         modified: now,

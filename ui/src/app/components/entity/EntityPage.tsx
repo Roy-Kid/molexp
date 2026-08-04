@@ -18,7 +18,7 @@ interface EntityMetricProps {
 
 export const EntityMetric = ({ label, value }: EntityMetricProps): JSX.Element => {
   return (
-    <span className="flex items-baseline gap-1 text-xs">
+    <span className="flex items-baseline gap-1 text-label">
       <span className="font-semibold tabular-nums text-foreground">{value}</span>
       <span className="text-muted-foreground">{label}</span>
     </span>
@@ -49,45 +49,41 @@ export const EntityHeader = ({
   metrics,
 }: EntityHeaderProps): JSX.Element => {
   return (
-    <section className="border-b border-border/60 bg-background">
-      <div className="px-4 py-3 md:px-4">
-        {/* min-h locks the header height regardless of whether actions/metrics
-            slots are populated, so different viewers line up the same way. */}
-        <div className="flex min-h-9 items-center justify-between gap-4">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="flex h-8 w-8 flex-none items-center justify-center text-muted-foreground">
-              <Icon className="h-4 w-4" />
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <h2
-                  className="truncate text-title font-semibold tracking-tight text-foreground"
-                  title={titleTooltip}
-                >
-                  {title}
-                </h2>
-                {status && <StatusBadge status={status} size="sm" dot />}
-                {titleAccessory}
-              </div>
-              {subtitle && (
-                <p className="truncate text-xs text-muted-foreground" title={subtitle}>
-                  {subtitle}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {(actions || metrics) && (
-            <div className="flex flex-none items-center gap-3">
-              {metrics && (
-                <div className="hidden flex-wrap items-baseline justify-end gap-x-3 gap-y-1 sm:flex">
-                  {metrics}
-                </div>
-              )}
-              {actions && <div className="flex items-center gap-1">{actions}</div>}
+    <section className="bg-surface">
+      <div className="flex h-toolbar min-w-0 items-center gap-2 px-2">
+        <div className="hidden size-7 flex-none items-center justify-center text-accent sm:flex">
+          <Icon className="size-4" aria-hidden />
+        </div>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <h2
+            className="truncate text-title font-semibold tracking-tight text-foreground"
+            title={titleTooltip}
+          >
+            {title}
+          </h2>
+          {status && (
+            <div className="flex-none">
+              <StatusBadge status={status} size="sm" dot />
             </div>
           )}
+          {titleAccessory}
+          {subtitle && (
+            <>
+              <span className="hidden h-4 w-px flex-none bg-border lg:block" aria-hidden />
+              <p
+                className="hidden min-w-0 truncate text-label text-muted-foreground lg:block"
+                title={subtitle}
+              >
+                {subtitle}
+              </p>
+            </>
+          )}
         </div>
+
+        {metrics && (
+          <div className="hidden flex-none items-baseline justify-end gap-3 xl:flex">{metrics}</div>
+        )}
+        {actions && <div className="flex flex-none items-center gap-1">{actions}</div>}
       </div>
     </section>
   );
@@ -107,8 +103,8 @@ export const KeyValueGrid = ({ items }: KeyValueGridProps): JSX.Element => {
     <dl className="grid gap-x-6 gap-y-3 md:grid-cols-2">
       {items.map((item) => (
         <div key={item.label} className="flex min-w-0 flex-col">
-          <dt className="text-xs text-muted-foreground">{item.label}</dt>
-          <dd className="mt-1 min-w-0 truncate text-sm text-foreground">{item.value}</dd>
+          <dt className="text-label text-muted-foreground">{item.label}</dt>
+          <dd className="mt-1 min-w-0 truncate text-body-lg text-foreground">{item.value}</dd>
         </div>
       ))}
     </dl>

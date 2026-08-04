@@ -80,7 +80,7 @@ export function CreateWorkflowDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="sm:max-w-[425px]" aria-describedby={undefined}>
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>New workflow</DialogTitle>
         </DialogHeader>
@@ -116,7 +116,7 @@ export function CreateWorkflowDialog({
               />
             </div>
             {error && (
-              <div className="text-sm text-status-failed-foreground text-center">{error}</div>
+              <div className="text-body-lg text-status-failed-foreground text-center">{error}</div>
             )}
           </div>
           <DialogFooter>

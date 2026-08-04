@@ -5,7 +5,7 @@ import { CreateWorkflowDialog } from "@/app/components/CreateWorkflowDialog";
 import { EmptyState, EntityHeader } from "@/app/components/entity";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { WorkspaceSnapshot } from "@/app/types";
-import { RunStatusBadge, WorkbenchAction } from "@/components/workbench";
+import { RunStatusBadge, WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 
 interface WorkflowsPageProps {
   snapshot: WorkspaceSnapshot;
@@ -28,10 +28,9 @@ export const WorkflowsPage = ({ snapshot, onRefresh }: WorkflowsPageProps): JSX.
   };
 
   const newWorkflowButton = (
-    <WorkbenchAction kind="primary" size="compact" onClick={() => setCreateOpen(true)}>
+    <WorkbenchIconAction label="New workflow" onClick={() => setCreateOpen(true)}>
       <Plus className="h-3.5 w-3.5" />
-      New workflow
-    </WorkbenchAction>
+    </WorkbenchIconAction>
   );
 
   return (
@@ -63,7 +62,9 @@ export const WorkflowsPage = ({ snapshot, onRefresh }: WorkflowsPageProps): JSX.
               const edgeCount = workflow.graph?.links.length ?? 0;
               return (
                 <li key={workflow.id}>
-                  <button
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="content"
                     type="button"
                     className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-interactive/50"
                     onClick={() =>
@@ -87,7 +88,7 @@ export const WorkflowsPage = ({ snapshot, onRefresh }: WorkflowsPageProps): JSX.
                         {experiment ? ` · ${experiment.name}` : ""}
                       </p>
                     </div>
-                  </button>
+                  </WorkbenchAction>
                 </li>
               );
             })}

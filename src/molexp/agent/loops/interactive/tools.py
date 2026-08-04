@@ -181,7 +181,7 @@ def readonly_tools(workspace_root: Path) -> tuple[Callable[..., str], ...]:
                     if file_path.stat().st_size > _MAX_FILE_BYTES:
                         continue
                     text = file_path.read_text(encoding="utf-8")
-                except OSError, UnicodeDecodeError:
+                except (OSError, UnicodeDecodeError):
                     continue
                 rel = file_path.relative_to(root_resolved).as_posix()
                 for lineno, line in enumerate(text.splitlines(), start=1):

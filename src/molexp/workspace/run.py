@@ -202,7 +202,8 @@ class Run(Folder):
     @classmethod
     def child_dir(cls, parent: Folder, derived_id: str) -> MolexpPath:
         """Folder hook — runs live under ``runs/run-<id>/``."""
-        return MolexpPath(parent._fs.join(parent.path(), "runs", f"run-{derived_id}"))
+        # resolve() not path() — pure layout math must not mkdir on remote.
+        return MolexpPath(parent._fs.join(parent.resolve(), "runs", f"run-{derived_id}"))
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Run:
@@ -374,7 +375,7 @@ class Run(Folder):
             return None
         try:
             data = read_versioned_json(run_json)
-        except OSError, ValueError:
+        except (OSError, ValueError):
             return None
         results = data.get("context", {}).get("results", {})
         if isinstance(results, dict) and key in results:

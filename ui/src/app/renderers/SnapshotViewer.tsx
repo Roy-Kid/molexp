@@ -368,7 +368,7 @@ const DiffStatusBadge = ({ status }: { status: FieldStatus }): JSX.Element => {
     removed: "border-diff-removed/20 bg-diff-removed-soft text-diff-removed-foreground",
   };
   return (
-    <WorkbenchTag meaning="metadata" className={`text-xs ${styles[status]}`}>
+    <WorkbenchTag meaning="metadata" className={`text-label ${styles[status]}`}>
       {status}
     </WorkbenchTag>
   );
@@ -386,8 +386,8 @@ const ConfigValue = ({
   if (oldVal === undefined && newVal === undefined) return null;
   const changed = oldVal !== newVal;
   return (
-    <div className="flex items-start gap-2 text-xs leading-relaxed">
-      <span className="text-muted-foreground min-w-[100px] shrink-0">{label}</span>
+    <div className="flex items-start gap-2 text-label leading-relaxed">
+      <span className="text-muted-foreground min-w-24 shrink-0">{label}</span>
       {changed ? (
         <span className="font-mono">
           <span className="line-through text-diff-removed-foreground/70">{oldVal ?? "—"}</span>
@@ -453,7 +453,7 @@ const CodeDiffBlock = ({ oldCode, newCode }: { oldCode: string; newCode: string 
   const lines = useMemo(() => computeLineDiff(oldCode, newCode), [oldCode, newCode]);
 
   return (
-    <pre className="text-xs font-mono rounded overflow-x-auto max-h-72 bg-canvas p-3">
+    <pre className="text-label font-mono rounded-control overflow-x-auto max-h-72 bg-canvas p-3">
       {lines.map((line) => {
         const bgClass =
           line.type === "removed"
@@ -486,13 +486,13 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
   const allKeys = Array.from(new Set([...Object.keys(oldCfg), ...Object.keys(newCfg)]));
 
   return (
-    <div className="rounded-md border p-4 bg-card space-y-3">
+    <div className="rounded-control border p-4 bg-card space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Hash className="h-4 w-4 text-muted-foreground" />
-          <span className="font-mono text-sm font-medium">{diff.taskId}</span>
-          <WorkbenchTag meaning="metadata" className="text-xs">
+          <span className="font-mono text-body-lg font-medium">{diff.taskId}</span>
+          <WorkbenchTag meaning="metadata" className="text-label">
             {diff.taskType}
           </WorkbenchTag>
         </div>
@@ -501,7 +501,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
 
       {/* Change indicators */}
       {diff.status !== "unchanged" && (
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex items-center gap-3 text-label">
           <span
             className={`flex items-center gap-1 ${
               diff.codeChanged ? "text-diff-modified-foreground" : "text-muted-foreground"
@@ -523,7 +523,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
 
       {/* Hash diff */}
       {diff.status === "modified" && (
-        <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="grid grid-cols-2 gap-3 text-label">
           <div>
             <p className="text-muted-foreground uppercase mb-1">Code Hash</p>
             <p className="font-mono">
@@ -566,7 +566,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
       {/* Config field-level diff */}
       {diff.status === "modified" && diff.configChanged && allKeys.length > 0 && (
         <div className="border-t pt-3 space-y-2">
-          <p className="text-xs text-muted-foreground uppercase mb-2">Config Diff</p>
+          <p className="text-label text-muted-foreground uppercase mb-2">Config Diff</p>
           {allKeys.map((key) => (
             <ConfigValue
               key={key}
@@ -584,7 +584,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
         diff.oldSnapshot?.codeSource &&
         diff.newSnapshot?.codeSource && (
           <div className="border-t pt-3">
-            <p className="text-xs text-muted-foreground uppercase mb-2">Code Diff</p>
+            <p className="text-label text-muted-foreground uppercase mb-2">Code Diff</p>
             <CodeDiffBlock
               oldCode={diff.oldSnapshot.codeSource}
               newCode={diff.newSnapshot.codeSource}
@@ -595,16 +595,16 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
       {/* Added task */}
       {diff.status === "added" && diff.newSnapshot?.configData && (
         <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1">Config (new)</p>
-          <pre className="max-h-32 overflow-x-auto rounded border border-diff-added/20 bg-diff-added-soft p-2 font-mono text-xs">
+          <p className="text-label text-muted-foreground uppercase mb-1">Config (new)</p>
+          <pre className="max-h-32 overflow-x-auto rounded-control border border-diff-added/20 bg-diff-added-soft p-2 font-mono text-label">
             {JSON.stringify(diff.newSnapshot.configData, null, 2)}
           </pre>
         </div>
       )}
       {diff.status === "added" && diff.newSnapshot?.codeSource && (
         <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1">Source Code (new)</p>
-          <pre className="max-h-48 overflow-x-auto rounded border border-diff-added/20 bg-diff-added-soft p-3 font-mono text-xs text-diff-added-foreground">
+          <p className="text-label text-muted-foreground uppercase mb-1">Source Code (new)</p>
+          <pre className="max-h-48 overflow-x-auto rounded-control border border-diff-added/20 bg-diff-added-soft p-3 font-mono text-label text-diff-added-foreground">
             {diff.newSnapshot.codeSource}
           </pre>
         </div>
@@ -613,16 +613,16 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
       {/* Removed task */}
       {diff.status === "removed" && diff.oldSnapshot?.configData && (
         <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1">Config (removed)</p>
-          <pre className="max-h-32 overflow-x-auto rounded border border-diff-removed/20 bg-diff-removed-soft p-2 font-mono text-xs line-through">
+          <p className="text-label text-muted-foreground uppercase mb-1">Config (removed)</p>
+          <pre className="max-h-32 overflow-x-auto rounded-control border border-diff-removed/20 bg-diff-removed-soft p-2 font-mono text-label line-through">
             {JSON.stringify(diff.oldSnapshot.configData, null, 2)}
           </pre>
         </div>
       )}
       {diff.status === "removed" && diff.oldSnapshot?.codeSource && (
         <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1">Source Code (removed)</p>
-          <pre className="max-h-48 overflow-x-auto rounded border border-diff-removed/20 bg-diff-removed-soft p-3 font-mono text-xs text-diff-removed-foreground line-through">
+          <p className="text-label text-muted-foreground uppercase mb-1">Source Code (removed)</p>
+          <pre className="max-h-48 overflow-x-auto rounded-control border border-diff-removed/20 bg-diff-removed-soft p-3 font-mono text-label text-diff-removed-foreground line-through">
             {diff.oldSnapshot.codeSource}
           </pre>
         </div>
@@ -630,7 +630,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
 
       {/* Unchanged */}
       {diff.status === "unchanged" && (
-        <p className="text-xs text-muted-foreground italic">
+        <p className="text-label text-muted-foreground italic">
           No changes — snapshot key{" "}
           <span className="font-mono">{diff.newSnapshot?.snapshotKey}</span>
         </p>
@@ -651,7 +651,7 @@ const DiffSummaryBar = ({ diffs }: { diffs: TaskDiff[] }): JSX.Element => {
   }, [diffs]);
 
   return (
-    <div className="flex items-center gap-4 text-xs">
+    <div className="flex items-center gap-4 text-label">
       {counts.modified > 0 && (
         <span className="flex items-center gap-1 text-diff-modified-foreground">
           <AlertCircle className="h-3.5 w-3.5" />
@@ -690,7 +690,7 @@ const snapshotMissing = <span className="italic text-muted-foreground">—</span
 
 const snapshotMonoValue = (value: string | null | undefined): JSX.Element =>
   value ? (
-    <span className="break-all font-mono text-xs text-foreground">{value}</span>
+    <span className="break-all font-mono text-label text-foreground">{value}</span>
   ) : (
     snapshotMissing
   );
@@ -704,7 +704,7 @@ const SnapshotHeader = ({
 
   return (
     <section className="border-y border-border/60 py-3" aria-labelledby={headingId}>
-      <h3 id={headingId} className="mb-3 flex items-center gap-2 text-sm font-medium">
+      <h3 id={headingId} className="mb-3 flex items-center gap-2 text-body-lg font-medium">
         <Hash className="h-4 w-4 text-muted-foreground" />
         Workflow snapshot
       </h3>
@@ -718,7 +718,7 @@ const SnapshotHeader = ({
           ]}
         />
       ) : (
-        <p className="text-xs italic text-muted-foreground">
+        <p className="text-label italic text-muted-foreground">
           No workflow snapshot was recorded for this run.
         </p>
       )}
@@ -775,7 +775,7 @@ export const RunSnapshotPanel = ({ run }: RunSnapshotPanelProps): JSX.Element =>
       <div className="flex items-center justify-between border-b bg-background px-6 py-4">
         <div className="flex items-center gap-2">
           <ListChecks className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">
+          <span className="text-body-lg font-medium">
             Workflow graph
             <span className="ml-1 font-normal text-muted-foreground">
               ({graph?.task_configs.length ?? 0})
@@ -783,7 +783,10 @@ export const RunSnapshotPanel = ({ run }: RunSnapshotPanelProps): JSX.Element =>
           </span>
         </div>
         {execution?.execution_id && (
-          <span className="font-mono text-xs text-muted-foreground" title={execution.execution_id}>
+          <span
+            className="font-mono text-label text-muted-foreground"
+            title={execution.execution_id}
+          >
             {execution.execution_id}
           </span>
         )}
@@ -791,21 +794,21 @@ export const RunSnapshotPanel = ({ run }: RunSnapshotPanelProps): JSX.Element =>
       <div className="flex-1 space-y-3 p-6">
         <SnapshotHeader snapshot={run.workflowSnapshot ?? null} />
         {loading ? (
-          <p className="text-xs italic text-muted-foreground">Loading workflow execution…</p>
+          <p className="text-label italic text-muted-foreground">Loading workflow execution…</p>
         ) : error ? (
-          <div className="flex items-center gap-2 border-y border-status-failed/30 bg-status-failed-soft px-3 py-3 text-xs text-status-failed-foreground">
+          <div className="flex items-center gap-2 border-y border-status-failed/30 bg-status-failed-soft px-3 py-3 text-label text-status-failed-foreground">
             <AlertCircle className="h-4 w-4" />
             {error}
           </div>
         ) : graph === null ? (
           <div className="flex flex-col items-center justify-center gap-3 py-8 text-muted-foreground">
             <ListChecks className="h-10 w-10 opacity-20" />
-            <p className="text-sm">
+            <p className="text-body-lg">
               No workflow execution state yet. The run hasn't materialized a workflow.json file.
             </p>
           </div>
         ) : (
-          <div className="min-h-[480px]">
+          <div className="min-h-canvas-min">
             <WorkflowGraph ir={graph} height={480} />
           </div>
         )}
@@ -852,7 +855,7 @@ export const SnapshotDiffPanel = ({
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <GitCompareArrows className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Compare</span>
+            <span className="text-body-lg font-medium">Compare</span>
           </div>
 
           <Select value={baseId} onValueChange={setBaseId}>
@@ -868,7 +871,7 @@ export const SnapshotDiffPanel = ({
             </SelectContent>
           </Select>
 
-          <span className="text-muted-foreground text-sm">&rarr;</span>
+          <span className="text-muted-foreground text-body-lg">&rarr;</span>
 
           <Select value={targetId} onValueChange={setTargetId}>
             <SelectTrigger size="sm">
@@ -886,7 +889,7 @@ export const SnapshotDiffPanel = ({
           {ready && <DiffSummaryBar diffs={diffs} />}
         </div>
         {baseId === targetId && baseId !== "" && (
-          <p className="text-xs text-status-warning-foreground mt-2">
+          <p className="text-label text-status-warning-foreground mt-2">
             Base and target are the same run — select different runs to see a diff.
           </p>
         )}
@@ -897,10 +900,10 @@ export const SnapshotDiffPanel = ({
         {!ready ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
             <GitCompareArrows className="h-10 w-10 opacity-20" />
-            <p className="text-sm">Select two different runs to compare their snapshots.</p>
+            <p className="text-body-lg">Select two different runs to compare their snapshots.</p>
           </div>
         ) : diffs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No tasks to compare.</p>
+          <p className="text-body-lg text-muted-foreground">No tasks to compare.</p>
         ) : (
           diffs.map((diff) => <DiffCard key={diff.taskId} diff={diff} />)
         )}

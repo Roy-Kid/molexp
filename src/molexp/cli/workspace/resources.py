@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -16,16 +16,26 @@ from rich.table import Table
 
 from molexp.cli._common import (
     _TERMINAL_STATUSES,
-    get_workspace,
     rprint,
     run_executor_info,
     status_color,
 )
-from molexp.cli._target import TargetOption, resolve_workspace_target
+from molexp.cli._target import TargetOption, open_workspace
 from molexp.workspace.run import RETRYABLE_STATUSES
-from molexp.workspace.target import LocalTarget
 
 _console = Console()
+
+
+def _open_ws(target_spec: str):
+    """Open a local or remote workspace; exit 1 if missing."""
+    try:
+        _target, _transport, _fs, ws = open_workspace(target_spec)
+    except FileNotFoundError as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        rprint("  Run [bold]molexp init[/bold] to create one.")
+        raise typer.Exit(1) from exc
+    return ws
+
 
 # ---------------------------------------------------------------------------
 # project
@@ -40,10 +50,7 @@ def project_create(
     target_spec: TargetOption = ".",
 ) -> None:
     """Create a new project."""
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("project create")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     try:
         project = ws.add_project(name)
         rprint(f"[green]OK[/green] Created project: {project.id}")
@@ -56,10 +63,7 @@ def project_create(
 @project_app.command("list")
 def project_list(target_spec: TargetOption = ".") -> None:
     """List all projects."""
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("project list")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     projects = ws.list_projects()
     if not projects:
         rprint("[yellow]No projects found[/yellow]")
@@ -89,10 +93,7 @@ def project_info(
     """Show project information."""
     from molexp.workspace import ProjectNotFoundError
 
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("project info")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     try:
         project = ws.get_project(project_id)
     except ProjectNotFoundError:
@@ -124,10 +125,7 @@ def experiment_create(
     """Create a new experiment."""
     from molexp.workspace import ProjectNotFoundError
 
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("experiment create")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     try:
         try:
             project = ws.get_project(project_id)
@@ -153,10 +151,7 @@ def experiment_list(
     """List all experiments in a project."""
     from molexp.workspace import ProjectNotFoundError
 
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("experiment list")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     try:
         project = ws.get_project(project_id)
     except ProjectNotFoundError:
@@ -223,10 +218,7 @@ def run_create(
     target_spec: TargetOption = ".",
 ) -> None:
     """Create a new run."""
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("runs create")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     parameters: dict = {}
     if params:
         params_path = Path(params)
@@ -274,10 +266,7 @@ def run_list(
     target_spec: TargetOption = ".",
 ) -> None:
     """List all runs in an experiment."""
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("runs list")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     from molexp.workspace import ExperimentNotFoundError as _ExpNotFound
     from molexp.workspace import ProjectNotFoundError as _ProjNotFound
 
@@ -356,10 +345,7 @@ def run_cancel(
     target_spec: TargetOption = ".",
 ) -> None:
     """Cancel one or more scheduled runs."""
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("runs cancel")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     target_runs: list[Any] = []
 
     from molexp.workspace import ExperimentNotFoundError as _ExpNotFound
@@ -533,10 +519,7 @@ def run_harvest(
     target_spec: TargetOption = ".",
 ) -> None:
     """Harvest a terminal run into a KnowledgeItem (workspace.harvest_run)."""
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("runs harvest")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     from molexp.workspace import ExperimentNotFoundError as _ExpNotFound
     from molexp.workspace import ProjectNotFoundError as _ProjNotFound
     from molexp.workspace import RunNotFoundError as _RunNotFound
@@ -570,10 +553,7 @@ def run_info(
     target_spec: TargetOption = ".",
 ) -> None:
     """Show run information."""
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("runs info")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
     from molexp.workspace import ExperimentNotFoundError as _ExpNotFound
     from molexp.workspace import ProjectNotFoundError as _ProjNotFound
     from molexp.workspace import RunNotFoundError as _RunNotFound
@@ -622,13 +602,17 @@ def run_info(
     # the same read path the server's /events endpoint uses). Silent only when
     # the workspace has no timeline yet (nothing has emitted).
     from molexp.workspace.events import read_workspace_events
+    from molexp.workspace.fs_local import LocalFileSystem
 
-    events = read_workspace_events(ws.root, ref=r.id, limit=5)
-    if events:
-        rprint("  Recent events:")
-        for ev in events:
-            ts = ev.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            rprint(f"    {ts}  {ev.type}  [dim]({ev.actor})[/dim]")
+    # Event log is a local SQLite file; remote workspaces skip the timeline
+    # rather than probing a non-existent local path under the remote root.
+    if isinstance(ws._fs, LocalFileSystem):
+        events = read_workspace_events(ws.root, ref=r.id, limit=5)
+        if events:
+            rprint("  Recent events:")
+            for ev in events:
+                ts = ev.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                rprint(f"    {ts}  {ev.type}  [dim]({ev.actor})[/dim]")
 
 
 # Attach prune subcommand from the prune module.
@@ -672,10 +656,7 @@ def asset_list(
     — the same count ``molexp context`` reports — with a Scope column locating
     each asset. Use ``--scope`` to restrict to one scope kind.
     """
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("asset list")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
 
     if scope is not None and scope not in _ASSET_SCOPE_KINDS:
         rprint(
@@ -686,7 +667,7 @@ def asset_list(
 
     from molexp.workspace.assets import scan
 
-    assets = scan.scan_assets(ws.root)
+    assets = scan.scan_assets(ws.root, fs=ws._fs)
     total = len(assets)
     if scope is not None:
         assets = [a for a in assets if a.scope.kind == scope]
@@ -729,12 +710,9 @@ def asset_info(
     """Show one asset's full record — wraps ``assets.scan.get_asset``."""
     from molexp.workspace.assets import scan as asset_scan
 
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("asset info")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
 
-    asset = asset_scan.get_asset(ws.root, asset_id)
+    asset = asset_scan.get_asset(ws.root, asset_id, fs=ws._fs)
     if asset is None:
         rprint(f"[red]Error:[/red] no asset with id {asset_id!r} in this workspace.")
         raise typer.Exit(1)
@@ -770,12 +748,9 @@ def asset_lineage(
             f"[red]Error:[/red] --direction must be ancestors|descendants|both, got {direction!r}."
         )
         raise typer.Exit(1)
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-    if not isinstance(target, LocalTarget):
-        _remote_only("asset lineage")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
+    ws = _open_ws(target_spec)
 
-    if asset_scan.get_asset(ws.root, asset_id) is None:
+    if asset_scan.get_asset(ws.root, asset_id, fs=ws._fs) is None:
         rprint(f"[red]Error:[/red] no asset with id {asset_id!r} in this workspace.")
         raise typer.Exit(1)
 
@@ -785,7 +760,7 @@ def asset_lineage(
             rprint("  (none)")
             return
         for related_id in sorted(ids):
-            related = asset_scan.get_asset(ws.root, related_id)
+            related = asset_scan.get_asset(ws.root, related_id, fs=ws._fs)
             suffix = (
                 f"  {related.name} ({related.kind if hasattr(related, 'kind') else '?'})"
                 if related is not None
@@ -797,15 +772,3 @@ def asset_lineage(
         _render("ancestors", "<-", asset_lineage_mod.ancestors(ws, asset_id))
     if direction in ("descendants", "both"):
         _render("descendants", "->", asset_lineage_mod.descendants(ws, asset_id))
-
-
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
-
-
-def _remote_only(cmd_name: str) -> NoReturn:  # noqa: ARG001
-    """Raise an error for commands not yet supported on remote targets."""
-    from molexp.cli.workspace import RemoteWorkspaceError
-
-    raise RemoteWorkspaceError(None)

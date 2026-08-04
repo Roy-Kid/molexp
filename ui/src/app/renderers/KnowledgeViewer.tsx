@@ -19,7 +19,11 @@ import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
 import { MarkdownContent } from "@/components/ui/markdown";
-import { WorkbenchAction } from "@/components/workbench";
+import {
+  WorkbenchAction,
+  WorkbenchIconAction,
+  WorkbenchToggleAction,
+} from "@/components/workbench";
 
 // Lazy-loaded so Milkdown / ProseMirror (a heavy dependency graph) is split
 // into an async chunk fetched only when the user enters edit mode, keeping the
@@ -121,44 +125,37 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
           actions={
             <>
               {note && (
-                <WorkbenchAction
-                  kind="ghost"
-                  size="compact"
+                <WorkbenchToggleAction
+                  label={editing ? "Preview document" : "Edit document"}
                   onClick={() => setEditing((prev) => !prev)}
-                  aria-pressed={editing}
+                  pressed={editing}
                 >
-                  {editing ? (
-                    <>
-                      <Eye className="h-4 w-4" /> Preview
-                    </>
-                  ) : (
-                    <>
-                      <Pencil className="h-4 w-4" /> Edit
-                    </>
-                  )}
-                </WorkbenchAction>
+                  {editing ? <Eye className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+                </WorkbenchToggleAction>
               )}
               {/* Portable-Markdown download: a plain <a href> so the server's
                   Content-Disposition attachment header drives the browser save. */}
-              <WorkbenchAction kind="ghost" size="compact" asChild>
+              <WorkbenchIconAction label="Export document" asChild>
                 <a href={workspaceApi.knowledgeDocExportUrl(relPath)} download>
-                  <Download className="h-4 w-4" /> Export
+                  <Download className="h-4 w-4" />
                 </a>
-              </WorkbenchAction>
-              <WorkbenchAction kind="ghost" size="compact" onClick={back}>
-                <ArrowLeft className="h-4 w-4" /> Back
-              </WorkbenchAction>
+              </WorkbenchIconAction>
+              <WorkbenchIconAction label="Back to knowledge" onClick={back}>
+                <ArrowLeft className="h-4 w-4" />
+              </WorkbenchIconAction>
             </>
           }
         />
         <div className={`${COLUMN} flex-1 overflow-auto px-4 py-6 md:px-8`}>
           {noteError ? (
-            <p className="text-sm text-destructive">{noteError}</p>
+            <p className="text-body-lg text-destructive">{noteError}</p>
           ) : !note ? (
-            <p className="text-sm italic text-muted-foreground">Loading…</p>
+            <p className="text-body-lg italic text-muted-foreground">Loading…</p>
           ) : editing ? (
             <Suspense
-              fallback={<p className="text-sm italic text-muted-foreground">Loading editor…</p>}
+              fallback={
+                <p className="text-body-lg italic text-muted-foreground">Loading editor…</p>
+              }
             >
               <NoteEditor
                 note={note}
@@ -173,7 +170,7 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
               <MarkdownContent text={note.body || "_(empty note)_"} />
               {note.cards && note.cards.length > 0 && (
                 <section className="space-y-2 border-t border-border/50 pt-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <h3 className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
                     Embedded entities ({note.cards.length})
                   </h3>
                   <div className="space-y-2">
@@ -203,12 +200,12 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
           icon={FileText}
           title={ref.title ?? ref.name}
           actions={
-            <WorkbenchAction kind="ghost" size="compact" onClick={back}>
-              <ArrowLeft className="h-4 w-4" /> Back
-            </WorkbenchAction>
+            <WorkbenchIconAction label="Back to knowledge" onClick={back}>
+              <ArrowLeft className="h-4 w-4" />
+            </WorkbenchIconAction>
           }
         />
-        <div className={`${COLUMN} flex-1 space-y-2 overflow-auto px-4 py-6 text-sm md:px-8`}>
+        <div className={`${COLUMN} flex-1 space-y-2 overflow-auto px-4 py-6 text-body-lg md:px-8`}>
           <p className="text-muted-foreground">{formatReference(ref)}</p>
           {ref.doi && (
             <p>
@@ -235,7 +232,7 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
               </a>
             </p>
           )}
-          <p className="text-xs text-muted-foreground">source: {ref.source}</p>
+          <p className="text-label text-muted-foreground">source: {ref.source}</p>
         </div>
       </div>
     );
@@ -254,7 +251,7 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
         subtitle="Notes and literature references for this workspace (OKF concepts)."
       />
       <div className={`${COLUMN} flex-1 space-y-6 overflow-auto px-4 py-6 md:px-8`}>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="text-body-lg text-destructive">{error}</p>}
         {empty && (
           <EmptyState
             icon={<BookOpen className="h-6 w-6" />}
@@ -265,13 +262,15 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
 
         {notes.length > 0 && (
           <section className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
               Notes ({notes.length})
             </h3>
             <ul className="divide-y divide-border/50 border-y border-border/60">
               {notes.map((n) => (
                 <li key={n.relPath}>
-                  <button
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="content"
                     type="button"
                     onClick={() =>
                       nav.setSelection({ objectType: "knowledge", objectId: n.relPath })
@@ -280,14 +279,14 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
                   >
                     <NotebookPen className="mt-1 h-4 w-4 flex-none text-muted-foreground" />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">
+                      <span className="block truncate text-body-lg font-medium text-foreground">
                         {n.name}
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span className="block truncate text-label text-muted-foreground">
                         {n.excerpt.replace(/\n+/g, " ").trim() || "(empty note)"}
                       </span>
                     </span>
-                  </button>
+                  </WorkbenchAction>
                 </li>
               ))}
             </ul>
@@ -296,13 +295,15 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
 
         {references.length > 0 && (
           <section className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
               References ({references.length})
             </h3>
             <ul className="divide-y divide-border/50 border-y border-border/60">
               {references.map((r) => (
                 <li key={r.relPath}>
-                  <button
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="content"
                     type="button"
                     onClick={() =>
                       nav.setSelection({ objectType: "knowledge", objectId: r.relPath })
@@ -311,14 +312,14 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
                   >
                     <FileText className="mt-1 h-4 w-4 flex-none text-muted-foreground" />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">
+                      <span className="block truncate text-body-lg font-medium text-foreground">
                         {r.title ?? r.name}
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span className="block truncate text-label text-muted-foreground">
                         {formatReference(r)}
                       </span>
                     </span>
-                  </button>
+                  </WorkbenchAction>
                 </li>
               ))}
             </ul>

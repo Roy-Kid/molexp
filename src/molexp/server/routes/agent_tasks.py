@@ -142,27 +142,37 @@ def _persist_task_response(
     root = _workspace_root(workspace)
     if root is None:
         return
-    write_agent_task_metadata(
-        root,
-        PersistedAgentTask(
-            task_id=task.taskId,
-            session_id=task.sessionId,
-            title=task.title,
-            goal=task.goal,
-            status=task.status,
-            created_at=task.createdAt,
-            updated_at=task.updatedAt,
-            plan_mode=task.planMode,
-            active_mode=task.activeMode,
-            active_turn_id=task.activeTurnId,
-            active_plan_task_id=(persisted.active_plan_task_id if persisted is not None else None),
-            pending_plan_draft=(persisted.pending_plan_draft if persisted is not None else None),
-            skill_id=task.skillId,
-            project_id=project_id,
-            experiment_id=experiment_id,
-            run_id=run_id,
-        ),
-    )
+    try:
+        write_agent_task_metadata(
+            root,
+            PersistedAgentTask(
+                task_id=task.taskId,
+                session_id=task.sessionId,
+                title=task.title,
+                goal=task.goal,
+                status=task.status,
+                created_at=task.createdAt,
+                updated_at=task.updatedAt,
+                plan_mode=task.planMode,
+                active_mode=task.activeMode,
+                active_turn_id=task.activeTurnId,
+                active_plan_task_id=(
+                    persisted.active_plan_task_id if persisted is not None else None
+                ),
+                pending_plan_draft=(
+                    persisted.pending_plan_draft if persisted is not None else None
+                ),
+                skill_id=task.skillId,
+                project_id=project_id,
+                experiment_id=experiment_id,
+                run_id=run_id,
+            ),
+        )
+    except OSError:
+        # Remote workspace roots are not local paths — pathlib cannot mkdir
+        # under /home/... on the laptop. Listing still works; persist is
+        # best-effort until agent tasks route through workspace._fs.
+        return
     # Stamp the live runtime so turn-complete flush uses the product task id.
     from molexp.server.dependencies import get_agent_runtime
 
@@ -828,7 +838,7 @@ def _compose_system_prompt_response(
                 run_id=task_meta.run_id or None,
             )
             workspace_instructions = (block or "").strip()
-        except ValueError, LookupError:
+        except (ValueError, LookupError):
             # Scope ids on the task may be stale after a reorg — show base only.
             workspace_instructions = ""
 

@@ -1,6 +1,7 @@
-import { AlertTriangle, ArrowRight, GitBranch } from "lucide-react";
+import { AlertTriangle, GitBranch, ScrollText, Workflow } from "lucide-react";
 import { type JSX, useEffect, useMemo, useState } from "react";
 import {
+  CopyButton,
   DashboardCard,
   EmptyState,
   MetaField,
@@ -11,7 +12,12 @@ import {
 import { formatDuration } from "@/app/renderers/dashboardData";
 import { workspaceApi } from "@/app/state/api";
 import type { RunSummary, WorkflowSummary } from "@/app/types";
-import { RunStatusBadge, WorkbenchAction, WorkbenchTag } from "@/components/workbench";
+import {
+  RunStatusBadge,
+  WorkbenchAction,
+  WorkbenchIconAction,
+  WorkbenchTag,
+} from "@/components/workbench";
 import { normalizeTaskGraph } from "@/components/workflow/flowgram-document";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
@@ -151,11 +157,13 @@ export const RunExecutionsPanel = ({
             const d = formatDuration(rec.startedAt, rec.finishedAt);
             return (
               <li key={rec.executionId}>
-                <button
+                <WorkbenchAction
+                  kind="ghost"
+                  size="content"
                   type="button"
                   onClick={() => onSelectExecution(rec.executionId)}
                   className={cn(
-                    "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors",
+                    "grid w-full grid-cols-(--run-execution-grid-columns) items-center gap-3 px-4 py-3 text-left transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     active ? "bg-muted/50" : "hover:bg-muted/30",
                   )}
@@ -163,10 +171,10 @@ export const RunExecutionsPanel = ({
                 >
                   <div className="flex items-center gap-3">
                     <StatusIcon status={rec.status} />
-                    <span className="font-mono text-xs text-muted-foreground">#{index + 1}</span>
+                    <span className="font-mono text-label text-muted-foreground">#{index + 1}</span>
                   </div>
                   <div className="min-w-0">
-                    <div className="truncate font-mono text-xs text-foreground">
+                    <div className="truncate font-mono text-label text-foreground">
                       {rec.executionId}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-micro text-muted-foreground">
@@ -180,7 +188,7 @@ export const RunExecutionsPanel = ({
                     </div>
                   </div>
                   <RunStatusBadge status={rec.status} size="sm" />
-                </button>
+                </WorkbenchAction>
               </li>
             );
           })}
@@ -191,16 +199,15 @@ export const RunExecutionsPanel = ({
         title={effectiveExecution ? `Execution #${effectiveIndex + 1}` : "Execution details"}
         description={effectiveExecution?.executionId}
         action={
-          onViewLogs && effectiveExecution ? (
-            <WorkbenchAction
-              kind="ghost"
-              size="compact"
-              type="button"
-              className="h-7 gap-1 px-2 text-xs text-muted-foreground"
-              onClick={onViewLogs}
-            >
-              Logs <ArrowRight className="h-3 w-3" />
-            </WorkbenchAction>
+          effectiveExecution ? (
+            <div className="flex items-center gap-1">
+              <CopyButton value={effectiveExecution.executionId} label="execution ID" />
+              {onViewLogs && (
+                <WorkbenchIconAction label="View execution logs" onClick={onViewLogs}>
+                  <ScrollText className="h-3.5 w-3.5" />
+                </WorkbenchIconAction>
+              )}
+            </div>
           ) : undefined
         }
       >
@@ -231,10 +238,11 @@ export const RunExecutionsPanel = ({
               label="Backend"
               value={effectiveExecution.schedulerJobId ?? run.executorInfo.backend ?? "local"}
               mono
+              copyValue={effectiveExecution.schedulerJobId ?? run.executorInfo.backend ?? "local"}
             />
           </MetaGrid>
         ) : (
-          <p className="text-sm text-muted-foreground">Select an execution to inspect it.</p>
+          <p className="text-body-lg text-muted-foreground">Select an execution to inspect it.</p>
         )}
       </DashboardCard>
 
@@ -250,26 +258,14 @@ export const RunExecutionsPanel = ({
         action={
           <div className="flex items-center gap-1">
             {onViewLogs && (
-              <WorkbenchAction
-                kind="ghost"
-                size="compact"
-                type="button"
-                className="h-7 gap-1 px-2 text-xs text-muted-foreground"
-                onClick={onViewLogs}
-              >
-                Logs <ArrowRight className="h-3 w-3" />
-              </WorkbenchAction>
+              <WorkbenchIconAction label="View execution logs" onClick={onViewLogs}>
+                <ScrollText className="h-3.5 w-3.5" />
+              </WorkbenchIconAction>
             )}
             {workflow && onOpenWorkflow && (
-              <WorkbenchAction
-                kind="ghost"
-                size="compact"
-                type="button"
-                className="h-7 gap-1 px-2 text-xs text-muted-foreground"
-                onClick={onOpenWorkflow}
-              >
-                Definition <ArrowRight className="h-3 w-3" />
-              </WorkbenchAction>
+              <WorkbenchIconAction label="Open workflow definition" onClick={onOpenWorkflow}>
+                <Workflow className="h-3.5 w-3.5" />
+              </WorkbenchIconAction>
             )}
           </div>
         }
@@ -277,20 +273,22 @@ export const RunExecutionsPanel = ({
         {workflowIr ? (
           <>
             {failedTasks.length > 0 ? (
-              <div className="border-y border-destructive/30 bg-destructive/5 px-3 py-3 text-xs">
+              <div className="border-y border-destructive/30 bg-destructive/5 px-3 py-3 text-label">
                 <div className="flex flex-wrap items-center gap-2 font-medium text-destructive">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   Failed at{" "}
                   {failedTasks.map((t, i) => (
                     <span key={t.id}>
                       {i > 0 && ", "}
-                      <button
+                      <WorkbenchAction
+                        kind="ghost"
+                        size="content"
                         type="button"
                         className="font-mono underline-offset-2 hover:underline"
                         onClick={() => onInspectTask(t.id, run.id)}
                       >
                         {t.id}
-                      </button>
+                      </WorkbenchAction>
                     </span>
                   ))}
                 </div>
@@ -306,7 +304,7 @@ export const RunExecutionsPanel = ({
                 )}
               </div>
             ) : attemptFailed && !executionGraph ? (
-              <div className="border-y border-destructive/30 bg-destructive/5 px-3 py-3 text-xs">
+              <div className="border-y border-destructive/30 bg-destructive/5 px-3 py-3 text-label">
                 <div className="flex items-center gap-2 font-medium text-destructive">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   This attempt failed before any task ran — no per-node state was recorded.
@@ -329,7 +327,7 @@ export const RunExecutionsPanel = ({
                   <WorkbenchTag
                     key={status}
                     meaning="metadata"
-                    className="rounded-md font-normal text-micro text-muted-foreground"
+                    className="rounded-control font-normal text-micro text-muted-foreground"
                   >
                     {status}: {count}
                   </WorkbenchTag>
@@ -337,11 +335,11 @@ export const RunExecutionsPanel = ({
               </div>
             )}
             {executionGraphError && (
-              <p className="text-xs text-destructive">{executionGraphError}</p>
+              <p className="text-label text-destructive">{executionGraphError}</p>
             )}
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-body-lg text-muted-foreground">
             No workflow snapshot recorded for this run.
           </p>
         )}

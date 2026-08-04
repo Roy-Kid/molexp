@@ -8,8 +8,7 @@ import typer
 
 from molexp.cli._app import app
 from molexp.cli._common import rprint
-from molexp.cli._target import TargetOption, resolve_workspace_target
-from molexp.workspace.target import RemoteTarget
+from molexp.cli._target import TargetOption, open_workspace
 
 
 @app.command()
@@ -32,22 +31,16 @@ def explore(
 
     Navigate with arrows / Enter to expand, Space to select,
     a/A to select all/clear, d to open delete confirmation.
+
+    Works for local and remote (``-ws host:/path``) workspaces — tree data
+    is loaded through the target FileSystem.
     """
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-
-    if isinstance(target, RemoteTarget):
-        rprint("[yellow]Remote workspace explore is not yet supported.[/yellow]")
-        rprint("Use [bold]molexp exec[/bold] or [bold]shell[/bold] instead.")
-        raise typer.Exit(1)
-
     try:
-        from molexp.workspace import Workspace as _Workspace
-
-        ws = _Workspace.load(target.path)
-    except FileNotFoundError:
-        rprint(f"[red]Error:[/red] No workspace found at {target.path}")
+        _target, _transport, _fs, ws = open_workspace(target_spec)
+    except FileNotFoundError as exc:
+        rprint(f"[red]Error:[/red] {exc}")
         rprint("  Run [bold]molexp init[/bold] to create one.")
-        raise typer.Exit(1)  # noqa: B904
+        raise typer.Exit(1) from exc
 
     from molexp.cli.tui import TreeMonitor
 

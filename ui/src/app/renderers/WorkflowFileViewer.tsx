@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps, SemanticStatus } from "@/app/types";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import { WorkbenchOperationState, WorkbenchRetryAction } from "@/components/workbench";
 import { FlowgramCanvas } from "@/components/workflow/flowgram-canvas";
 import {
   buildFlowgramDocument,
@@ -123,16 +123,12 @@ export const WorkflowFileViewer = ({ selection }: RendererProps): JSX.Element =>
             title="Could not load workflow preview"
             detail={error}
             action={
-              <WorkbenchAction
-                kind="secondary"
-                size="compact"
+              <WorkbenchRetryAction
                 onClick={() => {
                   setLoading(true);
                   setRequestVersion((version) => version + 1);
                 }}
-              >
-                Retry
-              </WorkbenchAction>
+              />
             }
           />
         ) : document && document.nodes.length > 0 ? (

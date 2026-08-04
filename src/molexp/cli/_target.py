@@ -12,7 +12,7 @@ so could not resolve ``@name`` at all).
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from molq.transport import Transport
@@ -25,6 +25,9 @@ from molexp.workspace.target import (
     resolve_target,
     target_to_filesystem,
 )
+
+if TYPE_CHECKING:
+    from molexp.workspace import Workspace
 
 #: Shared ``--workspace/-ws`` option (``-t/--target`` kept as a hidden,
 #: back-compatible alias). Defaults to the current directory.
@@ -80,3 +83,34 @@ def resolve_workspace_target(target_str: str = ".") -> tuple[Target, Transport, 
         raise typer.Exit(1) from exc
     fs = target_to_filesystem(resolved)
     return resolved, transport, fs
+
+
+def open_workspace(
+    target_str: str = ".",
+    *,
+    require_existing: bool = True,
+) -> tuple[Target, Transport, FileSystem, Workspace]:
+    """Resolve *target_str* and open the Workspace on the matching FileSystem.
+
+    Local and remote targets share this path: remote roots use
+    :class:`~molexp.workspace.fs_remote.RemoteFileSystem` so every Folder/Run
+    I/O goes over SSH.  ``require_existing=True`` (default) fails when
+    ``workspace.json`` is missing; pass ``False`` for ``init``-style create.
+
+    Raises:
+        FileNotFoundError: when *require_existing* and no workspace marker.
+        typer.Exit: when the target string cannot be resolved.
+    """
+    from molexp.workspace import Workspace
+
+    target, transport, fs = resolve_workspace_target(target_str)
+    root = target.path
+    root_str = str(root)
+    if require_existing:
+        marker = fs.join(root_str, "workspace.json")
+        if not fs.exists(marker):
+            raise FileNotFoundError(
+                f"No workspace found at {root} — run molexp init {root} to create one"
+            )
+    ws = Workspace(root, fs=fs)
+    return target, transport, fs, ws

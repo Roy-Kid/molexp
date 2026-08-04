@@ -50,7 +50,7 @@ export const WorkflowPreview = ({
   if (!graph) {
     return (
       <p
-        className={`rounded-md border border-dashed border-border/60 bg-muted/10 px-3 py-2 text-xs italic text-muted-foreground ${className ?? ""}`}
+        className={`rounded-control border border-dashed border-border/60 bg-muted/10 px-3 py-2 text-label italic text-muted-foreground ${className ?? ""}`}
       >
         Not a workflow IR document.
       </p>

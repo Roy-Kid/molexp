@@ -42,7 +42,7 @@ def build_experiment_spec_review_pack(ctx: HarnessRunContext) -> ReviewPack:
     ref, raw = _require_kind(ctx, "experiment_spec", stage="build_experiment_spec_review_pack")
     try:
         data = json.loads(raw.decode("utf-8"))
-    except UnicodeDecodeError, json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         data = {}
     title = str(data.get("title") or data.get("id") or ref.id)
     objective = str(data.get("objective") or "")

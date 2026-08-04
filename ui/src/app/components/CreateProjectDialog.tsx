@@ -51,13 +51,13 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
         <WorkbenchIconAction
           label="New project"
           kind="ghost"
-          className="h-7 w-7"
+          className="h-control-compact w-control-compact"
           aria-label="New project"
         >
           <Plus className="h-4 w-4" />
         </WorkbenchIconAction>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Create Project</DialogTitle>
           <DialogDescription>Create a new project to organize your experiments.</DialogDescription>
@@ -77,7 +77,7 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
               />
             </div>
             {error && (
-              <div className="text-sm text-status-failed-foreground col-span-4 text-center">
+              <div className="text-body-lg text-status-failed-foreground col-span-4 text-center">
                 {error}
               </div>
             )}

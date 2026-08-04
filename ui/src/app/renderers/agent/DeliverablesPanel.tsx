@@ -8,9 +8,18 @@ import type { PlanRef } from "@/app/renderers/agentEvents";
 import { collectArtifacts, derivePlanRef } from "@/app/renderers/agentEvents";
 import { workspaceApi } from "@/app/state/api";
 import type { ApiSessionEvent, SemanticStatus } from "@/app/types";
-import { Badge } from "@/components/ui/badge";
+import { Code as InlineCode } from "@/components/ui/code";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MarkdownContent } from "@/components/ui/markdown";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { WorkbenchAction, WorkbenchTag, WorkbenchToggleAction } from "@/components/workbench";
 import { highlightCode, type TokenKind } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 import { ArtifactBody } from "./artifacts";
@@ -42,14 +51,16 @@ const CopyButton = ({ text, label = "Copy" }: { text: string; label?: string }):
     });
   }, [text]);
   return (
-    <button
+    <WorkbenchAction
+      kind="ghost"
+      size="content"
       type="button"
       onClick={onCopy}
-      className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      className="inline-flex items-center gap-1 rounded-control border border-border/60 bg-card px-2 py-1 text-micro font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
       {copied ? <Check className="h-3 w-3 text-success" /> : <ClipboardCopy className="h-3 w-3" />}
       {copied ? "Copied" : label}
-    </button>
+    </WorkbenchAction>
   );
 };
 
@@ -61,7 +72,9 @@ const PanelSection = ({
   children: React.ReactNode;
 }): JSX.Element => (
   <section className="space-y-1.5">
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+    <h3 className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
+      {title}
+    </h3>
     {children}
   </section>
 );
@@ -108,7 +121,9 @@ const valueToMarkdown = (value: unknown): string => {
 const SpecView = ({ report }: { report: Record<string, unknown> | null }): JSX.Element => {
   if (!report || Object.keys(report).length === 0) {
     return (
-      <p className="text-sm italic text-muted-foreground">No experiment report was produced.</p>
+      <p className="text-body-lg italic text-muted-foreground">
+        No experiment report was produced.
+      </p>
     );
   }
   const known = new Set([...SPEC_FIELDS.map(([k]) => k), "title"]);
@@ -134,35 +149,37 @@ const PlanView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => (
   <div className="space-y-4">
     {plan.draft.trim() && (
       <PanelSection title="Original request">
-        <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+        <div className="rounded-control border border-border/60 bg-muted/30 px-3 py-2">
           <MarkdownContent text={plan.draft.trim()} />
         </div>
       </PanelSection>
     )}
     <PanelSection title={`Workflow tasks (${plan.tasks.length})`}>
       {plan.tasks.length === 0 ? (
-        <p className="text-sm italic text-muted-foreground">No workflow tasks were generated.</p>
+        <p className="text-body-lg italic text-muted-foreground">
+          No workflow tasks were generated.
+        </p>
       ) : (
         <ol className="space-y-1.5">
           {plan.tasks.map((task, idx) => (
             <li
               key={task.id}
-              className="flex items-start gap-2.5 rounded-md border border-border/50 bg-card px-3 py-2"
+              className="flex items-start gap-2.5 rounded-control border border-border/50 bg-card px-3 py-2"
             >
-              <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded bg-muted text-[11px] font-medium tabular-nums text-muted-foreground">
+              <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-control bg-muted text-micro font-medium tabular-nums text-muted-foreground">
                 {idx + 1}
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="truncate font-mono text-sm text-foreground">{task.id}</span>
+                  <span className="truncate font-mono text-body-lg text-foreground">{task.id}</span>
                   {task.type && (
-                    <Badge variant="secondary" className="h-4 px-1 font-mono text-[10px]">
+                    <WorkbenchTag meaning="category" className="h-4 px-1 font-mono text-micro">
                       {task.type}
-                    </Badge>
+                    </WorkbenchTag>
                   )}
                 </div>
                 {task.source && (
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                  <p className="mt-0.5 truncate font-mono text-micro text-muted-foreground">
                     {task.source}
                   </p>
                 )}
@@ -178,7 +195,7 @@ const PlanView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => (
 const ScriptView = ({ source }: { source: string | null }): JSX.Element => {
   if (!source?.trim()) {
     return (
-      <p className="text-sm italic text-muted-foreground">
+      <p className="text-body-lg italic text-muted-foreground">
         No runnable workflow source was generated.
       </p>
     );
@@ -208,7 +225,7 @@ const HighlightedCode = ({ text, language }: { text: string; language?: string }
   const tokens = useMemo(() => highlightCode(text, language), [text, language]);
   let offset = 0;
   return (
-    <code>
+    <InlineCode className="bg-transparent px-0 font-normal">
       {tokens.map((token) => {
         const key = offset;
         offset += token.text.length;
@@ -218,7 +235,7 @@ const HighlightedCode = ({ text, language }: { text: string; language?: string }
           </span>
         );
       })}
-    </code>
+    </InlineCode>
   );
 };
 
@@ -240,31 +257,25 @@ const CodeBlock = ({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+        <span className="min-w-0 truncate font-mono text-micro text-muted-foreground">
           {filename}
         </span>
         <div className="flex flex-none items-center gap-1.5">
-          <button
-            type="button"
+          <WorkbenchToggleAction
+            label={wrap ? "Disable line wrapping" : "Enable line wrapping"}
             onClick={() => setWrap((prev) => !prev)}
-            aria-pressed={wrap}
-            title={
-              wrap
-                ? "Soft-wrapping long lines — click to scroll them instead"
-                : "Long lines scroll horizontally — click to soft-wrap"
-            }
-            className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            pressed={wrap}
+            className="size-6 text-muted-foreground"
           >
             <WrapText className="h-3 w-3" />
-            {wrap ? "Wrap" : "No wrap"}
-          </button>
+          </WorkbenchToggleAction>
           <CopyButton text={text} label={copyLabel} />
         </div>
       </div>
       <pre
         data-language={language}
         className={cn(
-          "rounded-md border border-border/60 bg-muted/50 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-foreground",
+          "rounded-control border border-border/60 bg-muted/50 px-3 py-2.5 font-mono text-label leading-relaxed text-foreground",
           wrap
             ? "whitespace-pre-wrap break-words"
             : "overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent",
@@ -298,7 +309,7 @@ const WorkflowIrView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => 
 const SpecYamlView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
   if (!plan.experimentSpecYaml?.trim())
     return (
-      <p className="text-sm italic text-muted-foreground">No concrete spec was drafted yet.</p>
+      <p className="text-body-lg italic text-muted-foreground">No concrete spec was drafted yet.</p>
     );
   return (
     <CodeBlock
@@ -332,7 +343,7 @@ const asSelectedCapability = (entry: unknown): SelectedCapability => {
 };
 
 // The Resolve-capabilities deliverable is the LLM's SELECTION — the minimal
-// capability subset this experiment binds — not the grounded catalog prompt
+// capability subset this experiment binds — not the grounded-control catalog prompt
 // ("Do NOT invent capability_ids…" is agent instruction, not user content).
 // The full catalog stays reachable, folded behind a <details>.
 const CapabilitiesView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
@@ -342,7 +353,9 @@ const CapabilitiesView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element =
   if (!selection) {
     // Older plans recorded no selection artifact — show whatever was grounded.
     if (!catalog)
-      return <p className="text-sm italic text-muted-foreground">No capabilities were resolved.</p>;
+      return (
+        <p className="text-body-lg italic text-muted-foreground">No capabilities were resolved.</p>
+      );
     return <MarkdownContent text={catalog} />;
   }
 
@@ -365,9 +378,14 @@ const CapabilitiesView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element =
         ) : (
           <ul className="space-y-1.5">
             {selected.map((cap) => (
-              <li key={cap.id} className="rounded-md border border-border/50 bg-card px-3 py-2">
-                <span className="break-all font-mono text-sm text-foreground">{cap.id}</span>
-                {cap.detail && <p className="mt-0.5 text-xs text-muted-foreground">{cap.detail}</p>}
+              <li
+                key={cap.id}
+                className="rounded-control border border-border/50 bg-card px-3 py-2"
+              >
+                <span className="break-all font-mono text-body-lg text-foreground">{cap.id}</span>
+                {cap.detail && (
+                  <p className="mt-0.5 text-label text-muted-foreground">{cap.detail}</p>
+                )}
               </li>
             ))}
           </ul>
@@ -379,14 +397,14 @@ const CapabilitiesView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element =
         </PanelSection>
       )}
       {catalog && (
-        <details className="rounded-md border border-border/60 bg-card">
-          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
-            Full grounded catalog
-          </summary>
-          <div className="border-t border-border/60 px-3 py-2">
+        <Collapsible className="rounded-control border border-border/60 bg-card">
+          <CollapsibleTrigger className="w-full px-3 py-2 text-label text-muted-foreground">
+            Full grounded-control catalog
+          </CollapsibleTrigger>
+          <CollapsibleContent className="border-t border-border/60 px-3 py-2">
             <MarkdownContent text={catalog} />
-          </div>
-        </details>
+          </CollapsibleContent>
+        </Collapsible>
       )}
     </div>
   );
@@ -394,7 +412,7 @@ const CapabilitiesView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element =
 
 const InputSetView = ({ inputSet }: { inputSet: Record<string, unknown> | null }): JSX.Element => {
   if (!inputSet)
-    return <p className="text-sm italic text-muted-foreground">No input set was generated.</p>;
+    return <p className="text-body-lg italic text-muted-foreground">No input set was generated.</p>;
   const axes = Array.isArray(inputSet.sweep_axes)
     ? (inputSet.sweep_axes as Record<string, unknown>[])
     : [];
@@ -406,17 +424,17 @@ const InputSetView = ({ inputSet }: { inputSet: Record<string, unknown> | null }
     <div className="space-y-4">
       <PanelSection title="Parameter sweep">
         <div className="flex flex-wrap gap-2">
-          <Badge variant="secondary" className="font-mono text-[11px]">
+          <WorkbenchTag meaning="category" className="font-mono text-micro">
             {String(inputSet.strategy ?? "grid")}
-          </Badge>
-          <Badge variant="secondary" className="font-mono text-[11px]">
+          </WorkbenchTag>
+          <WorkbenchTag meaning="category" className="font-mono text-micro">
             {String(inputSet.total_runs ?? 1)} run{inputSet.total_runs === 1 ? "" : "s"}
-          </Badge>
+          </WorkbenchTag>
         </div>
       </PanelSection>
       <PanelSection title={`Axes (${axes.length})`}>
         {axes.length === 0 ? (
-          <p className="text-sm italic text-muted-foreground">
+          <p className="text-body-lg italic text-muted-foreground">
             No swept axes — a single fixed-parameter run.
           </p>
         ) : (
@@ -424,17 +442,19 @@ const InputSetView = ({ inputSet }: { inputSet: Record<string, unknown> | null }
             {axes.map((axis, idx) => (
               <li
                 key={String(axis.name ?? idx)}
-                className="rounded-md border border-border/50 bg-card px-3 py-2"
+                className="rounded-control border border-border/50 bg-card px-3 py-2"
               >
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-foreground">{String(axis.name)}</span>
+                  <span className="font-mono text-body-lg text-foreground">
+                    {String(axis.name)}
+                  </span>
                   {axis.source != null && (
-                    <Badge variant="secondary" className="h-4 px-1 font-mono text-[10px]">
+                    <WorkbenchTag meaning="category" className="h-4 px-1 font-mono text-micro">
                       {String(axis.source)}
-                    </Badge>
+                    </WorkbenchTag>
                   )}
                 </div>
-                <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                <p className="mt-0.5 font-mono text-micro text-muted-foreground">
                   {Array.isArray(axis.values) ? axis.values.map(String).join(", ") : ""}
                 </p>
               </li>
@@ -444,7 +464,7 @@ const InputSetView = ({ inputSet }: { inputSet: Record<string, unknown> | null }
       </PanelSection>
       {fixed.length > 0 && (
         <PanelSection title={`Fixed params (${fixed.length})`}>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+          <dl className="grid grid-cols-(--definition-grid-columns) gap-x-4 gap-y-1 text-body-lg">
             {fixed.map(([name, value]) => (
               <div key={name} className="contents">
                 <dt className="font-mono text-muted-foreground">{name}</dt>
@@ -452,7 +472,7 @@ const InputSetView = ({ inputSet }: { inputSet: Record<string, unknown> | null }
               </div>
             ))}
           </dl>
-          <p className="text-xs text-muted-foreground/70">
+          <p className="text-label text-muted-foreground/70">
             Passed whole into every cell — list-valued inputs the workflow scans internally.
           </p>
         </PanelSection>
@@ -464,7 +484,9 @@ const InputSetView = ({ inputSet }: { inputSet: Record<string, unknown> | null }
 const DryRunView = ({ dryRun }: { dryRun: Record<string, unknown> | null }): JSX.Element => {
   if (!dryRun)
     return (
-      <p className="text-sm italic text-muted-foreground">The workflow was not compiled yet.</p>
+      <p className="text-body-lg italic text-muted-foreground">
+        The workflow was not compiled yet.
+      </p>
     );
   const meta = (dryRun.metadata ?? {}) as Record<string, unknown>;
   const ok = dryRun.status === "succeeded";
@@ -472,18 +494,18 @@ const DryRunView = ({ dryRun }: { dryRun: Record<string, unknown> | null }): JSX
     <div className="space-y-4">
       <PanelSection title="Compile / dry-run">
         <div className="flex flex-wrap gap-2">
-          <Badge variant={ok ? "secondary" : "destructive"} className="font-mono text-[11px]">
+          <WorkbenchTag meaning={ok ? "completed" : "failed"} className="font-mono text-micro">
             {String(dryRun.status ?? "unknown")}
-          </Badge>
-          <Badge variant="secondary" className="font-mono text-[11px]">
+          </WorkbenchTag>
+          <WorkbenchTag meaning="category" className="font-mono text-micro">
             mode: {String(meta.mode ?? "run")}
-          </Badge>
-          <Badge variant="secondary" className="font-mono text-[11px]">
+          </WorkbenchTag>
+          <WorkbenchTag meaning="category" className="font-mono text-micro">
             exit {String(dryRun.exit_code ?? "?")}
-          </Badge>
+          </WorkbenchTag>
         </div>
       </PanelSection>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-label text-muted-foreground">
         {ok
           ? "The generated source compiled and the workflow DAG built with the input-set parameters. No task bodies were executed — no real compute ran."
           : "Compilation failed; see the run's stderr artifact for details."}
@@ -499,7 +521,7 @@ const ExecutionReportView = ({
 }): JSX.Element => {
   if (!report)
     return (
-      <p className="text-sm italic text-muted-foreground">No execution report was produced.</p>
+      <p className="text-body-lg italic text-muted-foreground">No execution report was produced.</p>
     );
   const policy = (report.resource_policy ?? {}) as Record<string, unknown>;
   const env = (report.environment ?? {}) as Record<string, unknown>;
@@ -519,7 +541,7 @@ const ExecutionReportView = ({
   return (
     <div className="space-y-4">
       <PanelSection title="Where & how this will run">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        <dl className="grid grid-cols-(--definition-grid-columns) gap-x-4 gap-y-1 text-body-lg">
           {rows
             .filter(([, v]) => v != null && v !== "")
             .map(([label, value]) => (
@@ -532,14 +554,14 @@ const ExecutionReportView = ({
       </PanelSection>
       {Array.isArray(report.notes) && report.notes.length > 0 && (
         <PanelSection title="Notes">
-          <ul className="list-disc space-y-0.5 pl-4 text-sm text-muted-foreground">
+          <ul className="list-disc space-y-0.5 pl-4 text-body-lg text-muted-foreground">
             {(report.notes as unknown[]).map((n) => (
               <li key={String(n)}>{String(n)}</li>
             ))}
           </ul>
         </PanelSection>
       )}
-      <p className="text-xs text-muted-foreground/70">
+      <p className="text-label text-muted-foreground/70">
         Descriptive only — molexp never submits a job from this report.
       </p>
     </div>
@@ -563,9 +585,10 @@ const FinalReportView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element =>
   const execution = plan.execution;
   if (!report)
     return (
-      <p className="text-sm italic text-muted-foreground">
+      <p className="text-body-lg italic text-muted-foreground">
         The workflow has not been executed — run{" "}
-        <code className="font-mono">molexp plan --execute</code> to produce the final report.
+        <InlineCode className="font-mono">molexp plan --execute</InlineCode> to produce the final
+        report.
       </p>
     );
   const ok = execution?.status === "succeeded";
@@ -574,17 +597,17 @@ const FinalReportView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element =>
       {execution && (
         <PanelSection title="Real execution">
           <div className="flex flex-wrap gap-2">
-            <Badge variant={ok ? "secondary" : "destructive"} className="font-mono text-[11px]">
+            <WorkbenchTag meaning={ok ? "completed" : "failed"} className="font-mono text-micro">
               {String(execution.status ?? "unknown")}
-            </Badge>
-            <Badge variant="secondary" className="font-mono text-[11px]">
+            </WorkbenchTag>
+            <WorkbenchTag meaning="category" className="font-mono text-micro">
               exit {String(execution.exit_code ?? "?")}
-            </Badge>
+            </WorkbenchTag>
           </div>
         </PanelSection>
       )}
       {typeof report.title === "string" && report.title && (
-        <p className="text-sm font-semibold text-foreground">{String(report.title)}</p>
+        <p className="text-body-lg font-semibold text-foreground">{String(report.title)}</p>
       )}
       {FINAL_REPORT_FIELDS.map(([key, label]) => {
         const value = report[key];
@@ -595,9 +618,9 @@ const FinalReportView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element =>
           </PanelSection>
         );
       })}
-      <p className="text-xs text-muted-foreground/70">
-        Grounded in the run&apos;s persisted TestResult + ExecutionResult artifacts — every number
-        comes from a real output.
+      <p className="text-label text-muted-foreground/70">
+        Grounded-control in the run&apos;s persisted TestResult + ExecutionResult artifacts — every
+        number comes from a real output.
       </p>
     </div>
   );
@@ -606,7 +629,7 @@ const FinalReportView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element =>
 const AuditReportView = ({ report }: { report: Record<string, unknown> | null }): JSX.Element => {
   if (!report)
     return (
-      <p className="text-sm italic text-muted-foreground">
+      <p className="text-body-lg italic text-muted-foreground">
         No audit report — it is generated at the end of a real execution.
       </p>
     );
@@ -614,7 +637,7 @@ const AuditReportView = ({ report }: { report: Record<string, unknown> | null })
   return (
     <div className="space-y-4">
       <PanelSection title="Audit trail">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        <dl className="grid grid-cols-(--definition-grid-columns) gap-x-4 gap-y-1 text-body-lg">
           {entries.map(([key, value]) => (
             <div key={key} className="contents">
               <dt className="text-muted-foreground">{key}</dt>
@@ -630,9 +653,9 @@ const AuditReportView = ({ report }: { report: Record<string, unknown> | null })
           copyLabel="Copy JSON"
         />
       </PanelSection>
-      <p className="text-xs text-muted-foreground/70">
+      <p className="text-label text-muted-foreground/70">
         Every stage, artifact, and lineage edge of this run is also queryable in{" "}
-        <code className="font-mono">harness.sqlite</code>.
+        <InlineCode className="font-mono">harness.sqlite</InlineCode>.
       </p>
     </div>
   );
@@ -649,20 +672,21 @@ const MultiFileView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
   const current = files.find((f) => f.path === active) ?? files[0];
   return (
     <div className="space-y-3">
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-label text-muted-foreground">
         <span className="font-semibold uppercase tracking-wide">File</span>
-        <select
-          value={current.path}
-          onChange={(e) => setActive(e.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-border/60 bg-card px-2 py-1.5 font-mono text-[11px] text-foreground"
-        >
-          {files.map((f) => (
-            <option key={f.path} value={f.path}>
-              {f.path}
-            </option>
-          ))}
-        </select>
-      </label>
+        <Select value={current.path} onValueChange={setActive}>
+          <SelectTrigger size="sm" className="min-w-0 flex-1 font-mono text-micro">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {files.map((f) => (
+              <SelectItem key={f.path} value={f.path} className="font-mono text-micro">
+                {f.path}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <CodeBlock
         text={current.source}
         filename={current.path}
@@ -688,15 +712,15 @@ const ReviewView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
       <PanelSection title="Plan review">
         {review ? (
           <div className="space-y-2">
-            <Badge variant={passed ? "secondary" : "destructive"} className="text-[11px]">
+            <WorkbenchTag meaning={passed ? "completed" : "failed"} className="text-micro">
               {passed ? "passed — workflow is faithful to the spec" : "issues found"}
-            </Badge>
+            </WorkbenchTag>
             {typeof review.summary === "string" && review.summary && (
               <MarkdownContent text={review.summary} />
             )}
           </div>
         ) : (
-          <p className="text-sm italic text-muted-foreground">
+          <p className="text-body-lg italic text-muted-foreground">
             No automated review was recorded for this plan.
           </p>
         )}
@@ -709,7 +733,7 @@ const ReviewView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
               return (
                 <li
                   key={`${String(rec.requirement ?? i)}`}
-                  className="rounded-md border border-border/50 bg-card px-3 py-2 text-sm"
+                  className="rounded-control border border-border/50 bg-card px-3 py-2 text-body-lg"
                 >
                   <span className="font-medium">{String(rec.requirement ?? "requirement")}</span>
                   {rec.deviation != null && (
@@ -721,7 +745,7 @@ const ReviewView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
           </ul>
         </PanelSection>
       )}
-      <p className="text-xs text-muted-foreground/70">
+      <p className="text-label text-muted-foreground/70">
         This gate approves the verified plan before the execution report. (The CLI prompts here; the
         server path auto-approves.)
       </p>
@@ -732,8 +756,10 @@ const ReviewView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
 const EmptyStage = ({ label }: { label: string }): JSX.Element => (
   <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-6 text-center">
     <FileQuestion className="h-6 w-6 text-muted-foreground/40" />
-    <p className="text-sm text-muted-foreground">{label}</p>
-    <p className="text-xs text-muted-foreground/70">This step produced no standalone document.</p>
+    <p className="text-body-lg text-muted-foreground">{label}</p>
+    <p className="text-label text-muted-foreground/70">
+      This step produced no standalone document.
+    </p>
   </div>
 );
 
@@ -746,7 +772,7 @@ const BoardTasksView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => 
   const boardTasks = Array.isArray(rawTasks) ? rawTasks : [];
   if (boardTasks.length === 0 && plan.tasks.length === 0) {
     return (
-      <p className="text-sm italic text-muted-foreground">
+      <p className="text-body-lg italic text-muted-foreground">
         No task board yet — still drafting, or the plan was not frozen.
       </p>
     );
@@ -764,16 +790,16 @@ const BoardTasksView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => 
             const name = String(t.name ?? t.title ?? id);
             const acceptance = Array.isArray(t.acceptance) ? t.acceptance.map(String) : [];
             return (
-              <li key={id} className="rounded-md border border-border/50 bg-card px-3 py-2">
+              <li key={id} className="rounded-control border border-border/50 bg-card px-3 py-2">
                 <div className="flex items-start gap-2">
-                  <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded bg-muted text-[11px] font-medium tabular-nums text-muted-foreground">
+                  <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-control bg-muted text-micro font-medium tabular-nums text-muted-foreground">
                     {idx + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground">{name}</p>
-                    <p className="font-mono text-[11px] text-muted-foreground">{id}</p>
+                    <p className="text-body-lg font-medium text-foreground">{name}</p>
+                    <p className="font-mono text-micro text-muted-foreground">{id}</p>
                     {acceptance.length > 0 ? (
-                      <ul className="mt-1 list-disc pl-4 text-xs text-muted-foreground">
+                      <ul className="mt-1 list-disc pl-4 text-label text-muted-foreground">
                         {acceptance.slice(0, 4).map((a) => (
                           <li key={a}>{a}</li>
                         ))}
@@ -795,7 +821,7 @@ const BoundWorkflowView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element 
   const tasks = Array.isArray(bound?.tasks) ? bound.tasks : [];
   if (tasks.length === 0) {
     return (
-      <p className="text-sm italic text-muted-foreground">
+      <p className="text-body-lg italic text-muted-foreground">
         Bound workflow not ready — appears after the plan is approved and realization starts.
       </p>
     );
@@ -812,16 +838,18 @@ const BoundWorkflowView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element 
               ? String((t.provenance as Record<string, unknown>).task_name ?? id)
               : id;
           return (
-            <li key={id} className="rounded-md border border-border/50 bg-card px-3 py-2">
+            <li key={id} className="rounded-control border border-border/50 bg-card px-3 py-2">
               <div className="flex items-center gap-2">
-                <span className="font-mono text-sm text-foreground">{id}</span>
+                <span className="font-mono text-body-lg text-foreground">{id}</span>
                 {cap ? (
-                  <Badge variant="secondary" className="h-4 px-1 font-mono text-[10px]">
+                  <WorkbenchTag meaning="category" className="h-4 px-1 font-mono text-micro">
                     {cap}
-                  </Badge>
+                  </WorkbenchTag>
                 ) : null}
               </div>
-              {name !== id ? <p className="mt-0.5 text-xs text-muted-foreground">{name}</p> : null}
+              {name !== id ? (
+                <p className="mt-0.5 text-label text-muted-foreground">{name}</p>
+              ) : null}
             </li>
           );
         })}
@@ -872,14 +900,14 @@ const PlanDeliverables = ({
   const body = ((): JSX.Element => {
     if (loading)
       return (
-        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+        <div className="flex flex-1 items-center justify-center gap-2 text-body-lg text-muted-foreground">
           <Loader2 className="h-4 w-4 mol-motion-progress-spin text-info" />
           Loading deliverables…
         </div>
       );
     if (error || !plan)
       return (
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-body-lg text-muted-foreground">
           {error ?? "Plan deliverables are unavailable."}
         </div>
       );
@@ -958,11 +986,13 @@ const PlanDeliverables = ({
       <div className="flex items-start gap-2 border-b border-border/60 bg-muted/20 px-4 py-2.5">
         <Package className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground" title={title}>
+          <p className="truncate text-body-lg font-semibold text-foreground" title={title}>
             {title}
           </p>
-          <p className="font-mono text-[10px] text-muted-foreground">
-            <button
+          <p className="font-mono text-micro text-muted-foreground">
+            <WorkbenchAction
+              kind="ghost"
+              size="content"
               type="button"
               className="underline decoration-dotted underline-offset-2 hover:text-foreground"
               title="Open this run in the Projects tree"
@@ -971,7 +1001,7 @@ const PlanDeliverables = ({
               }
             >
               run {planRef.runId}
-            </button>
+            </WorkbenchAction>
             {stage && <span className="ml-1.5 text-muted-foreground/70">· {stage.label}</span>}
           </p>
         </div>
@@ -986,7 +1016,7 @@ const ChatArtifacts = ({ artifacts }: { artifacts: Record<string, unknown>[] }):
   <div className="flex h-full flex-col">
     <div className="flex items-center gap-2 border-b border-border/60 bg-muted/20 px-4 py-2.5">
       <Package className="h-4 w-4 flex-none text-muted-foreground" />
-      <p className="text-sm font-semibold text-foreground">
+      <p className="text-body-lg font-semibold text-foreground">
         Artifacts <span className="font-normal text-muted-foreground">· {artifacts.length}</span>
       </p>
     </div>
@@ -1034,7 +1064,7 @@ export const DeliverablesPanel = ({
     );
   if (artifacts.length > 0) return <ChatArtifacts artifacts={artifacts} />;
   return (
-    <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+    <div className="flex h-full items-center justify-center px-6 text-center text-body-lg text-muted-foreground">
       Deliverables will appear here as the agent produces them.
     </div>
   );

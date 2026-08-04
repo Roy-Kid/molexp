@@ -89,7 +89,7 @@ export const RunsKpiCard = ({
           aria-hidden="true"
           className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", DOT_CLASS[tone])}
         />
-        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="text-label text-muted-foreground">{label}</span>
       </div>
       <div className="flex items-baseline justify-between gap-2">
         <span
@@ -101,7 +101,7 @@ export const RunsKpiCard = ({
           {value}
         </span>
         {hasSpark && (
-          <div className="h-7 w-20 shrink-0 opacity-90">
+          <div className="h-control-compact w-20 shrink-0 opacity-90">
             <Sparkline
               data={sparkline}
               trend={SPARK_TREND[tone]}

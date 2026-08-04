@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { completedStageKinds } from "@/app/renderers/agentEvents";
 import type { ApiSessionEvent } from "@/app/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { WorkbenchAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 import { PLAN_STAGES } from "./planStages";
 
@@ -60,25 +61,27 @@ export const PlanProgressRail = ({
   };
 
   return (
-    <div className="flex h-full w-[210px] flex-none flex-col border-r border-border/60 bg-background">
-      <div className="flex-none px-4 py-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="flex h-full w-52 flex-none flex-col border-r border-border/60 bg-background">
+      <div className="flex-none px-4 py-3 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
         PlanMode progress
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <ol className="relative px-4 pb-4">
-          <div className="absolute bottom-5 left-[30px] top-4 w-px bg-border/70" aria-hidden />
+          <div className="absolute bottom-5 left-8 top-4 w-px bg-border/70" aria-hidden />
           {stages.map((stage, i) => {
             const state = stateOf(i);
             const selected = stage.kind === selectedKind;
             return (
               <li key={stage.kind} className="relative py-px">
-                <button
+                <WorkbenchAction
+                  kind="ghost"
+                  size="content"
                   type="button"
                   onClick={() => onSelectStage(stage.kind)}
                   aria-current={selected}
                   className={cn(
-                    "flex w-full items-start gap-2.5 rounded-md px-1 py-1 text-left transition-colors",
-                    selected ? "bg-primary/10" : "hover:bg-muted/60",
+                    "flex w-full items-start gap-2.5 rounded-control px-1 py-1 text-left transition-colors",
+                    selected ? "bg-accent/10" : "hover:bg-muted/60",
                   )}
                 >
                   <span className="relative z-10 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-background">
@@ -86,9 +89,9 @@ export const PlanProgressRail = ({
                   </span>
                   <span
                     className={cn(
-                      "pt-0.5 text-xs leading-tight",
+                      "pt-0.5 text-label leading-tight",
                       selected
-                        ? "font-semibold text-primary"
+                        ? "font-semibold text-accent"
                         : state === "pending"
                           ? "text-muted-foreground/50"
                           : state === "current"
@@ -100,7 +103,7 @@ export const PlanProgressRail = ({
                   >
                     {stage.label}
                   </span>
-                </button>
+                </WorkbenchAction>
               </li>
             );
           })}

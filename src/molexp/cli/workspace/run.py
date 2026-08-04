@@ -505,7 +505,7 @@ def execute(
     try:
         experiment_id = experiment_id or run_dir.parent.parent.name
         project_id = project_id or run_dir.parent.parent.parent.parent.name
-    except IndexError, AttributeError:
+    except (IndexError, AttributeError):
         pass
     if not (run_id and project_id and experiment_id):
         rprint(f"[red]Error:[/red] run.json under {run_dir} is missing project/experiment/run ids.")
@@ -524,7 +524,7 @@ def execute(
                 run_obj = ws.get_project(project_id).get_experiment(experiment_id).get_run(run_id)
                 experiment = ws.get_project(project_id).get_experiment(experiment_id)
                 break
-            except ProjectNotFoundError, ExperimentNotFoundError, RunNotFoundError:
+            except (ProjectNotFoundError, ExperimentNotFoundError, RunNotFoundError):
                 continue
         if run_obj is None or experiment is None:
             rprint(
@@ -603,7 +603,7 @@ def _open_plan_run(run_dir: Path, project_id: str, experiment_id: str, run_id: s
     try:
         experiment = ws.get_project(project_id).get_experiment(experiment_id)
         return experiment.get_run(run_id), experiment
-    except ProjectNotFoundError, ExperimentNotFoundError, RunNotFoundError:
+    except (ProjectNotFoundError, ExperimentNotFoundError, RunNotFoundError):
         return None, None
 
 
@@ -1024,8 +1024,20 @@ def run(
     explicit_ws = target_spec != "."
     target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
-        rprint("[red]Error:[/red] 'run' on remote targets is not yet supported.")
-        rprint("  Use [bold]molexp exec[/bold] or [bold]shell[/bold] for remote execution.")
+        # ``molexp run`` drives a workflow *in this process* against a local
+        # workspace root.  Opening/managing a remote workspace (info, list,
+        # cancel, …) is supported via ``-ws host:/path``; executing a local
+        # script against a remote root still needs a remote-side driver
+        # (submit / exec).  Keep the split explicit.
+        rprint(
+            "[red]Error:[/red] ``molexp run`` executes the workflow in this process "
+            "and requires a local workspace root."
+        )
+        rprint(
+            "  To work with a remote workspace use "
+            "[bold]molexp info/project/runs … -ws host:/path[/bold], "
+            "or [bold]molexp exec/shell -ws host:/path[/bold] to drive commands on the host."
+        )
         raise typer.Exit(1)
 
     if dry_run and bg:

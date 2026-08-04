@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
-import { WorkbenchAction } from "@/components/workbench";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 
 const KINDS = ["Finding", "FailureAnalysis", "Note", "Hypothesis"] as const;
 
@@ -97,18 +97,12 @@ export function HarvestDialog({
     >
       <DialogTrigger asChild>
         {trigger ?? (
-          <WorkbenchAction
-            kind="secondary"
-            size="compact"
-            className="h-7 gap-1"
-            title="Harvest to knowledge"
-          >
+          <WorkbenchIconAction label="Harvest to knowledge">
             <BookMarked className="h-3.5 w-3.5" />
-            Harvest
-          </WorkbenchAction>
+          </WorkbenchIconAction>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Harvest</DialogTitle>
         </DialogHeader>
@@ -139,7 +133,7 @@ export function HarvestDialog({
               disabled={busy}
             />
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-body-lg text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <WorkbenchAction

@@ -6,6 +6,7 @@
 
 import { ChevronRight, File, Folder, FolderOpen } from "lucide-react";
 import * as React from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 interface TreeNodeProps {
@@ -74,23 +75,19 @@ const TreeItem = React.forwardRef<HTMLButtonElement, TreeItemProps>(
     };
 
     const DefaultRender = (
-      <button
-        type="button"
-        ref={ref}
-        className="group flex items-center min-h-[28px] w-full px-2 py-1 rounded-sm cursor-pointer select-none hover:bg-accent/50 transition-colors text-left"
+      <div
+        className="group flex min-h-control-compact w-full cursor-pointer select-none items-center px-2 py-1 text-left transition-colors hover:bg-accent-muted"
         style={{ paddingLeft: `${level * 12 + 4}px` }}
-        onClick={handleSelect}
-        onContextMenu={handleContextMenu}
         data-node-id={node.id}
         data-node-path={node.path}
       >
-        {/* Expand/collapse toggle */}
         {isFolder && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="content"
             className={cn(
-              "flex items-center justify-center w-5 h-5 mr-1 flex-shrink-0",
-              "text-muted-foreground hover:text-foreground transition-colors",
+              "mr-1 size-5 flex-shrink-0 p-0 text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground",
               hasChildren ? "cursor-pointer" : "cursor-default opacity-0",
             )}
             onClick={handleToggle}
@@ -100,27 +97,36 @@ const TreeItem = React.forwardRef<HTMLButtonElement, TreeItemProps>(
             <ChevronRight
               className={cn("h-4 w-4 transition-transform", isExpanded && "rotate-90")}
             />
-          </button>
+          </Button>
         )}
 
-        {/* File/folder icon */}
-        <div className="flex items-center justify-center w-5 h-5 mr-2 flex-shrink-0 text-muted-foreground">
-          {node.icon ? (
-            node.icon
-          ) : isFolder ? (
-            isExpanded ? (
-              <FolderOpen className="h-4 w-4" />
+        <Button
+          type="button"
+          ref={ref}
+          role="treeitem"
+          aria-expanded={isFolder ? isExpanded : undefined}
+          variant="ghost"
+          size="content"
+          className="min-w-0 flex-1 justify-start p-0 text-left hover:bg-transparent"
+          onClick={handleSelect}
+          onContextMenu={handleContextMenu}
+        >
+          <span className="mr-2 flex size-5 flex-shrink-0 items-center justify-center text-muted-foreground">
+            {node.icon ? (
+              node.icon
+            ) : isFolder ? (
+              isExpanded ? (
+                <FolderOpen className="h-4 w-4" />
+              ) : (
+                <Folder className="h-4 w-4" />
+              )
             ) : (
-              <Folder className="h-4 w-4" />
-            )
-          ) : (
-            <File className="h-4 w-4" />
-          )}
-        </div>
-
-        {/* Node label */}
-        <span className="truncate text-sm text-foreground flex-1">{node.name}</span>
-      </button>
+              <File className="h-4 w-4" />
+            )}
+          </span>
+          <span className="flex-1 truncate text-body-lg text-foreground">{node.name}</span>
+        </Button>
+      </div>
     );
 
     return (
@@ -143,7 +149,7 @@ const TreeItem = React.forwardRef<HTMLButtonElement, TreeItemProps>(
         )}
         {isFolder && isExpanded && !hasChildren && (
           <div
-            className="text-xs text-muted-foreground italic px-2 py-1"
+            className="text-label text-muted-foreground italic px-2 py-1"
             style={{ paddingLeft: `${(level + 1) * 12 + 4}px` }}
           >
             Empty folder
@@ -208,7 +214,7 @@ const Tree = React.forwardRef<HTMLDivElement, TreeProps>(
 
     if (nodes.length === 0) {
       return (
-        <div className={cn("text-sm text-muted-foreground italic p-4", className)}>
+        <div className={cn("text-body-lg text-muted-foreground italic p-4", className)}>
           No files or folders
         </div>
       );

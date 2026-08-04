@@ -108,18 +108,18 @@ export const TrajectoryViewer = ({
     // stay scoped to the canvas and never paint above the molexp UI chrome.
     <div
       className={cn(
-        "relative w-full overflow-hidden rounded-md border border-border bg-canvas isolate",
-        className ?? "h-[420px]",
+        "relative isolate w-full overflow-hidden bg-surface/65",
+        className ?? "h-chart-lg",
       )}
     >
       <div ref={containerRef} className="absolute inset-0" />
       {state.kind === "loading" && (
-        <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+        <div className="absolute inset-0 flex items-center justify-center text-label text-muted-foreground">
           Loading {file.name}…
         </div>
       )}
       {state.kind === "error" && (
-        <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-destructive">
+        <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-label text-destructive">
           Failed to render trajectory: {state.message}
         </div>
       )}

@@ -1,6 +1,10 @@
+import { RotateCcw } from "lucide-react";
 import type { JSX } from "react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 
 import type { FacetCount, FacetSnapshot } from "./aggregates";
@@ -115,13 +119,13 @@ export const RunsFacetPanel = ({
       )}
 
       {active && (
-        <button
-          type="button"
+        <WorkbenchIconAction
+          label="Reset filters"
           onClick={() => onFiltersChange({})}
-          className="w-full rounded-md border border-border px-2 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          className="text-muted-foreground"
         >
-          Reset filters
-        </button>
+          <RotateCcw className="size-3.5" />
+        </WorkbenchIconAction>
       )}
     </div>
   );
@@ -134,7 +138,7 @@ interface FacetGroupProps {
 
 const FacetGroup = ({ title, children }: FacetGroupProps): JSX.Element => (
   <div>
-    <div className="mb-2 text-xs font-medium text-muted-foreground">{title}</div>
+    <div className="mb-2 text-label font-medium text-muted-foreground">{title}</div>
     {children}
   </div>
 );
@@ -154,27 +158,24 @@ const FacetCheckboxRow = ({
   onToggle,
   title,
 }: FacetCheckboxRowProps): JSX.Element => {
+  const id = useId();
   const dimmed = count === 0 && !checked;
   return (
-    <label
+    <div
       title={title}
       className={cn(
-        "flex cursor-pointer items-center justify-between rounded px-2 py-1 text-xs transition-colors hover:bg-muted/40",
+        "flex items-center justify-between rounded-control px-2 py-1 text-label transition-colors hover:bg-interactive/60",
         dimmed && "cursor-default opacity-40 hover:bg-transparent",
       )}
     >
       <span className="flex min-w-0 items-center gap-2">
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={dimmed}
-          onChange={onToggle}
-          className="h-3 w-3 cursor-pointer rounded border border-border accent-primary"
-        />
-        <span className="truncate">{label}</span>
+        <Checkbox id={id} checked={checked} disabled={dimmed} onCheckedChange={onToggle} />
+        <Label htmlFor={id} className="min-w-0 cursor-pointer truncate font-normal">
+          {label}
+        </Label>
       </span>
       <span className="ml-2 shrink-0 tabular-nums text-micro text-muted-foreground">{count}</span>
-    </label>
+    </div>
   );
 };
 
@@ -234,13 +235,14 @@ const CheckboxFacetGroup = ({
           />
         ))}
         {merged.length > COLLAPSE_THRESHOLD && (
-          <button
-            type="button"
+          <WorkbenchAction
+            kind="link"
+            size="compact"
             onClick={() => setExpanded((prev) => !prev)}
-            className="ml-1 mt-1 text-xs text-muted-foreground hover:text-foreground"
+            className="ml-1 mt-1 h-auto px-0 text-label text-muted-foreground hover:text-foreground"
           >
             {expanded ? "Show fewer" : `Show ${merged.length - COLLAPSE_THRESHOLD} more`}
-          </button>
+          </WorkbenchAction>
         )}
       </div>
     </FacetGroup>

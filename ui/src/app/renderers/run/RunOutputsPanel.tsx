@@ -9,6 +9,7 @@ import { FileCode2, FileJson, FileQuestion, Image as ImageIcon, Package } from "
 import { type JSX, useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/app/components/entity";
 import type { ApiAssetResponse } from "@/app/types";
+import { WorkbenchAction } from "@/components/workbench";
 import { filePreviewPluginRegistry } from "@/lib/file-preview-plugins";
 import { cn } from "@/lib/utils";
 
@@ -179,17 +180,17 @@ const AssetPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
   if (asset.tags?.molrec === "true") {
     const sections = asset.tags.molrec_sections ?? "(sections unknown)";
     return (
-      <div className="space-y-2 p-4 text-sm">
+      <div className="space-y-2 p-4 text-body-lg">
         <p className="font-medium text-foreground">MolRec record</p>
         <p className="text-muted-foreground">
-          Sections: <span className="font-mono text-xs">{sections}</span>
+          Sections: <span className="font-mono text-label">{sections}</span>
         </p>
         <p className="text-label text-muted-foreground">
           Open with the molvis (frame/trajectory) or molplot (observables) plugin when those
           sections are present — core only lists the product.
         </p>
         <a
-          className="text-label text-primary underline"
+          className="text-label text-accent underline"
           href={`/api/assets/${encodeURIComponent(asset.id)}/content`}
         >
           Download asset
@@ -203,14 +204,14 @@ const AssetPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
     // only use plugins that can work with name/path (sidecars). Otherwise fall through.
     const Plugin = plugin.Component;
     return (
-      <div className="h-full min-h-[12rem] overflow-auto p-2">
+      <div className="h-full min-h-panel-sm overflow-auto p-2">
         <Plugin content="" name={asset.name} path={asset.path} folderId="" assetId={asset.id} />
       </div>
     );
   }
 
   if (error) {
-    return <p className="p-4 text-sm text-status-failed-foreground">{error}</p>;
+    return <p className="p-4 text-body-lg text-status-failed-foreground">{error}</p>;
   }
 
   if (blobUrl) {
@@ -230,10 +231,10 @@ const AssetPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
   }
 
   return (
-    <div className="flex h-full flex-col items-start justify-center gap-2 p-4 text-sm text-muted-foreground">
+    <div className="flex h-full flex-col items-start justify-center gap-2 p-4 text-body-lg text-muted-foreground">
       <p>No inline preview for this product.</p>
       <a
-        className="text-primary underline"
+        className="text-accent underline"
         href={`/api/assets/${encodeURIComponent(asset.id)}/content`}
       >
         Download {asset.name}
@@ -270,7 +271,7 @@ export const RunOutputsPanel = ({
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-body-lg text-muted-foreground">
         Loading outputs…
       </div>
     );
@@ -296,12 +297,14 @@ export const RunOutputsPanel = ({
             f.id === "all" ? products.length : products.filter((p) => p.filter === f.id).length;
           if (f.id !== "all" && count === 0) return null;
           return (
-            <button
+            <WorkbenchAction
+              kind="ghost"
+              size="content"
               key={f.id}
               type="button"
               onClick={() => setFilter(f.id)}
               className={cn(
-                "rounded-[var(--radius-control)] px-2 py-1 text-label font-medium transition-colors",
+                "rounded-control px-2 py-1 text-label font-medium transition-colors",
                 filter === f.id
                   ? "bg-interactive text-foreground"
                   : "text-muted-foreground hover:bg-interactive/60 hover:text-foreground",
@@ -309,7 +312,7 @@ export const RunOutputsPanel = ({
             >
               {f.label}
               <span className="ml-1 tabular-nums text-muted-foreground">{count}</span>
-            </button>
+            </WorkbenchAction>
           );
         })}
       </div>
@@ -318,11 +321,13 @@ export const RunOutputsPanel = ({
         <ul className="w-56 flex-none space-y-1 overflow-auto border-r border-border p-2">
           {visible.map((p) => (
             <li key={p.id}>
-              <button
+              <WorkbenchAction
+                kind="ghost"
+                size="content"
                 type="button"
                 onClick={() => setSelectedId(p.id)}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-left text-label transition-colors",
+                  "flex w-full items-center gap-2 rounded-control px-2 py-2 text-left text-label transition-colors",
                   selectedId === p.id
                     ? "bg-interactive text-foreground"
                     : "text-muted-foreground hover:bg-interactive/50 hover:text-foreground",
@@ -330,7 +335,7 @@ export const RunOutputsPanel = ({
               >
                 <ProductIcon product={p} />
                 <span className="min-w-0 flex-1 truncate font-mono text-micro">{p.label}</span>
-              </button>
+              </WorkbenchAction>
             </li>
           ))}
         </ul>

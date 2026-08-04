@@ -38,7 +38,7 @@ export const RunsTabBar = ({ value, onChange, className }: RunsTabBarProps): JSX
           value={id}
           className={cn(
             "h-10 flex-none gap-2 rounded-none border-0 border-b border-transparent px-0 py-0",
-            "text-sm font-medium text-muted-foreground shadow-none after:hidden",
+            "text-body-lg font-medium text-muted-foreground shadow-none after:hidden",
             "data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none",
           )}
         >

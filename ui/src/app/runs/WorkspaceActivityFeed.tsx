@@ -2,7 +2,11 @@ import type { JSX } from "react";
 import { useEffect, useState } from "react";
 
 import { WorkspaceService } from "@/api/generated";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import {
+  WorkbenchAction,
+  WorkbenchOperationState,
+  WorkbenchRetryAction,
+} from "@/components/workbench";
 import { formatRelative, formatTimestamp } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
@@ -77,16 +81,12 @@ export const WorkspaceActivityFeed = ({
         title="Could not load activity"
         detail={error}
         action={
-          <WorkbenchAction
-            kind="secondary"
-            size="compact"
+          <WorkbenchRetryAction
             onClick={() => {
               setLoading(true);
               setTick((t) => t + 1);
             }}
-          >
-            Retry
-          </WorkbenchAction>
+          />
         }
       />
     );
@@ -103,7 +103,7 @@ export const WorkspaceActivityFeed = ({
         return (
           <li
             key={event.id}
-            className="flex items-start gap-3 rounded-[var(--radius-control)] px-2 py-2 text-label transition-colors duration-[var(--motion-fast)] ease-[var(--motion-ease)] hover:bg-interactive/50"
+            className="flex items-start gap-3 rounded-control px-2 py-2 text-label transition-colors duration-(--motion-fast) ease-standard hover:bg-interactive/50"
           >
             <span
               aria-hidden="true"
@@ -132,26 +132,30 @@ export const WorkspaceActivityFeed = ({
                   const resolved = resolveEventRef(ref, event.type, knownRunIds, event.payload);
                   if (resolved.kind === "run") {
                     return (
-                      <button
+                      <WorkbenchAction
+                        kind="ghost"
+                        size="content"
                         key={ref}
                         type="button"
-                        className="truncate text-primary underline-offset-2 hover:underline"
+                        className="truncate text-accent underline-offset-2 hover:underline"
                         onClick={() => onSelectRun(resolved.runId)}
                       >
                         {resolved.text}
-                      </button>
+                      </WorkbenchAction>
                     );
                   }
                   if (resolved.kind === "knowledge") {
                     return (
-                      <button
+                      <WorkbenchAction
+                        kind="ghost"
+                        size="content"
                         key={ref}
                         type="button"
-                        className="truncate text-primary underline-offset-2 hover:underline"
+                        className="truncate text-accent underline-offset-2 hover:underline"
                         onClick={() => onOpenKnowledge(resolved.path)}
                       >
                         {resolved.text}
-                      </button>
+                      </WorkbenchAction>
                     );
                   }
                   return (

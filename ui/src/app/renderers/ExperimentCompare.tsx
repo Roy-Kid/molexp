@@ -4,7 +4,15 @@ import { useMemo } from "react";
 import { EmptyState } from "@/app/components/entity";
 import { formatScalar } from "@/app/renderers/dashboardData";
 import type { RunSummary } from "@/app/types";
-import { RunStatusBadge } from "@/components/workbench";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { RunStatusBadge, WorkbenchAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 
 interface ExperimentCompareProps {
@@ -58,8 +66,8 @@ const RowGroup = ({
   const variedCount = rows.filter((r) => r.varies).length;
   return (
     <>
-      <tr>
-        <td
+      <TableRow>
+        <TableCell
           colSpan={runIds.length + 1}
           className="border-b border-border/60 bg-muted/40 px-3 py-2 text-micro font-semibold uppercase tracking-wide text-muted-foreground"
         >
@@ -67,20 +75,20 @@ const RowGroup = ({
           <span className="ml-2 font-normal normal-case text-muted-foreground/70">
             {variedCount > 0 ? `${variedCount} differ` : "all identical"}
           </span>
-        </td>
-      </tr>
+        </TableCell>
+      </TableRow>
       {rows.map((row) => (
-        <tr
+        <TableRow
           key={`${title}:${row.key}`}
           className={cn(
             "border-b border-border/40 last:border-b-0",
             row.varies ? "bg-diff-modified-soft" : "",
           )}
         >
-          <th
+          <TableHead
             scope="row"
             className={cn(
-              "sticky left-0 z-10 max-w-[180px] truncate border-r border-border/60 bg-background px-3 py-2 text-left align-top font-mono text-xs font-medium",
+              "sticky left-0 z-10 max-w-44 truncate border-r border-border/60 bg-background px-3 py-2 text-left align-top font-mono text-label font-medium",
               row.varies
                 ? "border-l border-l-diff-modified text-foreground"
                 : "text-muted-foreground",
@@ -88,22 +96,22 @@ const RowGroup = ({
             title={row.key}
           >
             {row.key}
-          </th>
+          </TableHead>
           {row.values.map((value, idx) => (
-            <td
+            <TableCell
               key={`${row.key}:${runIds[idx] ?? idx}`}
               className={cn(
-                "border-r border-border/40 px-3 py-2 align-top font-mono text-xs last:border-r-0",
+                "border-r border-border/40 px-3 py-2 align-top font-mono text-label last:border-r-0",
                 row.varies ? "text-foreground" : "text-muted-foreground",
                 value === "—" && "text-muted-foreground/50",
               )}
             >
-              <span className="block max-w-[200px] truncate" title={value}>
+              <span className="block max-w-52 truncate" title={value}>
                 {value}
               </span>
-            </td>
+            </TableCell>
           ))}
-        </tr>
+        </TableRow>
       ))}
     </>
   );
@@ -154,45 +162,45 @@ export const ExperimentCompare = ({ runs, onOpenRun }: ExperimentCompareProps): 
 
   return (
     <div className="flex h-full flex-col overflow-auto">
-      <table className="w-full border-collapse text-xs">
-        <thead className="sticky top-0 z-20">
-          <tr>
-            <th className="sticky left-0 z-30 border-b border-r border-border/60 bg-muted/60 px-3 py-2 text-left text-micro font-semibold uppercase tracking-wide text-muted-foreground">
+      <Table className="w-full border-collapse text-label">
+        <TableHeader className="sticky top-0 z-20">
+          <TableRow>
+            <TableHead className="sticky left-0 z-30 border-b border-r border-border/60 bg-muted/60 px-3 py-2 text-left text-micro font-semibold uppercase tracking-wide text-muted-foreground">
               Field
-            </th>
+            </TableHead>
             {ordered.map((run) => (
-              <th
+              <TableHead
                 key={run.id}
-                className="min-w-[140px] border-b border-r border-border/60 bg-muted/60 px-3 py-2 text-left align-bottom last:border-r-0"
+                className="min-w-36 border-b border-r border-border/60 bg-muted/60 px-3 py-2 text-left align-bottom last:border-r-0"
               >
-                <button
+                <WorkbenchAction
+                  kind="ghost"
+                  size="content"
                   type="button"
                   onClick={() => onOpenRun(run.id)}
-                  className="group flex items-center gap-1 font-mono text-xs font-medium text-foreground hover:text-primary"
+                  className="group flex items-center gap-1 font-mono text-label font-medium text-foreground hover:text-accent"
                   title={`Open ${run.name || run.id}`}
                 >
-                  <span className="max-w-[120px] truncate">
-                    {run.name || run.id.substring(0, 8)}
-                  </span>
+                  <span className="max-w-32 truncate">{run.name || run.id.substring(0, 8)}</span>
                   <ExternalLink className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
-                </button>
+                </WorkbenchAction>
                 <div className="mt-1 flex items-center gap-2">
                   <RunStatusBadge status={run.status} size="sm" />
                   <span className="font-mono text-micro text-muted-foreground">
                     {run.id.substring(0, 8)}
                   </span>
                 </div>
-              </th>
+              </TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           <RowGroup title="Parameters" rows={paramRows} runIds={ordered.map((r) => r.id)} />
           <RowGroup title="Results" rows={resultRows} runIds={ordered.map((r) => r.id)} />
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
       <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-micro text-muted-foreground">
-        <span className="inline-block h-3 w-1 rounded-sm bg-diff-modified" />
+        <span className="inline-block h-3 w-1 rounded-control bg-diff-modified" />
         <span>Highlighted rows differ across runs.</span>
       </div>
     </div>

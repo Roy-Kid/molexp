@@ -1,7 +1,6 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Table2 } from "lucide-react";
 import type { JSX, ReactNode } from "react";
 import { useEffect, useMemo } from "react";
-
 import { EmptyState } from "@/app/components/entity";
 import { ROW_PADDING_DEFAULT } from "@/app/components/entity/density";
 import {
@@ -11,7 +10,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RunStatusBadge, WorkbenchIconAction } from "@/components/workbench";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { RunStatusBadge, WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 import { formatDuration, formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
@@ -46,7 +53,7 @@ interface ColumnDef {
 }
 
 const COLUMNS: ColumnDef[] = [
-  { key: "status", label: "Status", className: "w-[120px]" },
+  { key: "status", label: "Status", className: "w-32" },
   { key: "name", label: "Run" },
   { key: "project", label: "Project · Experiment" },
   { key: "backend", label: "Backend" },
@@ -80,7 +87,7 @@ export const RunsJobsTable = ({
 
   if (rows.length === 0) {
     return (
-      <div className="flex h-full min-h-[240px] items-center justify-center border-y border-dashed border-border/70">
+      <div className="flex h-full min-h-60 items-center justify-center border-y border-dashed border-border/70">
         <EmptyState
           icon={<Table2 className="h-5 w-5" />}
           title="No matching runs"
@@ -96,9 +103,9 @@ export const RunsJobsTable = ({
   return (
     <div className="flex flex-col gap-3">
       <div className="overflow-x-auto border-y border-border/70">
-        <table className="w-full text-body">
-          <thead className="sticky top-0 z-10 border-b border-border/60 bg-background">
-            <tr className="text-xs text-muted-foreground">
+        <Table className="w-full text-body">
+          <TableHeader className="sticky top-0 z-10 border-b border-border/60 bg-background">
+            <TableRow className="text-label text-muted-foreground">
               {COLUMNS.map((col) => (
                 <SortableTh
                   key={col.key}
@@ -108,14 +115,14 @@ export const RunsJobsTable = ({
                   onClick={() => onSortChange(nextJobsSort(sort, col.key))}
                 />
               ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
+            </TableRow>
+          </TableHeader>
+          <TableBody className="divide-y divide-border/50">
             {slice.items.map((run) => {
               const isSelected = run.id === selectedRunId;
               const duration = computeRunDurationSeconds(run);
               return (
-                <tr
+                <TableRow
                   key={run.id}
                   tabIndex={0}
                   aria-label={`Open run ${run.name || run.id}`}
@@ -133,7 +140,7 @@ export const RunsJobsTable = ({
                   }}
                   className={cn(
                     "cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-                    isSelected ? "bg-primary/5" : "hover:bg-muted/40",
+                    isSelected ? "bg-accent/5" : "hover:bg-muted/40",
                   )}
                 >
                   <Td className="align-middle">
@@ -153,7 +160,7 @@ export const RunsJobsTable = ({
                   <Td className="align-middle text-muted-foreground">
                     <div className="min-w-0">
                       <p className="truncate text-foreground">{run.projectName}</p>
-                      <p className="truncate text-xs">{run.experimentName}</p>
+                      <p className="truncate text-label">{run.experimentName}</p>
                     </div>
                   </Td>
                   <Td className="align-middle text-muted-foreground">
@@ -171,20 +178,20 @@ export const RunsJobsTable = ({
                   <Td className="text-right align-middle tabular-nums text-muted-foreground">
                     {run.executionCount}
                   </Td>
-                  <Td className="text-right align-middle font-mono text-xs tabular-nums text-muted-foreground">
+                  <Td className="text-right align-middle font-mono text-label tabular-nums text-muted-foreground">
                     {formatDuration(duration)}
                   </Td>
-                  <Td className="text-right align-middle text-xs text-muted-foreground">
+                  <Td className="text-right align-middle text-label text-muted-foreground">
                     {formatRelative(run.createdAt)}
                   </Td>
-                </tr>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-label text-muted-foreground">
         <div className="tabular-nums">
           {rangeStart}–{rangeEnd} of {slice.totalItems}
         </div>
@@ -195,7 +202,7 @@ export const RunsJobsTable = ({
               value={String(pageSize)}
               onValueChange={(value) => onPageSizeChange(Number.parseInt(value, 10))}
             >
-              <SelectTrigger size="sm" className="w-[72px]" aria-label="Rows per page">
+              <SelectTrigger size="sm" className="w-18" aria-label="Rows per page">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -210,19 +217,17 @@ export const RunsJobsTable = ({
           <div className="flex items-center gap-1">
             <WorkbenchIconAction
               label="Previous page"
-              kind="secondary"
               type="button"
               disabled={slice.page <= 1}
               onClick={() => onPageChange(slice.page - 1)}
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </WorkbenchIconAction>
-            <span className="min-w-[4.5rem] text-center tabular-nums">
+            <span className="min-w-18 text-center tabular-nums">
               {slice.page} / {slice.totalPages}
             </span>
             <WorkbenchIconAction
               label="Next page"
-              kind="secondary"
               type="button"
               disabled={slice.page >= slice.totalPages}
               onClick={() => onPageChange(slice.page + 1)}
@@ -249,14 +254,16 @@ const SortableTh = ({
 }): JSX.Element => {
   const Icon = !active ? ArrowUpDown : dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <th
+    <TableHead
       className={cn(
         `${ROW_PADDING_DEFAULT} font-medium`,
         column.align === "right" ? "text-right" : "text-left",
         column.className,
       )}
     >
-      <button
+      <WorkbenchAction
+        kind="ghost"
+        size="content"
         type="button"
         onClick={onClick}
         className={cn(
@@ -268,11 +275,11 @@ const SortableTh = ({
         {column.label}
         <Icon className="h-3 w-3 opacity-70" aria-hidden="true" />
         <span className="sr-only">{active ? `sorted ${dir}` : "sort"}</span>
-      </button>
-    </th>
+      </WorkbenchAction>
+    </TableHead>
   );
 };
 
 const Td = ({ children, className }: { children: ReactNode; className?: string }): JSX.Element => (
-  <td className={cn(ROW_PADDING_DEFAULT, className)}>{children}</td>
+  <TableCell className={cn(ROW_PADDING_DEFAULT, className)}>{children}</TableCell>
 );

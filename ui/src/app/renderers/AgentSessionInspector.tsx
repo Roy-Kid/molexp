@@ -1,3 +1,5 @@
+import { Code as InlineCode } from "@/components/ui/code";
+import { WorkbenchAction } from "@/components/workbench";
 /**
  * AgentSessionInspector — right-panel details for an agent session.
  *
@@ -177,19 +179,21 @@ export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
         ) : null}
       </div>
 
-      {!sessionId && <p className="px-3 py-2 text-xs text-muted-foreground">No task selected.</p>}
-      {error && <p className="px-3 py-2 text-xs text-destructive">{error}</p>}
+      {!sessionId && (
+        <p className="px-3 py-2 text-label text-muted-foreground">No task selected.</p>
+      )}
+      {error && <p className="px-3 py-2 text-label text-destructive">{error}</p>}
 
       {session ? (
         <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col gap-0">
           <TabsList
             variant="line"
-            className="h-9 w-full justify-start rounded-none border-b border-border/60 bg-transparent px-2"
+            className="h-control-comfortable w-full justify-start rounded-none border-b border-border/60 bg-transparent px-2"
           >
-            <TabsTrigger value="details" className="text-xs">
+            <TabsTrigger value="details" className="text-label">
               Details
             </TabsTrigger>
-            <TabsTrigger value="artifacts" className="gap-1.5 text-xs">
+            <TabsTrigger value="artifacts" className="gap-1.5 text-label">
               Artifacts
               {artifacts.length > 0 ? (
                 <WorkbenchTag className="h-4 min-w-4 px-1 text-micro tabular-nums">
@@ -219,10 +223,10 @@ const ArtifactsTab = ({ artifacts }: { artifacts: Record<string, unknown>[] }): 
     return (
       <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
         <Package className="h-5 w-5 text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-label text-muted-foreground">
           No chat artifacts yet. Plots and structures from{" "}
-          <code className="text-micro">embed_plot</code> /{" "}
-          <code className="text-micro">embed_structure</code> appear here.
+          <InlineCode className="text-micro">embed_plot</InlineCode> /{" "}
+          <InlineCode className="text-micro">embed_structure</InlineCode> appear here.
         </p>
       </div>
     );
@@ -301,14 +305,16 @@ const SystemPromptSection = ({
 
   return (
     <div className="border-b border-border/40">
-      <button
+      <WorkbenchAction
+        kind="ghost"
+        size="content"
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 px-3 pb-1 pt-2 text-left text-micro font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
       >
         <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
         System prompt
-      </button>
+      </WorkbenchAction>
       {open && (
         <div className="px-3 pb-2">
           {error && <p className="text-micro text-destructive">{error}</p>}
@@ -324,7 +330,7 @@ const SystemPromptSection = ({
                   <WorkbenchTag meaning="metadata">plan addendum</WorkbenchTag>
                 ) : null}
               </div>
-              <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border/50 bg-muted/40 p-2 font-mono text-micro leading-snug">
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-control border border-border/50 bg-muted/40 p-2 font-mono text-micro leading-snug">
                 {data.effective}
               </pre>
             </>
@@ -396,7 +402,7 @@ const Section = ({ title, rows }: { title: string; rows: DetailRow[] }): JSX.Ele
         <div key={row.label} className="flex items-baseline justify-between gap-2 px-3 py-2">
           <dt className="text-micro font-medium text-muted-foreground">{row.label}</dt>
           <dd
-            className="break-all text-right text-xs font-medium tabular-nums text-foreground"
+            className="break-all text-right text-label font-medium tabular-nums text-foreground"
             title={row.hint}
           >
             {row.value}

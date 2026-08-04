@@ -26,19 +26,22 @@ export const RunsTimelineView = ({
   <section className="flex h-full min-h-0 flex-col" aria-labelledby="runs-timeline-heading">
     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 pb-3">
       <div className="min-w-0 space-y-1">
-        <h3 id="runs-timeline-heading" className="text-sm font-medium text-foreground">
+        <h3 id="runs-timeline-heading" className="text-body-lg font-medium text-foreground">
           Run timeline
         </h3>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-label text-muted-foreground">
           Click a bar to load it in the inspector. Faded bars are queued or pending.
         </p>
       </div>
       <Tabs value={mode} onValueChange={(next) => onModeChange(next as GanttMode)}>
-        <TabsList className="h-8 p-1">
-          <TabsTrigger value="runs" className={cn("h-7 px-3 text-xs font-medium")}>
+        <TabsList className="h-control p-1">
+          <TabsTrigger value="runs" className={cn("h-control-compact px-3 text-label font-medium")}>
             By runs
           </TabsTrigger>
-          <TabsTrigger value="executions" className={cn("h-7 px-3 text-xs font-medium")}>
+          <TabsTrigger
+            value="executions"
+            className={cn("h-control-compact px-3 text-label font-medium")}
+          >
             By executions
           </TabsTrigger>
         </TabsList>

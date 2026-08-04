@@ -1,18 +1,14 @@
 /**
- * Minimal toast host — no third-party dependency.
- * Call `toast("Copied")` or `toast.error("…")` from anywhere.
+ * Status-bar façade — same call sites as a toast API, but every message
+ * lands in the bottom workbench status strip (MolVis-aligned).
+ *
+ * Call `toast("Copied")` or `toast.error("…")` from anywhere. There is no
+ * floating card host; {@link ToastProvider} is a passthrough for legacy mounts.
  */
 
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import { cn } from "@/lib/utils";
+import { createContext, type ReactNode, useContext, useMemo } from "react";
+
+import { reportStatus, type StatusReportType } from "@/lib/status-report";
 
 export type ToastKind = "default" | "success" | "error";
 
@@ -24,12 +20,8 @@ export interface ToastAction {
 export interface ToastOptions {
   kind?: ToastKind;
   durationMs?: number;
+  /** Ignored — status bar is one-line; keep for call-site compatibility. */
   action?: ToastAction;
-}
-
-interface ToastItem extends ToastOptions {
-  id: number;
-  message: string;
 }
 
 type ToastFn = ((message: string, options?: ToastOptions) => void) & {
@@ -37,19 +29,29 @@ type ToastFn = ((message: string, options?: ToastOptions) => void) & {
   error: (message: string, options?: Omit<ToastOptions, "kind">) => void;
 };
 
-let pushExternal: ((message: string, options?: ToastOptions) => void) | null = null;
+function kindToType(kind: ToastKind | undefined): StatusReportType {
+  if (kind === "error") return "error";
+  if (kind === "success") return "success";
+  return "info";
+}
 
-/** Imperative API (usable outside React trees). */
+function push(message: string, options?: ToastOptions): void {
+  const text = message.trim();
+  if (!text) return;
+  reportStatus(text, kindToType(options?.kind));
+}
+
+/** Imperative API (usable outside React trees). Routes to the status bus. */
 export const toast: ToastFn = Object.assign(
   (message: string, options?: ToastOptions) => {
-    pushExternal?.(message, options);
+    push(message, options);
   },
   {
     success: (message: string, options?: Omit<ToastOptions, "kind">) => {
-      pushExternal?.(message, { ...options, kind: "success" });
+      push(message, { ...options, kind: "success" });
     },
     error: (message: string, options?: Omit<ToastOptions, "kind">) => {
-      pushExternal?.(message, { ...options, kind: "error" });
+      push(message, { ...options, kind: "error" });
     },
   },
 );
@@ -60,91 +62,11 @@ export function useToast(): ToastFn {
   return useContext(ToastContext) ?? toast;
 }
 
-const KIND_CLASS: Record<ToastKind, string> = {
-  default: "border-border bg-card text-foreground",
-  success: "border-success/30 bg-success-soft text-success-foreground",
-  error: "border-destructive/30 bg-destructive/10 text-destructive",
-};
-
-const DEFAULT_MS = 2800;
-
+/**
+ * Passthrough provider — no floating toast host.
+ * Kept so root mounts and tests that wrap with ToastProvider still compile.
+ */
 export function ToastProvider({ children }: { children: ReactNode }): JSX.Element {
-  const [items, setItems] = useState<ToastItem[]>([]);
-
-  const dismiss = useCallback((id: number) => {
-    setItems((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
-  const push = useCallback(
-    (message: string, options?: ToastOptions) => {
-      const id = Date.now() + Math.floor(Math.random() * 1000);
-      const item: ToastItem = {
-        id,
-        message,
-        kind: options?.kind ?? "default",
-        durationMs: options?.durationMs ?? DEFAULT_MS,
-        action: options?.action,
-      };
-      setItems((prev) => [...prev.slice(-3), item]);
-      window.setTimeout(() => dismiss(id), item.durationMs ?? DEFAULT_MS);
-    },
-    [dismiss],
-  );
-
-  useEffect(() => {
-    pushExternal = push;
-    return () => {
-      if (pushExternal === push) pushExternal = null;
-    };
-  }, [push]);
-
-  const api = useMemo<ToastFn>(() => {
-    const fn = ((message: string, options?: ToastOptions) => push(message, options)) as ToastFn;
-    fn.success = (message, options) => push(message, { ...options, kind: "success" });
-    fn.error = (message, options) => push(message, { ...options, kind: "error" });
-    return fn;
-  }, [push]);
-
-  return (
-    <ToastContext.Provider value={api}>
-      {children}
-      <div
-        className="pointer-events-none fixed bottom-4 right-4 z-[100] flex w-[min(100vw-2rem,20rem)] flex-col gap-2"
-        aria-live="polite"
-      >
-        {items.map((item) => (
-          <div
-            key={item.id}
-            className={cn(
-              "pointer-events-auto flex items-center gap-2 rounded-[var(--radius-overlay)] border px-3 py-2 text-sm shadow-overlay",
-              KIND_CLASS[item.kind ?? "default"],
-            )}
-            role="status"
-          >
-            <span className="min-w-0 flex-1 truncate">{item.message}</span>
-            {item.action && (
-              <button
-                type="button"
-                className="flex-none text-xs font-medium underline-offset-2 hover:underline"
-                onClick={() => {
-                  item.action?.onClick();
-                  dismiss(item.id);
-                }}
-              >
-                {item.action.label}
-              </button>
-            )}
-            <button
-              type="button"
-              className="flex-none text-xs text-muted-foreground hover:text-foreground"
-              aria-label="Dismiss"
-              onClick={() => dismiss(item.id)}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-    </ToastContext.Provider>
-  );
+  const api = useMemo<ToastFn>(() => toast, []);
+  return <ToastContext.Provider value={api}>{children}</ToastContext.Provider>;
 }

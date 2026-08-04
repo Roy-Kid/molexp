@@ -6,11 +6,18 @@
  * — no trip to the Settings page.
  */
 
-import { ChevronDown, Cpu, Loader2 } from "lucide-react";
+import { Cpu, Loader2 } from "lucide-react";
 import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
 
 import { type ApiAgentProvider, type ApiTierModels, agentAdminApi } from "@/app/state/api";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { WorkbenchOperationState, WorkbenchRetryAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 
 const TIER_KEYS = ["default", "cheap", "heavy"] as const;
@@ -159,14 +166,7 @@ export const ModelPicker = ({
         detail={providerError}
         className={className}
         action={
-          <WorkbenchAction
-            kind="ghost"
-            size="compact"
-            className="h-6 px-2 text-micro"
-            onClick={() => void hydrate()}
-          >
-            Retry
-          </WorkbenchAction>
+          <WorkbenchRetryAction className="h-6 px-2 text-micro" onClick={() => void hydrate()} />
         }
       />
     );
@@ -186,10 +186,9 @@ export const ModelPicker = ({
 
   return (
     <span className="inline-flex flex-col items-start gap-1">
-      <label
+      <div
         className={cn(
-          "inline-flex max-w-[14rem] items-center gap-1 rounded-md px-2 py-1 font-mono text-micro",
-          "text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+          "inline-flex max-w-56 items-center gap-1 font-mono text-micro text-muted-foreground",
           (disabled || saving) && "opacity-60",
           className,
         )}
@@ -198,36 +197,37 @@ export const ModelPicker = ({
       >
         <Cpu className="h-3 w-3 flex-none opacity-60" aria-hidden />
         <span className="relative inline-flex min-w-0 items-center">
-          <select
-            className={cn(
-              "max-w-[11rem] cursor-pointer appearance-none truncate bg-transparent pr-4",
-              "border-0 py-0 text-micro font-mono text-inherit outline-none",
-              "focus-visible:ring-1 focus-visible:ring-ring rounded-sm",
-            )}
+          <Select
             value={active}
             disabled={disabled || saving}
-            aria-label="Select agent model"
-            aria-description={disabled ? disabledReason : undefined}
-            onChange={(e) => {
-              void handleChange(e.target.value);
+            onValueChange={(value) => {
+              void handleChange(value);
             }}
           >
-            {sortedOptions.map((id) => (
-              <option key={id} value={id} title={id}>
-                {modelDisplayName(id)}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              size="sm"
+              className="max-w-44 border-0 bg-transparent px-1 font-mono text-micro shadow-none"
+              aria-label="Select agent model"
+              aria-description={disabled ? disabledReason : undefined}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {sortedOptions.map((id) => (
+                <SelectItem key={id} value={id} title={id} className="font-mono text-micro">
+                  {modelDisplayName(id)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {saving ? (
             <Loader2
               className="mol-motion-progress-spin pointer-events-none absolute right-0 h-3 w-3 text-status-running"
               aria-hidden
             />
-          ) : (
-            <ChevronDown className="pointer-events-none absolute right-0 h-3 w-3 opacity-50" />
-          )}
+          ) : null}
         </span>
-      </label>
+      </div>
       {saving && (
         <WorkbenchOperationState
           kind="running"
@@ -244,14 +244,10 @@ export const ModelPicker = ({
           detail={saveError}
           action={
             lastRequested ? (
-              <WorkbenchAction
-                kind="ghost"
-                size="compact"
+              <WorkbenchRetryAction
                 className="h-6 px-2 text-micro"
                 onClick={() => void handleChange(lastRequested)}
-              >
-                Retry
-              </WorkbenchAction>
+              />
             ) : undefined
           }
         />

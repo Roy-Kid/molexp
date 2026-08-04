@@ -24,7 +24,14 @@ import { canonicalStatusFor } from "@/app/components/entity/status";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAssetResponse, AssetKind, RendererProps } from "@/app/types";
-import { WorkbenchAction, WorkbenchOperationState, WorkbenchTag } from "@/components/workbench";
+import { Code as InlineCode } from "@/components/ui/code";
+import {
+  WorkbenchAction,
+  WorkbenchIconAction,
+  WorkbenchOperationState,
+  WorkbenchRetryAction,
+  WorkbenchTag,
+} from "@/components/workbench";
 import { formatDateTime } from "@/lib/datetime";
 import { formatBytes } from "@/lib/format-bytes";
 
@@ -137,13 +144,7 @@ const BinaryPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
         title="Could not load asset content"
         detail={error}
         action={
-          <WorkbenchAction
-            kind="secondary"
-            size="compact"
-            onClick={() => setRequestVersion((version) => version + 1)}
-          >
-            Retry
-          </WorkbenchAction>
+          <WorkbenchRetryAction onClick={() => setRequestVersion((version) => version + 1)} />
         }
       />
     );
@@ -158,7 +159,7 @@ const BinaryPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
           <img
             src={imageUrl}
             alt={asset.name}
-            className="max-h-full max-w-full rounded-md border border-border/60"
+            className="max-h-full max-w-full rounded-control border border-border/60"
           />
         ) : (
           <WorkbenchOperationState
@@ -195,7 +196,7 @@ const BinaryPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
     }
     return (
       <div className="h-full overflow-auto">
-        <pre className="whitespace-pre-wrap break-words px-6 py-4 font-mono text-xs text-foreground">
+        <pre className="whitespace-pre-wrap break-words px-6 py-4 font-mono text-label text-foreground">
           {displayed}
         </pre>
       </div>
@@ -209,12 +210,11 @@ const BinaryPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
         title="Binary preview unavailable"
         detail={`${formatBytes(size)} · ${mime ?? "unknown"}`}
         action={
-          <a href={downloadUrl} download={asset.name}>
-            <WorkbenchAction kind="secondary" size="compact">
-              <Download className="mr-2 h-4 w-4" />
-              Download
-            </WorkbenchAction>
-          </a>
+          <WorkbenchIconAction label={`Download ${asset.name}`} asChild>
+            <a href={downloadUrl} download={asset.name}>
+              <Download className="h-4 w-4" />
+            </a>
+          </WorkbenchIconAction>
         }
       />
     </div>
@@ -261,13 +261,7 @@ const LogTail = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
         title="Could not load log"
         detail={error}
         action={
-          <WorkbenchAction
-            kind="secondary"
-            size="compact"
-            onClick={() => setRequestVersion((version) => version + 1)}
-          >
-            Retry
-          </WorkbenchAction>
+          <WorkbenchRetryAction onClick={() => setRequestVersion((version) => version + 1)} />
         }
       />
     );
@@ -288,7 +282,7 @@ const LogTail = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
   }
 
   return (
-    <div className="h-full overflow-auto bg-canvas px-4 py-3 font-mono text-xs text-foreground">
+    <div className="h-full overflow-auto bg-canvas px-4 py-3 font-mono text-label text-foreground">
       <pre className="whitespace-pre-wrap break-words">{lines}</pre>
     </div>
   );
@@ -334,13 +328,7 @@ const JsonPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
         title="Could not load structured content"
         detail={error}
         action={
-          <WorkbenchAction
-            kind="secondary"
-            size="compact"
-            onClick={() => setRequestVersion((version) => version + 1)}
-          >
-            Retry
-          </WorkbenchAction>
+          <WorkbenchRetryAction onClick={() => setRequestVersion((version) => version + 1)} />
         }
       />
     );
@@ -362,7 +350,7 @@ const JsonPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
 
   return (
     <div className="h-full overflow-auto">
-      <pre className="whitespace-pre-wrap break-words px-6 py-4 font-mono text-xs text-foreground">
+      <pre className="whitespace-pre-wrap break-words px-6 py-4 font-mono text-label text-foreground">
         {text}
       </pre>
     </div>
@@ -377,12 +365,12 @@ const ErrorTraceView = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-status-failed/20 bg-status-failed-soft px-6 py-4">
-        <div className="text-xs font-semibold uppercase text-status-failed-foreground">
+        <div className="text-label font-semibold uppercase text-status-failed-foreground">
           {exceptionType ?? "Unknown exception"}
         </div>
-        <div className="mt-1 text-sm text-foreground">{message ?? "(no message)"}</div>
+        <div className="mt-1 text-body-lg text-foreground">{message ?? "(no message)"}</div>
         {executionId && (
-          <div className="mt-1 font-mono text-xs text-muted-foreground">
+          <div className="mt-1 font-mono text-label text-muted-foreground">
             execution_id = {executionId}
           </div>
         )}
@@ -421,7 +409,7 @@ const LineageColumn = ({
 }): JSX.Element => {
   if (nodes.length === 0) {
     return (
-      <div className="space-y-2 text-xs text-muted-foreground">
+      <div className="space-y-2 text-label text-muted-foreground">
         <div className="mb-1 font-semibold text-foreground">{title}</div>
         <div className="border-y border-border/60 py-2">—</div>
       </div>
@@ -429,7 +417,7 @@ const LineageColumn = ({
   }
   return (
     <div className="space-y-2">
-      <div className="mb-2 text-xs font-semibold text-foreground">
+      <div className="mb-2 text-label font-semibold text-foreground">
         {title} <span className="text-muted-foreground">({nodes.length})</span>
       </div>
       <ul className="divide-y divide-border/60 border-y border-border/60">
@@ -438,17 +426,19 @@ const LineageColumn = ({
           const Icon = meta.icon;
           return (
             <li key={node.id}>
-              <button
+              <WorkbenchAction
+                kind="ghost"
+                size="content"
                 type="button"
                 onClick={() => onSelect(node.id)}
-                className="flex w-full items-center gap-2 px-2 py-2 text-left text-xs hover:bg-interactive"
+                className="flex w-full items-center gap-2 px-2 py-2 text-left text-label hover:bg-interactive"
               >
                 <Icon className={`h-3.5 w-3.5 shrink-0 ${meta.iconClassName}`} />
                 <span className="flex-1 truncate font-mono">{node.name}</span>
                 <WorkbenchTag meaning="metadata" className="text-micro">
                   {meta.label}
                 </WorkbenchTag>
-              </button>
+              </WorkbenchAction>
             </li>
           );
         })}
@@ -559,16 +549,12 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
         title="Could not load asset"
         detail={assetError}
         action={
-          <WorkbenchAction
-            kind="secondary"
-            size="compact"
+          <WorkbenchRetryAction
             onClick={() => {
               setAssetLoading(true);
               setAssetRequestVersion((version) => version + 1);
             }}
-          >
-            Retry
-          </WorkbenchAction>
+          />
         }
       />
     );
@@ -608,12 +594,11 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
       status={assetSummary?.status}
       subtitle={`${meta.label} · ${scopeLabel}`}
       actions={
-        <a href={downloadUrl} download={asset.name}>
-          <WorkbenchAction kind="secondary" size="compact">
-            <Download className="mr-2 h-4 w-4" />
-            Download
-          </WorkbenchAction>
-        </a>
+        <WorkbenchIconAction label={`Download ${asset.name}`} asChild>
+          <a href={downloadUrl} download={asset.name}>
+            <Download className="h-4 w-4" />
+          </a>
+        </WorkbenchIconAction>
       }
       metrics={
         <>
@@ -653,7 +638,7 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                           <WorkbenchAction
                             kind="secondary"
                             size="compact"
-                            className="h-7 px-2 text-xs"
+                            className="h-control-compact px-2 text-label"
                             onClick={() => {
                               if (assetSummary.projectId) {
                                 setSelection({
@@ -670,7 +655,7 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                           <WorkbenchAction
                             kind="secondary"
                             size="compact"
-                            className="h-7 px-2 text-xs"
+                            className="h-control-compact px-2 text-label"
                             onClick={() =>
                               setSelection({ objectType: "run", objectId: producerRun.id })
                             }
@@ -697,7 +682,7 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                     <OverviewSection title="Tags">
                       <div className="flex flex-wrap gap-2">
                         {tagEntries.map(([key, value]) => (
-                          <WorkbenchTag key={key} className="text-xs">
+                          <WorkbenchTag key={key} className="text-label">
                             {key}: {value}
                           </WorkbenchTag>
                         ))}
@@ -712,17 +697,17 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                   items={[
                     {
                       label: "Asset ID",
-                      value: <span className="font-mono text-xs">{asset.id}</span>,
+                      value: <span className="font-mono text-label">{asset.id}</span>,
                     },
                     { label: "Name", value: asset.name },
                     { label: "Kind", value: meta.label },
                     {
                       label: "Scope",
-                      value: <span className="font-mono text-xs">{scopeLabel}</span>,
+                      value: <span className="font-mono text-label">{scopeLabel}</span>,
                     },
                     {
                       label: "Path",
-                      value: <span className="break-all font-mono text-xs">{asset.path}</span>,
+                      value: <span className="break-all font-mono text-label">{asset.path}</span>,
                     },
                     {
                       label: "Created",
@@ -746,15 +731,19 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                     items={[
                       {
                         label: "Run",
-                        value: <span className="font-mono text-xs">{producerRunId ?? "—"}</span>,
+                        value: <span className="font-mono text-label">{producerRunId ?? "—"}</span>,
                       },
                       {
                         label: "Execution",
-                        value: <span className="font-mono text-xs">{producerExecId ?? "—"}</span>,
+                        value: (
+                          <span className="font-mono text-label">{producerExecId ?? "—"}</span>
+                        ),
                       },
                       {
                         label: "Task",
-                        value: <span className="font-mono text-xs">{producerTaskId ?? "—"}</span>,
+                        value: (
+                          <span className="font-mono text-label">{producerTaskId ?? "—"}</span>
+                        ),
                       },
                     ]}
                   />
@@ -763,9 +752,9 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
 
               {asset.content_hash && (
                 <OverviewSection title="Content hash">
-                  <code className="block break-all border-y border-border/60 py-2 font-mono text-xs">
+                  <InlineCode className="block break-all border-y border-border/60 py-2 font-mono text-label">
                     {asset.content_hash}
-                  </code>
+                  </InlineCode>
                 </OverviewSection>
               )}
 
@@ -784,13 +773,9 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                     title="Could not load lineage"
                     detail={lineageError}
                     action={
-                      <WorkbenchAction
-                        kind="secondary"
-                        size="compact"
+                      <WorkbenchRetryAction
                         onClick={() => setLineageRequestVersion((version) => version + 1)}
-                      >
-                        Retry
-                      </WorkbenchAction>
+                      />
                     }
                   />
                 ) : lineage && (lineage.ancestors?.length || lineage.descendants?.length) ? (
@@ -818,7 +803,7 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
 
               {asset.extra && Object.keys(asset.extra).length > 0 && (
                 <OverviewSection title="Kind-specific details">
-                  <pre className="overflow-auto border-y border-border/70 bg-muted/20 p-3 font-mono text-xs">
+                  <pre className="overflow-auto border-y border-border/70 bg-muted/20 p-3 font-mono text-label">
                     {JSON.stringify(asset.extra, null, 2)}
                   </pre>
                 </OverviewSection>

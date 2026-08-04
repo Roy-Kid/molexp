@@ -1,3 +1,4 @@
+import { WorkbenchAction } from "@/components/workbench";
 // ─────────────────────────────────────────────────────────────────────────────
 // RelatedPanel — renders the relation groups for the current entity as grouped,
 // clickable rows. Dropped into the right inspector, it gives every entity a
@@ -31,22 +32,24 @@ const RelatedRow = ({
   const path = entityPath(refItem, snapshot);
 
   return (
-    <button
+    <WorkbenchAction
+      kind="ghost"
+      size="content"
       type="button"
       disabled={!path}
       onClick={() => {
         if (path) navigate(path);
       }}
-      className="group flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left transition-colors hover:bg-muted/60 disabled:opacity-40"
+      className="group flex w-full items-center gap-2 rounded-control px-2 py-2 text-left transition-colors hover:bg-muted/60 disabled:opacity-40"
     >
       <Icon className={`h-3.5 w-3.5 flex-none ${meta.iconClassName}`} />
-      <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+      <span className="min-w-0 flex-1 truncate text-label text-foreground">
         {refItem.label ?? refItem.id}
       </span>
       {refItem.status && (
         <StatusBadge status={refItem.status as SemanticStatus} size="sm" dot showLabel={false} />
       )}
-    </button>
+    </WorkbenchAction>
   );
 };
 

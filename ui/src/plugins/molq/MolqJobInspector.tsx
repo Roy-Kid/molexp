@@ -14,7 +14,7 @@ interface MolqJobInspectorProps {
 const Field = ({ label, children }: { label: string; children: React.ReactNode }): JSX.Element => (
   <div className="flex justify-between gap-3 py-1">
     <span className="text-micro uppercase tracking-wide text-muted-foreground">{label}</span>
-    <span className="min-w-0 truncate text-right font-mono text-xs text-foreground">
+    <span className="min-w-0 truncate text-right font-mono text-label text-foreground">
       {children}
     </span>
   </div>
@@ -45,7 +45,7 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
 
   if (!job) {
     return (
-      <div className="flex h-full flex-col items-center justify-center border-l border-border/70 bg-muted/10 p-6 text-center text-xs text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center border-l border-border/70 bg-muted/10 p-6 text-center text-label text-muted-foreground">
         Select a job to inspect.
       </div>
     );
@@ -55,7 +55,7 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
     <div className="flex h-full min-w-0 flex-col border-l border-border/70 bg-background">
       <header className="border-b border-border/60 p-3">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="truncate text-sm font-semibold text-foreground">
+          <h3 className="truncate text-body-lg font-semibold text-foreground">
             {job.name ?? job.jobId.slice(0, 12)}
           </h3>
           <StatusBadge status={job.state} size="sm" />
@@ -82,7 +82,7 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
           </div>
         </section>
 
-        {error && <div className="text-xs text-destructive">{error}</div>}
+        {error && <div className="text-label text-destructive">{error}</div>}
 
         {detail && (
           <>
@@ -91,7 +91,7 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
                 <h4 className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
                   Command
                 </h4>
-                <pre className="break-all rounded border border-border/50 bg-muted/30 p-2 font-mono text-micro text-foreground">
+                <pre className="break-all rounded-control border border-border/50 bg-muted/30 p-2 font-mono text-micro text-foreground">
                   {detail.commandDisplay}
                 </pre>
               </section>
@@ -102,7 +102,7 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
                 <h4 className="text-micro font-semibold uppercase tracking-wide text-destructive">
                   Failure reason
                 </h4>
-                <p className="rounded border border-destructive/40 bg-destructive/10 p-2 text-micro text-destructive">
+                <p className="rounded-control border border-destructive/40 bg-destructive/10 p-2 text-micro text-destructive">
                   {detail.failureReason}
                 </p>
               </section>

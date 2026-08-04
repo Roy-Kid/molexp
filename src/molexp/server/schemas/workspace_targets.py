@@ -39,7 +39,9 @@ class WorkspaceTargetCreateRequest(BaseModel):
     cache_ttl_seconds: int = Field(
         default=300,
         ge=0,
-        description="Freshness window for cached file entries; 0 disables the fast path",
+        description=(
+            "Mirror pin policy: >0 pin until user refresh; 0 = re-stat remote on every read"
+        ),
     )
 
 

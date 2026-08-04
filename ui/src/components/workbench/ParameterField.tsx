@@ -5,6 +5,7 @@
 
 import { type JSX, useId } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -52,10 +53,7 @@ export const ParameterField = ({
 
   return (
     <div
-      className={cn(
-        "grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)] items-start gap-x-3 gap-y-1",
-        className,
-      )}
+      className={cn("grid grid-cols-(--form-grid-columns) items-start gap-x-3 gap-y-1", className)}
     >
       <Label htmlFor={id} className="pt-2 text-label font-normal text-muted-foreground">
         {label}
@@ -89,16 +87,14 @@ export const ParameterField = ({
           </Select>
         ) : field.type === "boolean" ? (
           <div className="flex h-control items-center gap-2 text-body">
-            <input
+            <Checkbox
               id={id}
-              type="checkbox"
-              className="size-4 rounded-[var(--radius-control)] border border-border accent-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               checked={Boolean(value)}
               disabled={disabled}
               required={field.required}
               aria-invalid={Boolean(error)}
               aria-describedby={hasDetail ? detailId : undefined}
-              onChange={(event) => onChange(event.target.checked)}
+              onCheckedChange={(checked) => onChange(Boolean(checked))}
             />
             <span className="font-mono text-label text-muted-foreground">
               {value ? "true" : "false"}

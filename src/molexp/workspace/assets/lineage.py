@@ -21,7 +21,22 @@ from typing import TYPE_CHECKING
 from . import scan
 
 if TYPE_CHECKING:
+    from ..fs import FileSystem
     from ..workspace import Workspace
+
+
+def _workspace_fs(workspace: Workspace) -> FileSystem | None:
+    """Return the workspace FileSystem when it is not the local default.
+
+    Local workspaces keep the historical Path-based scan; remote workspaces
+    pass their RemoteFileSystem so asset walks go over the transport.
+    """
+    from ..fs_local import LocalFileSystem
+
+    fs = getattr(workspace, "_fs", None)
+    if fs is None or isinstance(fs, LocalFileSystem):
+        return None
+    return fs
 
 
 def ancestors(workspace: Workspace, asset_id: str) -> set[str]:
@@ -40,11 +55,12 @@ def ancestors(workspace: Workspace, asset_id: str) -> set[str]:
         Set of upstream ``asset_id``s. Empty when the leaf has no
         producer or no inputs.
     """
+    fs = _workspace_fs(workspace)
     visited: set[str] = set()
     frontier: list[str] = [asset_id]
     while frontier:
         cur = frontier.pop()
-        asset = scan.get_asset(workspace.root, cur)
+        asset = scan.get_asset(workspace.root, cur, fs=fs)
         if asset is None or asset.producer is None:
             continue
         for upstream in asset.producer.inputs:
@@ -70,8 +86,9 @@ def descendants(workspace: Workspace, asset_id: str) -> set[str]:
         Set of downstream ``asset_id``s. Empty when no asset records
         *asset_id* in its inputs.
     """
+    fs = _workspace_fs(workspace)
     children_of: dict[str, list[str]] = {}
-    for asset in scan.scan_assets(workspace.root):
+    for asset in scan.scan_assets(workspace.root, fs=fs):
         if asset.producer is None:
             continue
         for inp in asset.producer.inputs:

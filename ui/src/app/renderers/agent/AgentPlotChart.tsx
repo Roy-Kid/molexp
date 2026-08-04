@@ -49,8 +49,8 @@ export const AgentPlotChart = ({
   useTrapWheel(hostRef);
 
   return (
-    <div className="space-y-2 rounded-md border border-border/60 bg-card p-3">
-      {title ? <p className="text-xs font-medium text-foreground">{title}</p> : null}
+    <div className="space-y-2 rounded-control border border-border/60 bg-card p-3">
+      {title ? <p className="text-label font-medium text-foreground">{title}</p> : null}
       <div
         ref={hostRef}
         className="relative w-full touch-none select-none"

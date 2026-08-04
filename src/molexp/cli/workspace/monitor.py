@@ -8,8 +8,7 @@ import typer
 
 from molexp.cli._app import app
 from molexp.cli._common import rprint
-from molexp.cli._target import TargetOption, resolve_workspace_target
-from molexp.workspace.target import RemoteTarget
+from molexp.cli._target import TargetOption, open_workspace
 
 
 @app.command()
@@ -31,22 +30,16 @@ def monitor(
     """Open the run dashboard for every run in the workspace.
 
     Press ``q`` to close; jobs keep running in the background.
+
+    Local and remote workspaces are supported — status is polled through
+    each Run's FileSystem (not a local path open).
     """
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-
-    if isinstance(target, RemoteTarget):
-        rprint("[yellow]Remote job monitoring via workspace is not yet supported.[/yellow]")
-        rprint("Use [bold]molq monitor[/bold] directly for remote job dashboards.")
-        raise typer.Exit(1)
-
     try:
-        from molexp.workspace import Workspace as _Workspace
-
-        ws = _Workspace.load(target.path)
-    except FileNotFoundError:
-        rprint(f"[red]Error:[/red] No workspace found at {target.path}")
+        _target, _transport, _fs, ws = open_workspace(target_spec)
+    except FileNotFoundError as exc:
+        rprint(f"[red]Error:[/red] {exc}")
         rprint("  Run [bold]molexp init[/bold] to create one.")
-        raise typer.Exit(1)  # noqa: B904
+        raise typer.Exit(1) from exc
 
     runs: list[Any] = []
     for proj in ws.list_projects():

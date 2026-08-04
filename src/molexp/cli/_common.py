@@ -6,6 +6,7 @@ Everything in this module is internal — command modules import from it.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich import print as rprint
 from rich.console import Console
@@ -13,6 +14,9 @@ from rich.console import Console
 from molexp._typing import JSONValue
 from molexp.plugins.submit_molq.metadata import normalize_executor_info
 from molexp.workspace import Workspace
+
+if TYPE_CHECKING:
+    from molexp.workspace.fs import FileSystem
 
 # Zombie-run reaping moved into the workspace layer (run-recovery bug 5) so
 # the CLI and the server verbs consult ONE policy; these re-exports keep the
@@ -41,8 +45,18 @@ def status_color(status: str) -> str:
     return _STATUS_COLORS.get(str(status).lower(), "white")
 
 
-def get_workspace(path: Path | None = None) -> Workspace:
-    """Load the workspace at *path* (default: current directory)."""
+def get_workspace(
+    path: Path | str | None = None,
+    *,
+    fs: FileSystem | None = None,
+) -> Workspace:
+    """Load the workspace at *path* (default: current directory).
+
+    Pass *fs* for remote roots (``RemoteFileSystem``).  Without *fs*, the
+    local filesystem is used — the historical local-only behaviour.
+    """
+    if fs is not None:
+        return Workspace(path if path is not None else ".", fs=fs)
     return Workspace(path or Path.cwd())
 
 

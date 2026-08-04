@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import { WorkbenchIconAction, WorkbenchOperationState } from "@/components/workbench";
 import { filePreviewPluginRegistry } from "@/lib/file-preview-plugins";
 
 /**
@@ -97,15 +97,13 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
         <p className="min-w-0 truncate font-mono text-label text-muted-foreground tabular-nums">
           {selection.objectId}
         </p>
-        <WorkbenchAction
-          kind="secondary"
-          size="compact"
-          icon={<Save className="h-3.5 w-3.5" />}
+        <WorkbenchIconAction
+          label={status === "saving" ? "Saving file" : "Save file"}
           onClick={handleSave}
           disabled={status === "loading" || status === "saving"}
         >
-          {status === "saving" ? "Saving…" : "Save"}
-        </WorkbenchAction>
+          <Save className="h-3.5 w-3.5" />
+        </WorkbenchIconAction>
       </header>
       <div className="min-h-0 flex-1">
         {status === "loading" && !value ? (
@@ -120,7 +118,7 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
           <Tabs defaultValue="edit" className="flex h-full flex-col gap-0">
             {previewPlugin ? (
               <div className="flex-none border-b border-border px-3 py-2">
-                <TabsList className="h-7 w-fit rounded-[var(--radius-control)] bg-muted p-1">
+                <TabsList className="h-control-compact w-fit rounded-control bg-muted p-1">
                   <TabsTrigger value="edit" className="h-6 text-label">
                     Edit
                   </TabsTrigger>

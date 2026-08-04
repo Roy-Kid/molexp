@@ -66,10 +66,21 @@ def agent_home_dir(workspace_root: str | Path) -> Path:
     return Path(workspace_root) / AGENT_HOME_NAME
 
 
-def agent_tasks_dir(workspace_root: str | Path) -> Path:
-    """Task-metadata root: ``agent/_tasks/`` (created on use)."""
+def agent_tasks_dir(workspace_root: str | Path, *, create: bool = False) -> Path:
+    """Task-metadata root: ``agent/_tasks/``.
+
+    *create* is **off by default**. Listing must not mkdir — remote workspace
+    roots (``Arrhenius:/home/...``) resolve to absolute POSIX paths that are
+    not on the local disk; ``Path.mkdir`` would try to create ``/home/...`` on
+    the laptop and fail with ``OSError: Operation not supported``.
+
+    Pass ``create=True`` only on write paths that already know the root is a
+    local filesystem. Remote agent-task I/O should go through ``workspace._fs``
+    (not yet wired here) — until then writes on remote roots raise ``OSError``.
+    """
     path = agent_home_dir(workspace_root) / TASKS_SUBDIR
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -91,11 +102,18 @@ def _validate_task_id(task_id: str) -> str:
     return task_id
 
 
-def _task_dir(workspace_root: str | Path, task_id: str) -> Path:
+def _task_dir(workspace_root: str | Path, task_id: str, *, create: bool = False) -> Path:
     safe_id = _validate_task_id(task_id)
-    path = (agent_tasks_dir(workspace_root) / safe_id).resolve()
-    root = agent_tasks_dir(workspace_root).resolve()
-    if path != root and root not in path.parents:
+    root = agent_tasks_dir(workspace_root, create=create)
+    path = root / safe_id
+    # resolve only when the path is local and parents exist; remote absolute
+    # roots must not force resolve (would follow a non-existent /home/...).
+    try:
+        path_r = path.resolve()
+        root_r = root.resolve()
+    except OSError:
+        path_r, root_r = path, root
+    if path_r != root_r and root_r not in path_r.parents:
         raise ValueError(f"agent task path escapes tasks root: {task_id!r}")
     return path
 
@@ -105,7 +123,7 @@ def _read_meta_file(meta_path: Path, task_id: str) -> PersistedAgentTask | None:
         return None
     try:
         raw = json.loads(meta_path.read_text())
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(raw, dict):
         return None
@@ -144,9 +162,17 @@ def _read_meta_file(meta_path: Path, task_id: str) -> PersistedAgentTask | None:
 
 
 def list_agent_task_metadata(workspace_root: str | Path) -> list[PersistedAgentTask]:
-    root = agent_tasks_dir(workspace_root)
+    """List on-disk agent tasks. Missing / non-local roots → empty list (no mkdir)."""
+    root = agent_tasks_dir(workspace_root, create=False)
+    try:
+        if not root.is_dir():
+            return []
+        entries = list(root.iterdir())
+    except OSError:
+        # Remote path or unreadable root — treat as no tasks, never 500.
+        return []
     rows: list[PersistedAgentTask] = []
-    for entry in root.iterdir():
+    for entry in entries:
         if not entry.is_dir():
             continue
         task = _read_meta_file(entry / METADATA_FILE, entry.name)
@@ -170,7 +196,7 @@ def write_agent_task_metadata(
     workspace_root: str | Path,
     task: PersistedAgentTask,
 ) -> None:
-    target_dir = _task_dir(workspace_root, task.task_id)
+    target_dir = _task_dir(workspace_root, task.task_id, create=True)
     target_dir.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
         "task_id": task.task_id,
@@ -206,7 +232,7 @@ def write_agent_task_events(
     Used to record a synthesized transcript (e.g. a PlanMode run) so the session
     view shows the whole flow even though no live runtime session exists.
     """
-    target_dir = _task_dir(workspace_root, task_id)
+    target_dir = _task_dir(workspace_root, task_id, create=True)
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / EVENTS_FILE
     tmp = path.with_suffix(".tmp")
@@ -227,7 +253,7 @@ def read_agent_task_events(
         return []
     try:
         data = json.loads(path.read_text())
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return []
     return data if isinstance(data, list) else []
 

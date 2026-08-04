@@ -56,7 +56,7 @@ export const RunsRecentEvents = ({ run, max = 8 }: RunsRecentEventsProps): JSX.E
 
   if (events.length === 0) {
     return (
-      <p className="text-xs italic text-muted-foreground">
+      <p className="text-label italic text-muted-foreground">
         No timeline events yet — backend has not surfaced submitted/started/finished timestamps for
         this run.
       </p>
@@ -70,7 +70,7 @@ export const RunsRecentEvents = ({ run, max = 8 }: RunsRecentEventsProps): JSX.E
         return (
           <li
             key={`${event.kind}-${event.executionId ?? "run"}-${event.at}`}
-            className="flex items-start gap-2 text-xs"
+            className="flex items-start gap-2 text-label"
           >
             <span
               aria-hidden="true"

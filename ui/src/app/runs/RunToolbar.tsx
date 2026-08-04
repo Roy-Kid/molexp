@@ -9,7 +9,17 @@
  * Shared by RunViewer and MolqRunViewer so molq runs get the same verbs.
  */
 
-import { Ban, Bot, Copy, Download, MoreHorizontal, Play, RefreshCw } from "lucide-react";
+import {
+  Ban,
+  BookMarked,
+  Bot,
+  Copy,
+  Download,
+  MoreHorizontal,
+  Play,
+  RefreshCw,
+  RotateCcw,
+} from "lucide-react";
 import { type JSX, useCallback, useEffect, useState } from "react";
 import type { TargetResponse } from "@/api/generated/models/TargetResponse";
 import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
@@ -209,12 +219,11 @@ export function RunToolbar({
             }}
           >
             <DialogTrigger asChild>
-              <WorkbenchAction kind="primary" size="compact" className="h-7 gap-1">
+              <WorkbenchIconAction label="Start run">
                 <Play className="h-3.5 w-3.5" />
-                Start
-              </WorkbenchAction>
+              </WorkbenchIconAction>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[480px]">
+            <DialogContent className="sm:max-w-dialog-md">
               <DialogHeader>
                 <DialogTitle>Start</DialogTitle>
                 <DialogDescription className="sr-only">Inputs and target</DialogDescription>
@@ -257,7 +266,7 @@ export function RunToolbar({
                     </SelectContent>
                   </Select>
                 </div>
-                {startError && <p className="text-sm text-destructive">{startError}</p>}
+                {startError && <p className="text-body-lg text-destructive">{startError}</p>}
               </div>
               <DialogFooter>
                 <WorkbenchAction
@@ -275,12 +284,9 @@ export function RunToolbar({
 
         {showRetry && (
           <>
-            <WorkbenchAction
-              kind="primary"
-              size="compact"
-              className="h-7 gap-1"
+            <WorkbenchIconAction
+              label="Continue last execution"
               disabled={busy}
-              title="Continue last execution"
               onClick={() =>
                 void runVerb("Resumed", () =>
                   workspaceApi.resumeRun(projectId, experimentId, runId),
@@ -288,14 +294,10 @@ export function RunToolbar({
               }
             >
               <Play className="h-3.5 w-3.5" />
-              Resume
-            </WorkbenchAction>
-            <WorkbenchAction
-              kind="secondary"
-              size="compact"
-              className="h-7 gap-1"
+            </WorkbenchIconAction>
+            <WorkbenchIconAction
+              label="New execution from top"
               disabled={busy}
-              title="New execution from top"
               onClick={() =>
                 void runVerb("Rerun", () =>
                   workspaceApi.rerunRun(projectId, experimentId, runId, false),
@@ -303,37 +305,31 @@ export function RunToolbar({
               }
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              Rerun
-            </WorkbenchAction>
-            <WorkbenchAction
-              kind="ghost"
-              size="compact"
-              className="h-7 px-2 text-muted-foreground"
+            </WorkbenchIconAction>
+            <WorkbenchIconAction
+              label="Rerun without cache"
               disabled={busy}
-              title="Rerun without cache"
               onClick={() =>
                 void runVerb("Rerun fresh", () =>
                   workspaceApi.rerunRun(projectId, experimentId, runId, true),
                 )
               }
             >
-              Fresh
-            </WorkbenchAction>
+              <RotateCcw className="h-3.5 w-3.5" />
+            </WorkbenchIconAction>
           </>
         )}
 
         {showCancel && (
-          <WorkbenchAction
-            kind="secondary"
-            size="compact"
-            className="h-7 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          <WorkbenchIconAction
+            label="Cancel run"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={() => {
               void onCancel();
             }}
           >
             <Ban className="h-3.5 w-3.5" />
-            Cancel
-          </WorkbenchAction>
+          </WorkbenchIconAction>
         )}
 
         {/* ── Knowledge (outcome only) ────────────────────────────────── */}
@@ -343,17 +339,56 @@ export function RunToolbar({
             experimentId={experimentId}
             runId={runId}
             onHarvested={onHarvested}
+            trigger={
+              <WorkbenchIconAction label="Harvest to knowledge">
+                <BookMarked className="h-3.5 w-3.5" />
+              </WorkbenchIconAction>
+            }
           />
         )}
 
         {/* ── Utilities ───────────────────────────────────────────────── */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <WorkbenchIconAction label="More" kind="ghost" className="h-7 w-7" aria-label="More">
+            <WorkbenchIconAction
+              label="More"
+              kind="ghost"
+              className="h-control-compact w-control-compact"
+              aria-label="More"
+            >
               <MoreHorizontal className="h-4 w-4" />
             </WorkbenchIconAction>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
+            {showRetry && (
+              <>
+                <DropdownMenuItem
+                  className="sm:hidden"
+                  disabled={busy}
+                  onClick={() =>
+                    void runVerb("Rerun", () =>
+                      workspaceApi.rerunRun(projectId, experimentId, runId, false),
+                    )
+                  }
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Rerun
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="sm:hidden"
+                  disabled={busy}
+                  onClick={() =>
+                    void runVerb("Rerun fresh", () =>
+                      workspaceApi.rerunRun(projectId, experimentId, runId, true),
+                    )
+                  }
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Rerun fresh
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="sm:hidden" />
+              </>
+            )}
             <DropdownMenuItem asChild>
               <a
                 href={exportUrl}

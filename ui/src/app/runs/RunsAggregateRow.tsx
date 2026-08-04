@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { useMemo } from "react";
-
+import { WorkbenchAction } from "@/components/workbench";
+import { CHART_CLUSTER_PALETTE } from "@/lib/chart-tokens";
 import { cn } from "@/lib/utils";
 import { MolplotBarChart } from "@/plugins/molplot";
 
@@ -34,17 +35,6 @@ interface BackendDistributionChartProps {
 }
 
 /** Categorical series colors (not status — constitution §8 chart freedom). */
-const CLUSTER_PALETTE = [
-  "oklch(0.58 0.16 250)",
-  "oklch(0.55 0.19 295)",
-  "oklch(0.6 0.13 150)",
-  "oklch(0.72 0.14 85)",
-  "oklch(0.58 0.19 25)",
-  "oklch(0.62 0.12 210)",
-  "oklch(0.58 0.16 320)",
-  "oklch(0.65 0.14 130)",
-];
-
 const BackendDistributionChart = ({
   distribution,
   onSelectBackend,
@@ -57,7 +47,7 @@ const BackendDistributionChart = ({
       return {
         id: clusterName,
         label,
-        color: CLUSTER_PALETTE[index % CLUSTER_PALETTE.length],
+        color: CHART_CLUSTER_PALETTE[index % CHART_CLUSTER_PALETTE.length],
         hovertemplate: `<b>%{y}</b> · ${label}<br>%{x} runs<extra></extra>`,
         points: backends.map((backend) => {
           const match = distribution.find(
@@ -95,7 +85,7 @@ const BackendDistributionChart = ({
           const backend = event.customdata;
           if (typeof backend === "string") onSelectBackend(backend);
         }}
-        style={{ width: "100%", height: "160px" }}
+        style={{ width: "100%", height: "var(--spacing-chart-xs)" }}
       />
     </Section>
   );
@@ -122,19 +112,23 @@ const TopFailingList = ({ entries, onSelect }: TopFailingListProps): JSX.Element
           const failedRatio = entry.failedCount / Math.max(entry.totalCount, 1);
           return (
             <li key={entry.experimentId}>
-              <button
+              <WorkbenchAction
+                kind="ghost"
+                size="content"
                 type="button"
                 onClick={() => onSelect(entry)}
-                className="group flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group flex w-full items-center gap-3 rounded-control px-2 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-foreground">
+                  <div className="truncate text-body-lg font-medium text-foreground">
                     {entry.experimentName}
                   </div>
-                  <div className="truncate text-xs text-muted-foreground">{entry.projectName}</div>
+                  <div className="truncate text-label text-muted-foreground">
+                    {entry.projectName}
+                  </div>
                 </div>
                 <div className="flex w-20 flex-col items-end gap-1">
-                  <div className="text-xs font-medium tabular-nums text-destructive">
+                  <div className="text-label font-medium tabular-nums text-destructive">
                     {entry.failedCount}
                     <span className="text-muted-foreground">/{entry.totalCount}</span>
                   </div>
@@ -146,7 +140,7 @@ const TopFailingList = ({ entries, onSelect }: TopFailingListProps): JSX.Element
                     <span className="sr-only">{Math.round(failedRatio * 100)}% failure</span>
                   </div>
                 </div>
-              </button>
+              </WorkbenchAction>
             </li>
           );
         })}
@@ -162,11 +156,11 @@ interface SectionProps {
 
 const Section = ({ title, children }: SectionProps): JSX.Element => (
   <div className="min-w-0 space-y-3">
-    <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
+    <h4 className="text-label font-medium text-muted-foreground">{title}</h4>
     {children}
   </div>
 );
 
 const EmptyMessage = ({ children }: { children: string }): JSX.Element => (
-  <p className="py-6 text-center text-sm text-muted-foreground">{children}</p>
+  <p className="py-6 text-center text-body-lg text-muted-foreground">{children}</p>
 );

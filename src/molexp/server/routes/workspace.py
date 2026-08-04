@@ -163,10 +163,15 @@ def resolve_workspace_path_via_fs(workspace, path_str: str) -> str:  # noqa: ANN
 @router.get("/info", response_model=WorkspaceInfoResponse)
 def get_workspace_info(workspace=Depends(get_workspace)) -> WorkspaceInfoResponse:  # noqa: ANN001
     """Get workspace information."""
+    fs = getattr(workspace, "_fs", None)
+    is_cached = isinstance(fs, CachedRemoteFileSystem)
     return WorkspaceInfoResponse(
         root=str(workspace.root),
         projectCount=len(workspace.list_projects()),
         assetCount=len(workspace.assets.list()),
+        connected=fs.connected if is_cached else None,
+        indexed=fs.indexed if is_cached else None,
+        ready=fs.ready if is_cached else None,
     )
 
 
@@ -266,6 +271,9 @@ def list_workspace_files(
 ) -> dict:
     """Return a nested file tree rooted at the requested path.
 
+    Routes through ``workspace._fs`` so remote workspaces (and the
+    :class:`CachedRemoteFileSystem` mirror) work the same as local ones.
+
     With ``include=catalog``, file nodes that match a registered asset
     are enriched with ``assetId``, ``assetKind``, ``producerRunId`` and
     ``producerTaskId`` so the UI can render lineage chips inline.
@@ -276,16 +284,27 @@ def list_workspace_files(
     """
     from molexp.workspace.gitignore import load_gitignore_matcher
 
-    root = Path(workspace.root).resolve()
-    requested = resolve_workspace_path(root, path.lstrip("/"))
-    if not requested.exists():
+    fs = workspace._fs
+    root = resolve_workspace_path_via_fs(workspace, "")
+    requested = resolve_workspace_path_via_fs(workspace, path.lstrip("/"))
+    if not fs.exists(requested):
         raise HTTPException(status_code=404, detail="Path not found")
 
-    ignore = load_gitignore_matcher(root, fs=getattr(workspace, "_fs", None))
+    # Remote trees pay one SSH RTT per node. A deep walk over hundreds of run
+    # dirs (trajectory.pt etc.) freezes the UI bootstrap. Cap remote depth
+    # server-side; clients expand path-by-path for deeper levels.
+    effective_depth = max_depth
+    if isinstance(fs, CachedRemoteFileSystem) and max_depth > 4:
+        effective_depth = 4
+
+    # gitignore matcher is path-string based; pass the logical root.
+    ignore = load_gitignore_matcher(Path(str(workspace.root)), fs=fs)
 
     include_set = {part.strip() for part in (include or "").split(",") if part.strip()}
-    asset_index_by_abs: dict[Path, dict] = {}
-    if "catalog" in include_set:
+    # Catalog enrichment is local-path keyed; skip on non-local FS for now
+    # (remote asset scans still work via the catalog API, not inline chips).
+    asset_index_by_abs: dict[str, dict] = {}
+    if "catalog" in include_set and isinstance(fs, LocalFileSystem):
         from molexp.workspace.assets import scan
 
         from ._scope import resolve_scope_dir
@@ -298,7 +317,7 @@ def list_workspace_files(
                 abs_path = (scope_dir / asset.path).resolve()
             except OSError:
                 continue
-            asset_index_by_abs[abs_path] = {
+            asset_index_by_abs[str(abs_path)] = {
                 "assetId": asset.asset_id,
                 "assetKind": asset.kind,  # type: ignore[attr-defined]
                 "producerRunId": asset.producer.run_id if asset.producer else None,
@@ -306,25 +325,30 @@ def list_workspace_files(
                 "hasPreviewSidecar": resolve_sidecar(abs_path) is not None,
             }
 
-    def _rel_for(node_path: Path) -> str | None:
-        try:
-            return node_path.resolve().relative_to(root).as_posix()
-        except OSError, ValueError:
+    root_norm = root.rstrip("/") or "/"
+
+    def _rel_for(node_path: str) -> str | None:
+        node = node_path.rstrip("/") or "/"
+        if node == root_norm:
+            return ""
+        prefix = root_norm + "/"
+        if not node.startswith(prefix):
             return None
+        return node[len(prefix) :]
 
     def build_node(
-        node_path: Path, depth: int, *, _visited: set[Path] | None = None
+        node_path: str, depth: int, *, _visited: set[str] | None = None
     ) -> dict[str, Any]:
         visited = _visited if _visited is not None else set()
         try:
-            real = node_path.resolve()
+            real = fs.resolve(node_path)
         except OSError:
             real = node_path
         if real in visited:
             return {
-                "id": str(node_path),
-                "name": node_path.name or str(node_path),
-                "path": str(node_path),
+                "id": node_path,
+                "name": fs.basename(node_path) or node_path,
+                "path": node_path,
                 "type": "folder",
                 "size": None,
                 "modified": None,
@@ -333,13 +357,13 @@ def list_workspace_files(
         visited.add(real)
 
         try:
-            is_file = node_path.is_file()
-            st = node_path.stat()
+            st = fs.stat(node_path)
+            is_file = st.is_file
         except OSError:
             return {
-                "id": str(node_path),
-                "name": node_path.name or str(node_path),
-                "path": str(node_path),
+                "id": node_path,
+                "name": fs.basename(node_path) or node_path,
+                "path": node_path,
                 "type": "folder",
                 "size": None,
                 "modified": None,
@@ -347,41 +371,46 @@ def list_workspace_files(
             }
 
         node: dict[str, Any] = {
-            "id": str(node_path),
-            "name": node_path.name or str(node_path),
-            "path": str(node_path),
+            "id": node_path,
+            "name": fs.basename(node_path) or node_path,
+            "path": node_path,
             "type": "file" if is_file else "folder",
-            "size": st.st_size if is_file else None,
-            "modified": st.st_mtime,
+            "size": st.size if is_file else None,
+            "modified": st.mtime,
         }
         if asset_index_by_abs:
             enrich = asset_index_by_abs.get(real)
             if enrich is not None:
                 node.update(enrich)
-        if not is_file and depth < max_depth:
-            children = []
+        if not is_file and depth < effective_depth:
+            children: list[dict[str, Any]] = []
             try:
-                kids = sorted(node_path.iterdir(), key=lambda p: (p.is_file(), p.name))
+                names = fs.listdir(node_path)
             except OSError:
-                kids = []
-            for child in kids:
+                names = []
+            # One remote RTT per child via build_node→stat only — do NOT
+            # pre-probe is_file (that doubled SSH traffic and hung depth-8
+            # walks over run trees). Sort by name; type comes from stat.
+            for name in sorted(names):
+                child = fs.join(node_path, name)
                 rel = _rel_for(child)
                 if rel is None:
                     continue
-                try:
-                    child_is_dir = child.is_dir()
-                except OSError:
-                    continue
-                if ignore.is_ignored(rel, is_dir=child_is_dir):
+                # Cheap is_dir guess for ignore (avoid extra SSH): dotted names
+                # that are not hidden dirs are treated as files.
+                looks_like_file = "." in name and not name.startswith(".")
+                if ignore.is_ignored(rel, is_dir=not looks_like_file):
                     continue
                 children.append(build_node(child, depth + 1, _visited=visited))
+            # Dirs first, then files (stable by name within each group).
+            children.sort(key=lambda c: (c.get("type") == "file", c.get("name") or ""))
             node["children"] = children
         else:
             node["children"] = []
         return node
 
     root_node = build_node(requested, 0)
-    return {"path": str(requested), "children": root_node.get("children", [])}
+    return {"path": requested, "children": root_node.get("children", [])}
 
 
 @router.get("/file", response_model=FileContentResponse)
@@ -483,6 +512,28 @@ def open_workspace(
     fs = target_to_filesystem_for_workspace_target(target)
     set_active_workspace_descriptor(target.name)
     workspace = Workspace(target.root_path, fs=fs)
+    # Pin-until-refresh: warm → local only; cold → SSH + async index walk.
+    # Explicit refresh is POST /api/workspace/cache/refresh (blocking index).
+    if isinstance(fs, CachedRemoteFileSystem):
+        warnings = fs.prepare(workspace, block_index=False)
+        # Cold open may still be indexing in the background — don't block the
+        # response on a full tree walk (that was the slow path).
+        if fs.indexed:
+            project_count = len(workspace.list_projects())
+            asset_count = len(workspace.assets.list())
+        else:
+            project_count = 0
+            asset_count = 0
+        return WorkspaceInfoResponse(
+            root=str(workspace.root),
+            projectCount=project_count,
+            assetCount=asset_count,
+            warnings=[f"{w.path}: {w.reason}" for w in warnings],
+            connected=fs.connected,
+            indexed=fs.indexed,
+            ready=fs.ready,
+        )
+
     warnings = prefetch_workspace_indices(workspace)
     return WorkspaceInfoResponse(
         root=str(workspace.root),
@@ -732,7 +783,10 @@ def refresh_workspace_cache(
     """
     fs = _require_cached_fs(workspace)
     dropped = fs.invalidate(request.path, scope=request.scope)
-    warnings = prefetch_workspace_indices(workspace)
+    # User-initiated: blocking rebuild so the response reflects the new tree.
+    warnings = (
+        fs.index(workspace) if request.path is None else prefetch_workspace_indices(workspace)
+    )
     return CacheControlResponse(
         dropped=dropped,
         warnings=[f"{w.path}: {w.reason}" for w in warnings],

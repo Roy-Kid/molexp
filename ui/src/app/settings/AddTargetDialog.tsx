@@ -34,7 +34,7 @@ export function AddTargetDialog({ trigger, onCreated }: AddTargetDialogProps): J
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-dialog-md">
         <DialogHeader>
           <DialogTitle>Add compute target</DialogTitle>
           <DialogDescription>

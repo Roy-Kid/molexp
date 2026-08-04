@@ -430,7 +430,7 @@ class TieredResourceStore[T: ResourceSpec]:
             return {}
         try:
             payload = json.loads(path.read_text())
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             return {}
         if isinstance(payload, list):
             # Legacy format. Convert in-memory; first write will

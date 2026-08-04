@@ -26,7 +26,17 @@ const buildDefaultInspectorTarget = (selection: Selection | null): InspectorTarg
 // skip hooks within the same component (Rules of Hooks).
 const WorkspaceApp = ({ pathname }: { pathname: string }): JSX.Element => {
   const activeView = getLeftPanelViewFromPath(pathname);
-  const { snapshot, status, error, refresh } = useWorkspaceState(activeView);
+  const {
+    snapshot,
+    status,
+    error,
+    refresh,
+    expandDirectory,
+    expandProject,
+    expandExperiment,
+    isProjectExpanded,
+    isExperimentExpanded,
+  } = useWorkspaceState(activeView);
   // Subscribe to the runs poller only when the user is on the runs view; the
   // hook still gives us a refresh handle even when disabled so manual refresh
   // works regardless of polling state.
@@ -79,6 +89,8 @@ const WorkspaceApp = ({ pathname }: { pathname: string }): JSX.Element => {
 
   const isRefreshing = activeView === "runs" ? runs.loading : status === "loading";
 
+  // Sync / mutation tips land only in the bottom status strip (heartbeat +
+  // activity region). No floating "Syncing…" cards — aligned with MolVis.
   return (
     <ErrorBoundary>
       <AppShell
@@ -93,16 +105,20 @@ const WorkspaceApp = ({ pathname }: { pathname: string }): JSX.Element => {
         onOpenWorkspace={handleOpenWorkspace}
         onCreateDirectory={handleCreateDirectory}
         onCreateFile={handleCreateFile}
+        onExpandDirectory={(path) => {
+          void expandDirectory(path);
+        }}
+        onExpandProject={(projectId) => {
+          void expandProject(projectId);
+        }}
+        onExpandExperiment={(projectId, experimentId) => {
+          void expandExperiment(projectId, experimentId);
+        }}
+        isProjectExpanded={isProjectExpanded}
+        isExperimentExpanded={isExperimentExpanded}
         onWorkspaceRefresh={refresh}
         onActiveRefresh={handleActiveRefresh}
       />
-      {status === "loading" && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/40">
-          <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
-            Syncing…
-          </div>
-        </div>
-      )}
     </ErrorBoundary>
   );
 };

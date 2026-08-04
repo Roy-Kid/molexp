@@ -8,8 +8,10 @@ import {
     deleteFile,
     getAllAssets,
     getAllProjects,
+    getExperimentsByProject,
     getFile,
     getFileTree,
+    getRunsByExperiment,
     writeFile,
 } from "../db";
 import type { FileNode } from "../db";
@@ -111,128 +113,75 @@ interface MockRunRow {
     executions: MockExecutionRow[];
 }
 
-const baseSubmittedAt = Date.now() - 6 * 3600 * 1000;
-
 function buildMockWorkspaceRuns(): MockRunRow[] {
-    const fixtures: Array<{
-        id: string;
-        projectId: string;
-        projectName: string;
-        experimentId: string;
-        experimentName: string;
-        status: string;
-        backend: string | null;
-        cluster: string | null;
-        scheduler: string | null;
-        profile: string | null;
-        attempts: Array<{ status: string; schedulerJobId?: string; durationSec?: number }>;
-    }> = [
-        {
-            id: "run-allegro-001",
-            projectId: "proj-allegro",
-            projectName: "Allegro Sweep",
-            experimentId: "exp-lr-grid",
-            experimentName: "Learning rate grid",
-            status: "running",
-            backend: "molq",
-            cluster: "dardel.scilifelab.se",
-            scheduler: "slurm",
-            profile: "dardel-gpu",
-            attempts: [
-                { status: "failed", schedulerJobId: "48201", durationSec: 1810 },
-                { status: "running", schedulerJobId: "48317", durationSec: 4302 },
-            ],
-        },
-        {
-            id: "run-nemd-014",
-            projectId: "proj-electrolytes",
-            projectName: "Electrolyte transport",
-            experimentId: "exp-nemd",
-            experimentName: "NEMD conductivity",
-            status: "succeeded",
-            backend: "molq",
-            cluster: "alvis.scilifelab.se",
-            scheduler: "slurm",
-            profile: "alvis",
-            attempts: [
-                { status: "succeeded", schedulerJobId: "910023", durationSec: 7200 },
-            ],
-        },
-        {
-            id: "run-local-quick",
-            projectId: "proj-allegro",
-            projectName: "Allegro Sweep",
-            experimentId: "exp-smoke",
-            experimentName: "Smoke test",
-            status: "succeeded",
-            backend: "local",
-            cluster: null,
-            scheduler: "local",
-            profile: null,
-            attempts: [{ status: "succeeded", durationSec: 35 }],
-        },
-        {
-            id: "run-pending",
-            projectId: "proj-electrolytes",
-            projectName: "Electrolyte transport",
-            experimentId: "exp-nemd",
-            experimentName: "NEMD conductivity",
-            status: "pending",
-            backend: null,
-            cluster: null,
-            scheduler: null,
-            profile: null,
-            attempts: [],
-        },
-    ];
-
-    return fixtures.map((row, runIdx) => {
-        const createdAt = new Date(baseSubmittedAt + runIdx * 12 * 60_000).toISOString();
-        const executions: MockExecutionRow[] = row.attempts.map((attempt, attemptIdx) => {
-            const startedAt = new Date(
-                baseSubmittedAt + runIdx * 12 * 60_000 + attemptIdx * 600_000,
-            );
-            const finishedAt =
-                attempt.durationSec && attempt.status !== "running"
-                    ? new Date(startedAt.getTime() + attempt.durationSec * 1000)
+    return getAllProjects().flatMap((project) =>
+        getExperimentsByProject(project.id).flatMap((experiment) =>
+            getRunsByExperiment(experiment.id).map((run) => {
+                const backend = String(run.executorInfo?.backend ?? "local");
+                const cluster = run.executorInfo?.cluster_name
+                    ? String(run.executorInfo.cluster_name)
                     : null;
-            const metadata: Record<string, string> = {};
-            if (row.cluster) metadata.cluster_name = row.cluster;
-            if (row.scheduler) metadata.scheduler = row.scheduler;
-            if (attempt.schedulerJobId) metadata.scheduler_job_id = attempt.schedulerJobId;
+                const scheduler = run.executorInfo?.scheduler
+                    ? String(run.executorInfo.scheduler)
+                    : backend === "local"
+                      ? "local"
+                      : null;
+                const executions = (run.executionHistory ?? []).map((execution) => {
+                    const started = Date.parse(execution.startedAt);
+                    const finished = execution.finishedAt
+                        ? Date.parse(execution.finishedAt)
+                        : Number.NaN;
+                    const durationSeconds =
+                        Number.isFinite(started) && Number.isFinite(finished)
+                            ? Math.max(0, (finished - started) / 1000)
+                            : null;
+                    const metadata: Record<string, string> = {};
+                    if (cluster) metadata.cluster_name = cluster;
+                    if (scheduler) metadata.scheduler = scheduler;
+                    if (execution.schedulerJobId) {
+                        metadata.scheduler_job_id = execution.schedulerJobId;
+                    }
+                    return {
+                        executionId: execution.executionId,
+                        runId: run.id,
+                        status: execution.status,
+                        startedAt: execution.startedAt,
+                        finishedAt: execution.finishedAt ?? null,
+                        durationSeconds,
+                        schedulerJobId: execution.schedulerJobId ?? null,
+                        backend,
+                        metadata,
+                        backendMetadata: metadata,
+                    } satisfies MockExecutionRow;
+                });
+                const latestSchedulerJobId =
+                    executions
+                        .slice()
+                        .reverse()
+                        .find((execution) => execution.schedulerJobId)?.schedulerJobId ?? null;
 
-            return {
-                executionId: `exec-${row.id}-${attemptIdx + 1}`,
-                runId: row.id,
-                status: attempt.status,
-                startedAt: startedAt.toISOString(),
-                finishedAt: finishedAt?.toISOString() ?? null,
-                durationSeconds: attempt.durationSec ?? null,
-                schedulerJobId: attempt.schedulerJobId ?? null,
-                backend: row.backend,
-                metadata,
-                backendMetadata: metadata,
-            };
-        });
-
-        return {
-            ...row,
-            name: row.id,
-            parameters: { lr: 0.0001, batch: 32 },
-            createdAt,
-            finishedAt:
-                row.status === "succeeded" || row.status === "failed"
-                    ? executions[executions.length - 1]?.finishedAt ?? null
-                    : null,
-            executionCount: executions.length,
-            latestSchedulerJobId:
-                executions
-                    .slice()
-                    .reverse()
-                    .find((e) => e.schedulerJobId)?.schedulerJobId ?? null,
-            executions,
-        };
-    });
+                return {
+                    id: run.id,
+                    name: run.id,
+                    projectId: project.id,
+                    projectName: project.name,
+                    experimentId: experiment.id,
+                    experimentName: experiment.name,
+                    status: run.status,
+                    backend,
+                    cluster,
+                    scheduler,
+                    profile: run.profile ?? null,
+                    parameters: run.parameters ?? {},
+                    createdAt: run.created,
+                    finishedAt: run.finished ?? null,
+                    executionCount: executions.length,
+                    latestSchedulerJobId,
+                    executions,
+                } satisfies MockRunRow;
+            }),
+        ),
+    );
 }
 
 function computeMockStats(rows: MockRunRow[]): {

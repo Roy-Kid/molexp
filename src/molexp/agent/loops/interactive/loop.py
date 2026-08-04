@@ -518,7 +518,7 @@ class InteractiveLoop(AgentLoop):
 
         try:
             params = inspect.signature(runtime.router.stream_agentic).parameters
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             params = {}
         if "before_tool" in params:
             return runtime.router.stream_agentic(

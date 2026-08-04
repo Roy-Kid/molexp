@@ -1,5 +1,6 @@
 export type { DonutSegment, MiniBarDatum, StatTone, StatusCountRollup } from "./Dashboard";
 export {
+  CopyButton,
   DashboardCard,
   DashboardGrid,
   EntityPath,

@@ -47,7 +47,7 @@ def _local_import_closure(entrypoint: Path) -> list[Path]:
         seen[current] = None
         try:
             tree = ast.parse(current.read_text(encoding="utf-8"), filename=str(current))
-        except SyntaxError, UnicodeDecodeError, OSError:
+        except (SyntaxError, UnicodeDecodeError, OSError):
             continue
         names: set[str] = set()
         for node in ast.walk(tree):

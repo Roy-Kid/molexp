@@ -1,4 +1,3 @@
-export { BottomPanel, type BottomPanelSlotProps, type BottomPanelTab } from "./BottomPanel";
 export { NodeInspector, type NodeInspectorProps } from "./NodeInspector";
 export { NodeInspectorRow, type NodeInspectorRowProps } from "./NodeInspectorRow";
 export {
@@ -16,8 +15,12 @@ export {
   WorkbenchAction,
   type WorkbenchActionKind,
   type WorkbenchActionProps,
+  WorkbenchDismissAction,
+  type WorkbenchDismissActionProps,
   WorkbenchIconAction,
   type WorkbenchIconActionProps,
+  WorkbenchRetryAction,
+  type WorkbenchRetryActionProps,
   WorkbenchToggleAction,
 } from "./WorkbenchAction";
 export { WorkbenchHeartbeat, type WorkbenchHeartbeatProps } from "./WorkbenchHeartbeat";

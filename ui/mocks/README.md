@@ -48,9 +48,18 @@ ui/mocks/
 
 ### Enabling Mocks in Development
 
-1. Run the development server with the mock flag:
+From the repository root, launch the full feature showcase:
+
+```bash
+npm run dev:page
+```
+
+This opens the seeded project automatically. To start mock mode without
+opening a browser:
+
+1. Run the development server with the mock script:
    ```bash
-   npm run dev -- --mock
+   npm run dev:mock
    ```
 
 2. All API requests will be intercepted by MSW. Check the browser console for `[MSW]` prefixed logs.

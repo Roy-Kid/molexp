@@ -6,6 +6,13 @@
 import { type JSX, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { WorkbenchAction } from "@/components/workbench";
 
 export interface ExperimentCatalogEntry {
@@ -36,7 +43,9 @@ export const ExperimentScopeForm = ({
   const [mode, setMode] = useState<"existing" | "create">(
     options.length > 0 ? "existing" : "create",
   );
-  const [selected, setSelected] = useState(options[0]?.label ?? "");
+  const [selected, setSelected] = useState(
+    options[0] ? `${options[0].project_id} / ${options[0].experiment_id}` : "",
+  );
   const [project, setProject] = useState("");
   const [experiment, setExperiment] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,63 +70,66 @@ export const ExperimentScopeForm = ({
   };
 
   return (
-    <div className="space-y-3 rounded-md bg-muted/40 px-3 py-3">
-      <p className="text-sm text-foreground">{intro}</p>
+    <div className="space-y-3 rounded-control bg-muted/40 px-3 py-3">
+      <p className="text-body-lg text-foreground">{intro}</p>
 
       {options.length > 0 && (
         <div className="flex gap-2 text-micro">
-          <button
+          <WorkbenchAction
+            kind="ghost"
+            size="content"
             type="button"
             className={
               mode === "existing"
-                ? "rounded-md bg-card px-2 py-1 font-medium text-foreground"
-                : "rounded-md px-2 py-1 text-muted-foreground hover:bg-muted"
+                ? "rounded-control bg-card px-2 py-1 font-medium text-foreground"
+                : "rounded-control px-2 py-1 text-muted-foreground hover:bg-muted"
             }
             onClick={() => setMode("existing")}
             disabled={disabled || busy}
           >
             Existing
-          </button>
+          </WorkbenchAction>
           {allowCreate ? (
-            <button
+            <WorkbenchAction
+              kind="ghost"
+              size="content"
               type="button"
               className={
                 mode === "create"
-                  ? "rounded-md bg-card px-2 py-1 font-medium text-foreground"
-                  : "rounded-md px-2 py-1 text-muted-foreground hover:bg-muted"
+                  ? "rounded-control bg-card px-2 py-1 font-medium text-foreground"
+                  : "rounded-control px-2 py-1 text-muted-foreground hover:bg-muted"
               }
               onClick={() => setMode("create")}
               disabled={disabled || busy}
             >
               Create new
-            </button>
+            </WorkbenchAction>
           ) : null}
         </div>
       )}
 
       {mode === "existing" && options.length > 0 ? (
         <div className="space-y-1.5">
-          <Label htmlFor="scope-existing" className="text-xs">
+          <Label htmlFor="scope-existing" className="text-label">
             Scope
           </Label>
-          <select
-            id="scope-existing"
-            className="h-9 w-full rounded-md bg-card px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            disabled={disabled || busy}
-          >
-            {options.map((row) => (
-              <option key={row.label} value={`${row.project_id} / ${row.experiment_id}`}>
-                {row.label}
-              </option>
-            ))}
-          </select>
+          <Select value={selected} onValueChange={setSelected} disabled={disabled || busy}>
+            <SelectTrigger id="scope-existing" className="h-control-comfortable w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((row) => (
+                <SelectItem key={row.label} value={`${row.project_id} / ${row.experiment_id}`}>
+                  {row.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="scope-project" className="text-xs">
+            <Label htmlFor="scope-project" className="text-label">
               Project
             </Label>
             <Input
@@ -130,7 +142,7 @@ export const ExperimentScopeForm = ({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="scope-experiment" className="text-xs">
+            <Label htmlFor="scope-experiment" className="text-label">
               Experiment
             </Label>
             <Input
@@ -145,7 +157,7 @@ export const ExperimentScopeForm = ({
         </div>
       )}
 
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      {error ? <p className="text-label text-destructive">{error}</p> : null}
 
       <div className="flex justify-end">
         <WorkbenchAction

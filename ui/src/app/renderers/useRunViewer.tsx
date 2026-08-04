@@ -21,6 +21,7 @@ import { useInspectedTask } from "@/app/state/inspectedTask";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps, WorkspaceSnapshot } from "@/app/types";
 import { useAlert, useConfirm } from "@/components/ConfirmDialog";
+import { Code as InlineCode } from "@/components/ui/code";
 
 type RunRow = WorkspaceSnapshot["runs"][number];
 type RunLogs = { stdout?: string | null; stderr?: string | null } | null;
@@ -148,7 +149,11 @@ export const useRunViewer = (props: RendererProps): UseRunViewer => {
       title: "Cancel run?",
       description: (
         <>
-          Stop <code className="rounded bg-muted px-1 py-1 text-xs">{run.id}</code>?
+          Stop{" "}
+          <InlineCode className="rounded-control bg-muted px-1 py-1 text-label">
+            {run.id}
+          </InlineCode>
+          ?
         </>
       ),
       confirmLabel: "Cancel",

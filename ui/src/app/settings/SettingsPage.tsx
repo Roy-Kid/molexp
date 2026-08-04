@@ -1,10 +1,6 @@
-/**
- * Settings page — two-tab layout: Remote workspaces (default) and
- * Compute targets.  Future sections (profiles, MCP integrations) slot
- * in as additional tabs.
- */
-
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Settings2 } from "lucide-react";
+import type { ReactNode } from "react";
+import { EntityPage } from "@/app/components/entity";
 
 import { ComputeTargetsPanel } from "./ComputeTargetsPanel";
 import { RemoteWorkspacesPanel } from "./RemoteWorkspacesPanel";
@@ -12,26 +8,41 @@ import { RemoteWorkspacesPanel } from "./RemoteWorkspacesPanel";
 const TAB_REMOTE_WORKSPACES = "remote-workspaces" as const;
 const TAB_COMPUTE_TARGETS = "compute-targets" as const;
 
+const SettingsCanvas = ({ children }: { children: ReactNode }): JSX.Element => (
+  <div className="flex-1 overflow-auto">
+    <div className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-6">{children}</div>
+  </div>
+);
+
 export function SettingsPage(): JSX.Element {
+  const tabs = [
+    {
+      value: TAB_REMOTE_WORKSPACES,
+      label: "Remote workspaces",
+      content: (
+        <SettingsCanvas>
+          <RemoteWorkspacesPanel />
+        </SettingsCanvas>
+      ),
+    },
+    {
+      value: TAB_COMPUTE_TARGETS,
+      label: "Compute targets",
+      content: (
+        <SettingsCanvas>
+          <ComputeTargetsPanel />
+        </SettingsCanvas>
+      ),
+    },
+  ];
+
   return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
-        <header className="space-y-1">
-          <h2 className="text-base font-semibold text-foreground">Settings</h2>
-        </header>
-        <Tabs defaultValue={TAB_REMOTE_WORKSPACES} className="space-y-4">
-          <TabsList>
-            <TabsTrigger value={TAB_REMOTE_WORKSPACES}>Remote workspaces</TabsTrigger>
-            <TabsTrigger value={TAB_COMPUTE_TARGETS}>Compute targets</TabsTrigger>
-          </TabsList>
-          <TabsContent value={TAB_REMOTE_WORKSPACES}>
-            <RemoteWorkspacesPanel />
-          </TabsContent>
-          <TabsContent value={TAB_COMPUTE_TARGETS}>
-            <ComputeTargetsPanel />
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
+    <EntityPage
+      icon={Settings2}
+      title="Workspace settings"
+      subtitle="Connections and execution destinations for this workspace"
+      defaultTab={TAB_REMOTE_WORKSPACES}
+      tabs={tabs}
+    />
   );
 }

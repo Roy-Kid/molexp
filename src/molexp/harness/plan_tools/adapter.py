@@ -37,7 +37,7 @@ def _public_parameters(fn: PlanToolFn) -> list[str]:
     names: list[str] = []
     try:
         sig = inspect.signature(fn)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return names
     for name, param in sig.parameters.items():
         if name in {"ctx", "board", "self", "cls"}:
@@ -87,7 +87,7 @@ def as_loop_tool(
         try:
             sig = inspect.signature(tool.fn)
             params = sig.parameters
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             params = {}
         if "ctx" in params:
             call["ctx"] = ctx

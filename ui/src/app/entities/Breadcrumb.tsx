@@ -23,7 +23,7 @@ export const Breadcrumb = ({ items }: BreadcrumbProps): JSX.Element => {
             {item.to && !isLast ? (
               <Link
                 to={item.to}
-                className="min-w-0 truncate rounded-sm px-1 py-1 transition-colors hover:bg-muted/60 hover:text-foreground"
+                className="min-w-0 truncate rounded-control px-1 py-1 transition-colors hover:bg-muted/60 hover:text-foreground"
               >
                 {item.label}
               </Link>

@@ -14,7 +14,6 @@
  * ``workflow`` entity selections (it is mounted solely by WorkflowViewer).
  */
 
-import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBlocker } from "react-router-dom";
 import { workflowApi } from "@/app/state/api";
@@ -30,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { WorkbenchTag } from "@/components/workbench";
+import { WorkbenchDismissAction, WorkbenchTag } from "@/components/workbench";
 import { FlowgramCanvas } from "@/components/workflow/flowgram-canvas";
 import { FlowgramCanvasToolbar } from "@/components/workflow/flowgram-canvas-toolbar";
 import {
@@ -161,12 +160,12 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
       <div className="relative min-h-0 w-full flex-1">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex flex-col gap-2 px-3 py-3">
           <div className="flex items-start justify-between gap-2">
-            <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-border bg-background/90 px-2 py-1 text-micro text-muted-foreground">
+            <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-control border border-border bg-background/90 px-2 py-1 text-micro text-muted-foreground">
               <WorkbenchTag meaning="metadata">{taskCount} tasks</WorkbenchTag>
               <WorkbenchTag meaning="metadata">{linkCount} links</WorkbenchTag>
               <WorkbenchTag meaning="metadata">{parallelCount} parallel</WorkbenchTag>
             </div>
-            <div className="pointer-events-auto flex items-center rounded-[var(--radius-control)] border border-border bg-background/90 px-1 py-1">
+            <div className="pointer-events-auto flex items-center rounded-control border border-border bg-background/90 px-1 py-1">
               <FlowgramCanvasToolbar
                 onSave={handleSave}
                 onDiscard={handleDiscard}
@@ -179,17 +178,14 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
           {error && (
             <div
               role="alert"
-              className="pointer-events-auto flex items-start justify-between gap-3 rounded-[var(--radius-control)] border border-status-failed/30 bg-status-failed-soft px-3 py-2 text-body text-status-failed-foreground"
+              className="pointer-events-auto flex items-start justify-between gap-3 rounded-control border border-status-failed/30 bg-status-failed-soft px-3 py-2 text-body text-status-failed-foreground"
             >
               <span>{error}</span>
-              <button
-                type="button"
+              <WorkbenchDismissAction
+                label="Dismiss error"
                 onClick={() => setError(null)}
-                aria-label="Dismiss error"
-                className="-mr-1 shrink-0 rounded-sm p-1 text-status-failed-foreground/80 transition-colors hover:text-status-failed-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-failed/40"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+                className="-mr-1 size-6 shrink-0 text-status-failed-foreground/80 hover:text-status-failed-foreground"
+              />
             </div>
           )}
         </div>

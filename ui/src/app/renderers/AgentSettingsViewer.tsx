@@ -21,6 +21,7 @@ import {
   Eye,
   EyeOff,
   FileText,
+  Pencil,
   PlayCircle,
   Plus,
   Settings,
@@ -56,6 +57,8 @@ import {
   type SkillUpsertInput,
   SLASH_NAME_PATTERN,
 } from "@/app/state/api";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Code as InlineCode } from "@/components/ui/code";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -68,6 +71,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkbenchAction, WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 
@@ -199,7 +209,7 @@ const SettingsScroll = ({
   wide?: boolean;
 }) => (
   <ScrollArea className="flex-1">
-    <div className={`mx-auto w-full ${wide ? "max-w-5xl" : "max-w-3xl"} px-4 pb-8 pt-4`}>
+    <div className={`mx-auto w-full ${wide ? "max-w-5xl" : "max-w-4xl"} px-4 py-5 sm:px-6 sm:py-6`}>
       {children}
     </div>
   </ScrollArea>
@@ -283,7 +293,9 @@ const ProviderTab = (): JSX.Element => {
   }, [refresh]);
 
   if (loading) {
-    return <div className="px-4 py-3 text-sm text-muted-foreground">Loading model config…</div>;
+    return (
+      <div className="px-4 py-3 text-body-lg text-muted-foreground">Loading model config…</div>
+    );
   }
   if (unavailable) {
     return (
@@ -310,8 +322,8 @@ const ProviderTab = (): JSX.Element => {
 
   return (
     <ScrollArea className="h-full">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 pb-8 pt-3">
-        {error && <p className="text-xs text-destructive">{error}</p>}
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-5 sm:px-6 sm:py-6">
+        {error && <p className="text-label text-destructive">{error}</p>}
 
         {/* 1. Vendors first */}
         <section className="space-y-3">
@@ -430,29 +442,35 @@ const AgentModelTable = ({
   const renderRow = (row: (typeof AGENT_MODEL_ROWS)[number]): JSX.Element => (
     <div
       key={row.tier}
-      className="grid items-center gap-2 py-2 sm:grid-cols-[5.5rem_minmax(7rem,9rem)_minmax(0,1fr)] sm:gap-3"
+      className="grid items-center gap-2 py-2 sm:grid-cols-(--entity-meta-grid-columns) sm:gap-3"
     >
-      <p className="text-xs font-medium text-foreground">{row.label}</p>
-      <select
-        className="h-9 w-full rounded-md bg-muted/50 px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      <p className="text-label font-medium text-foreground">{row.label}</p>
+      <Select
         value={rows[row.tier].provider}
-        aria-label={`${row.agent} ${row.label} provider`}
-        onChange={(event) =>
+        onValueChange={(provider) =>
           setRows((value) => ({
             ...value,
             [row.tier]: {
               ...value[row.tier],
-              provider: event.target.value as ApiProviderName,
+              provider: provider as ApiProviderName,
             },
           }))
         }
       >
-        {supported.map((name) => (
-          <option key={name} value={name}>
-            {providerLabel(registry, name)}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger
+          className="h-control-comfortable w-full bg-muted/50 text-label"
+          aria-label={`${row.agent} ${row.label} provider`}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {supported.map((name) => (
+            <SelectItem key={name} value={name}>
+              {providerLabel(registry, name)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <Input
         value={rows[row.tier].modelId}
         onChange={(event) =>
@@ -462,7 +480,7 @@ const AgentModelTable = ({
           }))
         }
         placeholder={providerModelHint(registry, rows[row.tier].provider || fallbackProvider)}
-        className="border-0 bg-muted/50 font-mono text-xs shadow-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="border-0 bg-muted/50 font-mono text-label shadow-none focus-visible:ring-2 focus-visible:ring-ring/40"
         aria-label={`${row.agent} ${row.label} model id`}
       />
     </div>
@@ -472,38 +490,37 @@ const AgentModelTable = ({
     <section className="space-y-3">
       <h2 className="text-base font-semibold">Agents</h2>
 
-      <div className="space-y-0.5 rounded-lg bg-muted/30 px-3 py-2">
+      <div className="space-y-0.5 bg-surface/60 px-3 py-2">
         <div className="flex items-center gap-2 py-1.5">
           <Bot className="size-3.5 text-muted-foreground" aria-hidden />
-          <h3 className="text-sm font-medium">Chat</h3>
+          <h3 className="text-body-lg font-medium">Chat</h3>
         </div>
         {chatRows.map(renderRow)}
       </div>
 
-      <div className="space-y-0.5 rounded-lg bg-info-soft/20 px-3 py-2">
+      <div className="space-y-0.5 bg-info-soft/20 px-3 py-2">
         <div className="flex items-center gap-2 py-1.5">
           <BrainCircuit className="size-3.5 text-info" aria-hidden />
-          <h3 className="text-sm font-medium">Plan</h3>
+          <h3 className="text-body-lg font-medium">Plan</h3>
         </div>
         {planRows.map(renderRow)}
       </div>
 
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <p className="text-label text-destructive">{error}</p>}
       {saved && (
-        <p className="flex items-center gap-1 text-xs text-success-foreground">
+        <p className="flex items-center gap-1 text-label text-success-foreground">
           <CheckCircle2 className="size-3.5" /> Saved.
         </p>
       )}
       {testResult && <ProviderTestResult result={testResult} />}
       <div className="flex justify-end gap-2">
-        <WorkbenchAction
-          kind="secondary"
-          size="compact"
+        <WorkbenchIconAction
+          label="Test provider configuration"
           disabled={busy || !complete}
           onClick={() => void submit("test")}
         >
-          <Zap className="mr-1 size-4" /> Test
-        </WorkbenchAction>
+          <Zap className="size-4" />
+        </WorkbenchIconAction>
         <WorkbenchAction
           kind="primary"
           size="compact"
@@ -571,9 +588,11 @@ const CredentialCard = ({
   };
 
   return (
-    <section className="rounded-lg bg-muted/35">
+    <section className="bg-surface/60">
       <header className="px-3 py-2.5">
-        <button
+        <WorkbenchAction
+          kind="ghost"
+          size="content"
           type="button"
           className="flex w-full items-center gap-3 text-left"
           aria-expanded={expanded}
@@ -581,23 +600,23 @@ const CredentialCard = ({
         >
           <Cpu className="size-4 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-medium text-foreground">
+            <h3 className="text-body-lg font-medium text-foreground">
               {providerLabel(registry, provider)}
             </h3>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            <p className="mt-0.5 truncate text-label text-muted-foreground">
               {initial.apiKeySet ? `Key ${initial.apiKeyPreview}` : "No stored key"}
               {usedByTiers.length > 0 ? ` · ${usedByTiers.join(" · ")}` : ""}
             </p>
           </div>
           {usedByTiers.length > 0 && <WorkbenchTag className="text-micro">In use</WorkbenchTag>}
           <ChevronRight className={`size-4 transition-transform ${expanded ? "rotate-90" : ""}`} />
-        </button>
+        </WorkbenchAction>
       </header>
       {expanded && (
         <div className="space-y-4 px-3 pb-3 pt-1">
           {showBaseUrl && (
             <div>
-              <Label htmlFor={baseUrlId} className="text-xs">
+              <Label htmlFor={baseUrlId} className="text-label">
                 Base URL
               </Label>
               <Input
@@ -609,7 +628,7 @@ const CredentialCard = ({
             </div>
           )}
           <div>
-            <Label htmlFor={apiKeyId} className="text-xs">
+            <Label htmlFor={apiKeyId} className="text-label">
               API key
             </Label>
             <div className="flex gap-2">
@@ -635,9 +654,9 @@ const CredentialCard = ({
               </WorkbenchIconAction>
             </div>
           </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-label text-destructive">{error}</p>}
           {saved && (
-            <p className="flex items-center gap-1 text-xs text-success-foreground">
+            <p className="flex items-center gap-1 text-label text-success-foreground">
               <CheckCircle2 className="size-3.5" /> Credentials saved.
             </p>
           )}
@@ -651,14 +670,14 @@ const CredentialCard = ({
             onConfirm={() => void submit("clear")}
           />
           <div className="flex flex-wrap justify-between gap-2">
-            <WorkbenchAction
-              kind="ghost"
-              size="compact"
+            <WorkbenchIconAction
+              label="Clear API key"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
               disabled={busy || !initial.apiKeySet}
               onClick={() => setConfirmClearKey(true)}
             >
-              Clear key
-            </WorkbenchAction>
+              <Trash2 className="size-4" />
+            </WorkbenchIconAction>
             <WorkbenchAction
               kind="primary"
               size="compact"
@@ -679,7 +698,7 @@ const ProviderTestResult = ({ result }: { result: ApiAgentProviderTestResult }):
   return (
     <div
       className={
-        "border-y px-3 py-2 text-xs " +
+        "border-y px-3 py-2 text-label " +
         (ok
           ? "border-success/30 bg-success-soft text-success-foreground"
           : "border-destructive/40 bg-destructive/10 text-destructive")
@@ -776,7 +795,7 @@ const InstructionsTab = (): JSX.Element => {
   }, []);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading instructions…</p>;
+    return <p className="text-body-lg text-muted-foreground">Loading instructions…</p>;
   }
 
   if (unavailable) {
@@ -808,7 +827,7 @@ const InstructionsTab = (): JSX.Element => {
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">
+      <p className="text-body-lg text-muted-foreground">
         Workspace-default system prompt addendum. Appended to the molexp built-in preamble for every
         new session. Skills can layer additional instructions on top, and individual sessions may
         override the whole stack from the chat input.
@@ -816,7 +835,7 @@ const InstructionsTab = (): JSX.Element => {
 
       <section className="space-y-3 border-t border-border/60 pt-3">
         <header>
-          <h3 className="text-sm font-medium text-foreground">Workspace instructions</h3>
+          <h3 className="text-body-lg font-medium text-foreground">Workspace instructions</h3>
         </header>
         <div className="space-y-3">
           <Textarea
@@ -827,15 +846,15 @@ const InstructionsTab = (): JSX.Element => {
               "Always cite source data with project/experiment/run ids.\n" +
               "Prefer existing workflow templates before writing new code."
             }
-            className="font-mono text-xs"
+            className="font-mono text-label"
           />
           <p className="text-micro text-muted-foreground">
             Saved alongside the provider credentials; never sent to the model directly — only
             attached as the agent's system prompt.
           </p>
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-label text-destructive">{error}</p>}
           {savedAt && !error && (
-            <p className="flex items-center gap-1 text-xs text-success-foreground">
+            <p className="flex items-center gap-1 text-label text-success-foreground">
               <CheckCircle2 className="h-3.5 w-3.5 text-success" />
               Saved. New sessions will use these instructions.
             </p>
@@ -850,14 +869,14 @@ const InstructionsTab = (): JSX.Element => {
             onConfirm={() => void handleClear()}
           />
           <div className="flex justify-between gap-2 pt-1">
-            <WorkbenchAction
-              kind="ghost"
-              size="compact"
+            <WorkbenchIconAction
+              label="Clear workspace instructions"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
               disabled={saving || (config?.instructions ?? "") === ""}
               onClick={() => setConfirmClear(true)}
             >
-              Clear
-            </WorkbenchAction>
+              <Trash2 className="size-4" />
+            </WorkbenchIconAction>
             <WorkbenchAction
               kind="primary"
               size="compact"
@@ -914,12 +933,14 @@ const SkillLaunchDialog = ({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Launch {skill.name}</DialogTitle>
-          <DialogDescription className="font-mono text-xs">{skill.goalTemplate}</DialogDescription>
+          <DialogDescription className="font-mono text-label">
+            {skill.goalTemplate}
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           {placeholders.map((key) => (
             <div key={key}>
-              <Label htmlFor={`param-${key}`} className="font-mono text-xs">
+              <Label htmlFor={`param-${key}`} className="font-mono text-label">
                 {`{{${key}}}`}
               </Label>
               <Input
@@ -961,13 +982,13 @@ const CapabilityListHeader = ({
   count: string;
   actions: ReactNode;
 }): JSX.Element => (
-  <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
     <div className="min-w-0 space-y-1">
       <div className="flex items-center gap-2">
-        <h3 className="text-sm font-medium text-foreground">{title}</h3>
+        <h3 className="text-body-lg font-medium text-foreground">{title}</h3>
         <WorkbenchTag className="text-micro font-normal">{count}</WorkbenchTag>
       </div>
-      <div className="max-w-2xl text-sm text-muted-foreground">{description}</div>
+      <div className="max-w-2xl text-body-lg text-muted-foreground">{description}</div>
     </div>
     <div className="flex shrink-0 items-center gap-2">{actions}</div>
   </div>
@@ -1044,25 +1065,24 @@ const SkillsTab = ({
         description={
           <>
             Reusable workflows and domain instructions. Use
-            <code className="mx-1 rounded bg-muted px-1">{"{{name}}"}</code>
+            <InlineCode className="mx-1 rounded-control bg-muted px-1">{"{{name}}"}</InlineCode>
             placeholders; a slash name makes the skill invokable from chat.
           </>
         }
         count={`${skills.length} configured`}
         actions={
-          <WorkbenchAction
-            kind="primary"
-            size="compact"
+          <WorkbenchIconAction
+            label="New skill"
             onClick={() => {
               setEditing(null);
               setShowForm(true);
             }}
           >
-            <Plus className="mr-1 h-4 w-4" /> New skill
-          </WorkbenchAction>
+            <Plus className="h-4 w-4" />
+          </WorkbenchIconAction>
         }
       />
-      {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
+      {error && <p className="mb-2 text-label text-destructive">{error}</p>}
       {showForm && (
         <SkillForm
           initial={editing}
@@ -1101,7 +1121,7 @@ const SkillsTab = ({
         />
       )}
       <div className="flex flex-col gap-2">
-        {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {loading && <p className="text-body-lg text-muted-foreground">Loading…</p>}
         {!loading && skills.length === 0 && (
           <EmptyState
             density="compact"
@@ -1111,10 +1131,7 @@ const SkillsTab = ({
           />
         )}
         {skills.map((skill) => (
-          <section
-            key={skill.id}
-            className="rounded-[var(--radius-panel)] border border-border bg-surface border-border"
-          >
+          <section key={skill.id} className="bg-surface/60">
             <header className="pb-2 px-3 pt-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -1129,7 +1146,9 @@ const SkillsTab = ({
                   ) : (
                     <WorkbenchTag className="text-micro">launcher only</WorkbenchTag>
                   )}
-                  <h3 className="truncate text-sm font-medium text-foreground">{skill.name}</h3>
+                  <h3 className="truncate text-body-lg font-medium text-foreground">
+                    {skill.name}
+                  </h3>
                   {skill.defaultPlanMode && (
                     <WorkbenchTag meaning="metadata" className="text-micro">
                       plan
@@ -1137,43 +1156,35 @@ const SkillsTab = ({
                   )}
                 </div>
                 <div className="flex gap-1">
-                  <WorkbenchAction
-                    kind="ghost"
-                    size="compact"
+                  <WorkbenchIconAction
+                    label={`Launch ${skill.name}`}
                     onClick={() => handleLaunch(skill)}
-                    title="Launch a task from this skill"
-                    aria-label={`Launch ${skill.name}`}
                   >
                     <PlayCircle className="h-4 w-4" />
-                  </WorkbenchAction>
-                  <WorkbenchAction
-                    kind="ghost"
-                    size="compact"
+                  </WorkbenchIconAction>
+                  <WorkbenchIconAction
+                    label={`Edit ${skill.name}`}
                     onClick={() => {
                       setEditing(skill);
                       setShowForm(true);
                     }}
-                    title="Edit skill"
                   >
-                    Edit
-                  </WorkbenchAction>
-                  <WorkbenchAction
-                    kind="ghost"
-                    size="compact"
+                    <Pencil className="h-4 w-4" />
+                  </WorkbenchIconAction>
+                  <WorkbenchIconAction
+                    label={`Delete ${skill.name}`}
                     onClick={() => setDeleting(skill)}
-                    title="Delete skill"
-                    aria-label={`Delete ${skill.name}`}
                   >
                     <Trash2 className="h-4 w-4" />
-                  </WorkbenchAction>
+                  </WorkbenchIconAction>
                 </div>
               </div>
             </header>
             <div className="px-3 pb-3 pt-0">
               {skill.description && (
-                <p className="mb-2 text-xs text-muted-foreground">{skill.description}</p>
+                <p className="mb-2 text-label text-muted-foreground">{skill.description}</p>
               )}
-              <pre className="mb-2 whitespace-pre-wrap rounded bg-muted px-2 py-1 text-xs">
+              <pre className="mb-2 whitespace-pre-wrap rounded-control bg-muted px-2 py-1 text-label">
                 {skill.goalTemplate}
               </pre>
               {skill.instructions && (
@@ -1254,15 +1265,15 @@ const SkillForm = ({
   }, [form, initial, onSaved, slashError]);
 
   return (
-    <section className="mb-2 border-y border-primary/40 py-3">
+    <section className="mb-2 border-y border-accent/40 py-3">
       <header className="pb-2">
-        <h3 className="text-sm font-medium text-foreground">
+        <h3 className="text-body-lg font-medium text-foreground">
           {initial ? "Edit skill" : "New skill"}
         </h3>
       </header>
       <div className="space-y-2">
         <div>
-          <Label htmlFor={id("name")} className="text-xs">
+          <Label htmlFor={id("name")} className="text-label">
             Name
           </Label>
           <Input
@@ -1273,12 +1284,12 @@ const SkillForm = ({
           />
         </div>
         <div>
-          <Label htmlFor={id("slash-name")} className="text-xs">
+          <Label htmlFor={id("slash-name")} className="text-label">
             Slash name (optional) — invokes as{" "}
-            <code className="rounded bg-muted px-1">/&lt;name&gt;</code>
+            <InlineCode className="rounded-control bg-muted px-1">/&lt;name&gt;</InlineCode>
           </Label>
           <div className="flex items-center gap-2">
-            <span className="select-none font-mono text-sm text-muted-foreground">/</span>
+            <span className="select-none font-mono text-body-lg text-muted-foreground">/</span>
             <Input
               id={id("slash-name")}
               value={form.slashName}
@@ -1297,7 +1308,7 @@ const SkillForm = ({
           )}
         </div>
         <div>
-          <Label htmlFor={id("description")} className="text-xs">
+          <Label htmlFor={id("description")} className="text-label">
             Description
           </Label>
           <Input
@@ -1308,7 +1319,7 @@ const SkillForm = ({
           />
         </div>
         <div>
-          <Label htmlFor={id("goal-template")} className="text-xs">
+          <Label htmlFor={id("goal-template")} className="text-label">
             Goal template — use {"{{param}}"} for placeholders
           </Label>
           <Textarea
@@ -1320,7 +1331,7 @@ const SkillForm = ({
           />
         </div>
         <div>
-          <Label htmlFor={id("instructions")} className="text-xs">
+          <Label htmlFor={id("instructions")} className="text-label">
             Additional instructions (optional) — appended to the system prompt
           </Label>
           <Textarea
@@ -1329,23 +1340,21 @@ const SkillForm = ({
             value={form.instructions}
             onChange={(e) => setForm({ ...form, instructions: e.target.value })}
             placeholder="When plotting, prefer Plotly scatter and label units explicitly."
-            className="font-mono text-xs"
+            className="font-mono text-label"
           />
         </div>
         <div className="flex items-center gap-2">
-          <input
+          <Checkbox
             id={id("default-plan-mode")}
-            type="checkbox"
             checked={form.defaultPlanMode}
-            onChange={(e) => setForm({ ...form, defaultPlanMode: e.target.checked })}
-            className="h-3.5 w-3.5 accent-primary"
+            onCheckedChange={(checked) => setForm({ ...form, defaultPlanMode: Boolean(checked) })}
           />
-          <Label htmlFor={id("default-plan-mode")} className="text-xs">
+          <Label htmlFor={id("default-plan-mode")} className="text-label">
             Launch with the auditable nine-stage Plan agent by default
           </Label>
         </div>
         <div>
-          <Label htmlFor={id("constraints")} className="text-xs">
+          <Label htmlFor={id("constraints")} className="text-label">
             Constraints (one per line)
           </Label>
           <Textarea
@@ -1357,7 +1366,7 @@ const SkillForm = ({
           />
         </div>
         <div>
-          <Label htmlFor={id("success-criteria")} className="text-xs">
+          <Label htmlFor={id("success-criteria")} className="text-label">
             Success criteria (one per line)
           </Label>
           <Textarea
@@ -1369,7 +1378,7 @@ const SkillForm = ({
           />
         </div>
         <div>
-          <Label htmlFor={id("tags")} className="text-xs">
+          <Label htmlFor={id("tags")} className="text-label">
             Tags (comma-separated)
           </Label>
           <Input
@@ -1379,7 +1388,7 @@ const SkillForm = ({
             placeholder="plot, sweep"
           />
         </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        {error && <p className="text-label text-destructive">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">
           <WorkbenchAction kind="ghost" size="compact" onClick={onCancel} disabled={saving}>
             Cancel

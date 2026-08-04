@@ -12,7 +12,9 @@
  *
  * Internal plugins (`core`, `molplot`, `molq`, `molvis`,
  * `tensorboard`) are statically imported here and registered
- * eagerly inside `bootPlugins()`. They do NOT appear in `/api/plugins`. Charts are molplot only — no metrics product plugin.
+ * eagerly inside `bootPlugins()`. They do NOT appear in `/api/plugins`.
+ * Charts (including MolRec ``metrics/metrics.jsonl`` curves) are molplot
+ * only — no separate metrics product plugin.
  * Third-party bundles discovered through Python's
  * `molexp.ui_plugins` entry-point group are the only consumers of
  * the dynamic-import loader path.

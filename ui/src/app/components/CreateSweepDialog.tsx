@@ -17,7 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
-import { WorkbenchAction } from "@/components/workbench";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 
 interface CreateSweepDialogProps {
   projectId: string;
@@ -76,12 +76,11 @@ export function CreateSweepDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <WorkbenchAction kind="secondary" size="compact" className="h-7 gap-1">
+        <WorkbenchIconAction label="Create sweep">
           <Grid3x3 className="h-3.5 w-3.5" />
-          Sweep
-        </WorkbenchAction>
+        </WorkbenchIconAction>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[400px]">
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Sweep</DialogTitle>
           <DialogDescription className="sr-only">One axis, one run per value.</DialogDescription>
@@ -100,7 +99,7 @@ export function CreateSweepDialog({
               placeholder="300, 350, 400"
             />
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-body-lg text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <WorkbenchAction

@@ -4,6 +4,9 @@ import { EmptyState, OverviewSection } from "@/app/components/entity";
 import type { MetricRecord } from "@/app/state/api";
 import { workspaceApi } from "@/app/state/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Slider } from "@/components/ui/slider";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
+import { CHART_SERIES_PALETTE } from "@/lib/chart-tokens";
 import { smoothEma } from "@/plugins/metrics/smoothing";
 import { MolplotLineChart } from "@/plugins/molplot";
 
@@ -104,16 +107,7 @@ export const groupSeries = (series: ScalarSeries[]): Array<[string, ScalarSeries
 // Exported so the multi-run aggregation view (aggregateSeries.ts) cycles the
 // same 8 colors across runs that the single-run view cycles across series.
 /** Categorical series colors (chart freedom; not run-status tokens). */
-export const PALETTE = [
-  "oklch(0.55 0.18 255)",
-  "oklch(0.55 0.19 25)",
-  "oklch(0.58 0.14 150)",
-  "oklch(0.68 0.14 70)",
-  "oklch(0.55 0.19 295)",
-  "oklch(0.6 0.12 210)",
-  "oklch(0.58 0.18 350)",
-  "oklch(0.62 0.14 130)",
-];
+export const PALETTE = CHART_SERIES_PALETTE;
 
 interface ChartConfigOptions {
   xMode: XMode;
@@ -253,36 +247,31 @@ const MetricPanel = ({
   }
 
   return (
-    <section className="min-w-0 rounded-md border border-border bg-background p-3">
+    <section className="min-w-0 rounded-control border border-border bg-background p-3">
       <div className="flex items-baseline justify-between gap-3">
-        <div className="min-w-0 truncate text-sm font-medium text-foreground">{series.key}</div>
+        <div className="min-w-0 truncate text-body-lg font-medium text-foreground">
+          {series.key}
+        </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="font-mono text-label text-muted-foreground">
             {formatValue(series.latest)}
           </span>
-          <button
-            type="button"
+          <WorkbenchIconAction
             onClick={() => setShowToolbar((value) => !value)}
             aria-pressed={showToolbar}
-            title={showToolbar ? "Hide chart toolbar" : "Show chart toolbar"}
-            aria-label={showToolbar ? "Hide chart toolbar" : "Show chart toolbar"}
-            className={`rounded p-1 transition-colors ${
-              showToolbar
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            }`}
+            label={showToolbar ? "Hide chart toolbar" : "Show chart toolbar"}
+            kind={showToolbar ? "primary" : "ghost"}
+            className="size-6"
           >
             <Wrench className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
+          </WorkbenchIconAction>
+          <WorkbenchIconAction
             onClick={() => setEnlarged(true)}
-            title="Enlarge chart"
-            aria-label="Enlarge chart"
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            label="Enlarge chart"
+            className="size-6 text-muted-foreground"
           >
             <Maximize2 className="h-3.5 w-3.5" />
-          </button>
+          </WorkbenchIconAction>
         </div>
       </div>
       <MetricChart
@@ -297,7 +286,7 @@ const MetricPanel = ({
       <Dialog open={enlarged} onOpenChange={setEnlarged}>
         <DialogContent className="max-w-5xl">
           <DialogHeader>
-            <DialogTitle className="truncate font-mono text-sm">{series.key}</DialogTitle>
+            <DialogTitle className="truncate font-mono text-body-lg">{series.key}</DialogTitle>
           </DialogHeader>
           <MetricChart
             series={series}
@@ -326,12 +315,12 @@ const OtherRecords = ({ records }: { records: MetricRecord[] }): JSX.Element | n
         {nonScalar.map((record) => (
           <div
             key={`${record.k}:${record.t}:${record.s ?? ""}:${record.w ?? ""}`}
-            className="grid gap-1 px-3 py-2 text-sm md:grid-cols-4"
+            className="grid gap-1 px-3 py-2 text-body-lg md:grid-cols-4"
           >
             <div className="min-w-0 font-medium text-foreground">{record.k}</div>
             <div className="text-muted-foreground">{record.t}</div>
             <div className="text-muted-foreground">{record.s ?? "-"}</div>
-            <pre className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs text-muted-foreground">
+            <pre className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-label text-muted-foreground">
               {JSON.stringify(record.v)}
             </pre>
           </div>
@@ -361,21 +350,20 @@ const ChartControls = ({
   onXModeChange,
   onYScaleChange,
 }: ControlsProps): JSX.Element => (
-  <div className="flex flex-col gap-4 text-xs">
+  <div className="flex flex-col gap-4 text-label">
     <div className="flex flex-col gap-2">
       <span className="font-medium text-foreground">Smoothing</span>
       <div className="flex items-center gap-2">
-        <input
-          type="range"
+        <Slider
           min={0}
           max={0.99}
           step={0.01}
-          value={smoothing}
-          onChange={(event) => onSmoothingChange(Number(event.target.value))}
-          className="h-1 flex-1 cursor-pointer accent-primary"
+          value={[smoothing]}
+          onValueChange={([value]) => onSmoothingChange(value)}
+          className="flex-1"
           aria-label="EMA smoothing weight"
         />
-        <span className="w-8 text-right font-mono tabular-nums text-muted-foreground">
+        <span className="w-control text-right font-mono tabular-nums text-muted-foreground">
           {smoothing.toFixed(2)}
         </span>
       </div>
@@ -384,18 +372,15 @@ const ChartControls = ({
       <span className="font-medium text-foreground">X axis</span>
       <div className="grid grid-cols-2 gap-1">
         {(["step", "wall"] as const).map((mode) => (
-          <button
+          <WorkbenchAction
             key={mode}
-            type="button"
+            kind={xMode === mode ? "primary" : "secondary"}
+            size="compact"
             onClick={() => onXModeChange(mode)}
-            className={`rounded px-2 py-1 transition-colors ${
-              xMode === mode
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            }`}
+            className="w-full"
           >
             {mode === "step" ? "Step" : "Wall"}
-          </button>
+          </WorkbenchAction>
         ))}
       </div>
     </div>
@@ -403,18 +388,15 @@ const ChartControls = ({
       <span className="font-medium text-foreground">Y axis</span>
       <div className="grid grid-cols-2 gap-1">
         {(["linear", "log"] as const).map((scale) => (
-          <button
+          <WorkbenchAction
             key={scale}
-            type="button"
+            kind={yScale === scale ? "primary" : "secondary"}
+            size="compact"
             onClick={() => onYScaleChange(scale)}
-            className={`rounded px-2 py-1 transition-colors ${
-              yScale === scale
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            }`}
+            className="w-full"
           >
             {scale === "linear" ? "Linear" : "Log"}
-          </button>
+          </WorkbenchAction>
         ))}
       </div>
     </div>
@@ -492,7 +474,7 @@ export const RunMetricsView = ({
 
   if (loading && records.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center bg-background text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center bg-background text-body-lg text-muted-foreground">
         Loading metrics...
       </div>
     );
@@ -527,7 +509,7 @@ export const RunMetricsView = ({
       <aside className="flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-muted/20 px-4 py-4">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          <div className="text-sm font-medium text-foreground">Run Metrics</div>
+          <div className="text-body-lg font-medium text-foreground">Run Metrics</div>
         </div>
 
         {scalarSeries.length > 0 && (
@@ -541,7 +523,7 @@ export const RunMetricsView = ({
           />
         )}
 
-        <div className="mt-auto flex flex-col gap-1 border-t border-border pt-3 text-xs text-muted-foreground">
+        <div className="mt-auto flex flex-col gap-1 border-t border-border pt-3 text-label text-muted-foreground">
           <span>{records.length} records</span>
           <span>{scalarSeries.length} scalar series</span>
           {parseErrors > 0 && <span>{parseErrors} parse errors</span>}
@@ -569,7 +551,7 @@ export const RunMetricsView = ({
             ))
           ) : (
             <OverviewSection title="Scalars">
-              <div className="border-y border-dashed border-border/70 py-6 text-center text-sm text-muted-foreground">
+              <div className="border-y border-dashed border-border/70 py-6 text-center text-body-lg text-muted-foreground">
                 No scalar metrics recorded.
               </div>
             </OverviewSection>

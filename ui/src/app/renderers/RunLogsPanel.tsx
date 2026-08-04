@@ -5,8 +5,9 @@
  * viewer can host it in its own layout (a plain panel vs. an EntityTabContent).
  */
 
-import { Terminal } from "lucide-react";
+import { RotateCcw, Terminal } from "lucide-react";
 import type { JSX } from "react";
+import { WorkbenchIconAction } from "@/components/workbench";
 
 interface RunLogsPanelProps {
   logs: { stdout?: string | null; stderr?: string | null } | null;
@@ -33,16 +34,16 @@ export const RunLogsPanel = ({
         <span className="text-foreground">{attemptLabel}</span>
       </div>
       {selectedExecutionId && (
-        <button
-          type="button"
-          className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        <WorkbenchIconAction
+          label="View latest execution logs"
+          className="size-6 text-muted-foreground"
           onClick={onViewLatest}
         >
-          view latest
-        </button>
+          <RotateCcw className="size-3" />
+        </WorkbenchIconAction>
       )}
     </div>
-    <div className="flex-1 overflow-auto bg-muted/20 p-3 font-mono text-xs">
+    <div className="flex-1 overflow-auto bg-muted/20 p-3 font-mono text-label">
       {logsError ? (
         <div className="text-destructive">{logsError}</div>
       ) : logs ? (

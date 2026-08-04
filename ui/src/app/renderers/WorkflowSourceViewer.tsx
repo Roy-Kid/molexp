@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import { WorkbenchOperationState, WorkbenchRetryAction } from "@/components/workbench";
 
 // Lazy-loaded so `@monaco-editor/react` stays out of the initial page-load
 // bundle. This is the second Monaco consumer alongside the `editor` plugin's
@@ -121,16 +121,12 @@ export const WorkflowSourceViewer = ({ selection, snapshot }: RendererProps): JS
         title="Could not load workflow source"
         detail={error}
         action={
-          <WorkbenchAction
-            kind="secondary"
-            size="compact"
+          <WorkbenchRetryAction
             onClick={() => {
               setIsLoading(true);
               setRequestVersion((version) => version + 1);
             }}
-          >
-            Retry
-          </WorkbenchAction>
+          />
         }
       />
     );

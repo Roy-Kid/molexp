@@ -11,7 +11,7 @@ const molvisPlugin: UiPluginModule = {
       id: "molvis:run-tab",
       objectType: "run",
       value: "molvis",
-      label: "Molvis",
+      label: "MolVis",
       priority: 40,
       matcher: {
         // Logs (molpy.io.LAMMPSLog) + molvis-core supported formats:

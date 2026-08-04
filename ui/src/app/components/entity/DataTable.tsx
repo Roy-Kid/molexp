@@ -7,6 +7,14 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { ROW_PADDING_DENSE } from "./density";
 
 export interface DataTableColumn<T> {
@@ -54,7 +62,7 @@ export const DataTable = <T,>({
     const interactive = Boolean(onRowActivate);
     const activate = (): void => onRowActivate?.(row);
     const rowElement = (
-      <tr
+      <TableRow
         tabIndex={interactive ? 0 : undefined}
         aria-label={interactive ? (getRowLabel?.(row) ?? `Open ${getRowKey(row)}`) : undefined}
         className={`group transition-colors hover:bg-interactive/50 focus-visible:bg-interactive/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${interactive ? "cursor-pointer" : ""} ${rowClassName?.(row) ?? ""}`}
@@ -75,14 +83,14 @@ export const DataTable = <T,>({
         }
       >
         {columns.map((col) => (
-          <td
+          <TableCell
             key={col.key}
             className={`${ROW_PADDING_DENSE} ${col.align === "right" ? "text-right" : ""}`}
           >
             {col.cell(row)}
-          </td>
+          </TableCell>
         ))}
-      </tr>
+      </TableRow>
     );
 
     if (actions.length === 0) {
@@ -123,31 +131,31 @@ export const DataTable = <T,>({
 
   return (
     <div className="flex-1 overflow-auto">
-      <table className="w-full text-left text-body">
-        <thead className="sticky top-0 z-10 border-b border-border bg-background text-micro font-medium uppercase tracking-wide text-muted-foreground">
-          <tr>
+      <Table className="w-full text-left text-body">
+        <TableHeader className="sticky top-0 z-10 border-b border-border bg-background text-micro font-medium uppercase tracking-wide text-muted-foreground">
+          <TableRow>
             {columns.map((col) => (
-              <th
+              <TableHead
                 key={col.key}
                 className={`${ROW_PADDING_DENSE} ${col.width ?? "w-auto"} ${col.align === "right" ? "text-right" : ""}`}
               >
                 {col.header}
-              </th>
+              </TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/50">
+          </TableRow>
+        </TableHeader>
+        <TableBody className="divide-y divide-border/50">
           {data.length === 0 ? (
-            <tr>
-              <td colSpan={columns.length} className="py-8">
+            <TableRow>
+              <TableCell colSpan={columns.length} className="py-8">
                 {empty}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ) : (
             data.map(renderRow)
           )}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 };

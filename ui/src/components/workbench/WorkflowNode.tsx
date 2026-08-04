@@ -79,11 +79,9 @@ export const WorkflowNode = ({
       onClick={onActivate}
       aria-current={selected ? "true" : undefined}
       className={cn(
-        "relative w-full rounded-[var(--radius-panel)] border border-border bg-surface text-left shadow-none",
-        "transition-[background-color,border-color] duration-[var(--motion-base)] ease-[var(--motion-ease)]",
-        compact
-          ? "min-w-[9.5rem] max-w-[16.25rem] px-3 py-2"
-          : "min-w-[13.75rem] max-w-[17.5rem] p-3",
+        "relative w-full rounded-panel border border-border bg-surface text-left shadow-none",
+        "transition-[background-color,border-color] duration-(--motion-base) ease-standard",
+        compact ? "min-w-40 max-w-64 px-3 py-2" : "min-w-56 max-w-panel-md p-3",
         selected && "border-accent/60 bg-accent/5 ring-1 ring-accent/20",
         onActivate &&
           "cursor-pointer hover:bg-interactive/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",

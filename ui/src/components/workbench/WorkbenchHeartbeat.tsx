@@ -1,5 +1,5 @@
 /**
- * Live sync indicator for the workbench chrome (bottom tab strip).
+ * Live sync indicator for the workbench status bar.
  * Idle is neutral, active refresh uses running blue, and each completed poll
  * gets one short neutral acknowledgement pulse.
  */
@@ -7,6 +7,7 @@
 import { HeartPulse } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export interface WorkbenchHeartbeatProps {
@@ -70,10 +71,11 @@ export const WorkbenchHeartbeat = ({
   }
 
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon-sm"
       className={cn(
-        "inline-flex h-control-compact w-control-compact flex-none items-center justify-center rounded-[var(--radius-control)]",
         "text-muted-foreground transition-colors hover:bg-interactive hover:text-foreground",
         "disabled:pointer-events-none disabled:opacity-50",
       )}
@@ -83,6 +85,6 @@ export const WorkbenchHeartbeat = ({
       title={label}
     >
       {lamp}
-    </button>
+    </Button>
   );
 };

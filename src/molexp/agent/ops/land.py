@@ -7,8 +7,9 @@ the UI shows empty pending runs.
 Landing is **workspace storage only**: open a RunContext, copy sources +
 product files into the run as assets, optionally set small JSON headlines
 via ``set_result``, and settle the lifecycle. Scientific series live in
-**MolRec** records (observables / molrec metrics sections) written by
-molpy/molrs — not molexp's legacy ``metrics.jsonl`` product path.
+**MolRec** records (observables / metrics JSONL / status) written by
+molnex/molpy — the shared ``metrics/metrics.jsonl`` binding, not a
+molexp-private format.
 """
 
 from __future__ import annotations

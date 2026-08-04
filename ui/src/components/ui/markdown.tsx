@@ -24,37 +24,37 @@ import { cn } from "@/lib/utils";
  */
 
 const MARKDOWN_CLASS = [
-  "text-sm leading-relaxed text-foreground [overflow-wrap:anywhere]",
+  "text-body-lg leading-relaxed text-foreground [overflow-wrap:anywhere]",
   // paragraphs + vertical rhythm
   "[&_p]:my-2 [&_>*:first-child]:mt-0 [&_>*:last-child]:mb-0",
   // headings — compact editor scale, weight carries hierarchy
   "[&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold",
   "[&_h2]:mt-4 [&_h2]:mb-1 [&_h2]:text-body-lg [&_h2]:font-semibold",
-  "[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold",
-  "[&_h4]:mt-3 [&_h4]:mb-1 [&_h4]:text-sm [&_h4]:font-medium",
+  "[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-body-lg [&_h3]:font-semibold",
+  "[&_h4]:mt-3 [&_h4]:mb-1 [&_h4]:text-body-lg [&_h4]:font-medium",
   // lists
   "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6",
   "[&_li]:my-1 [&_li_>_ul]:my-1 [&_li_>_ol]:my-1",
   // inline code
-  "[&_:not(pre)>code]:rounded-sm [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1",
+  "[&_:not(pre)>code]:rounded-control [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1",
   "[&_:not(pre)>code]:py-px [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-label",
   // fenced code blocks
-  "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border",
+  "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-control [&_pre]:border",
   "[&_pre]:border-border/60 [&_pre]:bg-muted/50 [&_pre]:px-3 [&_pre]:py-3",
-  "[&_pre]:font-mono [&_pre]:text-xs [&_pre]:leading-relaxed",
+  "[&_pre]:font-mono [&_pre]:text-label [&_pre]:leading-relaxed",
   // links
-  "[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:opacity-80",
+  "[&_a]:text-accent [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:opacity-80",
   // quotes — conventional muted markdown affordance
   "[&_blockquote]:my-2 [&_blockquote]:border-l [&_blockquote]:border-border",
   "[&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground",
   // GFM tables
-  "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs",
+  "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-label",
   "[&_th]:border [&_th]:border-border/60 [&_th]:bg-muted/40 [&_th]:px-2 [&_th]:py-1",
   "[&_th]:text-left [&_th]:font-medium",
   "[&_td]:border [&_td]:border-border/60 [&_td]:px-2 [&_td]:py-1 [&_td]:tabular-nums",
   // misc
   "[&_hr]:my-3 [&_hr]:border-border [&_strong]:font-semibold",
-  "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-md [&_img]:border [&_img]:border-border/60",
+  "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-control [&_img]:border [&_img]:border-border/60",
   // KaTeX math — display blocks get breathing room + safe horizontal scroll
   "[&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden",
   "[&_.katex-display]:py-1 [&_.katex]:text-title",
@@ -95,12 +95,12 @@ export const MarkdownContent = ({
               <img
                 src={s}
                 alt={alt ?? ""}
-                className="my-2 max-w-full rounded-md border border-border/60"
+                className="my-2 max-w-full rounded-control border border-border/60"
               />
             );
           }
           return (
-            <div className="my-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <div className="my-2 rounded-control border border-border/60 bg-muted/40 px-3 py-2 text-label text-muted-foreground">
               <p className="font-medium text-foreground">
                 {alt?.trim() || "Chart"} (image not embedded)
               </p>

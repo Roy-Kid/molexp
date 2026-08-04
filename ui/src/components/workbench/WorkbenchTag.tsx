@@ -20,7 +20,7 @@ export type WorkbenchTagMeaning =
 const MEANING_CLASS: Record<WorkbenchTagMeaning, string> = {
   category: "bg-muted text-muted-foreground",
   metadata: "bg-transparent text-foreground",
-  selection: "bg-accent/10 text-accent",
+  selection: "bg-accent-muted text-accent-muted-foreground",
   completed: "bg-status-completed-soft text-status-completed-foreground",
   failed: "bg-status-failed-soft text-status-failed-foreground",
   warning: "bg-status-warning-soft text-status-warning-foreground",
@@ -42,7 +42,7 @@ export const WorkbenchTag = ({
   <Badge
     variant="outline"
     className={cn(
-      "rounded-[var(--radius-control)] font-medium",
+      "rounded-control font-medium",
       density === "compact" ? "px-2 py-0 text-micro" : "px-2 py-1 text-label",
       MEANING_CLASS[meaning],
       mono && "font-mono tabular-nums",

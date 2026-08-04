@@ -1,6 +1,7 @@
-import { Brain, ChevronDown, ChevronRight } from "lucide-react";
+import { Brain } from "lucide-react";
 import type { JSX } from "react";
 import { useState } from "react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 /**
  * Collapsible, dimmed reasoning block.
@@ -21,15 +22,12 @@ export const ThinkingBlock = ({
   const [expanded, setExpanded] = useState(false);
   if (!thinking) return null;
   return (
-    <div className="text-muted-foreground">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-2 rounded-sm px-1 py-1 text-xs transition-colors hover:text-foreground"
+    <Collapsible open={expanded} onOpenChange={setExpanded} className="text-muted-foreground">
+      <CollapsibleTrigger
+        className="flex items-center gap-2 rounded-control px-1 py-1 text-label transition-colors hover:text-foreground"
         aria-expanded={expanded}
         aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
       >
-        {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         <Brain className="h-3 w-3" />
         <span className={streaming ? "italic text-muted-foreground" : "italic"}>
           {streaming ? "Thinking…" : "Thought process"}
@@ -40,12 +38,12 @@ export const ThinkingBlock = ({
             aria-hidden
           />
         ) : null}
-      </button>
-      {expanded && (
-        <pre className="mt-1 whitespace-pre-wrap rounded-md border border-border/50 bg-muted/40 px-3 py-2 text-micro italic leading-relaxed text-muted-foreground">
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <pre className="mt-1 whitespace-pre-wrap rounded-control border border-border/50 bg-muted/40 px-3 py-2 text-micro italic leading-relaxed text-muted-foreground">
           {thinking}
         </pre>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 };

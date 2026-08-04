@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { WorkbenchAction } from "@/components/workbench";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 
 const NO_TARGET_VALUE = "__none__";
 
@@ -102,15 +102,14 @@ export function CreateExperimentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger === undefined ? (
         <DialogTrigger asChild>
-          <WorkbenchAction kind="secondary" size="compact" className="h-7 gap-1">
+          <WorkbenchIconAction label="New experiment">
             <Plus className="h-3.5 w-3.5" />
-            <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">New Experiment</span>
-          </WorkbenchAction>
+          </WorkbenchIconAction>
         </DialogTrigger>
       ) : (
         trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>
       )}
-      <DialogContent className="sm:max-w-[550px]">
+      <DialogContent className="sm:max-w-dialog-lg">
         <DialogHeader>
           <DialogTitle>Create Experiment</DialogTitle>
           <DialogDescription>
@@ -160,7 +159,7 @@ export function CreateExperimentDialog({
                 id="exp-params"
                 value={parameterSpace}
                 onChange={(e) => setParameterSpace(e.target.value)}
-                className="col-span-3 font-mono text-xs"
+                className="col-span-3 font-mono text-label"
                 rows={4}
               />
             </div>
@@ -189,12 +188,9 @@ export function CreateExperimentDialog({
                 </Select>
                 <AddTargetDialog
                   trigger={
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      + Add new target…
-                    </button>
+                    <WorkbenchIconAction label="Add new target">
+                      <Plus className="size-3.5" />
+                    </WorkbenchIconAction>
                   }
                   onCreated={(t) => {
                     void refreshTargets();
@@ -204,7 +200,7 @@ export function CreateExperimentDialog({
               </div>
             </div>
             {error && (
-              <div className="text-sm text-status-failed-foreground col-span-4 text-center">
+              <div className="text-body-lg text-status-failed-foreground col-span-4 text-center">
                 {error}
               </div>
             )}

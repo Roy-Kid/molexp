@@ -104,7 +104,7 @@ def diagnose_failure(exc: StageExecutionError | BaseException, text: str) -> Dia
     # Structured validation reports (JSON).
     try:
         payload: Any = json.loads(text)
-    except json.JSONDecodeError, TypeError:
+    except (json.JSONDecodeError, TypeError):
         payload = None
     if isinstance(payload, dict):
         for violation in payload.get("violations") or []:
@@ -326,13 +326,13 @@ def _live_source_signature(symbol: str) -> str:
                 lines.append(f"signature: `{inspect.signature(obj)}`")
             else:
                 lines.append(f"type: `{type(obj).__name__}`")
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             lines.append(f"type: `{type(obj).__name__}`")
         try:
             src_file = inspect.getsourcefile(obj) or inspect.getfile(obj)  # type: ignore[arg-type]
             if src_file:
                 lines.append(f"file: `{src_file}`")
-        except TypeError, OSError:
+        except (TypeError, OSError):
             pass
         try:
             src = inspect.getsource(obj)  # type: ignore[arg-type]
@@ -341,7 +341,7 @@ def _live_source_signature(symbol: str) -> str:
             lines.append("```python")
             lines.append(snippet.rstrip())
             lines.append("```")
-        except TypeError, OSError:
+        except (TypeError, OSError):
             doc = inspect.getdoc(obj)
             if doc:
                 lines.append(doc[:600])

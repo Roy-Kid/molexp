@@ -204,8 +204,16 @@ class Folder:
     # All I/O must still flow through ``self._fs``.
 
     def path(self) -> Path:
-        """Return the on-disk path; mkdirs if absent (lazy, idempotent)."""
+        """Return the on-disk path; create only if missing (lazy, idempotent).
+
+        Pure path math is :meth:`resolve`.  This twin only ``mkdir`` when
+        the directory is not already present — so remote-backed folders that
+        already exist never issue a write (remote ``mkdir`` can fail on
+        permission even when the path is already a directory).
+        """
         target = self.resolve()
+        if self._fs.is_dir(target):
+            return target
         self._fs.mkdir(target, parents=True, exist_ok=True)
         return target
 
@@ -441,8 +449,13 @@ class Folder:
 
     @classmethod
     def child_dir(cls, parent: Folder, derived_id: str) -> Path:
-        """Where a child with *derived_id* lives under *parent*. Override per subclass layout."""
-        return Path(parent._fs.join(parent.path(), derived_id))
+        """Where a child with *derived_id* lives under *parent*. Override per subclass layout.
+
+        Must use :meth:`resolve` (not :meth:`path`) — this is pure path math
+        and must not trigger lazy mkdir on the parent (remote workspaces would
+        otherwise attempt writes during list/get).
+        """
+        return Path(parent._fs.join(parent.resolve(), derived_id))
 
     @classmethod
     def base_from_disk_attrs(
@@ -607,7 +620,7 @@ class Folder:
         try:
             with self._fs.open(index_path) as fh:
                 raw: object = json.load(fh)
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             return []
         if not isinstance(raw, dict):
             return []
@@ -621,7 +634,7 @@ class Folder:
                 continue
             try:
                 loaded = cls.from_disk(child_dir, self)
-            except FileNotFoundError, OSError:
+            except (FileNotFoundError, OSError):
                 continue
             if isinstance(loaded, cls):
                 self._children_cache[loaded._name] = loaded
@@ -644,7 +657,7 @@ class Folder:
                 continue
             try:
                 child = cls.from_disk(entry_path, self)
-            except FileNotFoundError, OSError:
+            except (FileNotFoundError, OSError):
                 continue
             if isinstance(child, cls):
                 rows[child._name] = child._to_index_row()
@@ -680,7 +693,7 @@ class Folder:
             try:
                 with self._fs.open(fpath) as fh:
                     raw: object = json.load(fh)
-            except OSError, json.JSONDecodeError:
+            except (OSError, json.JSONDecodeError):
                 raw = None
             if isinstance(raw, dict):
                 for k, v in raw.items():
@@ -696,7 +709,7 @@ class Folder:
         try:
             with self._fs.open(fpath) as fh:
                 raw: object = json.load(fh)
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             return
         if not isinstance(raw, dict):
             return

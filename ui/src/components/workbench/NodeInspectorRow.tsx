@@ -9,7 +9,7 @@ export interface NodeInspectorRowProps {
 }
 
 export const NodeInspectorRow = ({ label, value, mono }: NodeInspectorRowProps): JSX.Element => (
-  <div className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-2 text-body">
+  <div className="grid grid-cols-(--inspector-grid-columns) gap-2 text-body">
     <span className="text-label text-muted-foreground">{label}</span>
     <span
       className={cn(

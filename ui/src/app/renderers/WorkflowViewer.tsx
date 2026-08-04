@@ -43,7 +43,7 @@ const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Eleme
               <WorkbenchAction
                 kind="secondary"
                 size="compact"
-                className="h-7 px-2 text-xs"
+                className="h-control-compact px-2 text-label"
                 onClick={() =>
                   setSelection({ objectType: "project", objectId: workflow.projectId })
                 }
@@ -53,7 +53,7 @@ const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Eleme
               <WorkbenchAction
                 kind="secondary"
                 size="compact"
-                className="h-7 px-2 text-xs"
+                className="h-control-compact px-2 text-label"
                 onClick={() =>
                   setSelection({ objectType: "experiment", objectId: workflow.experimentId })
                 }
@@ -66,7 +66,7 @@ const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Eleme
       }
     >
       <OverviewSection title="Summary">
-        <p className="max-w-3xl text-sm leading-6 text-foreground">
+        <p className="max-w-3xl text-body-lg leading-6 text-foreground">
           {workflow.summary || <span className="text-muted-foreground">No summary provided.</span>}
         </p>
       </OverviewSection>
@@ -76,15 +76,15 @@ const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Eleme
           items={[
             {
               label: "Workflow ID",
-              value: <span className="font-mono text-xs">{workflow.id}</span>,
+              value: <span className="font-mono text-label">{workflow.id}</span>,
             },
             {
               label: "Project ID",
-              value: <span className="font-mono text-xs">{workflow.projectId}</span>,
+              value: <span className="font-mono text-label">{workflow.projectId}</span>,
             },
             {
               label: "Experiment ID",
-              value: <span className="font-mono text-xs">{workflow.experimentId}</span>,
+              value: <span className="font-mono text-label">{workflow.experimentId}</span>,
             },
             {
               label: "Last Updated",

@@ -94,7 +94,7 @@ def get_experiment_comparison(
                 if isinstance(key_raw, str) and key_raw and latest is not None:
                     metrics_summary[key_raw] = latest
                     metric_keys.add(key_raw)
-        except FileNotFoundError, OSError, ValueError:
+        except (FileNotFoundError, OSError, ValueError):
             pass
 
         duration: float | None = None

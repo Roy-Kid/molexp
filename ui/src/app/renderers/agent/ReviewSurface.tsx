@@ -6,6 +6,8 @@
  */
 
 import { type JSX, useId, useMemo, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Code as InlineCode } from "@/components/ui/code";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarkdownContent } from "@/components/ui/markdown";
@@ -16,6 +18,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { collectFieldValues, type FormDocumentWire, type FormFieldWire } from "./formDocument";
@@ -38,12 +48,12 @@ const FieldShell = ({
 }): JSX.Element => (
   <div className="space-y-1">
     {controlId ? (
-      <Label htmlFor={controlId} className="text-xs font-medium text-foreground">
+      <Label htmlFor={controlId} className="text-label font-medium text-foreground">
         {field.label}
         {field.required ? <span className="text-destructive"> *</span> : null}
       </Label>
     ) : (
-      <p className="text-xs font-medium text-foreground">
+      <p className="text-label font-medium text-foreground">
         {field.label}
         {field.required ? <span className="text-destructive"> *</span> : null}
       </p>
@@ -83,10 +93,10 @@ export const ReviewSurface = ({
   return (
     <div className={cn("space-y-3", !compact && "border-t border-border/60 pt-3")}>
       {!compact && doc.title ? (
-        <h4 className="text-sm font-semibold text-foreground">{doc.title}</h4>
+        <h4 className="text-body-lg font-semibold text-foreground">{doc.title}</h4>
       ) : null}
       {!compact && doc.description_md ? (
-        <div className="text-xs text-muted-foreground">
+        <div className="text-label text-muted-foreground">
           <MarkdownContent text={doc.description_md} />
         </div>
       ) : null}
@@ -101,7 +111,7 @@ export const ReviewSurface = ({
         if (field.kind === "markdown") {
           return (
             <FieldShell key={field.id} field={field} helpId={helpId} hideHelp={compact}>
-              <div className="text-xs leading-relaxed text-foreground">
+              <div className="text-label leading-relaxed text-foreground">
                 <MarkdownContent text={field.content ?? ""} />
               </div>
             </FieldShell>
@@ -141,7 +151,7 @@ export const ReviewSurface = ({
                   }
                 />
                 {field.unit ? (
-                  <span className="text-xs text-muted-foreground">{field.unit}</span>
+                  <span className="text-label text-muted-foreground">{field.unit}</span>
                 ) : null}
               </div>
             </FieldShell>
@@ -151,15 +161,14 @@ export const ReviewSurface = ({
         if (field.kind === "boolean") {
           return (
             <FieldShell key={field.id} field={field} controlId={controlId} helpId={helpId}>
-              <div className="flex items-center gap-2 text-xs">
-                <input
+              <div className="flex items-center gap-2 text-label">
+                <Checkbox
                   id={controlId}
-                  type="checkbox"
                   checked={Boolean(value)}
                   disabled={ro}
                   required={field.required}
                   aria-describedby={describedBy}
-                  onChange={(e) => set(field.id, e.target.checked)}
+                  onCheckedChange={(checked) => set(field.id, Boolean(checked))}
                 />
                 <span>{value ? "Yes" : "No"}</span>
               </div>
@@ -177,7 +186,7 @@ export const ReviewSurface = ({
               <Select value={selectValue} disabled={ro} onValueChange={(v) => set(field.id, v)}>
                 <SelectTrigger
                   id={controlId}
-                  className="w-full min-w-[12rem]"
+                  className="w-full min-w-panel-sm"
                   aria-describedby={describedBy}
                 >
                   <SelectValue placeholder="Select…" />
@@ -206,16 +215,15 @@ export const ReviewSurface = ({
                     <li key={opt.value}>
                       <label
                         htmlFor={optionId}
-                        className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+                        className="flex cursor-pointer items-start gap-2 rounded-control px-2 py-1.5 text-body-lg hover:bg-muted/50"
                       >
-                        <input
+                        <Checkbox
                           id={optionId}
-                          type="checkbox"
                           className="mt-0.5"
                           checked={on}
                           disabled={ro}
                           aria-describedby={describedBy}
-                          onChange={() => {
+                          onCheckedChange={() => {
                             const next = on
                               ? selected.filter((v) => v !== opt.value)
                               : [...selected, opt.value];
@@ -238,45 +246,45 @@ export const ReviewSurface = ({
           return (
             <FieldShell key={field.id} field={field} helpId={helpId}>
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-micro">
-                  <thead>
-                    <tr>
+                <Table className="w-full border-collapse text-micro">
+                  <TableHeader>
+                    <TableRow>
                       {cols.map((c) => (
-                        <th
+                        <TableHead
                           key={c.id}
                           className="border border-border/60 bg-muted/40 px-2 py-1 text-left"
                         >
                           {c.label}
-                        </th>
+                        </TableHead>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {rows.length === 0 ? (
-                      <tr>
-                        <td
+                      <TableRow>
+                        <TableCell
                           colSpan={Math.max(cols.length, 1)}
                           className="border border-border/60 px-2 py-1 text-muted-foreground"
                         >
                           (empty table — display only)
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ) : (
                       rows.map((row) => {
                         const rowKey = cols.map((c) => String(row[c.id] ?? "")).join("\0");
                         return (
-                          <tr key={rowKey}>
+                          <TableRow key={rowKey}>
                             {cols.map((c) => (
-                              <td key={c.id} className="border border-border/60 px-2 py-1">
+                              <TableCell key={c.id} className="border border-border/60 px-2 py-1">
                                 {String(row[c.id] ?? "")}
-                              </td>
+                              </TableCell>
                             ))}
-                          </tr>
+                          </TableRow>
                         );
                       })
                     )}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </FieldShell>
           );
@@ -285,7 +293,7 @@ export const ReviewSurface = ({
         if (field.kind === "key_value") {
           return (
             <FieldShell key={field.id} field={field} helpId={helpId}>
-              <pre className="max-h-32 overflow-auto rounded border border-border/60 bg-background px-2 py-1 font-mono text-micro text-muted-foreground">
+              <pre className="max-h-32 overflow-auto rounded-control border border-border/60 bg-background px-2 py-1 font-mono text-micro text-muted-foreground">
                 {JSON.stringify(value ?? field.default ?? [], null, 2)}
               </pre>
             </FieldShell>
@@ -295,9 +303,9 @@ export const ReviewSurface = ({
         if (field.kind === "artifact_ref") {
           return (
             <FieldShell key={field.id} field={field} helpId={helpId}>
-              <code className="text-micro text-muted-foreground">
+              <InlineCode className="text-micro text-muted-foreground">
                 {String(value ?? field.default ?? "—")}
-              </code>
+              </InlineCode>
             </FieldShell>
           );
         }

@@ -1,5 +1,6 @@
 import type { JSX } from "react";
 import { useMemo } from "react";
+import { WorkbenchAction } from "@/components/workbench";
 
 import { cn } from "@/lib/utils";
 
@@ -35,7 +36,7 @@ export const RunsStatusProgress = ({
   }, [runs]);
 
   if (total === 0) {
-    return <p className="text-sm text-muted-foreground">No runs match the current filters.</p>;
+    return <p className="text-body-lg text-muted-foreground">No runs match the current filters.</p>;
   }
 
   const visible = segments.filter((segment) => segment.count > 0);
@@ -50,13 +51,15 @@ export const RunsStatusProgress = ({
         {visible.map((segment) => {
           const widthPct = segment.ratio * 100;
           return (
-            <button
+            <WorkbenchAction
+              kind="ghost"
+              size="content"
               key={segment.spec.id}
               type="button"
               onClick={onSelectStatus ? () => onSelectStatus(segment.spec.filterValue) : undefined}
               title={`${segment.spec.label}: ${segment.count} (${(segment.ratio * 100).toFixed(1)}%)`}
               className={cn(
-                "h-full min-w-[2px] transition-opacity hover:opacity-80",
+                "h-full min-w-0.5 transition-opacity hover:opacity-80",
                 onSelectStatus ? "cursor-pointer" : "cursor-default",
               )}
               style={{ width: `${widthPct}%`, backgroundColor: segment.spec.color }}
@@ -71,15 +74,15 @@ export const RunsStatusProgress = ({
           const clickable = onSelectStatus !== undefined && !dimmed;
           return (
             <li key={segment.spec.id}>
-              <button
+              <WorkbenchAction
+                kind="ghost"
+                size="content"
                 type="button"
                 onClick={clickable ? () => onSelectStatus(segment.spec.filterValue) : undefined}
                 disabled={!clickable}
                 className={cn(
-                  "flex w-full items-center justify-between gap-2 text-xs transition-colors",
-                  clickable
-                    ? "cursor-pointer text-foreground hover:text-primary"
-                    : "cursor-default",
+                  "flex w-full items-center justify-between gap-2 text-label transition-colors",
+                  clickable ? "cursor-pointer text-foreground hover:text-accent" : "cursor-default",
                   dimmed && "opacity-40",
                 )}
               >
@@ -93,11 +96,11 @@ export const RunsStatusProgress = ({
                 </span>
                 <span className="flex shrink-0 items-center gap-2 tabular-nums">
                   <span className="font-medium text-foreground">{segment.count}</span>
-                  <span className="w-8 text-right text-muted-foreground">
+                  <span className="w-control text-right text-muted-foreground">
                     {(segment.ratio * 100).toFixed(0)}%
                   </span>
                 </span>
-              </button>
+              </WorkbenchAction>
             </li>
           );
         })}

@@ -94,13 +94,16 @@ export const RunsActivityChart = ({ buckets }: RunsActivityChartProps): JSX.Elem
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-label text-muted-foreground">
         <LegendDot color={SERIES_COLORS.started} label={`Started ${totals.started}`} />
         <LegendDot color={SERIES_COLORS.succeeded} label={`Succeeded ${totals.succeeded}`} />
         <LegendDot color={SERIES_COLORS.failed} label={`Failed ${totals.failed}`} />
         <LegendDot color={SERIES_COLORS.cancelled} label={`Cancelled ${totals.cancelled}`} />
       </div>
-      <MolplotBarChart config={config} style={{ width: "100%", height: "200px" }} />
+      <MolplotBarChart
+        config={config}
+        style={{ width: "100%", height: "var(--spacing-chart-sm)" }}
+      />
     </div>
   );
 };

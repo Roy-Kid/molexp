@@ -41,7 +41,7 @@ function AlertDialogContent({
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         className={cn(
-          "mol-motion-dialog fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--radius-overlay)] border bg-background p-6 shadow-overlay sm:max-w-lg",
+          "mol-motion-dialog fixed top-1/2 left-1/2 z-50 grid w-full max-w-overlay-viewport -translate-x-1/2 -translate-y-1/2 gap-4 rounded-overlay border bg-background p-6 shadow-overlay sm:max-w-lg",
           className,
         )}
         {...props}
@@ -90,7 +90,7 @@ function AlertDialogDescription({
   return (
     <AlertDialogPrimitive.Description
       data-slot="alert-dialog-description"
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn("text-muted-foreground text-body-lg", className)}
       {...props}
     />
   );

@@ -93,7 +93,7 @@ export const InlineStructureViewer = ({
   }, [content, filename]);
 
   return (
-    <div className="overflow-hidden rounded-[var(--radius-panel)] border border-border/60 bg-surface">
+    <div className="overflow-hidden rounded-panel border border-border/60 bg-surface">
       {(title ?? filename) && (
         <div className="flex items-center justify-between border-b border-border/50 bg-muted/30 px-3 py-1">
           <span className="truncate font-mono text-micro text-muted-foreground">
@@ -115,7 +115,11 @@ export const InlineStructureViewer = ({
           {content.slice(0, 800)}
         </pre>
       ) : (
-        <div ref={containerRef} style={{ width: "100%", height: 288 }} className="bg-canvas" />
+        <div
+          ref={containerRef}
+          style={{ width: "100%", height: "var(--spacing-structure-preview)" }}
+          className="bg-canvas"
+        />
       )}
     </div>
   );

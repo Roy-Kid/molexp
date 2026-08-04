@@ -50,7 +50,7 @@ def stage_fingerprint(stage: Stage) -> str:
     try:
         source = textwrap.dedent(inspect.getsource(cls))
         normalized = ast.unparse(ast.parse(source))
-    except OSError, TypeError, SyntaxError:
+    except (OSError, TypeError, SyntaxError):
         normalized = ""
     digest = hashlib.sha256(f"{identity}\n{normalized}".encode()).hexdigest()
     return f"sha256:{digest}"

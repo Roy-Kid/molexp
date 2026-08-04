@@ -12,8 +12,7 @@ import typer
 
 from molexp.cli._app import app
 from molexp.cli._common import rprint
-from molexp.cli._target import TargetOption, resolve_workspace_target
-from molexp.workspace.target import RemoteTarget
+from molexp.cli._target import TargetOption, open_workspace
 
 if TYPE_CHECKING:
     from molexp.workspace.workspace_context import WorkspaceContext
@@ -31,24 +30,14 @@ def context(
     target_spec: TargetOption = ".",
 ) -> None:
     """Print the workspace's canonical structural read-model (WorkspaceContext)."""
-    target, _transport, _fs = resolve_workspace_target(target_spec)
-
-    if isinstance(target, RemoteTarget):
-        rprint("[yellow]Remote workspace context is not yet supported.[/yellow]")
-        raise typer.Exit(1)
-
-    from molexp.workspace import (
-        ContextFocus,
-        Workspace,
-        assemble_workspace_context,
-    )
+    from molexp.workspace import ContextFocus, assemble_workspace_context
 
     try:
-        ws = Workspace.load(target.path)
-    except FileNotFoundError:
-        rprint(f"[red]Error:[/red] No workspace found at {target.path}")
+        _target, _transport, _fs, ws = open_workspace(target_spec)
+    except FileNotFoundError as exc:
+        rprint(f"[red]Error:[/red] {exc}")
         rprint("  Run [bold]molexp init[/bold] to create one.")
-        raise typer.Exit(1)  # noqa: B904
+        raise typer.Exit(1) from exc
 
     focus = ContextFocus(project_id=project, experiment_id=experiment, run_id=run)
     _render(assemble_workspace_context(ws, focus=focus))

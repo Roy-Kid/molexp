@@ -13,7 +13,12 @@ import type { PendingApprovalItem } from "@/api/generated/models/PendingApproval
 import { ApprovalsService } from "@/api/generated/services/ApprovalsService";
 import { MarkdownContent } from "@/components/ui/markdown";
 import { Textarea } from "@/components/ui/textarea";
-import { WorkbenchAction, WorkbenchOperationState, WorkbenchTag } from "@/components/workbench";
+import {
+  WorkbenchAction,
+  WorkbenchOperationState,
+  WorkbenchRetryAction,
+  WorkbenchTag,
+} from "@/components/workbench";
 import { formatDateTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import { collectFieldValues, type FormDocumentWire } from "./formDocument";
@@ -108,11 +113,13 @@ const ApprovalListRow = ({
     item.taskKind === "plan" || item.intent.includes("plan") || item.intent.includes("experiment");
 
   return (
-    <button
+    <WorkbenchAction
+      kind="ghost"
+      size="content"
       type="button"
       onClick={() => onOpen?.(item)}
       className={cn(
-        "flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors",
+        "flex w-full items-start gap-3 rounded-panel px-3 py-3 text-left transition-colors",
         "bg-muted/40 hover:bg-muted/70",
         isPlan && "bg-info-soft/25 hover:bg-info-soft/40",
       )}
@@ -121,17 +128,17 @@ const ApprovalListRow = ({
         className={cn("mt-0.5 h-4 w-4 flex-none", isPlan ? "text-info" : "text-warning")}
       />
       <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        <p className="truncate text-xs text-muted-foreground">
+        <p className="text-body-lg font-medium text-foreground">{title}</p>
+        <p className="truncate text-label text-muted-foreground">
           {item.projectId}/{item.experimentId}
           <span className="text-muted-foreground/70"> · {formatDateTime(item.requestedAt)}</span>
         </p>
         {item.reason ? (
-          <p className="line-clamp-2 text-xs text-muted-foreground">{item.reason}</p>
+          <p className="line-clamp-2 text-label text-muted-foreground">{item.reason}</p>
         ) : null}
       </div>
       <ChevronRight className="mt-1 h-4 w-4 flex-none text-muted-foreground" />
-    </button>
+    </WorkbenchAction>
   );
 };
 
@@ -203,7 +210,7 @@ const ApprovalCard = ({
   return (
     <div
       className={cn(
-        "space-y-3 rounded-lg bg-muted/30 px-4 py-4",
+        "space-y-3 rounded-panel bg-muted/30 px-4 py-4",
         isPlanReview && "bg-info-soft/20",
       )}
       aria-busy={busy}
@@ -214,8 +221,8 @@ const ApprovalCard = ({
             className={cn("mt-0.5 h-4 w-4 flex-none", isPlanReview ? "text-info" : "text-warning")}
           />
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-            <p className="text-xs text-muted-foreground">
+            <h3 className="text-body-lg font-semibold text-foreground">{title}</h3>
+            <p className="text-label text-muted-foreground">
               {item.projectId}/{item.experimentId}
               {item.runId ? (
                 <span className="text-muted-foreground/70"> · run {item.runId}</span>
@@ -227,12 +234,12 @@ const ApprovalCard = ({
             </p>
           </div>
         </div>
-        {blurb ? <p className="text-sm text-muted-foreground">{blurb}</p> : null}
+        {blurb ? <p className="text-body-lg text-muted-foreground">{blurb}</p> : null}
       </header>
 
       {/* Plan book is the agent chat answer — not duplicated here. Bell sheet only. */}
       {!isPlanReview && item.preview ? (
-        <div className="max-h-48 overflow-auto rounded-md border border-border/50 bg-card px-3 py-2 text-xs">
+        <div className="max-h-48 overflow-auto rounded-control border border-border/50 bg-card px-3 py-2 text-label">
           <MarkdownContent text={item.preview} />
         </div>
       ) : null}
@@ -278,14 +285,7 @@ const ApprovalCard = ({
           detail={error}
           action={
             lastAction ? (
-              <WorkbenchAction
-                kind="secondary"
-                size="compact"
-                disabled={busy}
-                onClick={() => void decide(lastAction)}
-              >
-                Retry
-              </WorkbenchAction>
+              <WorkbenchRetryAction disabled={busy} onClick={() => void decide(lastAction)} />
             ) : undefined
           }
         />
@@ -404,11 +404,7 @@ export const ApprovalsInbox = ({
         density="compact"
         title="Could not load pending approvals"
         detail={error}
-        action={
-          <WorkbenchAction kind="secondary" size="compact" onClick={() => void refetch()}>
-            Retry
-          </WorkbenchAction>
-        }
+        action={<WorkbenchRetryAction onClick={() => void refetch()} />}
       />
     );
   }
@@ -424,11 +420,7 @@ export const ApprovalsInbox = ({
           density="compact"
           title="Could not refresh"
           detail={error}
-          action={
-            <WorkbenchAction kind="secondary" size="compact" onClick={() => void refetch()}>
-              Retry
-            </WorkbenchAction>
-          }
+          action={<WorkbenchRetryAction onClick={() => void refetch()} />}
         />
       )}
       {showStreamStatus && streamError && (
@@ -447,7 +439,7 @@ export const ApprovalsInbox = ({
       ) : mode === "list" ? (
         <div className="space-y-2">
           <div className="flex items-center gap-2 px-1">
-            <p className="text-xs font-medium text-muted-foreground">Pending</p>
+            <p className="text-label font-medium text-muted-foreground">Pending</p>
             <WorkbenchTag className="bg-info-soft px-2 py-0 text-micro text-info-foreground">
               {visible.length}
             </WorkbenchTag>
@@ -463,7 +455,9 @@ export const ApprovalsInbox = ({
       ) : (
         <div className="space-y-3">
           {taskId ? (
-            <p className="px-1 text-xs font-medium text-muted-foreground">Waiting for approval</p>
+            <p className="px-1 text-label font-medium text-muted-foreground">
+              Waiting for approval
+            </p>
           ) : null}
           {visible.map((item) => (
             <ApprovalCard

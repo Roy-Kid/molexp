@@ -12,7 +12,7 @@
 import { Plus, X } from "lucide-react";
 import { type JSX, useState } from "react";
 import { Input } from "@/components/ui/input";
-import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
+import { WorkbenchIconAction } from "@/components/workbench";
 
 interface Row {
   id: number;
@@ -91,7 +91,7 @@ export function ParametersForm({ value, onChange }: ParametersFormProps): JSX.El
             value={row.key}
             onChange={(e) => setRow(row.id, { key: e.target.value })}
             placeholder="name"
-            className="h-8 flex-1 font-mono text-xs"
+            className="h-control flex-1 font-mono text-label"
             aria-label="Parameter name"
           />
           <span className="text-muted-foreground">=</span>
@@ -99,7 +99,7 @@ export function ParametersForm({ value, onChange }: ParametersFormProps): JSX.El
             value={row.value}
             onChange={(e) => setRow(row.id, { value: e.target.value })}
             placeholder="value"
-            className="h-8 flex-1 font-mono text-xs"
+            className="h-control flex-1 font-mono text-label"
             aria-label="Parameter value"
           />
           <WorkbenchIconAction
@@ -113,16 +113,9 @@ export function ParametersForm({ value, onChange }: ParametersFormProps): JSX.El
           </WorkbenchIconAction>
         </div>
       ))}
-      <WorkbenchAction
-        kind="ghost"
-        size="compact"
-        type="button"
-        className="h-7 gap-1 text-xs text-muted-foreground"
-        onClick={addRow}
-      >
+      <WorkbenchIconAction label="Add parameter" onClick={addRow}>
         <Plus className="h-3.5 w-3.5" />
-        Add parameter
-      </WorkbenchAction>
+      </WorkbenchIconAction>
     </div>
   );
 }

@@ -36,7 +36,7 @@ def _is_json_safe(value: object) -> bool:
 
     try:
         json.dumps(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return False
     return True
 

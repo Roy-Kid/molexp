@@ -1,15 +1,22 @@
-"""Compact run-local metrics storage.
+"""MolRec metrics JSONL stream under a run / record root.
 
-The on-disk format is append-only JSONL under ``run_dir/metrics``. Metrics
-are run-local data — they intentionally do not flow through the workspace
-asset manifest or catalog.
+On-disk layout (shared with molrec + molnex provisional writer)::
 
-Originally lived under ``molexp.plugins.metrics``; moved here so the
-workspace layer's only dependencies are :mod:`molexp.workflow` and the
-molexp root-level singletons (mollog / molcfg). Metrics is not a
-plugin — it has no capability registry, no entry-point hook, and no
-alternative implementation. Run-scoped JSONL persistence is workspace
-infrastructure, sibling to the artifact / log / checkpoint accessors.
+    <root>/metrics/metrics.jsonl   # authoritative append-only stream
+    <root>/metrics/index.json      # optional, derived on flush
+
+Compact keys ``t`` / ``k`` / ``s`` / ``w`` / ``v`` / ``tags`` follow the
+molrec metrics JSONL reference binding (see molrec ``docs/spec/metrics.md``).
+When *root* is a molexp run directory, this is the run-local stream used by
+``GET …/runs/{id}/metrics`` and the UI :class:`RunMetricsView`. When *root*
+is a landed MolRec package, the same paths apply.
+
+Metrics intentionally do not flow through the workspace asset manifest —
+they are section data of the run/record, not catalogued products.
+
+Originally lived under ``molexp.plugins.metrics``; this module is workspace
+infrastructure (not a plugin). A future molpy reference implementation may
+own the writer; molexp keeps a copy so the host does not depend on molnex.
 """
 
 from __future__ import annotations
@@ -223,7 +230,7 @@ def rebuild_metrics_index(run_dir: Path) -> dict[str, JSONValue]:
                     if not isinstance(parsed, dict):
                         raise ValueError("metric record must be a JSON object")
                     record = _validate_record(parsed)
-                except json.JSONDecodeError, ValueError, TypeError:
+                except (json.JSONDecodeError, ValueError, TypeError):
                     index["line_count"] = _coerce_int(index.get("line_count")) + 1
                     continue
                 _update_index_with_record(index, record)
@@ -265,7 +272,7 @@ def read_run_metrics(
 
             try:
                 record = _validate_record(json.loads(stripped))
-            except json.JSONDecodeError, ValueError, TypeError:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 parse_errors += 1
                 continue
 

@@ -30,11 +30,17 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both ends of the supported range. Testing only the top lets syntax
+        # the floor cannot parse (PEP 758 `except A, B:`) land unnoticed.
+        python-version: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v6
       - name: Install
         env:

@@ -21,7 +21,7 @@ export const MetadataInspector = ({ selection, snapshot }: RendererProps): JSX.E
             <dt className="text-micro font-medium uppercase tracking-wide text-muted-foreground">
               {field.label}
             </dt>
-            <dd className="mt-1 break-words text-xs text-foreground">{field.value}</dd>
+            <dd className="mt-1 break-words text-label text-foreground">{field.value}</dd>
           </div>
         ))}
       </dl>

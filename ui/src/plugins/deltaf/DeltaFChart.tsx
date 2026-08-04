@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
+import { DELTA_F_GROUP_COLORS } from "@/lib/chart-tokens";
 import { MolplotBarChart } from "@/plugins/molplot";
 import type { DiscoveredFile } from "@/plugins/types";
 
@@ -38,7 +39,7 @@ const GROUPS: ReadonlyArray<{
   {
     id: "inference",
     label: "inference (bf16 forward)",
-    color: "oklch(0.52 0.14 250)",
+    color: DELTA_F_GROUP_COLORS.inference,
     members: [
       ["infer_effect_on_fp32w", "infer·fp32w", "inference bf16, fp32 weights"],
       ["infer_effect_on_bf16w", "infer·bf16w", "inference bf16, bf16 weights"],
@@ -47,7 +48,7 @@ const GROUPS: ReadonlyArray<{
   {
     id: "training",
     label: "training precision",
-    color: "oklch(0.72 0.16 70)",
+    color: DELTA_F_GROUP_COLORS.training,
     members: [
       ["train_effect_fp64", "train·fp64", "fp64 training vs fp32"],
       ["train_effect_bf16", "train·bf16", "bf16 training vs fp32"],
@@ -56,7 +57,7 @@ const GROUPS: ReadonlyArray<{
   {
     id: "combined",
     label: "combined / reference",
-    color: "oklch(0.55 0.14 310)",
+    color: DELTA_F_GROUP_COLORS.combined,
     members: [
       ["combined_e2e_bf16", "e2e·bf16", "combined end-to-end bf16"],
       ["fp64_native_vs_gold", "fp64·native", "fp64 native vs gold"],
@@ -147,24 +148,27 @@ export const DeltaFChart = ({
   }, [report]);
 
   if (!runId) {
-    return <div className="p-4 text-sm text-muted-foreground">No run selected.</div>;
+    return <div className="p-4 text-body-lg text-muted-foreground">No run selected.</div>;
   }
   if (error) {
-    return <div className="p-4 text-sm text-status-failed-foreground">ΔF report: {error}</div>;
+    return <div className="p-4 text-body-lg text-status-failed-foreground">ΔF report: {error}</div>;
   }
   if (!config) {
-    return <div className="p-4 text-sm text-muted-foreground">Loading ΔF report…</div>;
+    return <div className="p-4 text-body-lg text-muted-foreground">Loading ΔF report…</div>;
   }
   return (
     <div className="flex flex-col gap-2 p-4">
-      <div className="text-sm text-muted-foreground">
+      <div className="text-body-lg text-muted-foreground">
         Gold standard: {report?.gold_standard} · {report?.eval_configs} configs · F_rms ={" "}
         {report?.dataset_force_rms_mev_A} meV/Å
       </div>
       {/* Fixed height (not flex-1/100%) so the chart's autosize can't feed back
           into a resizing flex parent — the same stable pattern the metrics tab
           uses. */}
-      <MolplotBarChart config={config} style={{ width: "100%", height: "460px" }} />
+      <MolplotBarChart
+        config={config}
+        style={{ width: "100%", height: "var(--spacing-chart-xl)" }}
+      />
     </div>
   );
 };

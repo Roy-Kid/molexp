@@ -7,7 +7,7 @@ import { buildOutline, type OutlineHeading } from "@/app/knowledge/knowledgeDocT
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import { WorkbenchOperationState, WorkbenchRetryAction } from "@/components/workbench";
 
 const INDENT_BY_LEVEL: Record<OutlineHeading["level"], string> = {
   1: "pl-2",
@@ -117,16 +117,12 @@ export const KnowledgeDocPanel = ({ selection, snapshot }: RendererProps): JSX.E
         title="Could not load document inspector"
         detail={noteError}
         action={
-          <WorkbenchAction
-            kind="secondary"
-            size="compact"
+          <WorkbenchRetryAction
             onClick={() => {
               setNoteLoading(true);
               setRequestVersion((version) => version + 1);
             }}
-          >
-            Retry
-          </WorkbenchAction>
+          />
         }
       />
     );
@@ -137,7 +133,7 @@ export const KnowledgeDocPanel = ({ selection, snapshot }: RendererProps): JSX.E
   return (
     <div className="space-y-4 border-b border-border/60 p-4">
       <section className="space-y-2">
-        <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h3 className="flex items-center gap-2 text-label font-semibold uppercase tracking-wide text-muted-foreground">
           <List className="h-3.5 w-3.5" /> Outline
         </h3>
         {outline.length === 0 ? (
@@ -153,7 +149,7 @@ export const KnowledgeDocPanel = ({ selection, snapshot }: RendererProps): JSX.E
               <li key={`${heading.slug}-${heading.level}`}>
                 <a
                   href={`#${heading.slug}`}
-                  className={`block truncate rounded-sm py-1 text-sm text-foreground transition-colors hover:bg-muted/40 ${INDENT_BY_LEVEL[heading.level]}`}
+                  className={`block truncate rounded-control py-1 text-body-lg text-foreground transition-colors hover:bg-muted/40 ${INDENT_BY_LEVEL[heading.level]}`}
                   title={heading.text}
                 >
                   {heading.text}
@@ -177,16 +173,12 @@ export const KnowledgeDocPanel = ({ selection, snapshot }: RendererProps): JSX.E
           title="Could not load backlinks"
           detail={backlinksError}
           action={
-            <WorkbenchAction
-              kind="secondary"
-              size="compact"
+            <WorkbenchRetryAction
               onClick={() => {
                 setNoteLoading(true);
                 setRequestVersion((version) => version + 1);
               }}
-            >
-              Retry
-            </WorkbenchAction>
+            />
           }
         />
       ) : (

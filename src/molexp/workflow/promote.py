@@ -48,7 +48,7 @@ def _entrypoint_ref_of(fn: Callable) -> str | None:
         resolved: object = importlib.import_module(module)
         for part in qualname.split("."):
             resolved = getattr(resolved, part)
-    except ImportError, AttributeError:
+    except (ImportError, AttributeError):
         return None
     return f"{module}:{qualname}" if resolved is fn else None
 

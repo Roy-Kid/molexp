@@ -13,13 +13,15 @@ from molexp.workspace.target import RemoteTarget
 
 
 class RemoteWorkspaceError(Exception):
-    """Full workspace CRUD on remote targets is not yet implemented.
+    """Deprecated: remote workspace CRUD now goes through FileSystem.
 
-    Use ``exec``, ``shell``, or ``sync`` for remote operations.
+    Kept so older callers that catch this type still import cleanly. Prefer
+    :func:`molexp.cli._target.open_workspace` for local/remote parity.
     """
 
     def __init__(self, target: RemoteTarget | None) -> None:
         super().__init__(
-            f"Remote workspace CRUD not yet supported for {target}. "
-            "Use 'exec', 'shell', or 'sync' commands."
+            f"Remote workspace operation failed for {target}. "
+            "Workspace open/CRUD now uses the target FileSystem; "
+            "this error should not be raised by current CLI paths."
         )

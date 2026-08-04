@@ -113,6 +113,8 @@ export interface ProjectSummary {
    * project list is aggregated across several served workspaces.
    */
   workspaceKey?: string;
+  /** Server-reported count when list is shallow (experiments not loaded yet). */
+  experimentCount?: number | null;
 }
 
 export interface ExperimentSummary {
@@ -127,6 +129,8 @@ export interface ExperimentSummary {
   workflowSource: string | null;
   /** The plan run that generated this experiment's workflow (vision-loop-10). */
   planRunId: string | null;
+  /** Server-reported count when list is shallow (runs not loaded yet). */
+  runCount?: number | null;
 }
 
 export interface ExecutionRecordSummary {
@@ -210,6 +214,12 @@ export interface WorkspaceTreeNode {
   // registered asset id and the server's existence-only sidecar flag.
   assetId?: string;
   hasPreviewSidecar?: boolean;
+  /**
+   * Directory children were fetched via WorkspaceFs.listdir.
+   * ``false`` ⇒ UI should re-listdir on expand (shallow / remote trees).
+   * Files are always treated as loaded.
+   */
+  childrenLoaded?: boolean;
 }
 
 export interface ConsoleEntry {

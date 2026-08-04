@@ -1,4 +1,4 @@
-import { Tag, X } from "lucide-react";
+import { Plus, Tag, X } from "lucide-react";
 import { type JSX, type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "@/app/components/entity";
 import { workspaceApi } from "@/app/state/api";
@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { WorkbenchAction, WorkbenchTag } from "@/components/workbench";
+import { WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 
 /** Common lifecycle labels offered in the status select; `status` is an open
  * string on the backend, so the current value is always included as an option. */
@@ -96,7 +96,7 @@ export const DocumentControls = ({ relPath }: { relPath: string }): JSX.Element 
   };
 
   if (error && !loaded) {
-    return <p className="text-xs text-destructive">{error}</p>;
+    return <p className="text-label text-destructive">{error}</p>;
   }
   if (!loaded) {
     return <p className="text-micro text-muted-foreground">Loading…</p>;
@@ -112,14 +112,14 @@ export const DocumentControls = ({ relPath }: { relPath: string }): JSX.Element 
           }}
           disabled={saving}
         >
-          <SelectTrigger className="h-7 w-[130px] text-xs" aria-label="Document status">
+          <SelectTrigger className="h-control-compact w-32 text-label" aria-label="Document status">
             <SelectValue placeholder="Set status">
               {status ? <StatusBadge status={status} size="sm" /> : "Set status"}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {statusOptions.map((option) => (
-              <SelectItem key={option} value={option} className="text-xs">
+              <SelectItem key={option} value={option} className="text-label">
                 {option}
               </SelectItem>
             ))}
@@ -135,15 +135,14 @@ export const DocumentControls = ({ relPath }: { relPath: string }): JSX.Element 
               className="gap-1 px-2 py-0 text-micro font-medium"
             >
               {tag}
-              <button
-                type="button"
-                aria-label={`Remove tag ${tag}`}
-                className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+              <WorkbenchIconAction
+                label={`Remove tag ${tag}`}
+                className="size-4 text-muted-foreground hover:text-destructive disabled:opacity-50"
                 onClick={() => removeTag(tag)}
                 disabled={saving}
               >
                 <X className="h-2.5 w-2.5" />
-              </button>
+              </WorkbenchIconAction>
             </WorkbenchTag>
           ))
         ) : (
@@ -157,19 +156,16 @@ export const DocumentControls = ({ relPath }: { relPath: string }): JSX.Element 
           onKeyDown={onTagKeyDown}
           placeholder="Add tag…"
           aria-label="Add tag"
-          className="h-7 w-40 text-xs"
+          className="h-control-compact w-40 text-label"
           disabled={saving}
         />
-        <WorkbenchAction
-          kind="secondary"
-          size="compact"
-          type="button"
-          className="h-7 text-xs"
+        <WorkbenchIconAction
+          label="Add tag"
           onClick={() => addTag(tagInput)}
           disabled={saving || tagInput.trim().length === 0}
         >
-          Add
-        </WorkbenchAction>
+          <Plus className="size-3.5" />
+        </WorkbenchIconAction>
       </div>
       {error ? <p className="text-micro text-destructive">{error}</p> : null}
     </div>

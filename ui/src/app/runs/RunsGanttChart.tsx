@@ -208,7 +208,7 @@ export const RunsGanttChart = ({
 
   if (tasks.length === 0) {
     return (
-      <div className="flex h-full min-h-[280px] items-center justify-center border-y border-dashed border-border/70 px-6 py-8 text-center text-sm text-muted-foreground">
+      <div className="flex h-full min-h-72 items-center justify-center border-y border-dashed border-border/70 px-6 py-8 text-center text-body-lg text-muted-foreground">
         No timeline data yet — runs without start times are hidden from the chart.
       </div>
     );

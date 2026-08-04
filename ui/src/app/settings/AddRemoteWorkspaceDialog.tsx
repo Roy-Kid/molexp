@@ -37,7 +37,7 @@ export function AddRemoteWorkspaceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-dialog-md">
         <DialogHeader>
           <DialogTitle>Add remote workspace</DialogTitle>
           <DialogDescription>

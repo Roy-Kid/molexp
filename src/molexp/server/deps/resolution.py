@@ -20,6 +20,28 @@ from molexp.server.deps.workspace_state import (
 from molexp.workspace import Workspace
 
 
+def _ensure_remote_ready(workspace: Workspace) -> None:
+    """Prepare a remote workspace for serve.
+
+    * Serve from the local pin immediately when present (no age-based
+      revalidation on read).
+    * On **this process's first open** of the root: fire **one** active
+      async refresh (outside-in parallel force-fetch).  Further opens in
+      the same process hit the in-memory workspace cache and do not
+      re-trigger.  User Refresh is the other active path.
+
+    Local workspaces are a no-op.
+    """
+    from molexp.workspace.fs_cached import CachedRemoteFileSystem
+
+    fs = getattr(workspace, "_fs", None)
+    if not isinstance(fs, CachedRemoteFileSystem):
+        return
+    # prepare once per process (caller caches the Workspace). Open refresh
+    # is async; UI reads pin while the walk runs.
+    fs.prepare(workspace, block_index=False, refresh_on_open=True)
+
+
 def _workspace_key_from_request(request: Request | None) -> str | None:
     """Extract an explicit workspace key from a request, if any.
 
@@ -92,7 +114,11 @@ def get_active_workspace():  # noqa: ANN201
                     f"active workspace target {identifier!r} no longer registered"
                 ) from exc
             fs = target_to_filesystem_for_workspace_target(target)
-            _workspace_cache[cache_key] = Workspace(target.root_path, fs=fs)
+            workspace = Workspace(target.root_path, fs=fs)
+            # First open of a remote root: ensure local mirror exists and
+            # build the navigation index. Missing ``_index.json`` is normal.
+            _ensure_remote_ready(workspace)
+            _workspace_cache[cache_key] = workspace
         else:
             _workspace_cache[cache_key] = Workspace(Path(identifier))
     return _workspace_cache[cache_key]
@@ -124,7 +150,9 @@ def get_workspace_by_key(key: str):  # noqa: ANN201
             try:
                 target = resolve_served_remote_target(target_name)
                 fs = target_to_filesystem_for_workspace_target(target)
-                _workspace_cache[cache_key] = Workspace(target.root_path, fs=fs)
+                workspace = Workspace(target.root_path, fs=fs)
+                _ensure_remote_ready(workspace)
+                _workspace_cache[cache_key] = workspace
             except Exception as exc:  # connection / auth / unknown target
                 raise RemoteWorkspaceUnreachableError(sw.key, str(exc)) from exc
         return _workspace_cache[cache_key]

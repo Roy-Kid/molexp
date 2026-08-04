@@ -1,6 +1,7 @@
 import { ArrowLeft, FileQuestion, RefreshCw, ServerCrash, WifiOff } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { isRouteErrorResponse, useRouteError } from "react-router-dom";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { WorkbenchAction } from "@/components/workbench";
 
 /**
@@ -85,7 +86,7 @@ export function RouteErrorBoundary(): ReactNode {
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background px-6 py-8">
       <div className="relative w-full max-w-md text-center">
         <div className="mb-6 flex justify-center">
-          <Icon className="h-8 w-8 text-status-failed-foreground" />
+          <Icon className="h-control w-control text-status-failed-foreground" />
         </div>
 
         <p className="mb-2 font-mono text-label font-medium uppercase tracking-wide text-muted-foreground">
@@ -120,15 +121,16 @@ export function RouteErrorBoundary(): ReactNode {
         </div>
 
         {detail && (
-          <details className="group mt-8 text-left">
-            <summary className="cursor-pointer list-none text-center text-label font-medium text-muted-foreground transition-colors hover:text-foreground">
-              <span className="group-open:hidden">Show technical details</span>
-              <span className="hidden group-open:inline">Hide technical details</span>
-            </summary>
-            <pre className="mt-3 max-h-56 overflow-auto rounded-[var(--radius-control)] border border-border bg-muted/40 p-3 text-left font-mono text-label text-foreground/80">
-              {detail}
-            </pre>
-          </details>
+          <Collapsible className="mt-8 text-left">
+            <CollapsibleTrigger className="mx-auto text-label text-muted-foreground">
+              Technical details
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <pre className="mt-3 max-h-56 overflow-auto rounded-control border border-border bg-muted/40 p-3 text-left font-mono text-label text-foreground/80">
+                {detail}
+              </pre>
+            </CollapsibleContent>
+          </Collapsible>
         )}
       </div>
     </div>

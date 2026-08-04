@@ -108,8 +108,12 @@ class Project(Folder):
 
     @classmethod
     def child_dir(cls, parent: Folder, derived_id: str) -> Path:
-        """Folder hook — projects live under ``projects/<id>/``."""
-        return Path(parent._fs.join(parent.path(), "projects", derived_id))
+        """Folder hook — projects live under ``projects/<id>/``.
+
+        Uses :meth:`~Folder.resolve` (not :meth:`~Folder.path`) so listing a
+        project never issues a remote ``mkdir`` on the workspace root.
+        """
+        return Path(parent._fs.join(parent.resolve(), "projects", derived_id))
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Project:

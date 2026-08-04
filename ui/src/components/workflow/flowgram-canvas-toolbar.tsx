@@ -66,12 +66,7 @@ export const FlowgramCanvasToolbar = ({
       </AlertDialogContent>
     </AlertDialog>
 
-    <WorkbenchIconAction
-      label="Save workflow"
-      kind="secondary"
-      disabled={saving || !dirty}
-      onClick={onSave}
-    >
+    <WorkbenchIconAction label="Save workflow" disabled={saving || !dirty} onClick={onSave}>
       <Save className="h-4 w-4" />
     </WorkbenchIconAction>
   </div>

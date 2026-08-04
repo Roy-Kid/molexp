@@ -13,11 +13,17 @@ import {
 } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAgentSession, ApiSessionEvent, RendererProps } from "@/app/types";
+import { Code as InlineCode } from "@/components/ui/code";
 import { ProgressSpinner } from "@/components/ui/progress-spinner";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  WorkbenchAction,
+  WorkbenchDismissAction,
+  WorkbenchIconAction,
+} from "@/components/workbench";
 import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 import { buildEntityLinkIndex } from "@/lib/entity-linkify";
 import { cn } from "@/lib/utils";
@@ -48,7 +54,7 @@ const COLUMN = "mx-auto w-full max-w-3xl";
 /** Mode-tinted composer shell — Chat neutral; Plan light blue border only (readable text). */
 const composerShellClass = (mode: AgentMode): string =>
   cn(
-    "flex items-end gap-2 rounded-lg border px-3 py-2 bg-card",
+    "flex items-end gap-2 rounded-panel border px-3 py-2 bg-card",
     "transition-[border-color,box-shadow,background-color] focus-within:ring-2",
     mode === "plan"
       ? "border-info/50 bg-info-soft/25 focus-within:border-info focus-within:ring-info/15"
@@ -58,8 +64,8 @@ const composerShellClass = (mode: AgentMode): string =>
 const COMPOSER_BAR = "border-t border-border/60 bg-background px-4 pb-4 pt-3 md:px-8";
 
 const TEXTAREA_CLASS =
-  "max-h-48 min-h-[24px] flex-1 resize-none bg-transparent px-1 py-1 text-sm leading-6 " +
-  "placeholder:text-muted-foreground focus:outline-none disabled:opacity-60";
+  "max-h-48 min-h-6 flex-1 resize-none border-0 bg-transparent px-1 py-1 text-body-lg leading-6 " +
+  "placeholder:text-muted-foreground focus-visible:ring-0 disabled:opacity-60";
 
 const getAgentTaskId = (session: ApiAgentSession): string => session.taskId ?? session.sessionId;
 const MESSAGE_HISTORY_KEY = "molexp.agent.messageHistory";
@@ -141,11 +147,13 @@ const ModeToggle = ({
   mode: AgentMode;
   onChange: (mode: AgentMode) => void;
 }): JSX.Element => (
-  <button
+  <WorkbenchAction
+    kind="ghost"
+    size="content"
     type="button"
     onClick={() => onChange(nextAgentMode(mode))}
     className={cn(
-      "rounded-md px-2.5 py-1 text-micro font-medium transition-colors",
+      "rounded-control px-2.5 py-1 text-micro font-medium transition-colors",
       mode === "plan"
         ? "bg-info-soft/40 text-info-foreground hover:bg-info-soft/55"
         : "bg-muted/60 text-foreground hover:bg-muted",
@@ -158,7 +166,7 @@ const ModeToggle = ({
     aria-label={`Agent mode: ${mode}. Click to switch.`}
   >
     {mode === "chat" ? "Chat" : "Plan"}
-  </button>
+  </WorkbenchAction>
 );
 
 // ---------------------------------------------------------------------------
@@ -253,7 +261,7 @@ const ChatBox = ({
   return (
     <div className={COMPOSER_BAR}>
       <div className={`${COLUMN} ${composerShellClass(mode)}`}>
-        <textarea
+        <Textarea
           rows={1}
           className={TEXTAREA_CLASS}
           placeholder={placeholder}
@@ -511,20 +519,20 @@ const GoalInput = ({
   return (
     <div className={COMPOSER_BAR}>
       {info && (
-        <div className={`${COLUMN} mb-2 border-l border-border/60 px-3 py-1 text-xs`}>
+        <div className={`${COLUMN} mb-2 border-l border-border/60 px-3 py-1 text-label`}>
           <pre className="whitespace-pre-wrap font-mono">{info}</pre>
         </div>
       )}
       {error && (
         <div
-          className={`${COLUMN} mb-2 border-y border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive`}
+          className={`${COLUMN} mb-2 border-y border-destructive/40 bg-destructive/10 px-3 py-2 text-label text-destructive`}
         >
           {error}
         </div>
       )}
       <div className={`${COLUMN} relative`}>
         <div ref={anchorRef} className={composerShellClass(mode)}>
-          <textarea
+          <Textarea
             ref={textareaRef}
             rows={1}
             className={TEXTAREA_CLASS}
@@ -539,7 +547,7 @@ const GoalInput = ({
             kind="primary"
             onClick={handleSendButton}
             disabled={disabled || !description.trim()}
-            className="h-8 w-8 flex-none rounded-md"
+            className="h-control w-control flex-none rounded-control"
             aria-label="Start agent task"
           >
             {disabled ? <ProgressSpinner label="Starting" /> : <Send className="h-3.5 w-3.5" />}
@@ -554,7 +562,7 @@ const GoalInput = ({
             label="Agent settings"
             kind="ghost"
             size="compact"
-            className="h-7 w-7"
+            className="h-control-compact w-control-compact"
             onClick={onOpenSettings}
             title="Provider, models, API keys, MCP"
           >
@@ -578,15 +586,15 @@ const AgentHealthBanner = ({
   health: ApiAgentHealth;
   onOpenSettings: () => void;
 }): JSX.Element => (
-  <div className="flex items-start gap-3 border-y border-warning/30 bg-warning-soft px-4 py-3 text-sm">
+  <div className="flex items-start gap-3 border-y border-warning/30 bg-warning-soft px-4 py-3 text-body-lg">
     <ShieldAlert className="mt-1 h-5 w-5 flex-none text-warning" />
     <div className="flex-1 text-warning-foreground">
       <p className="font-medium">Agent not ready</p>
-      <p className="mt-1 text-xs opacity-90">{health.reason}</p>
+      <p className="mt-1 text-label opacity-90">{health.reason}</p>
     </div>
-    <WorkbenchAction kind="secondary" size="compact" onClick={onOpenSettings}>
-      Configure provider
-    </WorkbenchAction>
+    <WorkbenchIconAction label="Configure provider" onClick={onOpenSettings}>
+      <Settings className="size-4" />
+    </WorkbenchIconAction>
   </div>
 );
 
@@ -598,7 +606,7 @@ const HeaderSettingsAction = ({ onOpenSettings }: { onOpenSettings: () => void }
   <WorkbenchIconAction
     label="Agent settings"
     kind="ghost"
-    className="h-7 w-7"
+    className="h-control-compact w-control-compact"
     onClick={onOpenSettings}
     title="Agent settings"
     aria-label="Agent settings"
@@ -1100,12 +1108,12 @@ const AgentSessionViewer = ({
               <AgentHealthBanner health={health} onOpenSettings={openSettings} />
             )}
             {error && (
-              <div className="flex items-center justify-between gap-3 border-y border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+              <div className="flex items-center justify-between gap-3 border-y border-destructive/40 bg-destructive/10 px-4 py-2 text-body-lg text-destructive">
                 <span className="flex-1">{error}</span>
                 {notReady && (
-                  <WorkbenchAction kind="secondary" size="compact" onClick={openSettings}>
-                    Open agent settings
-                  </WorkbenchAction>
+                  <WorkbenchIconAction label="Open agent settings" onClick={openSettings}>
+                    <Settings className="size-4" />
+                  </WorkbenchIconAction>
                 )}
               </div>
             )}
@@ -1121,14 +1129,15 @@ const AgentSessionViewer = ({
             <div className="flex flex-col items-center gap-2 pt-4 text-center">
               <Bot className="h-5 w-5 text-muted-foreground" />
               <h2 className="text-base font-semibold text-foreground">Start an agent task</h2>
-              <p className="max-w-md text-sm text-muted-foreground">
+              <p className="max-w-md text-body-lg text-muted-foreground">
                 <strong className="font-medium text-foreground">Chat</strong> explores and runs
-                scratch scripts under <code className="text-xs">agent/.scratch/</code> (no default
+                scratch scripts under{" "}
+                <InlineCode className="text-label">agent/.scratch/</InlineCode> (no default
                 project/run land). <strong className="font-medium text-foreground">Plan</strong>{" "}
                 builds a reviewable workflow graph. Switch with Shift+Tab.
               </p>
               {mountScope && (
-                <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-label text-muted-foreground">
                   Mounted on{" "}
                   <span className="font-medium text-foreground">
                     {mountScope.runId
@@ -1143,19 +1152,21 @@ const AgentSessionViewer = ({
 
             {recent.length > 0 && (
               <div className="space-y-2">
-                <p className="px-1 text-xs font-medium text-muted-foreground">Recent tasks</p>
+                <p className="px-1 text-label font-medium text-muted-foreground">Recent tasks</p>
                 <div className="divide-y divide-border/60 border-y border-border/60">
                   {recent.map((s) => (
-                    <button
+                    <WorkbenchAction
+                      kind="ghost"
+                      size="content"
                       key={s.id}
                       type="button"
                       onClick={() => nav.setSelection({ objectType: "agent", objectId: s.id })}
                       className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40"
                     >
                       <Bot className="h-4 w-4 flex-none text-muted-foreground" />
-                      <p className="flex-1 truncate text-sm">{s.goal}</p>
+                      <p className="flex-1 truncate text-body-lg">{s.goal}</p>
                       <StatusBadge status={s.status} size="sm" />
-                    </button>
+                    </WorkbenchAction>
                   ))}
                 </div>
               </div>
@@ -1218,14 +1229,12 @@ const AgentSessionViewer = ({
 
   const errorBanner = error ? (
     <div
-      className={`${COLUMN} mx-4 mt-3 flex items-start gap-2 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive md:mx-6`}
+      className={`${COLUMN} mx-4 mt-3 flex items-start gap-2 border border-destructive/40 bg-destructive/10 px-3 py-2 text-body-lg text-destructive md:mx-6`}
       role="alert"
     >
       <XCircle className="mt-0.5 h-4 w-4 flex-none" />
       <p className="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">{error}</p>
-      <WorkbenchAction kind="ghost" size="compact" onClick={() => setError(null)}>
-        Dismiss
-      </WorkbenchAction>
+      <WorkbenchDismissAction onClick={() => setError(null)} />
     </div>
   ) : null;
 

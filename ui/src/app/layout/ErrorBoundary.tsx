@@ -42,7 +42,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           className="w-full max-w-lg space-y-3 border-y border-status-failed/30 bg-status-failed-soft px-4 py-4"
         >
           <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-[var(--radius-control)] bg-status-failed-soft text-status-failed-foreground">
+            <div className="flex size-9 items-center justify-center rounded-control bg-status-failed-soft text-status-failed-foreground">
               <AlertTriangle className="h-4 w-4" />
             </div>
             <h1 className="text-title font-semibold text-status-failed-foreground">
@@ -53,7 +53,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             A runtime error stopped the UI. Resolve the issue and reload to continue.
           </p>
           {this.state.error && (
-            <pre className="overflow-auto rounded-[var(--radius-control)] border border-border bg-muted/40 p-3 font-mono text-micro text-foreground">
+            <pre className="overflow-auto rounded-control border border-border bg-muted/40 p-3 font-mono text-micro text-foreground">
               {this.state.error.message}
             </pre>
           )}

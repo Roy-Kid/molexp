@@ -7,13 +7,22 @@
  * with `kind: "remote"`.
  */
 
-import { AlertTriangle, Check, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  FlaskConical,
+  Plus,
+  Power,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { TargetTestResponse } from "@/api/generated/models/TargetTestResponse";
 import type { WorkspaceTargetResponse } from "@/api/generated/models/WorkspaceTargetResponse";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
-import { WorkbenchAction, WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
+import { WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 import { emitWorkspaceSwitching } from "../state/workspaceSwitchEvents";
 import { AddRemoteWorkspaceDialog } from "./AddRemoteWorkspaceDialog";
 
@@ -123,100 +132,102 @@ export function RemoteWorkspacesPanel(): JSX.Element {
   };
 
   return (
-    <div className="space-y-3">
-      <header className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="sr-only">Remote workspaces</h3>
-          <p className="text-xs text-muted-foreground">
-            {targets.length} registered · Set an SSH-reachable root as Active to mount it as the
-            current workspace.
+    <section className="space-y-5">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-2xl space-y-1">
+          <p className="font-mono text-micro uppercase tracking-wider text-accent">Connections</p>
+          <h3 className="text-title font-semibold text-foreground">Remote workspaces</h3>
+          <p className="text-body text-muted-foreground">
+            Mount an SSH-reachable root as the active workspace. {targets.length}{" "}
+            {targets.length === 1 ? "connection is" : "connections are"} registered.
           </p>
         </div>
         <AddRemoteWorkspaceDialog
           trigger={
-            <WorkbenchAction kind="primary" size="compact">
-              + Add remote workspace
-            </WorkbenchAction>
+            <WorkbenchIconAction label="Add remote workspace">
+              <Plus className="size-3.5" />
+            </WorkbenchIconAction>
           }
           onCreated={() => void refresh()}
         />
       </header>
-      {listError && <p className="text-sm text-status-failed-foreground">{listError}</p>}
+      {listError && <p className="text-body-lg text-status-failed-foreground">{listError}</p>}
       {loading && targets.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-body-lg text-muted-foreground">Loading…</p>
       ) : targets.length === 0 ? (
-        <p className="border-y border-dashed border-border/70 py-6 text-center text-sm text-muted-foreground">
+        <p className="bg-surface/60 px-4 py-8 text-center text-body text-muted-foreground">
           No remote workspaces registered. Add one to mount a workspace hosted on an HPC node.
         </p>
       ) : (
-        <ul className="divide-y divide-border border-y border-border">
+        <ul className="space-y-1">
           {targets.map((t) => {
             const isActive = t.name === activeName;
             return (
-              <li key={t.name} className="flex items-center gap-3 px-3 py-2">
-                <div className="flex-1 min-w-0">
+              <li
+                key={t.name}
+                className={`flex flex-col gap-3 px-3 py-3 transition-colors sm:flex-row sm:items-center ${
+                  isActive ? "bg-accent-muted/60" : "bg-surface/60 hover:bg-surface"
+                }`}
+              >
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm font-medium truncate">{t.name}</span>
+                    <span className="truncate font-mono text-body font-medium">{t.name}</span>
                     <WorkbenchTag meaning={isActive ? "selection" : "metadata"}>
                       {isActive ? "Active" : "Inactive"}
                     </WorkbenchTag>
                   </div>
-                  <div className="text-xs text-muted-foreground truncate">
+                  <div className="mt-1 truncate font-mono text-micro text-muted-foreground">
                     {t.host} → {t.root_path}
                   </div>
                 </div>
-                <WorkbenchAction
-                  kind="ghost"
-                  size="compact"
-                  disabled={busy === t.name}
-                  onClick={() => void handleTest(t.name)}
-                >
-                  Test
-                </WorkbenchAction>
-                <WorkbenchAction
-                  kind="primary"
-                  size="compact"
-                  disabled={busy === t.name || isActive}
-                  onClick={() => void handleSetActive(t.name)}
-                >
-                  {isActive ? "Active" : "Set active"}
-                </WorkbenchAction>
-                {isActive && (
-                  <WorkbenchAction
-                    kind="ghost"
-                    size="compact"
-                    aria-label={`Refresh ${t.name}`}
-                    title={`Refresh navigation cache (TTL ${t.cache_ttl_seconds ?? 300}s)`}
+                <div className="flex flex-none flex-wrap items-center justify-end gap-1">
+                  <WorkbenchIconAction
+                    label={`Test ${t.name}`}
                     disabled={busy === t.name}
-                    onClick={() => void handleRefreshCache(t.name)}
+                    onClick={() => void handleTest(t.name)}
                   >
-                    <RefreshCw className="h-4 w-4" />
-                    <span className="ml-2">Refresh</span>
-                  </WorkbenchAction>
-                )}
-                <WorkbenchIconAction
-                  label={`Remove ${t.name}`}
-                  kind="ghost"
-                  title={isActive ? "Switch to another workspace first" : `Remove ${t.name}`}
-                  disabled={busy === t.name || isActive}
-                  onClick={() => void handleDelete(t.name)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </WorkbenchIconAction>
+                    <FlaskConical className="size-4" />
+                  </WorkbenchIconAction>
+                  <WorkbenchIconAction
+                    label={isActive ? `${t.name} is active` : `Set ${t.name} active`}
+                    disabled={busy === t.name || isActive}
+                    onClick={() => void handleSetActive(t.name)}
+                  >
+                    {isActive ? <Check className="size-4" /> : <Power className="size-4" />}
+                  </WorkbenchIconAction>
+                  {isActive && (
+                    <WorkbenchIconAction
+                      label="Re-fetch navigation from remote"
+                      disabled={busy === t.name}
+                      onClick={() => void handleRefreshCache(t.name)}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </WorkbenchIconAction>
+                  )}
+                  <WorkbenchIconAction
+                    label={`Remove ${t.name}`}
+                    kind="ghost"
+                    title={isActive ? "Switch to another workspace first" : `Remove ${t.name}`}
+                    disabled={busy === t.name || isActive}
+                    onClick={() => void handleDelete(t.name)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </WorkbenchIconAction>
+                </div>
               </li>
             );
           })}
         </ul>
       )}
-      {actionError && <p className="text-sm text-status-failed-foreground">{actionError}</p>}
+      {actionError && <p className="text-body-lg text-status-failed-foreground">{actionError}</p>}
       {cacheStatus && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-label text-muted-foreground">
           Refreshed navigation cache — dropped {cacheStatus.dropped}{" "}
           {cacheStatus.dropped === 1 ? "entry" : "entries"}.
         </p>
       )}
       {openWarnings.length > 0 && (
-        <div className="border-y border-status-warning/40 bg-status-warning-soft px-3 py-3 text-sm">
+        <div className="bg-status-warning-soft px-3 py-3 text-body-lg">
           <div className="mb-1 flex items-center gap-2 text-status-warning-foreground">
             <AlertTriangle className="h-4 w-4" />
             <span className="font-medium">
@@ -224,7 +235,7 @@ export function RemoteWorkspacesPanel(): JSX.Element {
               fetching the navigation tree
             </span>
           </div>
-          <ul className="space-y-1 pl-1 text-xs text-muted-foreground">
+          <ul className="space-y-1 pl-1 text-label text-muted-foreground">
             {openWarnings.map((w) => (
               <li key={w} className="break-all">
                 {w}
@@ -234,7 +245,7 @@ export function RemoteWorkspacesPanel(): JSX.Element {
         </div>
       )}
       {testResult && (
-        <div className="space-y-1 border-y border-border/60 bg-muted/30 px-3 py-3 text-sm">
+        <div className="space-y-1 bg-surface/70 px-3 py-3 text-body-lg">
           <div className="flex items-center gap-2 font-medium">
             {testResult.ok ? (
               <Check className="h-4 w-4 text-status-completed-foreground" />
@@ -247,11 +258,11 @@ export function RemoteWorkspacesPanel(): JSX.Element {
             </span>
           </div>
           {testResult.error && (
-            <p className="text-xs text-status-failed-foreground">{testResult.error}</p>
+            <p className="text-label text-status-failed-foreground">{testResult.error}</p>
           )}
           <ul className="space-y-1 pl-1">
             {testResult.checks.map((c) => (
-              <li key={c.label} className="flex items-start gap-2 text-xs text-muted-foreground">
+              <li key={c.label} className="flex items-start gap-2 text-label text-muted-foreground">
                 {c.ok ? (
                   <Check className="h-3 w-3 mt-1 text-status-completed-foreground flex-shrink-0" />
                 ) : (
@@ -266,6 +277,6 @@ export function RemoteWorkspacesPanel(): JSX.Element {
           </ul>
         </div>
       )}
-    </div>
+    </section>
   );
 }

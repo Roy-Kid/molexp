@@ -180,7 +180,7 @@ export const PlanDocumentCard = ({
     return (
       <div
         className={cn(
-          "flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground",
+          "flex items-center gap-2 rounded-control border border-border/60 bg-muted/30 px-3 py-2 text-label text-muted-foreground",
           className,
         )}
       >
@@ -194,7 +194,7 @@ export const PlanDocumentCard = ({
     return (
       <div
         className={cn(
-          "rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground",
+          "rounded-control border border-border/60 bg-muted/20 px-3 py-2 text-label text-muted-foreground",
           className,
         )}
       >
@@ -208,14 +208,14 @@ export const PlanDocumentCard = ({
   return (
     <div
       className={cn(
-        "space-y-2 rounded-md border border-info/25 bg-info-soft/15 px-3 py-3",
+        "space-y-2 rounded-control border border-info/25 bg-info-soft/15 px-3 py-3",
         className,
       )}
     >
       <div className="flex items-start gap-2">
         <ClipboardList className="mt-0.5 h-4 w-4 flex-none text-info" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="text-body-lg font-semibold text-foreground">{title}</p>
           <p className="font-mono text-micro text-muted-foreground">
             {projectId}/{experimentId} · run {runId}
           </p>
@@ -223,8 +223,8 @@ export const PlanDocumentCard = ({
       </div>
       <div
         className={cn(
-          "border-t border-border/50 pt-2 text-xs leading-relaxed text-foreground",
-          compact ? "max-h-72 overflow-auto" : "max-h-[32rem] overflow-auto",
+          "border-t border-border/50 pt-2 text-label leading-relaxed text-foreground",
+          compact ? "max-h-72 overflow-auto" : "max-h-128 overflow-auto",
         )}
       >
         <MarkdownContent text={documentMd || "_(empty plan document)_"} />

@@ -201,10 +201,15 @@ def _items_for(kind: TaskKind, tasks: list[Any]) -> list[PendingApprovalItem]:
 
 
 @router.get("", response_model=PendingApprovalsResponse)
+@router.get("/", response_model=PendingApprovalsResponse, include_in_schema=False)
 async def list_pending_approvals(
     workspace: Workspace = Depends(get_workspace),
 ) -> PendingApprovalsResponse:
-    """List every pending approval across suspended plan + curate tasks."""
+    """List every pending approval across suspended plan + curate tasks.
+
+    Empty ``items`` is normal — the inbox only fills when a plan/curate task
+    is suspended waiting for an operator decision. Not a 404.
+    """
     from molexp.server.deps.curate_runtime import get_curate_runtime
     from molexp.server.deps.plan_runtime import get_plan_runtime
 

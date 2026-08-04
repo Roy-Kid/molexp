@@ -15,11 +15,9 @@ Usage (from CLI or programmatic code)::
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path, PurePath
 from typing import TYPE_CHECKING
 
 from molexp._run_display import elapsed as _elapsed
-from molexp._run_display import read_run_json as _read_run_json
 from molexp.plugins.submit_molq.metadata import normalize_executor_info
 
 if TYPE_CHECKING:
@@ -41,6 +39,15 @@ def _overall_status(running: int, pending: int, failed: int, done: int) -> str:
     return "done"
 
 
+def _run_label(r: Run) -> str | None:
+    """Human-meaningful row label (experiment name + optional replica)."""
+    exp_name = r.experiment.name
+    replica = r.metadata.parameters.get("replica")
+    if replica is not None and exp_name:
+        return f"{exp_name}#{replica}"
+    return exp_name or None
+
+
 # ── RunMonitor ────────────────────────────────────────────────────────────────
 
 
@@ -50,9 +57,9 @@ class RunMonitor:
     Owns when the dashboard is opened and closed.  Delegates all rendering
     to :class:`~molq.dashboard.RunDashboard` from the molq package.
 
-    Status is refreshed by re-reading each run's ``run.json`` file on every
-    tick, which works for both local and remote (cluster) runs without any
-    additional IPC.
+    Status is refreshed by re-reading each :class:`~molexp.workspace.run.Run`
+    through its FileSystem on every tick — works for local *and* remote
+    workspaces (no local ``Path(run_dir)`` open).
 
     Args:
         title: Display title shown in the monitor header.
@@ -76,45 +83,36 @@ class RunMonitor:
         messaging (e.g. "reopen with molexp watch …").
 
         Args:
-            runs: Run objects to monitor.  Paths are snapshot at call time;
-                  status is polled from disk on every refresh.
+            runs: Run objects to monitor.  Status is polled via each Run's
+                  FileSystem on every refresh (local or remote).
         """
         from molq.dashboard import DashboardState, JobRow, RunDashboard
 
-        # Snapshot (id, name, run_dir) triples once — paths are stable.
-        # ``name`` is the experiment name (the human-meaningful label); when
-        # an experiment has multiple replicas we append ``#<replica>`` from
-        # run.parameters so rows stay distinguishable.
-        run_entries: list[tuple[str, str | None, Path | PurePath]] = []
-        for r in runs:
-            exp_name = r.experiment.name
-            replica = r.metadata.parameters.get("replica")
-            label: str | None = exp_name
-            if replica is not None and exp_name:
-                label = f"{exp_name}#{replica}"
-            run_entries.append((r.id, label, r.run_dir))
+        # Keep live Run handles so each tick re-reads ops through ``_fs``.
+        run_list = list(runs)
 
         def _build_state() -> DashboardState:
             rows: list[JobRow] = []
             running = pending = done = failed = 0
 
-            for run_id, run_name, run_dir in run_entries:
-                data = _read_run_json(run_dir)
-                status_raw = data.get("status")
-                status = status_raw if isinstance(status_raw, str) else "pending"
+            for r in run_list:
+                run_id = r.id
+                run_name = _run_label(r)
+                try:
+                    status = str(r.status)
+                except Exception:
+                    status = "pending"
 
-                created_at = data.get("created_at")
-                finished_at = data.get("finished_at")
-                elapsed = _elapsed(
-                    # created_at is the best proxy we have for start time
-                    created_at if isinstance(created_at, str) else None,
-                    finished_at if isinstance(finished_at, str) else None,
-                )
+                created_at = r.metadata.created_at.isoformat() if r.metadata.created_at else None
+                finished = r.finished_at
+                finished_at = finished.isoformat() if finished is not None else None
+                elapsed = _elapsed(created_at, finished_at)
 
-                info_raw = data.get("executor_info")
-                labels_raw = data.get("labels")
+                labels_raw = getattr(r.metadata, "labels", None)
                 executor_info = normalize_executor_info(
-                    info_raw if isinstance(info_raw, dict) else None,
+                    r.metadata.executor_info
+                    if isinstance(r.metadata.executor_info, dict)
+                    else None,
                     (
                         {str(k): v for k, v in labels_raw.items() if isinstance(v, str)}
                         if isinstance(labels_raw, dict)
@@ -124,13 +122,11 @@ class RunMonitor:
                 sched_id = executor_info.get("scheduler_job_id")
 
                 error_msg: str | None = None
-                err = data.get("error")
-                if isinstance(err, dict):
-                    msg_raw = err.get("message")
-                    error_msg = msg_raw if isinstance(msg_raw, str) else None
+                err = r.metadata.error
+                if err is not None:
+                    error_msg = getattr(err, "message", None) or str(err)
 
-                profile_raw = data.get("profile")
-                profile_name = profile_raw if isinstance(profile_raw, str) else None
+                profile_name = r.metadata.profile or None
                 extras: tuple[tuple[str, str], ...] = (
                     (("profile", profile_name),) if profile_name else ()
                 )
@@ -168,7 +164,7 @@ class RunMonitor:
             return DashboardState(
                 title=self._title,
                 overall_status=_overall_status(running, pending, failed, done),
-                total=len(run_entries),
+                total=len(run_list),
                 running=running,
                 pending=pending,
                 done=done,

@@ -5,20 +5,27 @@
 Science products are **MolRec records**, not molexp-first-class “metrics”:
 
 ```text
-molrec (spec)  ←  molrs I/O  ←  molpy (compute + write record)
-                              ↘
-                           molexp Run assets (storage only)
-                              ↘
+molrec (spec)  ←  JSONL metrics binding + (arrays) molrs Zarr
+                      ↑
+         molnex / molpy write Run packages + metrics stream
+                      ↓
+              molexp Run storage (host only)
+                      ↓
               UI plugins match sections and open:
                 molvis  ← frame / trajectory
-                molplot ← all charts / series / observables (only plot product)
+                molplot ← charts / series / observables / metrics JSONL
                 molq    ← scheduler chrome only (not science formats)
 ```
 
 - **Core** Run UI lists products under **Outputs** and routes previews.
 - **Plugins** activate only when files/tags match — never hard-wired as core tabs.
-- **No Metrics product** — charts are **molplot only**.
-- Builtin agent `run_land` attaches MolRec roots + source; it does not write a metrics stream.
+- **Charts are molplot only** — including training curves from
+  ``metrics/metrics.jsonl`` (MolRec append binding; same layout as molexp
+  ``ctx.metrics`` and molnex ``MolRecMetricsHook``). There is no separate
+  metrics product package.
+- Live metrics use **JSONL**, not Zarr append. See molrec metrics spec.
+- Builtin agent `run_land` attaches MolRec roots + source; training writers
+  own the metrics stream.
 
 ---
 

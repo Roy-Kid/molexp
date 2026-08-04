@@ -15,7 +15,7 @@ export const OverviewPage = ({ children, aside, className }: OverviewPageProps):
       <div
         className={cn(
           "grid min-h-full gap-x-8 gap-y-8 p-4 md:p-6",
-          aside && "xl:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]",
+          aside && "xl:grid-cols-(--overview-grid-columns)",
         )}
       >
         <div className="min-w-0 space-y-8">{children}</div>
@@ -47,11 +47,11 @@ export const OverviewSection = ({
   return (
     <section className={cn("space-y-3", className)} aria-labelledby={headingId}>
       <div>
-        <h3 id={headingId} className="text-sm font-medium text-foreground">
+        <h3 id={headingId} className="text-body-lg font-medium text-foreground">
           {title}
         </h3>
         {description && (
-          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-body-lg leading-relaxed text-muted-foreground">
             {description}
           </p>
         )}
@@ -75,11 +75,11 @@ export const OverviewHighlight = ({
 }: OverviewHighlightProps): JSX.Element => {
   return (
     <div className="border-l border-border/70 py-1 pl-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-label text-muted-foreground">{label}</div>
       <div className="mt-1 min-w-0 break-words text-heading font-semibold tracking-tight text-foreground">
         {value}
       </div>
-      {detail && <div className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</div>}
+      {detail && <div className="mt-1 text-label leading-5 text-muted-foreground">{detail}</div>}
     </div>
   );
 };

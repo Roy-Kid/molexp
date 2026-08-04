@@ -108,7 +108,7 @@ class AssembleKnowledgeContext(Stage):
                 continue
             try:
                 concept = bundle.get(ref.path)
-            except ConceptNotFoundError, FileNotFoundError:
+            except (ConceptNotFoundError, FileNotFoundError):
                 # The inventory raced a concurrent deletion — record the gap
                 # honestly instead of silently shrinking the digest.
                 titles.append(f"- (vanished during digest) · {ref.path}")

@@ -17,7 +17,12 @@ import { entityPath } from "@/app/entities/paths";
 import { workspaceApi } from "@/app/state/api";
 import type { SemanticStatus, WorkspaceSnapshot } from "@/app/types";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import { Input } from "@/components/ui/input";
+import {
+  WorkbenchAction,
+  WorkbenchOperationState,
+  WorkbenchRetryAction,
+} from "@/components/workbench";
 
 interface GlobalCommandPaletteProps {
   snapshot: WorkspaceSnapshot;
@@ -108,7 +113,7 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
-        className="top-[20%] max-w-xl gap-0 overflow-hidden p-0"
+        className="top-command-offset max-w-xl gap-0 overflow-hidden p-0"
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           inputRef.current?.focus();
@@ -116,7 +121,7 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
       >
         <div className="flex items-center gap-2 border-b border-border px-3">
           <Search className="h-4 w-4 flex-none text-muted-foreground" />
-          <input
+          <Input
             ref={inputRef}
             role="combobox"
             aria-label="Search workspace"
@@ -130,7 +135,7 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
             onChange={(e) => onQueryChange(e.target.value)}
             onKeyDown={onInputKeyDown}
             placeholder="Jump to a project, experiment, run, workflow, asset, agent, note…"
-            className="h-control-comfortable w-full bg-transparent text-body outline-none placeholder:text-muted-foreground"
+            className="h-control-comfortable w-full rounded-none border-0 bg-transparent px-0 text-body focus-visible:ring-0"
           />
         </div>
         {knowledgeLoading && knowledgeDocs.length === 0 && (
@@ -147,11 +152,7 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
             density="compact"
             title="Knowledge entries unavailable"
             detail={`${knowledgeError} Projects, experiments, runs, workflows, assets, and agents remain searchable.`}
-            action={
-              <WorkbenchAction kind="secondary" size="compact" onClick={() => void loadKnowledge()}>
-                Retry
-              </WorkbenchAction>
-            }
+            action={<WorkbenchRetryAction onClick={() => void loadKnowledge()} />}
           />
         )}
         <div
@@ -193,7 +194,9 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
                 const Icon = meta.icon;
                 const isActive = index === activeIndex;
                 return (
-                  <button
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="content"
                     type="button"
                     role="option"
                     id={`global-command-option-${index}`}
@@ -202,12 +205,12 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
                     key={`${entry.ref.kind}:${entry.ref.id}`}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => commit(index)}
-                    className={`flex w-full items-center gap-3 rounded-sm px-3 py-2 text-left ${
+                    className={`flex w-full items-center gap-3 rounded-control px-3 py-2 text-left ${
                       isActive ? "bg-muted" : ""
                     }`}
                   >
                     <Icon className={`h-4 w-4 flex-none ${meta.iconClassName}`} />
-                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                    <span className="min-w-0 flex-1 truncate text-body-lg text-foreground">
                       {entry.ref.label ?? entry.ref.id}
                     </span>
                     <span className="flex-none text-micro uppercase tracking-wide text-muted-foreground">
@@ -221,7 +224,7 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
                         showLabel={false}
                       />
                     )}
-                  </button>
+                  </WorkbenchAction>
                 );
               })}
             </>

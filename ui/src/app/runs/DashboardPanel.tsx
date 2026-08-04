@@ -118,7 +118,7 @@ export const DashboardPanel = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        "group/panel relative flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-border bg-surface",
+        "group/panel relative flex h-full min-h-0 flex-col overflow-hidden rounded-panel border border-border bg-surface",
         bare && "border-transparent bg-transparent",
         isDragging && "opacity-50",
       )}
@@ -149,7 +149,7 @@ interface DropIndicatorProps {
 const DropIndicator = ({ position }: DropIndicatorProps): JSX.Element => (
   <div
     className={cn(
-      "mol-motion-enter-fade pointer-events-none absolute z-20 bg-primary/70",
+      "mol-motion-enter-fade pointer-events-none absolute z-20 bg-accent/70",
       position === "left" && "left-0 top-0 h-full w-1",
       position === "right" && "right-0 top-0 h-full w-1",
       position === "top" && "left-0 top-0 h-1 w-full",

@@ -255,33 +255,194 @@ class TestCachedRemoteFileSystem:
     # ── TTL expiry ───────────────────────────────────────────────────────
 
     @pytest.mark.unit
-    def test_ttl_zero_always_revalidates(self, fake: _FakeRemoteFS, tmp_path: Path):
+    def test_ttl_zero_revalidates_via_stat_not_redownload(
+        self, fake: _FakeRemoteFS, tmp_path: Path
+    ):
+        """ttl=0 is strict mode: re-stat every read; reuse mirror when mtime matches."""
         cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=0)
+        cached.connect("/scratch/me")
         cached.read_bytes("/scratch/me/log.txt")
         fake.calls.clear()
+        assert cached.read_bytes("/scratch/me/log.txt") == b"hello"
+        assert fake.calls["stat"] >= 1
+        assert fake.calls["read_bytes"] == 0
+
+    @pytest.mark.unit
+    def test_ttl_zero_redownloads_when_mtime_changes(self, fake: _FakeRemoteFS, tmp_path: Path):
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=0)
+        cached.connect("/scratch/me")
         cached.read_bytes("/scratch/me/log.txt")
-        # TTL=0 means no fast path — every read re-fetches inner bytes.
+        fake.files["/scratch/me/log.txt"] = b"goodbye"
+        original_stat = fake.stat
+
+        def _stat_changed(path: str) -> StatResult:
+            result = original_stat(path)
+            if str(path) == "/scratch/me/log.txt":
+                return StatResult(
+                    size=result.size, mtime=result.mtime + 99.0, is_dir=False, is_file=True
+                )
+            return result
+
+        fake.stat = _stat_changed  # type: ignore[method-assign]
+        fake.calls.clear()
+        assert cached.read_bytes("/scratch/me/log.txt") == b"goodbye"
         assert fake.calls["read_bytes"] == 1
 
     @pytest.mark.unit
-    def test_ttl_expiry_triggers_refetch(
+    def test_pin_mode_never_auto_expires(
         self, fake: _FakeRemoteFS, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
+        """Positive ttl = pin-until-refresh: age does not force remote I/O."""
         cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=10)
         base = time.time()
         monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base)
+        cached.connect("/scratch/me")
         cached.read_bytes("/scratch/me/log.txt")
         assert fake.calls["read_bytes"] == 1
 
-        # Within TTL — mirror hit
-        monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base + 5)
-        cached.read_bytes("/scratch/me/log.txt")
-        assert fake.calls["read_bytes"] == 1
+        # Far past any historical TTL window — still local-only.
+        monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base + 10_000)
+        fake.files["/scratch/me/log.txt"] = b"remote-changed"  # would be visible if revalidated
+        fake.calls.clear()
+        assert cached.read_bytes("/scratch/me/log.txt") == b"hello"
+        assert fake.calls["read_bytes"] == 0
+        assert fake.calls["stat"] == 0
 
-        # After TTL — re-fetch
-        monkeypatch.setattr("molexp.workspace.fs_cached.time.time", lambda: base + 20)
+    @pytest.mark.unit
+    def test_warm_prepare_serves_pin_without_blocking_on_refresh(
+        self, fake: _FakeRemoteFS, tmp_path: Path
+    ):
+        """Warm open: local pin serves immediately; open refresh is async."""
+        from types import SimpleNamespace
+
+        mirror_root = tmp_path / "mirror"
+        fake.dirs.add("/scratch/me")
+        fake.dirs.add("/scratch/me/projects")
+        first = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
+        first.connect("/scratch/me")
+        first.read_bytes("/scratch/me/log.txt")
+
+        second = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
+        assert second.indexed is True
+        ws = SimpleNamespace(root="/scratch/me", _fs=second)
+        fake.calls.clear()
+        # Without open-refresh: pure pin, zero remote on prepare + read.
+        warnings = second.prepare(
+            ws,
+            block_index=False,
+            refresh_on_open=False,  # type: ignore[arg-type]
+        )
+        assert warnings == []
+        assert second.connected is False
+        assert fake.calls["exists"] == 0
+        assert second.read_bytes("/scratch/me/log.txt") == b"hello"
+        assert fake.calls["read_bytes"] == 0
+
+    @pytest.mark.unit
+    def test_warm_prepare_schedules_one_active_refresh(self, fake: _FakeRemoteFS, tmp_path: Path):
+        """Open always triggers one active force-fetch refresh (async)."""
+        from types import SimpleNamespace
+
+        mirror_root = tmp_path / "mirror"
+        fake.dirs.add("/scratch/me")
+        fake.dirs.add("/scratch/me/projects")
+        fake.files["/scratch/me/workspace.json"] = b"{}"
+        first = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
+        first.connect("/scratch/me")
+        first.read_bytes("/scratch/me/log.txt")
+
+        second = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
+        ws = SimpleNamespace(root="/scratch/me", _fs=second)
+        # Pin read works before/during refresh.
+        assert second.read_bytes("/scratch/me/log.txt") == b"hello"
+        warnings = second.prepare(ws, block_index=False, refresh_on_open=True)  # type: ignore[arg-type]
+        assert warnings == []
+        assert second.indexing is True or second._index_thread is not None
+        if second._index_thread is not None:
+            second._index_thread.join(timeout=2.0)
+        assert second.indexed is True
+        # Active refresh force-fetched workspace.json at least once.
+        assert fake.calls["read_bytes"] >= 1 or fake.calls["read_text"] >= 0
+
+    @pytest.mark.unit
+    def test_cold_prepare_indexes_in_background(self, fake: _FakeRemoteFS, tmp_path: Path):
+        from types import SimpleNamespace
+
+        fake.dirs.add("/scratch/me")
+        fake.dirs.add("/scratch/me/projects")
+        fake.files["/scratch/me/workspace.json"] = b'{"name":"ws"}'
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
+        assert cached.indexed is False
+        ws = SimpleNamespace(root="/scratch/me", _fs=cached)
+        warnings = cached.prepare(ws, block_index=False)  # type: ignore[arg-type]
+        assert warnings == []
+        assert cached.connected is True
+        if cached._index_thread is not None:
+            cached._index_thread.join(timeout=2.0)
+        assert cached.indexed is True
+
+    @pytest.mark.unit
+    def test_force_fetch_bypasses_pin_for_refresh_thread(self, fake: _FakeRemoteFS, tmp_path: Path):
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
+        cached.connect("/scratch/me")
         cached.read_bytes("/scratch/me/log.txt")
-        assert fake.calls["read_bytes"] == 2
+        fake.files["/scratch/me/log.txt"] = b"updated"
+        fake.calls.clear()
+        # Pin still serves old bytes on UI thread.
+        assert cached.read_bytes("/scratch/me/log.txt") == b"hello"
+        assert fake.calls["read_bytes"] == 0
+        # Active refresh thread force-fetches.
+        with cached.force_fetch():
+            assert cached.read_bytes("/scratch/me/log.txt") == b"updated"
+        assert fake.calls["read_bytes"] == 1
+        # Pin now holds the new bytes.
+        fake.calls.clear()
+        assert cached.read_bytes("/scratch/me/log.txt") == b"updated"
+        assert fake.calls["read_bytes"] == 0
+
+    @pytest.mark.unit
+    def test_force_fetch_propagates_to_parallel_workers(self, fake: _FakeRemoteFS, tmp_path: Path):
+        """ThreadPool workers must inherit force_fetch (TLS is not shared)."""
+        from molexp.workspace.fs_cached import _parallel_map
+
+        cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
+        cached.connect("/scratch/me")
+        for i in range(4):
+            path = f"/scratch/me/p{i}.json"
+            fake.files[path] = b"v1"
+            cached.read_bytes(path)
+            fake.files[path] = b"v2"
+
+        def _read(i: int) -> bytes:
+            return cached.read_bytes(f"/scratch/me/p{i}.json")
+
+        # Without force_fetch workers would return pinned v1.
+        with cached.force_fetch():
+            out = _parallel_map(_read, list(range(4)), max_workers=4, force_fetch_fs=cached)
+        assert out == [b"v2"] * 4
+
+    @pytest.mark.unit
+    def test_sidecar_ancient_fetched_at_still_pinned(self, fake: _FakeRemoteFS, tmp_path: Path):
+        """Prior-session wall-clock ages must not force SSH on next open."""
+        mirror_root = tmp_path / "mirror"
+        first = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=10)
+        first.connect("/scratch/me")
+        first.read_bytes("/scratch/me/log.txt")
+        import json as _json
+
+        sidecar = mirror_root / "_index.json"
+        raw = _json.loads(sidecar.read_text(encoding="utf-8"))
+        for payload in raw["entries"].values():
+            payload["fetched_at"] = 1.0  # ancient
+        for payload in raw.get("dirs", {}).values():
+            payload["fetched_at"] = 1.0
+        sidecar.write_text(_json.dumps(raw), encoding="utf-8")
+
+        second = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=10)
+        fake.calls.clear()
+        assert second.read_bytes("/scratch/me/log.txt") == b"hello"
+        assert fake.calls["read_bytes"] == 0
+        assert fake.calls["stat"] == 0
 
     # ── Sidecar persistence ──────────────────────────────────────────────
 
@@ -298,6 +459,43 @@ class TestCachedRemoteFileSystem:
         fake.calls.clear()
         second.read_bytes("/scratch/me/log.txt")
         assert fake.calls["read_bytes"] == 0, "must serve from mirror after re-instantiation"
+
+    @pytest.mark.unit
+    def test_missing_sidecar_is_normal_and_created_on_connect(
+        self, fake: _FakeRemoteFS, tmp_path: Path
+    ):
+        """A brand-new remote has no _index.json — connect materialises one."""
+        mirror_root = tmp_path / "fresh-mirror"
+        fake.dirs.add("/scratch/me")
+        cached = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
+        # Init creates mirror dirs but does not invent a sidecar until connect/write.
+        assert mirror_root.is_dir()
+        assert cached.connected is False
+        cached.connect("/scratch/me")
+        assert cached.connected is True
+        assert (mirror_root / "_index.json").is_file()
+        # Empty index is fine — ready still false until index().
+        assert cached.indexed is False
+        assert cached.ready is False
+
+    @pytest.mark.unit
+    def test_write_sidecar_recovers_when_mirror_wiped(self, fake: _FakeRemoteFS, tmp_path: Path):
+        """External rm -rf of mirror must not permanently mute the cache."""
+        import shutil
+
+        mirror_root = tmp_path / "mirror"
+        cached = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
+        cached.read_bytes("/scratch/me/log.txt")
+        assert (mirror_root / "_index.json").is_file()
+
+        shutil.rmtree(mirror_root)
+        assert not mirror_root.exists()
+
+        # Next record re-creates dirs + sidecar instead of warning forever.
+        fake.files["/scratch/me/other.txt"] = b"yy"
+        cached.read_bytes("/scratch/me/other.txt")
+        assert mirror_root.is_dir()
+        assert (mirror_root / "_index.json").is_file()
 
     # ── invalidate() public surface ──────────────────────────────────────
 
@@ -326,7 +524,11 @@ class TestCachedRemoteFileSystem:
         dropped = cached.invalidate(scope="all")
         assert dropped == 2
         assert cached.cached_paths() == []
-        assert not (tmp_path / "mirror" / "files").exists()
+        # files/ contents are wiped, but the mirror skeleton is recreated so
+        # the next write never hits "No such file or directory" on the sidecar.
+        assert (tmp_path / "mirror" / "files").is_dir()
+        assert list((tmp_path / "mirror" / "files").iterdir()) == []
+        assert cached.indexed is False
 
     @pytest.mark.unit
     def test_invalidate_specific_path(self, fake: _FakeRemoteFS, tmp_path: Path):

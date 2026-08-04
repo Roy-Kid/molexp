@@ -1,12 +1,13 @@
+import { WorkbenchAction, WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 // ─────────────────────────────────────────────────────────────────────────────
 // Dashboard primitives — section / chart vocabulary for entity Overviews.
 // Pure presentation only; no shadcn Card layout wrappers.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { type JSX, type ReactNode, useId } from "react";
+import { Check, Copy } from "lucide-react";
+import { type JSX, type ReactNode, useId, useState } from "react";
 
 import { STATUS_GROUPS } from "@/app/runs/statusGroups";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 /** Minimal status rollup shape (mirrors RunStatusCounts without importing it). */
@@ -46,7 +47,40 @@ interface MetaFieldProps {
   mono?: boolean;
   className?: string;
   title?: string;
+  /** Raw value copied by the always-visible copy affordance. */
+  copyValue?: string;
 }
+
+interface CopyButtonProps {
+  value: string;
+  label?: string;
+  className?: string;
+}
+
+/** Compact, reusable copy control for dense scientific data surfaces. */
+export const CopyButton = ({ value, label = "value", className }: CopyButtonProps): JSX.Element => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (): Promise<void> => {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  };
+
+  const Icon = copied ? Check : Copy;
+  return (
+    <WorkbenchIconAction
+      label={copied ? `${label} copied` : `Copy ${label}`}
+      className={cn("size-6 text-muted-foreground", copied && "text-success", className)}
+      onClick={(event) => {
+        event.stopPropagation();
+        void handleCopy();
+      }}
+    >
+      <Icon className="size-3" aria-hidden />
+    </WorkbenchIconAction>
+  );
+};
 
 /** One labeled field on a dashboard — sentence-case label, quiet hierarchy. */
 export const MetaField = ({
@@ -55,14 +89,19 @@ export const MetaField = ({
   mono = false,
   className,
   title,
+  copyValue,
 }: MetaFieldProps): JSX.Element => (
   <div className={cn("min-w-0", className)}>
-    <dt className="text-xs text-muted-foreground">{label}</dt>
+    <dt className="font-mono text-micro uppercase tracking-wider text-muted-foreground">{label}</dt>
     <dd
-      className={cn("mt-1 min-w-0 truncate text-sm text-foreground", mono && "font-mono text-xs")}
+      className={cn(
+        "mt-0.5 flex min-w-0 items-center gap-1 text-body text-foreground",
+        mono && "font-mono text-label",
+      )}
       title={title}
     >
-      {value}
+      <span className="min-w-0 truncate">{value}</span>
+      {copyValue !== undefined && <CopyButton value={copyValue} label={label} />}
     </dd>
   </div>
 );
@@ -76,7 +115,7 @@ interface MetaGridProps {
 export const MetaGrid = ({ children, columns = 2, className }: MetaGridProps): JSX.Element => (
   <dl
     className={cn(
-      "grid gap-x-6 gap-y-4",
+      "grid gap-x-4 gap-y-3",
       columns === 2 && "sm:grid-cols-2",
       columns === 3 && "sm:grid-cols-2 lg:grid-cols-3",
       columns === 4 && "sm:grid-cols-2 lg:grid-cols-4",
@@ -113,42 +152,46 @@ export const StatCard = ({
 }: StatCardProps): JSX.Element => {
   const body = (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <span
           aria-hidden="true"
           className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", STAT_DOT_TONE[tone])}
         />
-        <span className="truncate text-xs text-muted-foreground">{label}</span>
+        <span className="truncate font-mono text-micro uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
       </div>
       <div
         className={cn(
-          "mt-2 text-display font-semibold leading-none tracking-tight tabular-nums",
+          "mt-1.5 text-heading font-semibold leading-none tracking-tight tabular-nums",
           muted ? "text-muted-foreground/45" : STAT_VALUE_TONE[tone],
         )}
       >
         {value}
       </div>
       {hint != null && hint !== "" && (
-        <div className="mt-2 truncate text-xs text-muted-foreground">{hint}</div>
+        <div className="mt-1 truncate text-micro text-muted-foreground">{hint}</div>
       )}
     </>
   );
 
-  const shell = "flex h-full flex-col px-3 py-3 text-left transition-colors";
+  const shell = "flex min-h-18 h-full flex-col px-3 py-2.5 text-left transition-colors";
 
   if (onClick) {
     return (
-      <button
+      <WorkbenchAction
+        kind="ghost"
+        size="content"
         type="button"
         onClick={onClick}
         className={cn(
           shell,
-          "rounded-md hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          active && "bg-primary/5 ring-1 ring-inset ring-primary/25",
+          "hover:bg-interactive/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          active && "bg-accent-muted/60",
         )}
       >
         {body}
-      </button>
+      </WorkbenchAction>
     );
   }
   return <div className={shell}>{body}</div>;
@@ -163,7 +206,7 @@ interface StatGridProps {
 export const StatGrid = ({ children, className }: StatGridProps): JSX.Element => (
   <div
     className={cn(
-      "grid grid-cols-2 gap-x-3 gap-y-4 border-y border-border/60 py-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
+      "grid grid-cols-2 gap-1 bg-surface/95 p-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
       className,
     )}
   >
@@ -200,28 +243,32 @@ export const DashboardCard = ({
   return (
     <section
       aria-labelledby={title != null ? headingId : undefined}
-      className={cn(
-        "flex flex-col",
-        variant === "destructive" && "border-y border-status-failed/30 bg-status-failed-soft px-3",
-        className,
-      )}
+      className={cn("flex min-w-0 flex-col bg-surface/95", className)}
     >
       {(title != null || action != null || description != null) && (
-        <header className="flex flex-row items-start justify-between gap-3 border-b border-border/60 pb-2">
-          <div className="min-w-0 space-y-1">
+        <header className="flex flex-row items-start justify-between gap-4 px-4 pb-1 pt-4">
+          <div className="min-w-0">
             {title != null && (
-              <h3 id={headingId} className="text-body font-medium leading-none text-foreground">
+              <h3
+                id={headingId}
+                className={cn(
+                  "text-body font-semibold tracking-tight text-foreground",
+                  variant === "destructive" && "text-status-failed-foreground",
+                )}
+              >
                 {title}
               </h3>
             )}
             {description != null && (
-              <p className="text-label leading-relaxed text-muted-foreground">{description}</p>
+              <p className="mt-1 max-w-2xl text-label leading-relaxed text-muted-foreground">
+                {description}
+              </p>
             )}
           </div>
           {action != null && <div className="flex-none self-center">{action}</div>}
         </header>
       )}
-      <div className={cn("pt-3", bodyClassName)}>{children}</div>
+      <div className={cn("px-4 pb-4 pt-3", bodyClassName)}>{children}</div>
     </section>
   );
 };
@@ -244,9 +291,9 @@ export const StatusDistribution = ({
   const empty = counts.total === 0;
 
   return (
-    <div className={cn("space-y-3", className)}>
+    <div className={cn("space-y-2.5", className)}>
       <div
-        className="flex h-2 overflow-hidden rounded-full bg-muted"
+        className="flex h-1.5 overflow-hidden rounded-control bg-muted"
         role="img"
         aria-label={empty ? "No runs" : `Status mix across ${counts.total} runs`}
       >
@@ -258,7 +305,7 @@ export const StatusDistribution = ({
               <div
                 key={group.id}
                 title={`${group.label}: ${value}`}
-                className="h-full min-w-[2px] transition-[width]"
+                className="h-full min-w-0.5 transition-[width]"
                 style={{
                   width: `${(value / counts.total) * 100}%`,
                   backgroundColor: group.color,
@@ -268,11 +315,11 @@ export const StatusDistribution = ({
           })}
       </div>
       {legend && (
-        <ul className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+        <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
           {STATUS_GROUPS.map((group) => {
             const value = counts[group.id];
             return (
-              <li key={group.id} className="flex items-center justify-between gap-2 text-xs">
+              <li key={group.id} className="flex items-center justify-between gap-2 text-label">
                 <span className="inline-flex min-w-0 items-center gap-2 text-muted-foreground">
                   <span
                     aria-hidden="true"
@@ -389,7 +436,7 @@ export const StatusDonut = ({
         {segments.map((seg) => {
           const pct = total > 0 ? (seg.value / total) * 100 : 0;
           return (
-            <li key={seg.label} className="flex items-center gap-2 text-xs">
+            <li key={seg.label} className="flex items-center gap-2 text-label">
               <span
                 aria-hidden="true"
                 className="inline-block h-2 w-2 flex-none rounded-full"
@@ -397,7 +444,7 @@ export const StatusDonut = ({
               />
               <span className="min-w-0 flex-1 truncate text-muted-foreground">{seg.label}</span>
               <span className="font-medium tabular-nums text-foreground">{seg.value}</span>
-              <span className="w-9 text-right tabular-nums text-muted-foreground">
+              <span className="w-control-comfortable text-right tabular-nums text-muted-foreground">
                 {pct.toFixed(0)}%
               </span>
             </li>
@@ -426,7 +473,7 @@ interface MiniBarsProps {
 /** A compact horizontal bar list — categorical magnitudes without an axis. */
 export const MiniBars = ({ data, max, emptyLabel = "No data." }: MiniBarsProps): JSX.Element => {
   if (data.length === 0) {
-    return <p className="text-xs text-muted-foreground">{emptyLabel}</p>;
+    return <p className="text-label text-muted-foreground">{emptyLabel}</p>;
   }
   const ceiling = max ?? Math.max(1, ...data.map((d) => d.value));
   return (
@@ -436,8 +483,8 @@ export const MiniBars = ({ data, max, emptyLabel = "No data." }: MiniBarsProps):
         const row = (
           <>
             <div className="mb-1 flex items-baseline justify-between gap-2">
-              <span className="min-w-0 truncate text-xs text-foreground">{datum.label}</span>
-              <span className="flex-none text-xs tabular-nums text-muted-foreground">
+              <span className="min-w-0 truncate text-label text-foreground">{datum.label}</span>
+              <span className="flex-none text-label tabular-nums text-muted-foreground">
                 {datum.hint ?? datum.value}
               </span>
             </div>
@@ -455,13 +502,15 @@ export const MiniBars = ({ data, max, emptyLabel = "No data." }: MiniBarsProps):
         return (
           <li key={datum.label}>
             {datum.onClick ? (
-              <button
+              <WorkbenchAction
+                kind="ghost"
+                size="content"
                 type="button"
                 onClick={datum.onClick}
                 className="block w-full text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {row}
-              </button>
+              </WorkbenchAction>
             ) : (
               row
             )}
@@ -489,7 +538,7 @@ interface EntityPathProps {
 export const EntityPath = ({ segments, trailing, className }: EntityPathProps): JSX.Element => (
   <div
     className={cn(
-      "flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/60 pt-3 text-xs text-muted-foreground",
+      "flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/60 pt-3 text-label text-muted-foreground",
       className,
     )}
   >
@@ -503,13 +552,15 @@ export const EntityPath = ({ segments, trailing, className }: EntityPathProps): 
         <span key={pathKey} className="inline-flex items-center gap-2">
           {i > 0 && <span className="text-border">/</span>}
           {seg.onClick ? (
-            <button
+            <WorkbenchAction
+              kind="ghost"
+              size="content"
               type="button"
               className="truncate hover:text-foreground hover:underline"
               onClick={seg.onClick}
             >
               {seg.label}
-            </button>
+            </WorkbenchAction>
           ) : (
             <span className="truncate">{seg.label}</span>
           )}
@@ -530,17 +581,17 @@ interface ParamChipProps {
 
 /** Compact key=value chip used in run tables and parameter previews. */
 export const ParamChip = ({ name, value, className }: ParamChipProps): JSX.Element => (
-  <Badge
-    variant="outline"
+  <WorkbenchTag
+    meaning="metadata"
     className={cn(
-      "max-w-[140px] gap-1 rounded-md border-border/70 bg-muted/30 px-2 py-1 font-normal",
+      "max-w-36 gap-1 rounded-control border-border/70 bg-muted/30 px-2 py-1 font-normal",
       className,
     )}
     title={`${name}=${value}`}
   >
     <span className="truncate text-muted-foreground">{name}</span>
     <span className="truncate font-mono text-foreground">{value}</span>
-  </Badge>
+  </WorkbenchTag>
 );
 
 // ── Layout ───────────────────────────────────────────────────────────────────
@@ -552,8 +603,13 @@ interface DashboardGridProps {
 
 /** Scroll container + responsive 12-col grid the Overview lays cards onto. */
 export const DashboardGrid = ({ children, className }: DashboardGridProps): JSX.Element => (
-  <div className="flex-1 overflow-auto">
-    <div className={cn("grid grid-cols-1 gap-4 p-4 md:p-4 lg:grid-cols-12", className)}>
+  <div className="molexp-dashboard flex-1 overflow-auto bg-canvas">
+    <div
+      className={cn(
+        "mx-auto grid w-full max-w-7xl grid-cols-1 items-start gap-4 p-4 sm:p-5 lg:grid-cols-12",
+        className,
+      )}
+    >
       {children}
     </div>
   </div>

@@ -23,7 +23,7 @@ import { MarkdownContent } from "@/components/ui/markdown";
 import { ProgressSpinner } from "@/components/ui/progress-spinner";
 import { ThinkingBlock } from "@/components/ui/thinking-block";
 import { ToolCallRow } from "@/components/ui/tool-call-row";
-import { WorkbenchTag } from "@/components/workbench";
+import { WorkbenchAction, WorkbenchTag } from "@/components/workbench";
 import { ChatAnswerBody } from "@/lib/chat-answer";
 import { linkifyEntityTokens } from "@/lib/entity-linkify";
 import { formatDurationCompact } from "@/lib/format-time";
@@ -95,7 +95,7 @@ const EventRow = ({
       </div>
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{rowLabel}</span>
+          <span className="text-body-lg font-medium">{rowLabel}</span>
           {(event.type === "tool_call_started" || event.type === "tool_call_completed") &&
             Boolean(payload.tool_name) && (
               <WorkbenchTag className="h-4 px-1 font-mono text-micro">
@@ -106,7 +106,9 @@ const EventRow = ({
             {showTimestamp ? formatTs(event.ts) : null}
           </span>
           {hasDetail && (
-            <button
+            <WorkbenchAction
+              kind="ghost"
+              size="content"
               type="button"
               className="text-muted-foreground transition-colors hover:text-foreground"
               onClick={() => setExpanded((v) => !v)}
@@ -117,12 +119,12 @@ const EventRow = ({
               ) : (
                 <ChevronRight className="h-3 w-3" />
               )}
-            </button>
+            </WorkbenchAction>
           )}
         </div>
 
         {event.type === "llm_call" && (
-          <div className="space-y-1 text-xs text-muted-foreground">
+          <div className="space-y-1 text-label text-muted-foreground">
             {Boolean(payload.agent_name) && (
               <p>
                 <span className="font-medium text-foreground">agent</span>{" "}
@@ -150,7 +152,7 @@ const EventRow = ({
                     ? ` · ${payload.prompt_chars} chars`
                     : ""}
                 </p>
-                <pre className="max-h-48 overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-micro text-muted-foreground whitespace-pre-wrap">
+                <pre className="max-h-48 overflow-auto rounded-control bg-muted/60 px-3 py-2 font-mono text-micro text-muted-foreground whitespace-pre-wrap">
                   {String(payload.prompt_preview)}
                 </pre>
               </div>
@@ -161,7 +163,7 @@ const EventRow = ({
                   Response
                   {typeof payload.raw_chars === "number" ? ` · ${payload.raw_chars} chars` : ""}
                 </p>
-                <pre className="max-h-48 overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-micro text-muted-foreground whitespace-pre-wrap">
+                <pre className="max-h-48 overflow-auto rounded-control bg-muted/60 px-3 py-2 font-mono text-micro text-muted-foreground whitespace-pre-wrap">
                   {String(payload.raw_preview)}
                 </pre>
               </div>
@@ -176,7 +178,7 @@ const EventRow = ({
         )}
 
         {expanded && hasDetail && event.type !== "llm_call" && (
-          <pre className="overflow-x-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-micro text-muted-foreground">
+          <pre className="overflow-x-auto rounded-control bg-muted/60 px-3 py-2 font-mono text-micro text-muted-foreground">
             {JSON.stringify(payload, null, 2)}
           </pre>
         )}
@@ -213,10 +215,10 @@ const TurnAnswer = ({
   if (!result) {
     if (inProgress) {
       // Text-only — the turn avatar is the single spinner (no stacked loaders).
-      return <p className="text-sm text-muted-foreground">Working…</p>;
+      return <p className="text-body-lg text-muted-foreground">Working…</p>;
     }
     return (
-      <p className="text-sm italic text-muted-foreground">
+      <p className="text-body-lg italic text-muted-foreground">
         No final answer recorded for this turn.
       </p>
     );
@@ -229,13 +231,15 @@ const TurnAnswer = ({
     const failed = payload.failed === true;
     if (!summary) {
       return (
-        <p className="text-sm italic text-muted-foreground">Session ended without a summary.</p>
+        <p className="text-body-lg italic text-muted-foreground">
+          Session ended without a summary.
+        </p>
       );
     }
     if (failed) {
       return (
         <div className="space-y-2">
-          <div className="border-y border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="border-y border-destructive/30 bg-destructive/10 px-3 py-2 text-body-lg text-destructive">
             Plan failed
             {typeof payload.stage === "string" && payload.stage ? ` · stage ${payload.stage}` : ""}
           </div>
@@ -280,14 +284,14 @@ const TurnAnswer = ({
     const stage = typeof payload.stage === "string" ? payload.stage : "";
     return (
       <div className="space-y-2 border-y border-destructive/30 bg-destructive/10 px-3 py-2">
-        <p className="text-sm font-medium text-destructive">
+        <p className="text-body-lg font-medium text-destructive">
           {stage ? `Error at ${stage}` : "Error"}
         </p>
-        <p className="whitespace-pre-wrap text-sm text-destructive [overflow-wrap:anywhere]">
+        <p className="whitespace-pre-wrap text-body-lg text-destructive [overflow-wrap:anywhere]">
           {message}
         </p>
         {detail ? (
-          <pre className="max-h-64 overflow-auto rounded bg-background/60 px-2 py-2 font-mono text-micro text-muted-foreground whitespace-pre-wrap">
+          <pre className="max-h-64 overflow-auto rounded-control bg-background/60 px-2 py-2 font-mono text-micro text-muted-foreground whitespace-pre-wrap">
             {detail.slice(0, 4000)}
           </pre>
         ) : null}
@@ -322,18 +326,18 @@ const TurnAnswer = ({
 
     return (
       <div className="space-y-3">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-label text-muted-foreground">
           <ClipboardList className="h-3.5 w-3.5 flex-none text-info" />
           <span className="font-medium text-foreground">{title}</span>
         </div>
         {bodyMd ? (
-          <div className="max-h-[36rem] overflow-auto rounded-md border border-border/50 bg-muted/20 px-3 py-3 text-sm leading-relaxed">
+          <div className="max-h-144 overflow-auto rounded-control border border-border/50 bg-muted/20 px-3 py-3 text-body-lg leading-relaxed">
             <MarkdownContent text={bodyMd} />
           </div>
         ) : projectId && experimentId && runId ? (
           <PlanDocumentCard projectId={projectId} experimentId={experimentId} runId={runId} />
         ) : (
-          <p className="text-sm text-muted-foreground">Plan document unavailable.</p>
+          <p className="text-body-lg text-muted-foreground">Plan document unavailable.</p>
         )}
       </div>
     );
@@ -345,7 +349,7 @@ const TurnAnswer = ({
         ? payload.reason
         : "Waiting for your approval.";
     return (
-      <div className="flex items-center gap-2 border-y border-warning/25 bg-warning-soft px-3 py-2 text-xs text-warning-foreground">
+      <div className="flex items-center gap-2 border-y border-warning/25 bg-warning-soft px-3 py-2 text-label text-warning-foreground">
         <ClipboardList className="h-3.5 w-3.5 flex-none" />
         <span>{reason} Open the Approvals inbox to continue.</span>
       </div>
@@ -396,7 +400,7 @@ const TurnAnswer = ({
         : typeof payload.stage === "string"
           ? `Stage ${payload.stage}`
           : result.type;
-    return <p className="text-sm text-muted-foreground">{message}</p>;
+    return <p className="text-body-lg text-muted-foreground">{message}</p>;
   }
 
   if (result.type === "tool_call_completed") {
@@ -404,7 +408,7 @@ const TurnAnswer = ({
   }
 
   return (
-    <pre className="overflow-x-auto rounded-md bg-muted/40 px-3 py-2 text-xs">
+    <pre className="overflow-x-auto rounded-control bg-muted/40 px-3 py-2 text-label">
       {JSON.stringify(payload, null, 2)}
     </pre>
   );
@@ -487,10 +491,12 @@ const InternalSteps = ({ turn }: { turn: ConversationTurn }): JSX.Element | null
 
   return (
     <div>
-      <button
+      <WorkbenchAction
+        kind="ghost"
+        size="content"
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        className="flex items-center gap-2 rounded-control px-1 py-1 text-label text-muted-foreground transition-colors hover:text-foreground"
         aria-expanded={open}
         aria-label={open ? "Collapse internal steps" : "Expand internal steps"}
       >
@@ -501,7 +507,7 @@ const InternalSteps = ({ turn }: { turn: ConversationTurn }): JSX.Element | null
             ? "Internal steps"
             : `${count} step${count === 1 ? "" : "s"}${turn.inProgress ? "…" : ""}`}
         </span>
-      </button>
+      </WorkbenchAction>
       {open && (
         <div className="mt-1 space-y-1 border-t border-border/50 pt-1">
           {streamed.toolCalls.map((call) => (
@@ -558,12 +564,12 @@ export const ConversationTurnView = ({
     <div className="space-y-3">
       {/* User / goal prompt — right-aligned accent bubble */}
       <div className="flex justify-end">
-        <div className="max-w-[88%] rounded-[var(--radius-panel)] rounded-br-sm border border-primary/20 bg-primary/5 px-4 py-2">
-          <div className="mb-1 flex items-center gap-2 text-micro font-semibold uppercase tracking-wide text-primary/80">
+        <div className="max-w-7/8 rounded-panel rounded-br-control border border-accent/20 bg-accent/5 px-4 py-2">
+          <div className="mb-1 flex items-center gap-2 text-micro font-semibold uppercase tracking-wide text-accent/80">
             <PromptIcon className="h-3 w-3" />
             {turn.source === "goal" ? "Task" : "You"}
           </div>
-          <p className="whitespace-pre-wrap text-sm leading-snug text-foreground [overflow-wrap:anywhere]">
+          <p className="whitespace-pre-wrap text-body-lg leading-snug text-foreground [overflow-wrap:anywhere]">
             {turn.question || <span className="italic text-muted-foreground">(no prompt)</span>}
           </p>
         </div>
@@ -588,7 +594,7 @@ export const ConversationTurnView = ({
             <Bot className="h-3.5 w-3.5" aria-hidden />
           )}
         </div>
-        <div className="min-w-0 flex-1 space-y-2 rounded-[var(--radius-panel)] rounded-tl-sm border border-border/70 bg-card px-4 py-3">
+        <div className="min-w-0 flex-1 space-y-2 rounded-panel rounded-tl-control border border-border/70 bg-card px-4 py-3">
           <div className="flex items-center gap-2 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
             <span>{turn.inProgress ? "Agent working" : "Agent"}</span>
           </div>
@@ -619,9 +625,11 @@ export const ConversationTurnView = ({
               }
               if (activeTool) {
                 return (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-body-lg text-muted-foreground">
                     Running{" "}
-                    <span className="font-mono text-xs text-foreground">{activeTool.toolName}</span>
+                    <span className="font-mono text-label text-foreground">
+                      {activeTool.toolName}
+                    </span>
                     …
                   </p>
                 );

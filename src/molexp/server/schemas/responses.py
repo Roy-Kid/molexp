@@ -56,7 +56,7 @@ def _read_context_results(run: Run) -> dict[str, Any]:
     try:
         with open(run_json) as fh:  # noqa: PTH123
             data = json.load(fh)
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return {}
     ctx = data.get("context") or {}
     results = ctx.get("results") or {}
@@ -345,6 +345,12 @@ class WorkspaceInfoResponse(BaseModel):
     projectCount: int
     assetCount: int
     warnings: list[str] = []
+    # Remote-cache lifecycle (null for local workspaces).
+    # ``ready`` = connected AND navigation index built; missing ``_index.json``
+    # on first open is normal — the server creates it.
+    connected: bool | None = None
+    indexed: bool | None = None
+    ready: bool | None = None
 
 
 class FolderEntryResponse(BaseModel):

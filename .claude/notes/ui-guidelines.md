@@ -67,33 +67,29 @@ Declared frame in `AppShell` (every route renders into it):
 │ rows       │                                 │                │
 │ 16–30%     │                                 │ 20–45%         │
 ├────────────┴─────────────────────────────────┴────────────────┤
-│ BottomPanel tab strip (28px): ♡ | Logs | Problems | Runs |    │
-│ Artifacts · scope · chevron   (body height-draggable when open)│
+│ Status bar (28px): ♡ heartbeat · Syncing / operation message  │
 └───────────────────────────────────────────────────────────────┘
 ```
 
 - Global toolbar (`ContextBar`) is **44px** (`h-11`).
 - Work-surface header (breadcrumb) is **40px** (`h-10`).
-- Bottom panel strip is **28px** when collapsed; open height persists in
-  `localStorage` (`molexp.workbench.bottomPanel`).
+- The status bar is always **28px** and never expands into a panel.
 - Navigator/work-surface and work-surface/inspector layouts persist independently
   through stable panel ids. Conditional inspector layouts do not overwrite the
   single-panel work-surface layout.
 - Runs reuses the declared `AppShell` inspector; it does not create a second
   fixed-width inspector inside the work surface.
-- Heartbeat sits **on the same row** as Logs/Problems/… (leftmost), and click
-  triggers the active refresh. Idle is neutral, an active refresh uses labelled
-  running blue, and completion gets one neutral 180ms acknowledgement.
-- Mobile: nav + the same stateful inspector become edge drawers; the bottom
-  panel stays full-width.
-- The bottom resize separator supports pointer drag plus
-  Arrow Up/Down, Home, and End, with its current height exposed through ARIA.
+- Heartbeat sits at the left of the status line and click triggers the active
+  refresh. Idle is neutral, an active refresh shows `Syncing…` in running blue,
+  and completion gets one neutral 180ms acknowledgement.
+- Mobile: nav + the same stateful inspector become edge drawers; the status bar
+  stays full-width.
 
 ## Product components
 
 | Component | Wraps | Owns |
 |---|---|---|
-| `BottomPanel` | tab strip + resize separator | Logs/Problems/Runs/Artifacts |
+| `WorkbenchStatusStrip` | heartbeat + activity live region | Sync and operation status |
 | `WorkflowNode` | domain node chrome | DAG node (lists + flowgram) |
 | `NodeInspector` / `Section` / `Row` | semantic aside + section layout | Right-rail inspector frame |
 | `ParameterField` / `ParameterGroup` | Input/Select | Schema-driven params |
@@ -113,15 +109,17 @@ Stage 3 component conformance:
   wire aliases normalize once at the presentation boundary.
 - Primary data-table and runs-table rows activate with pointer, Enter, or Space
   and expose stable accessible names and focus treatment.
-- Bottom-panel tabs implement roving focus with Left/Right/Home/End; the resize
-  separator supports pointer and keyboard operation.
-- Icon-only actions and form controls have precise programmatic names and label
-  associations. The global command palette exposes combobox/listbox semantics.
+- Toolbars, headers, row actions, and inline feedback prefer borderless
+  `WorkbenchIconAction` / `WorkbenchToggleAction` controls whenever a stable
+  Lucide icon exists. Every icon action has a precise `label` (accessible name
+  plus native tooltip). Text buttons are reserved for form confirmation,
+  consequential review decisions, named navigation/modes, and actions whose
+  icon would be ambiguous. The global command palette exposes
+  combobox/listbox semantics.
 - The plan progress rail becomes a horizontally scrollable stage selector on
   narrow screens and a vertical rail at the large breakpoint.
-- Product component files keep one primary responsibility: BottomPanel state,
-  resize, tabs, and empty content; inspector rows/sections; and parameter groups
-  are split into focused modules.
+- Product component files keep one primary responsibility: status-line activity;
+  inspector rows/sections; and parameter groups are split into focused modules.
 
 ## Surface hierarchy
 
@@ -144,6 +142,12 @@ Stage 4 de-card conformance:
 
 Stage 5 state conformance:
 
+- **Transient app status (sync, mutation tips, errors) lives only in the
+  bottom status bar** — the same channel and presentation as MolVis.
+  No floating center/corner toast cards. Heartbeat shows live sync; bus
+  messages (`toast` / `reportStatus`) share the mono activity line;
+  warning/error click-to-dismiss. `WorkbenchOperationState` remains the
+  in-surface loading/empty/error pattern for panels that fetch content.
 - `WorkbenchOperationState` is the single accessible surface for loading,
   final empty, error, disabled, running, and success feedback. It owns
   `status` / `alert` live-region semantics and default, compact, and toolbar
@@ -151,7 +155,7 @@ Stage 5 state conformance:
 - Every audited fetching/computing surface uses it: ProjectViewer, AssetViewer,
   both workflow file viewers, DocTree, KnowledgeDocPanel,
   KnowledgeBacklinksCard, ApprovalsBell / Inbox, GlobalCommandPalette, and
-  ModelPicker, in addition to the existing bottom-panel, image, editor,
+  ModelPicker, in addition to the existing image, editor,
   activity, and log surfaces.
 - Initial loading never renders as final empty, request failures never collapse
   to `[]`, `null`, “not found,” or zero metrics, and zero-length payloads get a
@@ -175,9 +179,7 @@ Stage 6 motion conformance:
   `mol-motion-sheet` own Radix open/close motion across dialog, alert, sheet,
   select, popover, tooltip, dropdown, and context-menu primitives.
 - Spatial motion is reserved for edge-owned panels: the mobile sheet enters
-  from its declared edge, the desktop inspector enters from the right, and the
-  bottom panel expands from its 28px strip. Pointer resize disables easing while
-  dragging.
+  from its declared edge and the desktop inspector enters from the right.
 - `mol-motion-progress-spin` and `mol-motion-progress-pulse` are the only
   continuous chrome animations. They use linear cadence and appear only for
   running, loading, skeleton, or streaming feedback; idle/decorative loops are
@@ -206,8 +208,9 @@ schema. Do not hand-edit `ui/src/api/generated/`.
 `button`, `input`, `textarea`, `select`, `badge`, `tabs`, `dialog`,
 `alert-dialog`, `sheet`, `popover`, `dropdown-menu`, `context-menu`,
 `tooltip`, `separator`, `scroll-area`, `resizable`, `command`, `skeleton`,
-`accordion`, `label`, plus workbench needs `tree`, `markdown`, `toast`,
-`thinking-block`, `tool-call-row`. **`card` removed** (zero feature callers).
+`accordion`, `collapsible`, `checkbox`, `slider`, `table`, `code`, `label`,
+plus workbench needs `tree`, `markdown`, `toast`, `thinking-block`,
+`tool-call-row`. **`card` removed** (zero feature callers).
 
 ## Permitted variance claimed
 
@@ -236,7 +239,6 @@ headers are now opaque (`bg-background`).
 
 | Item | Stage | Severity |
 |---|---|---|
-| Feature code still names 12/14px sizes with Tailwind defaults (`text-xs` / `text-sm`, ~79/67 files) instead of the semantic `text-label` / `text-body-lg` tokens | tokens | 🟡 |
 | Two-line Jobs-table rows (~52px) sit above the 28–32px single-line target by design | density | 🟢 |
 | Dashboard-panel drag/remove chrome is hover-only (HTML5 DnD, no touch path) | states | 🟡 |
 | `ui/src/app/renderers/agent/inlineStructure.tsx` tail was reconstructed after the casing cleanup deleted the only copy (macOS case-insensitive FS); review the render block | — | 🟡 |

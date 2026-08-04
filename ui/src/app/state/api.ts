@@ -158,6 +158,25 @@ const EMBED_TARGET_KIND: Record<EmbedTargetKind, EmbedRequest.target_kind> = {
 };
 
 export const workspaceApi = {
+  /** Active workspace root (+ optional remote readiness flags from newer servers). */
+  getWorkspaceInfo: async (): Promise<{
+    root: string;
+    projectCount: number;
+    assetCount: number;
+    connected?: boolean | null;
+    indexed?: boolean | null;
+    ready?: boolean | null;
+  }> => {
+    // Generated type may lag openapi dump; cast keeps extra fields when present.
+    return WorkspaceService.getWorkspaceInfoApiWorkspaceInfoGet() as Promise<{
+      root: string;
+      projectCount: number;
+      assetCount: number;
+      connected?: boolean | null;
+      indexed?: boolean | null;
+      ready?: boolean | null;
+    }>;
+  },
   getProjects: async (): Promise<ApiProjectResponse[]> => {
     return ProjectsService.listProjectsApiProjectsGet();
   },
@@ -600,20 +619,34 @@ export const workspaceApi = {
    * lineage metadata (`assetId`, `assetKind`, `producerRunId`,
    * `producerTaskId`) for nodes that match a registered asset.
    */
+  /**
+   * List workspace directory via WorkspaceFs (Path + Fs model).
+   * Prefer this over raw fetch so local/remote stay transparent.
+   */
   getWorkspaceTree: async (
     options: { path?: string; maxDepth?: number; includeCatalog?: boolean } = {},
-  ): Promise<WorkspaceTreeNodeRaw> => {
-    const params = new URLSearchParams();
-    params.set("path", options.path ?? "");
-    params.set("max_depth", String(options.maxDepth ?? 8));
-    if (options.includeCatalog) {
-      params.set("include", "catalog");
-    }
-    const response = await fetch(`/api/workspace/files?${params.toString()}`);
-    if (!response.ok) {
-      throw new Error(`Request failed: ${response.status} ${response.statusText}`);
-    }
-    return response.json();
+  ): Promise<WorkspaceFilesResponse> => {
+    const { getWorkspaceFs } = await import("@/lib/workspace-fs");
+    const fs = getWorkspaceFs();
+    const dirents = await fs.listdir(options.path ?? "", {
+      maxDepth: options.maxDepth ?? 2,
+      includeCatalog: options.includeCatalog,
+    });
+    // Adapt domain dirents back to the legacy raw wire shape for mapWorkspaceTree.
+    const toRaw = (d: (typeof dirents)[number]): WorkspaceFileNode => ({
+      name: d.name,
+      path: d.path,
+      type: d.kind === "file" ? "file" : "folder",
+      size: d.sizeBytes,
+      modified: d.mtime ?? undefined,
+      children: d.children.map(toRaw),
+      assetId: d.assetId,
+      hasPreviewSidecar: d.hasPreviewSidecar,
+    });
+    return {
+      path: options.path || fs.root || "/",
+      children: dirents.map(toRaw),
+    };
   },
 
   /**
@@ -823,6 +856,7 @@ export const mapProjects = (
     status: "active",
     summary: project.description || "No description",
     updatedAt: project.created,
+    experimentCount: project.experimentCount ?? null,
     ...(workspaceKey ? { workspaceKey } : {}),
   }));
 };
@@ -842,6 +876,7 @@ export const mapExperiments = (
     parameterSpace: (experiment.parameterSpace ?? {}) as Record<string, unknown>,
     workflowSource: experiment.workflow ?? null,
     planRunId: experiment.planRunId ?? null,
+    runCount: experiment.runCount ?? null,
   }));
 };
 

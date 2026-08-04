@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
+import { WorkbenchIconAction } from "@/components/workbench";
 import { formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 import {
@@ -393,7 +393,7 @@ export const RunsPage = ({
                 onReset={layout.reset}
               />
             )}
-            <span className="hidden text-xs text-muted-foreground sm:inline">
+            <span className="hidden text-label text-muted-foreground sm:inline">
               Synced {lastSyncedAt ? formatRelative(lastSyncedAt.toISOString()) : "—"}
             </span>
             <WorkbenchIconAction
@@ -418,7 +418,7 @@ export const RunsPage = ({
       <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-4">
         {error && (
           <DashboardCard title="Could not load runs" variant="destructive" className="mb-4">
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-body-lg text-destructive">{error}</p>
           </DashboardCard>
         )}
 
@@ -437,7 +437,7 @@ export const RunsPage = ({
               />
             ))}
             {layout.rows.length === 0 && (
-              <div className="flex min-h-[200px] items-center justify-center border-y border-dashed border-border/70">
+              <div className="flex min-h-48 items-center justify-center border-y border-dashed border-border/70">
                 <EmptyState
                   density="compact"
                   icon={<LayoutGrid className="h-5 w-5" />}
@@ -489,15 +489,17 @@ const PanelManager = ({ allIds, hiddenIds, onToggle, onReset }: PanelManagerProp
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <WorkbenchAction kind="secondary" size="compact" className="h-8 gap-2" title="Layout">
+        <WorkbenchIconAction
+          label={hiddenIds.length > 0 ? `Layout, ${hiddenIds.length} panels hidden` : "Layout"}
+          className="relative"
+        >
           <LayoutGrid className="h-3.5 w-3.5" />
-          Layout
           {hiddenIds.length > 0 && (
-            <span className="rounded-full bg-muted px-2 text-micro font-medium tabular-nums text-muted-foreground">
+            <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-accent px-1 text-micro font-medium tabular-nums text-accent-foreground">
               {hiddenIds.length}
             </span>
           )}
-        </WorkbenchAction>
+        </WorkbenchIconAction>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel>Panels</DropdownMenuLabel>
@@ -558,7 +560,7 @@ const DashboardRowView = ({
       direction="horizontal"
       autoSaveId={`molexp.runs.dashboard.row.${rowId}`}
       autoSavePanelIds={panels}
-      className="!h-auto min-h-[180px] gap-2"
+      className="!h-auto min-h-44 gap-2"
     >
       {panels.map((panelId, idx) => (
         <Fragment key={panelId}>

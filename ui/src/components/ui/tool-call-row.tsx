@@ -17,7 +17,7 @@ import { formatDurationCompact } from "@/lib/format-time";
 export const ToolCallRow = ({ call }: { call: ToolCallState }): JSX.Element => {
   if (call.status === "started") {
     return (
-      <div className="flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 text-xs">
+      <div className="flex min-w-0 items-center gap-2 rounded-control px-2 py-1 text-label">
         <ProgressSpinner className="text-info" label="Tool running" />
         <span className="truncate font-mono text-foreground">
           {call.toolName}
@@ -33,7 +33,7 @@ export const ToolCallRow = ({ call }: { call: ToolCallState }): JSX.Element => {
   const duration = formatDurationCompact(toolCallDurationSeconds(call));
 
   return (
-    <div className="group/tool flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 text-xs transition-colors hover:bg-muted/40">
+    <div className="group/tool flex min-w-0 items-center gap-2 rounded-control px-2 py-1 text-label transition-colors hover:bg-muted/40">
       <Icon
         className={`h-3.5 w-3.5 flex-none ${failed ? "text-destructive" : "text-success"}`}
         aria-label={failed ? "Tool call failed" : "Tool call succeeded"}

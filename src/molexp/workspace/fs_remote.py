@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import posixpath
 from collections.abc import Iterable
 from typing import IO, Any, cast
 
@@ -34,7 +35,18 @@ class RemoteFileSystem:
 
     @staticmethod
     def join(*parts: PathArg) -> str:
-        return "/".join(os.fspath(p).strip("/") for p in parts if p)
+        """POSIX-join path segments, preserving an absolute remote root.
+
+        Remote workspaces live at absolute paths (``/home/...``).  A naive
+        ``"/".join(p.strip("/") ...)`` drops the leading slash and turns
+        marker checks like ``exists(<root>/workspace.json)`` into relative
+        lookups that always miss — which is why ``molexp info -ws host:/abs``
+        reported "No workspace found" even when the file was present.
+        """
+        cleaned = [os.fspath(p) for p in parts if p]
+        if not cleaned:
+            return ""
+        return posixpath.join(*cleaned)
 
     @staticmethod
     def dirname(path: PathArg) -> str:

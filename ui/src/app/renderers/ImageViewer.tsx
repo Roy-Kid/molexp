@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import { WorkbenchOperationState, WorkbenchRetryAction } from "@/components/workbench";
 
 export const ImageViewer = ({ selection }: RendererProps): JSX.Element => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -61,15 +61,7 @@ export const ImageViewer = ({ selection }: RendererProps): JSX.Element => {
             kind="error"
             title="Could not load image"
             detail={error}
-            action={
-              <WorkbenchAction
-                kind="secondary"
-                size="compact"
-                onClick={() => setTick((t) => t + 1)}
-              >
-                Retry
-              </WorkbenchAction>
-            }
+            action={<WorkbenchRetryAction onClick={() => setTick((t) => t + 1)} />}
           />
         )}
         {!error && imageUrl && (

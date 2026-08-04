@@ -76,7 +76,7 @@ export const WorkbenchOperationState = ({
           {SKELETON_ROW_KEYS.slice(0, skeletonRows).map((rowKey, index) => (
             <Skeleton
               key={rowKey}
-              className={cn("h-7 w-full rounded-[var(--radius-control)]", index === 0 && "w-2/3")}
+              className={cn("h-control-compact w-full rounded-control", index === 0 && "w-2/3")}
             />
           ))}
         </div>
@@ -207,7 +207,7 @@ export const WorkbenchOperationState = ({
     return (
       <div
         className={cn(
-          "flex flex-col items-start gap-2 rounded-[var(--radius-panel)] border border-status-failed/30 bg-status-failed-soft",
+          "flex flex-col items-start gap-2 rounded-panel border border-status-failed/30 bg-status-failed-soft",
           density === "compact" ? "m-2 px-3 py-2" : "m-3 px-3 py-3",
           className,
         )}

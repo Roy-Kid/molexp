@@ -55,8 +55,8 @@ export const LandDecisionBar = ({
   };
 
   return (
-    <div className="space-y-2 rounded-md border border-border/60 bg-muted/30 px-3 py-3">
-      <p className="text-sm text-foreground">{intro}</p>
+    <div className="space-y-2 rounded-control border border-border/60 bg-muted/30 px-3 py-3">
+      <p className="text-body-lg text-foreground">{intro}</p>
       <div className="flex flex-wrap items-center gap-2">
         <WorkbenchAction
           kind="primary"
@@ -77,7 +77,7 @@ export const LandDecisionBar = ({
           {busy === "no" ? "Sending…" : "No · keep scratch"}
         </WorkbenchAction>
       </div>
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      {error ? <p className="text-label text-destructive">{error}</p> : null}
     </div>
   );
 };

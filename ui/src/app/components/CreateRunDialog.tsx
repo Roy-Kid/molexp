@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { WorkbenchAction } from "@/components/workbench";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 
 const NO_TARGET_VALUE = "__none__";
 
@@ -118,15 +118,14 @@ export function CreateRunDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger === undefined ? (
         <DialogTrigger asChild>
-          <WorkbenchAction kind="primary" size="compact">
+          <WorkbenchIconAction label="New run">
             <Plus className="h-3.5 w-3.5" />
-            New run
-          </WorkbenchAction>
+          </WorkbenchIconAction>
         </DialogTrigger>
       ) : (
         trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>
       )}
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>New run</DialogTitle>
           <DialogDescription className="sr-only">
@@ -183,12 +182,9 @@ export function CreateRunDialog({
                 </Select>
                 <AddTargetDialog
                   trigger={
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      + Add new target…
-                    </button>
+                    <WorkbenchIconAction label="Add new target">
+                      <Plus className="size-3.5" />
+                    </WorkbenchIconAction>
                   }
                   onCreated={(t) => {
                     void refreshTargets();
@@ -198,7 +194,7 @@ export function CreateRunDialog({
               </div>
             </div>
             {error && (
-              <div className="text-sm text-status-failed-foreground col-span-4 text-center">
+              <div className="text-body-lg text-status-failed-foreground col-span-4 text-center">
                 {error}
               </div>
             )}

@@ -24,6 +24,7 @@ import { workspaceApi } from "@/app/state/api";
 import type { Selection, WorkspaceSnapshot } from "@/app/types";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { usePrompt } from "@/components/PromptDialog";
+import { Code as InlineCode } from "@/components/ui/code";
 import {
   Command,
   CommandEmpty,
@@ -35,7 +36,13 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import {
+  WorkbenchAction,
+  WorkbenchDismissAction,
+  WorkbenchIconAction,
+  WorkbenchOperationState,
+  WorkbenchRetryAction,
+} from "@/components/workbench";
 import { cn } from "@/lib/utils";
 import { buildDocTree, type DocEntityKind, type DocTreeNode } from "./knowledgeDocTree";
 import { useKnowledgeDocs, useKnowledgeFacets } from "./useKnowledgeDocs";
@@ -69,15 +76,10 @@ const KnowledgeFilter = ({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <WorkbenchAction
-          kind="ghost"
-          size="compact"
-          className="h-7 gap-2 text-xs"
-          disabled={disabled}
-        >
-          <Filter className="h-3.5 w-3.5" /> Filter
+        <WorkbenchIconAction label="Filter knowledge" disabled={disabled}>
+          <Filter className="h-3.5 w-3.5" />
           {active && <span className="h-1.5 w-1.5 rounded-full bg-info" />}
-        </WorkbenchAction>
+        </WorkbenchIconAction>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-56 p-0">
         <Command>
@@ -319,8 +321,9 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
       title: "Delete document?",
       description: (
         <>
-          Document <code className="rounded bg-muted px-1 py-1 text-xs">{name}</code> and its child
-          documents will be permanently removed.
+          Document{" "}
+          <InlineCode className="rounded-control bg-muted px-1 py-1 text-label">{name}</InlineCode>{" "}
+          and its child documents will be permanently removed.
         </>
       ),
       confirmLabel: "Delete",
@@ -450,22 +453,20 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
           onTagChange={setTag}
           onStatusChange={setStatus}
         />
-        <WorkbenchAction
-          kind="ghost"
-          size="compact"
-          className="h-7 gap-2 text-xs"
+        <WorkbenchIconAction
+          label="New document"
           disabled={operationLabel !== null}
           onClick={() => void handleCreateRoot()}
         >
-          <Plus className="h-3.5 w-3.5" /> New doc
-        </WorkbenchAction>
+          <Plus className="h-3.5 w-3.5" />
+        </WorkbenchIconAction>
       </div>
       <div className="px-1">
         <Input
           value={search}
           onChange={(e) => handleSearchChange(e.target.value)}
           placeholder="Search notes (title, tags, body)…"
-          className="h-7 text-xs"
+          className="h-control-compact text-label"
           aria-label="Search knowledge"
         />
       </div>
@@ -483,11 +484,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
           density="compact"
           title="Knowledge filters unavailable"
           detail={facetsError}
-          action={
-            <WorkbenchAction kind="secondary" size="compact" onClick={() => void reloadFacets()}>
-              Retry
-            </WorkbenchAction>
-          }
+          action={<WorkbenchRetryAction onClick={() => void reloadFacets()} />}
         />
       )}
       {operationLabel && (
@@ -502,9 +499,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
           action={
             <div className="flex items-center gap-2">
               {operationRetry && (
-                <WorkbenchAction
-                  kind="secondary"
-                  size="compact"
+                <WorkbenchRetryAction
                   onClick={() =>
                     void guard(
                       operationRetry.runningLabel,
@@ -512,20 +507,14 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
                       operationRetry.run,
                     )
                   }
-                >
-                  Retry
-                </WorkbenchAction>
+                />
               )}
-              <WorkbenchAction
-                kind="ghost"
-                size="compact"
+              <WorkbenchDismissAction
                 onClick={() => {
                   setOperationError(null);
                   setOperationRetry(null);
                 }}
-              >
-                Dismiss
-              </WorkbenchAction>
+              />
             </div>
           }
         />
@@ -549,13 +538,9 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
               title="Knowledge search failed"
               detail={searchError}
               action={
-                <WorkbenchAction
-                  kind="secondary"
-                  size="compact"
+                <WorkbenchRetryAction
                   onClick={() => setSearchRequestVersion((version) => version + 1)}
-                >
-                  Retry
-                </WorkbenchAction>
+                />
               }
             />
           ) : searchHits.length === 0 ? (
@@ -574,16 +559,18 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
                 className="sr-only"
               />
               {searchHits.map((hit) => (
-                <button
+                <WorkbenchAction
+                  kind="ghost"
+                  size="content"
                   type="button"
                   key={hit.path}
                   onClick={() => onSelect(selectionForSearchHit(hit))}
                   className={cn(
-                    "block w-full rounded-sm px-2 py-2 text-left hover:bg-muted",
+                    "block w-full rounded-control px-2 py-2 text-left hover:bg-muted",
                     activeId === hit.path && "bg-muted",
                   )}
                 >
-                  <span className="block truncate text-sm text-foreground">{hit.title}</span>
+                  <span className="block truncate text-body-lg text-foreground">{hit.title}</span>
                   <span className="block truncate text-micro text-muted-foreground">
                     {hit.path}
                   </span>
@@ -592,7 +579,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
                       {hit.snippet}
                     </span>
                   )}
-                </button>
+                </WorkbenchAction>
               ))}
             </>
           )}
@@ -613,11 +600,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
           density="compact"
           title="Could not load knowledge documents"
           detail={error}
-          action={
-            <WorkbenchAction kind="secondary" size="compact" onClick={() => void reload()}>
-              Retry
-            </WorkbenchAction>
-          }
+          action={<WorkbenchRetryAction onClick={() => void reload()} />}
         />
       ) : (
         <>
@@ -627,11 +610,7 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
               density="compact"
               title="Could not refresh knowledge documents"
               detail={error}
-              action={
-                <WorkbenchAction kind="secondary" size="compact" onClick={() => void reload()}>
-                  Retry
-                </WorkbenchAction>
-              }
+              action={<WorkbenchRetryAction onClick={() => void reload()} />}
             />
           )}
           {loading ? (

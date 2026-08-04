@@ -10,7 +10,7 @@ import { type JSX, lazy, Suspense, useCallback, useMemo, useState } from "react"
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
 import { workspaceApi } from "@/app/state/api";
 import type { WorkspaceSnapshot } from "@/app/types";
-import { WorkbenchAction } from "@/components/workbench";
+import { WorkbenchIconAction, WorkbenchToggleAction } from "@/components/workbench";
 import { buildNoteDocUpdate, isDirty } from "./noteDraft";
 import { SlashMenu } from "./SlashMenu";
 
@@ -26,18 +26,18 @@ type EditMode = "wysiwyg" | "source";
 const MILKDOWN_HOST = [
   "h-full",
   "[&_.ProseMirror]:min-h-full [&_.ProseMirror]:px-4 [&_.ProseMirror]:py-3",
-  "[&_.ProseMirror]:text-sm [&_.ProseMirror]:leading-relaxed [&_.ProseMirror]:text-foreground",
+  "[&_.ProseMirror]:text-body-lg [&_.ProseMirror]:leading-relaxed [&_.ProseMirror]:text-foreground",
   "[&_.ProseMirror]:outline-none",
   "[&_.ProseMirror_h1]:mt-4 [&_.ProseMirror_h1]:mb-2 [&_.ProseMirror_h1]:text-base [&_.ProseMirror_h1]:font-semibold",
   "[&_.ProseMirror_h2]:mt-4 [&_.ProseMirror_h2]:mb-1 [&_.ProseMirror_h2]:text-body-lg [&_.ProseMirror_h2]:font-semibold",
-  "[&_.ProseMirror_h3]:mt-3 [&_.ProseMirror_h3]:mb-1 [&_.ProseMirror_h3]:text-sm [&_.ProseMirror_h3]:font-semibold",
+  "[&_.ProseMirror_h3]:mt-3 [&_.ProseMirror_h3]:mb-1 [&_.ProseMirror_h3]:text-body-lg [&_.ProseMirror_h3]:font-semibold",
   "[&_.ProseMirror_p]:my-2",
   "[&_.ProseMirror_ul]:my-2 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:pl-6",
   "[&_.ProseMirror_ol]:my-2 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:pl-6",
-  "[&_.ProseMirror_a]:text-primary [&_.ProseMirror_a]:underline [&_.ProseMirror_a]:underline-offset-2",
+  "[&_.ProseMirror_a]:text-accent [&_.ProseMirror_a]:underline [&_.ProseMirror_a]:underline-offset-2",
   "[&_.ProseMirror_blockquote]:my-2 [&_.ProseMirror_blockquote]:border-l [&_.ProseMirror_blockquote]:border-border [&_.ProseMirror_blockquote]:pl-3 [&_.ProseMirror_blockquote]:text-muted-foreground",
-  "[&_.ProseMirror_code]:rounded-sm [&_.ProseMirror_code]:bg-muted [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:py-px [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-label",
-  "[&_.ProseMirror_pre]:my-2 [&_.ProseMirror_pre]:rounded-md [&_.ProseMirror_pre]:border [&_.ProseMirror_pre]:border-border/60 [&_.ProseMirror_pre]:bg-muted/50 [&_.ProseMirror_pre]:px-3 [&_.ProseMirror_pre]:py-3 [&_.ProseMirror_pre]:font-mono [&_.ProseMirror_pre]:text-xs",
+  "[&_.ProseMirror_code]:rounded-control [&_.ProseMirror_code]:bg-muted [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:py-px [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-label",
+  "[&_.ProseMirror_pre]:my-2 [&_.ProseMirror_pre]:rounded-control [&_.ProseMirror_pre]:border [&_.ProseMirror_pre]:border-border/60 [&_.ProseMirror_pre]:bg-muted/50 [&_.ProseMirror_pre]:px-3 [&_.ProseMirror_pre]:py-3 [&_.ProseMirror_pre]:font-mono [&_.ProseMirror_pre]:text-label",
 ].join(" ");
 
 /**
@@ -135,27 +135,21 @@ export const NoteEditor = ({
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-none items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-md border border-border/60 bg-muted/30 p-1">
-            <WorkbenchAction
-              kind={mode === "wysiwyg" ? "secondary" : "ghost"}
-              size="compact"
-              type="button"
-              className="gap-2"
+          <div className="inline-flex rounded-control border border-border/60 bg-muted/30 p-1">
+            <WorkbenchToggleAction
+              label="Visual editor"
               onClick={enterWysiwyg}
-              aria-pressed={mode === "wysiwyg"}
+              pressed={mode === "wysiwyg"}
             >
-              <Eye className="h-4 w-4" /> Editor
-            </WorkbenchAction>
-            <WorkbenchAction
-              kind={mode === "source" ? "secondary" : "ghost"}
-              size="compact"
-              type="button"
-              className="gap-2"
+              <Eye className="h-4 w-4" />
+            </WorkbenchToggleAction>
+            <WorkbenchToggleAction
+              label="Markdown source"
               onClick={enterSource}
-              aria-pressed={mode === "source"}
+              pressed={mode === "source"}
             >
-              <Code2 className="h-4 w-4" /> Source
-            </WorkbenchAction>
+              <Code2 className="h-4 w-4" />
+            </WorkbenchToggleAction>
           </div>
           {snapshot && (
             <SlashMenu
@@ -167,25 +161,21 @@ export const NoteEditor = ({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {dirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
-          <WorkbenchAction
-            kind="primary"
-            size="compact"
-            type="button"
-            className="gap-2"
+          {dirty && <span className="text-label text-muted-foreground">Unsaved changes</span>}
+          <WorkbenchIconAction
+            label={saving ? "Saving note" : "Save note"}
             onClick={handleSave}
             disabled={!dirty || saving}
           >
             <Save className="h-4 w-4" />
-            {saving ? "Saving…" : "Save"}
-          </WorkbenchAction>
+          </WorkbenchIconAction>
         </div>
       </div>
 
       {error && (
         <div
           role="alert"
-          className="flex-none border-y border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="flex-none border-y border-destructive/40 bg-destructive/10 px-3 py-2 text-body-lg text-destructive"
         >
           {error}
         </div>
@@ -200,7 +190,7 @@ export const NoteEditor = ({
           </MilkdownProvider>
         ) : (
           <Suspense
-            fallback={<div className="p-4 text-sm text-muted-foreground">Loading editor…</div>}
+            fallback={<div className="p-4 text-body-lg text-muted-foreground">Loading editor…</div>}
           >
             <MonacoEditor
               height="100%"

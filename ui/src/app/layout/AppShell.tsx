@@ -4,7 +4,6 @@ import { Breadcrumb } from "@/app/entities/Breadcrumb";
 import { buildTrail } from "@/app/entities/breadcrumbTrail";
 import { GlobalCommandPalette } from "@/app/entities/GlobalCommandPalette";
 import { ContextBar } from "@/app/layout/ContextBar";
-import { ArtifactsSlot, LogsSlot, ProblemsSlot, RunsSlot } from "@/app/panels/BottomPanelContent";
 import { CenterPanel } from "@/app/panels/CenterPanel";
 import { LeftPanel } from "@/app/panels/LeftPanel";
 import { RightPanel } from "@/app/panels/RightPanel";
@@ -20,7 +19,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { BottomPanel, WorkbenchToggleAction } from "@/components/workbench";
+import { WorkbenchStatusStrip, WorkbenchToggleAction } from "@/components/workbench";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 
 interface AppShellProps {
@@ -35,6 +34,11 @@ interface AppShellProps {
   onOpenWorkspace: (path: string, options?: { createIfMissing?: boolean }) => Promise<void>;
   onCreateDirectory: (path: string) => void;
   onCreateFile: (path: string) => void;
+  onExpandDirectory?: (dirPath: string) => void;
+  onExpandProject?: (projectId: string) => void;
+  onExpandExperiment?: (projectId: string, experimentId: string) => void;
+  isProjectExpanded?: (projectId: string) => boolean;
+  isExperimentExpanded?: (projectId: string, experimentId: string) => boolean;
   onWorkspaceRefresh: () => void;
   onActiveRefresh: () => void;
 }
@@ -42,18 +46,6 @@ interface AppShellProps {
 const NAV_SIZE = { default: 22, min: 16, max: 30 };
 const INSPECTOR_SIZE = { default: 30, min: 20, max: 45 };
 const SHELL_PANEL_IDS = ["navigator", "workspace"];
-
-const bottomContextLabel = (selection: Selection | null): string | null => {
-  if (!selection) return null;
-  if (selection.objectType === "run") return `run ${selection.objectId}`;
-  if (selection.objectType === "task") {
-    return `task ${selection.taskId} · run ${selection.runId}`;
-  }
-  if (selection.objectType === "workflow") return `workflow ${selection.objectId}`;
-  if (selection.objectType === "experiment") return `experiment ${selection.objectId}`;
-  if (selection.objectType === "project") return `project ${selection.objectId}`;
-  return selection.objectType;
-};
 
 export const AppShell = ({
   leftPanelView,
@@ -67,6 +59,11 @@ export const AppShell = ({
   onOpenWorkspace,
   onCreateDirectory,
   onCreateFile,
+  onExpandDirectory,
+  onExpandProject,
+  onExpandExperiment,
+  isProjectExpanded,
+  isExperimentExpanded,
   onWorkspaceRefresh,
   onActiveRefresh,
 }: AppShellProps): JSX.Element => {
@@ -153,6 +150,11 @@ export const AppShell = ({
       onOpenWorkspace={onOpenWorkspace}
       onCreateDirectory={onCreateDirectory}
       onCreateFile={onCreateFile}
+      onExpandDirectory={onExpandDirectory}
+      onExpandProject={onExpandProject}
+      onExpandExperiment={onExpandExperiment}
+      isProjectExpanded={isProjectExpanded}
+      isExperimentExpanded={isExperimentExpanded}
       onRefresh={onWorkspaceRefresh}
     />
   );
@@ -212,43 +214,11 @@ export const AppShell = ({
     />
   );
 
-  const contextualSelection: Selection | null = runInspector?.run
-    ? { objectType: "run", objectId: runInspector.run.id }
-    : inspectorSelection;
-
-  const handleBottomSelectRun = useCallback(
-    (runId: string): void => {
-      onSelectionChange({ objectType: "run", objectId: runId });
-    },
-    [onSelectionChange],
-  );
-
-  const bottomSlots = useMemo(
-    () => ({
-      logs: <LogsSlot selection={contextualSelection ?? selection} snapshot={snapshot} />,
-      problems: <ProblemsSlot />,
-      runs: <RunsSlot snapshot={snapshot} onSelectRun={handleBottomSelectRun} />,
-      artifacts: <ArtifactsSlot selection={contextualSelection ?? selection} snapshot={snapshot} />,
-    }),
-    [contextualSelection, handleBottomSelectRun, selection, snapshot],
-  );
-
-  const statusContext = bottomContextLabel(contextualSelection ?? selection);
-
-  const bottomPanel = (
-    <BottomPanel
-      contextLabel={statusContext}
-      slots={bottomSlots}
-      onRefresh={onActiveRefresh}
-      isRefreshing={isRefreshing}
-    />
-  );
-
   const workbenchColumns = isMobile ? (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="min-h-0 flex-1 overflow-hidden">{centerContent}</div>
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-        <SheetContent side="left" className="w-[85vw] max-w-sm p-0">
+        <SheetContent side="left" className="w-dialog-viewport max-w-sm p-0">
           <SheetHeader className="sr-only">
             <SheetTitle>Navigation</SheetTitle>
             <SheetDescription>Workspace tree and views</SheetDescription>
@@ -257,7 +227,7 @@ export const AppShell = ({
         </SheetContent>
       </Sheet>
       <Sheet open={inspectorVisible} onOpenChange={setInspectorOpen}>
-        <SheetContent side="right" className="w-[85vw] max-w-md p-0">
+        <SheetContent side="right" className="w-dialog-viewport max-w-md p-0">
           <SheetHeader className="sr-only">
             <SheetTitle>Inspector</SheetTitle>
             <SheetDescription>Details for the selected object</SheetDescription>
@@ -328,11 +298,10 @@ export const AppShell = ({
           isRefreshing={isRefreshing}
           onMenuClick={isMobile ? () => setMobileNavOpen(true) : undefined}
         />
-        {/* Columns above a full-width bottom panel (workbench archetype). */}
+        {/* Work surface above a full-width MolVis-style status bar. */}
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {workbenchColumns}
-          {/* Bottom strip: ♡ heartbeat · Logs · Problems · Runs · Artifacts */}
-          {bottomPanel}
+          <WorkbenchStatusStrip onRefresh={onActiveRefresh} isRefreshing={isRefreshing} />
         </main>
       </div>
     </InspectedTaskContext.Provider>

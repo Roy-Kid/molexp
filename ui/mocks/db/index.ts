@@ -52,6 +52,137 @@ const isoAt = (offsetMinutes: number): string => {
     return new Date(now.getTime() + offsetMinutes * 60 * 1000).toISOString();
 };
 
+/** Serializable workflow IR used by the page showcase. It deliberately
+ * includes typed inputs, parallel links, source snippets and canvas positions
+ * so every workflow/run surface has meaningful data to render. */
+const workflowIr = (name: string, computeType: string): string =>
+    JSON.stringify({
+        name,
+        input_schema: [
+            {
+                name: "learning_rate",
+                label: "Learning rate",
+                type: "number",
+                default: 0.0005,
+                required: true,
+            },
+            {
+                name: "precision",
+                type: "enum",
+                default: "bf16",
+                options: ["fp32", "bf16", "fp16"],
+            },
+            { name: "use_cache", type: "boolean", default: true },
+        ],
+        task_configs: [
+            {
+                id: "prepare",
+                type: "dataset.prepare",
+                label: "Prepare dataset",
+                position: { x: 40, y: 110 },
+                status: "completed",
+                source: "def prepare(dataset):\n    return dataset.validate()",
+            },
+            {
+                id: "train",
+                type: computeType,
+                label: "Train model",
+                position: { x: 300, y: 40 },
+                status: "completed",
+                config: { accelerator: "gpu", precision: "bf16" },
+            },
+            {
+                id: "evaluate",
+                type: "metrics.evaluate",
+                label: "Evaluate",
+                position: { x: 300, y: 180 },
+                status: "running",
+            },
+            {
+                id: "publish",
+                type: "artifact.publish",
+                label: "Publish artifacts",
+                position: { x: 570, y: 110 },
+                status: "pending",
+            },
+        ],
+        links: [
+            { from: "prepare", to: "train", kind: "parallel", status: "completed" },
+            { from: "prepare", to: "evaluate", kind: "parallel", status: "running" },
+            { from: "train", to: "publish", kind: "dependency", status: "pending" },
+            { from: "evaluate", to: "publish", kind: "dependency", status: "pending" },
+        ],
+        metadata: { mock: true, showcase: true },
+    });
+
+interface MockRunOptions {
+    backend?: "local" | "molq";
+    profile?: string | null;
+    schedulerJobId?: string | null;
+    results?: Record<string, unknown>;
+}
+
+const mockRun = (
+    id: string,
+    projectId: string,
+    experimentId: string,
+    status: string,
+    createdOffset: number,
+    parameters: Record<string, unknown>,
+    source: string,
+    options: MockRunOptions = {},
+): ApiRunResponse => {
+    const terminal = status === "succeeded" || status === "failed" || status === "cancelled";
+    const schedulerJobId = options.schedulerJobId ?? (options.backend === "molq" ? "482017" : null);
+    return {
+        id,
+        projectId,
+        experimentId,
+        status,
+        created: isoAt(createdOffset),
+        finished: terminal ? isoAt(createdOffset + 48) : null,
+        parameters,
+        results: options.results ?? {},
+        profile: options.profile ?? (options.backend === "molq" ? "dardel-gpu" : "local"),
+        configHash: `sha256:${id.split("-").join("").padEnd(20, "0")}`,
+        workflow: {
+            source,
+            gitCommit: "a1b2c3d",
+            codeHash: "sha256:mock-code-feature-page",
+            configHash: `sha256:${id}-config`,
+        },
+        workflowSource: source,
+        executorInfo:
+            options.backend === "molq"
+                ? {
+                      backend: "molq",
+                      scheduler: "slurm",
+                      cluster_name: "dardel.scilifelab.se",
+                      scheduler_job_id: schedulerJobId,
+                  }
+                : { backend: "local" },
+        executionHistory:
+            status === "pending"
+                ? []
+                : [
+                      {
+                          executionId: `exec-${id}-01`,
+                          startedAt: isoAt(createdOffset),
+                          finishedAt: terminal ? isoAt(createdOffset + 48) : null,
+                          status,
+                          schedulerJobId,
+                      },
+                  ],
+        error:
+            status === "failed"
+                ? {
+                      type: "RuntimeError",
+                      message: "CUDA out of memory while evaluating batch 184; retry with a smaller batch.",
+                  }
+                : null,
+    };
+};
+
 /**
  * Create an empty database
  */
@@ -104,11 +235,11 @@ export function seed(): void {
             projectId: "protein-folding",
             name: "AlphaFold Baseline",
             description: "Initial baseline run with AF2",
-            workflow: "/workflows/alphafold.yml",
+            workflow: workflowIr("alphafold-baseline", "model.alphafold"),
             workflowType: "yaml",
             gitCommit: "a1b2c3d",
             parameterSpace: { lr: [0.001, 0.0005] },
-            runCount: 1,
+            runCount: 4,
             runs: [
                 {
                     id: "run-001",
@@ -124,11 +255,11 @@ export function seed(): void {
             projectId: "protein-folding",
             name: "Structure Sweep",
             description: "Parameter sweep on secondary structure",
-            workflow: "/workflows/structure_sweep.yml",
+            workflow: workflowIr("structure-sweep", "simulation.gromacs"),
             workflowType: "yaml",
             gitCommit: "d4e5f6g",
             parameterSpace: { temperature: [0.8, 1.0, 1.2] },
-            runCount: 0,
+            runCount: 3,
             runs: [],
             created: isoAt(-900),
         },
@@ -137,11 +268,11 @@ export function seed(): void {
             projectId: "catalyst-search",
             name: "Catalyst Sweep",
             description: "Screening ligand libraries",
-            workflow: "/workflows/catalyst.yml",
+            workflow: workflowIr("catalyst-screen", "simulation.dft"),
             workflowType: "yaml",
             gitCommit: "h7i8j9k",
             parameterSpace: { ligand: ["L1", "L2", "L3"] },
-            runCount: 1,
+            runCount: 2,
             runs: [
                 {
                     id: "run-101",
@@ -157,67 +288,120 @@ export function seed(): void {
     experiments.forEach((e) => db.experiments.set(e.id, e));
 
     // Runs
+    const alphaFoldSource = workflowIr("alphafold-baseline", "model.alphafold");
+    const structureSource = workflowIr("structure-sweep", "simulation.gromacs");
+    const catalystSource = workflowIr("catalyst-screen", "simulation.dft");
     const runs: ApiRunResponse[] = [
-        {
-            id: "run-001",
-            projectId: "protein-folding",
-            experimentId: "exp-001",
-            status: "succeeded",
-            finished: isoAt(-60),
-            parameters: { batch_size: 32 },
-            results: { final_loss: 0.142, plddt_mean: 87.4 },
-            created: isoAt(-120),
-            workflow: {
-                source: "workflows/alphafold.yml",
-                gitCommit: "a1b2c3d",
-                codeHash: null,
-                configHash: null,
-            },
-            workflowSource: "workflows/alphafold.yml",
-            executorInfo: {
+        mockRun(
+            "run-001",
+            "protein-folding",
+            "exp-001",
+            "succeeded",
+            -120,
+            { learning_rate: 0.0005, batch_size: 32, precision: "bf16", use_cache: true },
+            alphaFoldSource,
+            {
                 backend: "molq",
-                scheduler: "slurm",
-                cluster_name: "default",
-                job_id: "molq-101",
-                scheduler_job_id: "421337",
+                schedulerJobId: "421337",
+                results: { final_loss: 0.142, plddt_mean: 87.4, checkpoint: "asset-003" },
             },
-            executionHistory: [
-                {
-                    executionId: "exec-001",
-                    startedAt: isoAt(-120),
-                    finishedAt: isoAt(-60),
-                    status: "succeeded",
-                    schedulerJobId: "421337",
-                },
-            ],
-        },
+        ),
         {
-            id: "run-101",
-            projectId: "catalyst-search",
-            experimentId: "exp-101",
-            status: "succeeded",
-            finished: isoAt(-50),
-            parameters: { batch_size: 16 },
-            results: { hit_rate: 0.31 },
-            created: isoAt(-100),
-            workflow: {
-                source: "workflows/catalyst.yml",
-                gitCommit: "h7i8j9k",
-                codeHash: null,
-                configHash: null,
-            },
-            workflowSource: "workflows/catalyst.yml",
-            executorInfo: { backend: "local" },
+            ...mockRun(
+                "run-002",
+                "protein-folding",
+                "exp-001",
+                "running",
+                -92,
+                { learning_rate: 0.001, batch_size: 64, precision: "fp16", use_cache: true },
+                alphaFoldSource,
+                { backend: "molq", schedulerJobId: "421442" },
+            ),
             executionHistory: [
                 {
-                    executionId: "exec-101",
-                    startedAt: isoAt(-100),
-                    finishedAt: isoAt(-50),
-                    status: "succeeded",
-                    schedulerJobId: null,
+                    executionId: "exec-run-002-01",
+                    startedAt: isoAt(-180),
+                    finishedAt: isoAt(-151),
+                    status: "failed",
+                    schedulerJobId: "421401",
+                },
+                {
+                    executionId: "exec-run-002-02",
+                    startedAt: isoAt(-92),
+                    finishedAt: null,
+                    status: "running",
+                    schedulerJobId: "421442",
                 },
             ],
         },
+        mockRun(
+            "run-003",
+            "protein-folding",
+            "exp-001",
+            "failed",
+            -260,
+            { learning_rate: 0.002, batch_size: 128, precision: "fp16", use_cache: false },
+            alphaFoldSource,
+            { backend: "molq", schedulerJobId: "421188" },
+        ),
+        mockRun(
+            "run-004",
+            "protein-folding",
+            "exp-001",
+            "cancelled",
+            -410,
+            { learning_rate: 0.0001, batch_size: 16, precision: "fp32", use_cache: true },
+            alphaFoldSource,
+        ),
+        mockRun(
+            "run-201",
+            "protein-folding",
+            "exp-002",
+            "pending",
+            -42,
+            { temperature: 0.8, pressure: 1.0, replicas: 4 },
+            structureSource,
+        ),
+        mockRun(
+            "run-202",
+            "protein-folding",
+            "exp-002",
+            "running",
+            -88,
+            { temperature: 1.0, pressure: 1.0, replicas: 8 },
+            structureSource,
+            { backend: "molq", schedulerJobId: "512004" },
+        ),
+        mockRun(
+            "run-203",
+            "protein-folding",
+            "exp-002",
+            "succeeded",
+            -340,
+            { temperature: 1.2, pressure: 1.0, replicas: 4 },
+            structureSource,
+            { results: { rmsd: 1.84, energy_drift: 0.0021, frames: 5000 } },
+        ),
+        mockRun(
+            "run-101",
+            "catalyst-search",
+            "exp-101",
+            "succeeded",
+            -100,
+            { ligand: "L1", metal: "Cu", batch_size: 16 },
+            catalystSource,
+            { results: { hit_rate: 0.31, adsorption_energy: -1.42 } },
+        ),
+        mockRun(
+            "run-102",
+            "catalyst-search",
+            "exp-101",
+            "failed",
+            -64,
+            { ligand: "L2", metal: "Ni", batch_size: 16 },
+            catalystSource,
+            { backend: "molq", schedulerJobId: "611044" },
+        ),
     ];
 
     runs.forEach((r) => db.runs.set(r.id, r));

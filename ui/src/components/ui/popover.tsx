@@ -23,7 +23,7 @@ function PopoverContent({
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "mol-motion-popup z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-[var(--radius-overlay)] border bg-popover p-4 text-popover-foreground shadow-overlay outline-hidden",
+          "mol-motion-popup z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-overlay border bg-popover p-4 text-popover-foreground shadow-overlay outline-hidden",
           className,
         )}
         {...props}

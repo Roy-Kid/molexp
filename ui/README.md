@@ -52,6 +52,18 @@ The client source is generated into `src/api/generated`. Do not modify these fil
 
 The UI includes an MSW (Mock Service Worker) based API mocking layer for local development and testing without a real backend.
 
+From the repository root, launch the complete feature showcase and open it in
+the browser:
+
+```bash
+npm run dev:page
+```
+
+This starts the UI without the Python server, opens the populated Protein
+Folding project, and provides fixtures for entity dashboards, workflows, runs,
+metrics, scheduler data, assets, knowledge, agents, approvals, plans, curation,
+settings, and workspace activity.
+
 ### Enabling Mocks
 
 To enable API mocking in development:
@@ -69,7 +81,7 @@ To connect to the real backend, run the dev server without `--mock`.
 
 ### Mock Layer Documentation
 
-See [`mocks/README.md`](../mocks/README.md) for:
+See [`mocks/README.md`](mocks/README.md) for:
 - Architecture overview
 - How to seed custom data for tests
 - How to override handlers for specific scenarios

@@ -42,13 +42,13 @@ export const ContextBar = ({
           <div className="relative w-full max-w-md">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="h-8 pl-8 pr-8"
+              className="h-control pl-8 pr-8"
               placeholder="Filter"
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
               aria-label="Filter list"
             />
-            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-2 py-1 text-micro font-medium text-muted-foreground">
+            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-control border border-border bg-muted px-2 py-1 text-micro font-medium text-muted-foreground">
               ⌘K
             </kbd>
           </div>

@@ -54,7 +54,7 @@ export const WorkflowNodeDetails = ({ node, className }: WorkflowNodeDetailsProp
       </NodeInspectorSection>
       {hasConfig && (
         <NodeInspectorSection title="Config">
-          <ScrollArea className="max-h-60 rounded-[var(--radius-control)] border border-border bg-background">
+          <ScrollArea className="max-h-60 rounded-control border border-border bg-background">
             <pre className="p-2 font-mono text-micro leading-relaxed text-foreground">
               {JSON.stringify(node.config, null, 2)}
             </pre>

@@ -36,7 +36,7 @@ export const MolqRunInspector = (props: RendererProps): JSX.Element => {
             <dt className="text-micro font-medium uppercase tracking-wide text-muted-foreground">
               {formatExecutorLabel(key)}
             </dt>
-            <dd className="mt-1 break-words font-mono text-xs text-foreground">{value}</dd>
+            <dd className="mt-1 break-words font-mono text-label text-foreground">{value}</dd>
           </div>
         ))}
       </dl>

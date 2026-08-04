@@ -326,7 +326,7 @@ class ServerManager:
                 with urllib.request.urlopen(url, timeout=1) as response:
                     if response.status == 200:
                         return True
-            except urllib.error.URLError, TimeoutError:
+            except (urllib.error.URLError, TimeoutError):
                 pass
             time.sleep(1)
 
@@ -424,7 +424,7 @@ class ServerManager:
         """Read PID from file."""
         try:
             return int(pid_file.read_text().strip())
-        except ValueError, FileNotFoundError:
+        except (ValueError, FileNotFoundError):
             return None
 
     def _write_pid(self, pid_file: Path, pid: int) -> None:

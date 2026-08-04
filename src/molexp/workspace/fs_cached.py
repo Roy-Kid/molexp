@@ -3,11 +3,16 @@ remote workspaces.
 
 Wraps an inner :class:`~molexp.workspace.fs.FileSystem` (only meaningful
 for :class:`~molexp.workspace.fs_remote.RemoteFileSystem`) and maintains
-a server-side mirror under ``<mirror_root>/files/...``.  Reads check the
-mirror first; on miss they fetch from the inner FS, write the bytes
-atomically to the mirror, and serve subsequent reads with zero round
-trips for the configured TTL.  Mutations (write/rename/remove)
-invalidate the affected entry before delegating.
+a server-side mirror under ``<mirror_root>/files/...``.
+
+**Pin-until-refresh policy** (default): once a path is in the local
+index/mirror it is trusted forever.  Age / ``ttl_seconds`` does **not**
+trigger automatic revalidation — the operator refreshes via
+``POST /api/workspace/cache/refresh`` (or ``invalidate``).  Cache misses
+still go to the remote FS and populate the mirror.
+
+``ttl_seconds=0`` is an opt-in strict mode: every read re-stats the remote
+and reuses mirror bytes only when mtime/size still match.
 
 Index files are not special-cased — they are just paths.  The eager
 prefetch helper :func:`prefetch_workspace_indices` walks the workspace by
@@ -29,8 +34,10 @@ import json
 import logging
 import os
 import shutil
+import threading
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
@@ -47,6 +54,11 @@ __all__ = [
     "PrefetchWarning",
     "prefetch_workspace_indices",
 ]
+
+
+# Outside-in parallel prefetch: concurrent SSH ops per level. Override with
+# ``MOLEXP_PREFETCH_WORKERS`` (1 = serial, useful in tests).
+_DEFAULT_PREFETCH_WORKERS = 8
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +112,13 @@ class PrefetchWarning:
 class CachedRemoteFileSystem:
     """Lazy-download mirror over any :class:`FileSystem`.
 
-    Reads first consult an in-memory ``_index`` whose entries are valid
-    for ``ttl_seconds``; a fresh entry returns mirror bytes without a
-    remote round trip.  Mutations always go to the inner FS and
-    invalidate the cached entry.
+    **Default (``ttl_seconds > 0``)**: pin-until-refresh.  Any path present
+    in the sidecar/mirror is served locally with **zero** remote I/O until
+    the operator invalidates/refreshes.  Mutations still go to the inner
+    FS and invalidate the affected entry.
+
+    **Strict (``ttl_seconds == 0``)**: every read re-stats the remote and
+    reuses mirror bytes only when mtime/size match (no silent pin).
 
     The mirror layout reflects the remote path verbatim (leading ``/``
     stripped) under ``<mirror_root>/files/``, so a remote path
@@ -115,10 +130,8 @@ class CachedRemoteFileSystem:
         inner: The :class:`FileSystem` to cache.
         mirror_root: Local directory holding the mirror.  Created on
             first write.
-        ttl_seconds: How long a cached entry is considered fresh.  ``0``
-            disables the fast path — every read re-stats the inner FS,
-            but already-fetched mirror bytes are still returned when
-            ``stat.mtime`` matches the cached entry.
+        ttl_seconds: ``>0`` (default) = pin-until-refresh.  ``0`` =
+            revalidate via remote ``stat`` on every read.
     """
 
     def __init__(
@@ -144,7 +157,26 @@ class CachedRemoteFileSystem:
         # (e.g. ``prefetch_workspace_indices``) from O(records²) into O(records).
         self._defer_persist = False
         self._sidecar_dirty = False
+        # Lifecycle flags — a brand-new remote root has no sidecar; that is
+        # normal. ``connect`` / ``index`` (or ``prepare``) flip these once
+        # the local mirror is ready and navigation metadata is warm.
+        self._connected = False
+        self._indexed = False
+        self._remote_root: str | None = None
+        self._lock = threading.RLock()
+        self._index_thread: threading.Thread | None = None
+        self._indexing = False
+        # Per-thread: active refresh bypasses pin and re-fetches from remote.
+        # UI threads keep serving the pinned mirror while a refresh runs.
+        self._tls = threading.local()
+        # Always own the local mirror tree up-front so a missing
+        # ``_index.json`` never surfaces as "Path not found" on first write.
+        self._ensure_mirror_dirs()
         self._load_sidecar()
+        if self._index or self._dir_index:
+            # Survived a previous session — treat as already indexed until
+            # the caller re-runs ``index()`` / invalidates.
+            self._indexed = True
 
     # ── Test-only introspection ─────────────────────────────────────────
 
@@ -160,9 +192,182 @@ class CachedRemoteFileSystem:
     def ttl_seconds(self) -> int:
         return self._ttl_seconds
 
+    @property
+    def connected(self) -> bool:
+        """True after a successful :meth:`connect` (remote root reachable)."""
+        return self._connected
+
+    @property
+    def indexed(self) -> bool:
+        """True after :meth:`index` / :meth:`connect_and_index` (or a loaded sidecar)."""
+        return self._indexed
+
+    @property
+    def ready(self) -> bool:
+        """True when navigation can be served from the local mirror/index.
+
+        SSH may still be deferred (warm reopen) — :attr:`connected` is the
+        probe flag; :attr:`ready` is "UI can load the tree".
+        """
+        return self._indexed
+
+    @property
+    def indexing(self) -> bool:
+        """True while a background :meth:`schedule_index` walk is in flight."""
+        return self._indexing
+
     def cached_paths(self) -> list[str]:
         """Snapshot of cached file/dir/missing paths — handy in tests."""
         return list(self._index.keys())
+
+    # ── Connect / index lifecycle ───────────────────────────────────────
+
+    def _ensure_mirror_dirs(self) -> None:
+        """Create ``mirror_root/`` and ``mirror_root/files/`` if missing."""
+        self._mirror_root.mkdir(parents=True, exist_ok=True)
+        self._files_root.mkdir(parents=True, exist_ok=True)
+
+    def _ensure_connected(self) -> None:
+        """Open SSH on first cache miss (warm reopen defers the probe).
+
+        When neither :meth:`prepare` nor :meth:`connect` has recorded a root
+        (unit tests / direct use), skip the probe and let the inner FS answer.
+        """
+        if self._connected:
+            return
+        root = self._remote_root
+        if root is None:
+            return
+        self.connect(root)
+
+    def connect(self, root: str) -> None:
+        """Probe the remote root and materialise an empty local index if needed.
+
+        A first-time workspace has no ``_index.json`` — that is expected.
+        We create the local mirror dirs and write an empty sidecar so later
+        cache records never fail with "No such file or directory" on the
+        sidecar rename. Re-entrant / idempotent.
+        """
+        self._remote_root = root
+        self._ensure_mirror_dirs()
+        try:
+            reachable = self._inner.exists(root) or self._inner.is_dir(root)
+        except Exception as exc:
+            self._connected = False
+            raise ConnectionError(f"remote root unreachable: {root}: {exc}") from exc
+        if not reachable:
+            self._connected = False
+            raise FileNotFoundError(f"remote root not found: {root}")
+        # Missing sidecar is normal — write current in-memory state (often empty).
+        if not self._sidecar.exists():
+            self._write_sidecar()
+        self._connected = True
+
+    @contextlib.contextmanager
+    def force_fetch(self) -> Iterator[None]:
+        """Bypass pin for this thread — every read/listdir hits the remote.
+
+        Used by active refreshes. Concurrent UI threads keep serving the
+        pinned mirror (their ``_tls.force_fetch`` stays false).
+        """
+        prev = getattr(self._tls, "force_fetch", False)
+        self._tls.force_fetch = True
+        try:
+            yield
+        finally:
+            self._tls.force_fetch = prev
+
+    def index(self, workspace: Workspace) -> list[PrefetchWarning]:
+        """Actively refresh navigation metadata from remote (blocking).
+
+        Always force-fetches (does not trust pin). Outside-in parallel walk
+        via :func:`prefetch_workspace_indices`. Sets :attr:`indexed`.
+        """
+        self._remote_root = str(workspace.root)
+        if not self._connected:
+            self.connect(str(workspace.root))
+        with self.force_fetch():
+            warnings = prefetch_workspace_indices(workspace)
+        # Prefetch uses batched(); flush guarantees the sidecar is on disk.
+        self.flush()
+        if not self._sidecar.exists():
+            self._write_sidecar()
+        self._indexed = True
+        self._indexing = False
+        return warnings
+
+    def schedule_refresh(self, workspace: Workspace) -> None:
+        """Run :meth:`index` on a daemon thread (non-blocking active refresh).
+
+        Idempotent while a walk is already in flight. Failures are logged;
+        the operator can retry via ``POST /api/workspace/cache/refresh``.
+        """
+        with self._lock:
+            if self._indexing:
+                return
+            if self._index_thread is not None and self._index_thread.is_alive():
+                return
+            self._indexing = True
+            root = str(workspace.root)
+            self._remote_root = root
+
+            def _run() -> None:
+                try:
+                    self.index(workspace)
+                except Exception:
+                    logger.exception(
+                        "background remote index failed for %s — use cache/refresh",
+                        root,
+                    )
+                    self._indexing = False
+
+            self._index_thread = threading.Thread(
+                target=_run,
+                name="molexp-remote-index",
+                daemon=True,
+            )
+            self._index_thread.start()
+
+    # Back-compat alias
+    schedule_index = schedule_refresh
+
+    def prepare(
+        self,
+        workspace: Workspace,
+        *,
+        block_index: bool = False,
+        refresh_on_open: bool = True,
+    ) -> list[PrefetchWarning]:
+        """Open path for ``molexp serve`` / API.
+
+        * **Always** serves from the local pin immediately when present
+          (no TTL auto-expiry; no silent revalidation on read).
+        * **On open** (``refresh_on_open=True``, default): fire **one**
+          active refresh — async outside-in parallel walk that force-
+          fetches from remote and updates the pin.  Not age-based; only
+          this open trigger (or the user Refresh button) re-pulls.
+        * **Cold** (no index yet): probe SSH, then same async/blocking
+          refresh so the tree fills in.
+        """
+        self._remote_root = str(workspace.root)
+        if self._indexed:
+            # Warm: UI can read local pin now; optionally kick one active refresh.
+            if refresh_on_open:
+                if block_index:
+                    return self.index(workspace)
+                self.schedule_refresh(workspace)
+            return []
+        # Cold — must connect before any remote walk.
+        self.connect(str(workspace.root))
+        if block_index:
+            return self.index(workspace)
+        if refresh_on_open:
+            self.schedule_refresh(workspace)
+        return []
+
+    def connect_and_index(self, workspace: Workspace) -> list[PrefetchWarning]:
+        """Connect + build index synchronously (blocking). Prefer :meth:`prepare`."""
+        return self.prepare(workspace, block_index=True, refresh_on_open=True)
 
     # ── Path operations (always delegate; no I/O) ───────────────────────
 
@@ -185,9 +390,10 @@ class CachedRemoteFileSystem:
 
     def exists(self, path: PathArg) -> bool:
         key = self.resolve(path)
-        entry = self._fresh_entry(key)
+        entry = self._pinned_entry(key)
         if entry is not None:
             return entry.kind != "missing"
+        self._ensure_connected()
         result = self._inner.exists(key)
         if not result:
             # Negative cache: future ``exists`` returns False without SSH.
@@ -196,9 +402,10 @@ class CachedRemoteFileSystem:
 
     def is_dir(self, path: PathArg) -> bool:
         key = self.resolve(path)
-        entry = self._fresh_entry(key)
+        entry = self._pinned_entry(key)
         if entry is not None:
             return entry.kind == "dir"
+        self._ensure_connected()
         result = self._inner.is_dir(key)
         if result:
             self._record(key, kind="dir", size=0, mtime=time.time())
@@ -206,9 +413,10 @@ class CachedRemoteFileSystem:
 
     def is_file(self, path: PathArg) -> bool:
         key = self.resolve(path)
-        entry = self._fresh_entry(key)
+        entry = self._pinned_entry(key)
         if entry is not None:
             return entry.kind == "file"
+        self._ensure_connected()
         result = self._inner.is_file(key)
         if result:
             # Don't fetch yet — just record what we learned.
@@ -232,12 +440,14 @@ class CachedRemoteFileSystem:
 
     def listdir(self, path: PathArg) -> list[str]:
         key = self.resolve(path)
-        cached = self._fresh_dir(key)
+        cached = self._pinned_dir(key)
         if cached is not None:
             return list(cached.names)
+        self._ensure_connected()
         names = self._inner.listdir(key)
-        self._dir_index[key] = _DirEntry(names=tuple(names), fetched_at=time.time())
-        self._persist_sidecar()
+        with self._lock:
+            self._dir_index[key] = _DirEntry(names=tuple(names), fetched_at=time.time())
+            self._persist_sidecar()
         return names
 
     def glob(self, path: PathArg, pattern: str) -> Iterable[str]:
@@ -256,12 +466,24 @@ class CachedRemoteFileSystem:
     def read_bytes(self, path: PathArg) -> bytes:
         key = self.resolve(path)
         mirror_path = self._mirror_for(key)
-        entry = self._fresh_entry(key)
+        entry = self._pinned_entry(key)
         if entry is not None and entry.kind == "file" and self._local.exists(mirror_path):
             return self._local.read_bytes(mirror_path)
         if entry is not None and entry.kind == "missing":
             raise FileNotFoundError(key)
-        # Miss or stale — fetch fresh.
+        # Strict mode (ttl=0): revalidate via stat; serve mirror if unchanged.
+        known = self._index.get(key)
+        if (
+            self._ttl_seconds == 0
+            and known is not None
+            and known.kind == "file"
+            and self._local.exists(mirror_path)
+        ):
+            self._ensure_connected()
+            if self._revalidate_file_entry(key, known):
+                return self._local.read_bytes(mirror_path)
+        # Miss (or strict revalidation failed) — fetch from remote.
+        self._ensure_connected()
         try:
             data = self._inner.read_bytes(key)
         except FileNotFoundError:
@@ -320,7 +542,7 @@ class CachedRemoteFileSystem:
 
     def stat(self, path: PathArg) -> StatResult:
         key = self.resolve(path)
-        entry = self._fresh_entry(key)
+        entry = self._pinned_entry(key)
         if entry is not None and entry.kind != "missing":
             return StatResult(
                 size=entry.size,
@@ -328,6 +550,7 @@ class CachedRemoteFileSystem:
                 is_dir=entry.kind == "dir",
                 is_file=entry.kind == "file",
             )
+        self._ensure_connected()
         result = self._inner.stat(key)
         kind = "dir" if result.is_dir else "file" if result.is_file else "missing"
         self._record(key, kind=kind, size=result.size, mtime=result.mtime)
@@ -392,7 +615,13 @@ class CachedRemoteFileSystem:
             keys = [k for k in self._index if self._inner.basename(k) in INDEX_FILE_NAMES]
             for key in keys:
                 self._invalidate(key)
-            return len(keys)
+            # Dir listings are part of navigation — drop them so refresh
+            # re-lists containers instead of replaying a pinned tree.
+            dir_count = len(self._dir_index)
+            self._dir_index.clear()
+            self._indexed = False
+            self._persist_sidecar()
+            return len(keys) + dir_count
         if scope == "all":
             count = len(self._index)
             self._index.clear()
@@ -400,40 +629,71 @@ class CachedRemoteFileSystem:
             if self._files_root.exists():
                 with contextlib.suppress(OSError):
                     shutil.rmtree(self._files_root)
+            # Index is gone — caller must re-run ``index()`` / ``prepare``.
+            self._indexed = False
+            self._ensure_mirror_dirs()
             self._persist_sidecar()
             return count
         raise ValueError(f"unknown scope {scope!r}")
 
     # ── Internals ───────────────────────────────────────────────────────
 
-    def _fresh_entry(self, key: str) -> _Entry | None:
-        entry = self._index.get(key)
-        if entry is None:
+    def _pinned_entry(self, key: str) -> _Entry | None:
+        """Return a trusted local entry, or None if we must touch remote.
+
+        Pin mode (``ttl_seconds > 0``): any recorded entry wins until an
+        **active** refresh (``force_fetch`` / open / user Refresh).
+        Strict mode (``ttl_seconds == 0``): never pin.
+        Active refresh thread sets ``_tls.force_fetch`` so it always hits remote.
+        """
+        if getattr(self._tls, "force_fetch", False):
             return None
         if self._ttl_seconds == 0:
             return None
-        if time.time() - entry.fetched_at > self._ttl_seconds:
+        return self._index.get(key)
+
+    def _pinned_dir(self, key: str) -> _DirEntry | None:
+        if getattr(self._tls, "force_fetch", False):
             return None
-        return entry
+        if self._ttl_seconds == 0:
+            return None
+        return self._dir_index.get(key)
+
+    # Back-compat aliases used by older call sites / tests.
+    def _fresh_entry(self, key: str) -> _Entry | None:
+        return self._pinned_entry(key)
 
     def _fresh_dir(self, key: str) -> _DirEntry | None:
-        entry = self._dir_index.get(key)
-        if entry is None:
-            return None
-        if self._ttl_seconds == 0:
-            return None
-        if time.time() - entry.fetched_at > self._ttl_seconds:
-            return None
-        return entry
+        return self._pinned_dir(key)
+
+    def _revalidate_file_entry(self, key: str, entry: _Entry) -> bool:
+        """Return True when remote file is unchanged; refresh ``fetched_at``.
+
+        Used only in strict mode (``ttl_seconds==0``) when the local mirror
+        still has bytes. A single remote ``stat`` is cheaper than re-
+        downloading navigation metadata over SSH.
+        """
+        remote_stat = self._safe_stat(key)
+        if remote_stat is None or not remote_stat.is_file:
+            return False
+        if remote_stat.size != entry.size:
+            return False
+        # Float mtimes from SSH can differ at sub-second precision across
+        # serialisations; treat near-equality as a match.
+        if abs(remote_stat.mtime - entry.mtime) > 1e-3:
+            return False
+        self._record(key, kind="file", size=entry.size, mtime=entry.mtime)
+        return True
 
     def _record(self, key: str, *, kind: str, size: int, mtime: float) -> None:
-        self._index[key] = _Entry(
-            size=size,
-            mtime=mtime,
-            fetched_at=time.time(),
-            kind=kind,
-        )
-        self._persist_sidecar()
+        with self._lock:
+            self._index[key] = _Entry(
+                size=size,
+                mtime=mtime,
+                fetched_at=time.time(),
+                kind=kind,
+            )
+            self._persist_sidecar()
 
     def _invalidate(self, key: str, *, recursive: bool = False) -> int:
         dropped = 0
@@ -495,6 +755,8 @@ class CachedRemoteFileSystem:
         if not isinstance(raw, dict) or raw.get("version") != _SIDECAR_VERSION:
             logger.warning("cache sidecar at %s has wrong version; starting empty", self._sidecar)
             return
+        # Pin-until-refresh: load entries as-is.  ``fetched_at`` is advisory
+        # only (strict mode / debugging); positive TTL never auto-expires.
         entries = raw.get("entries", {}) or {}
         for key, payload in entries.items():
             try:
@@ -507,7 +769,7 @@ class CachedRemoteFileSystem:
                 names = tuple(payload.get("names", ()))
                 fetched_at = float(payload.get("fetched_at", 0.0))
                 self._dir_index[key] = _DirEntry(names=names, fetched_at=fetched_at)
-            except AttributeError, TypeError, ValueError:
+            except (AttributeError, TypeError, ValueError):
                 continue
 
     def _persist_sidecar(self) -> None:
@@ -542,6 +804,12 @@ class CachedRemoteFileSystem:
             self._write_sidecar()
 
     def _write_sidecar(self) -> None:
+        """Atomically persist ``_index.json``. Missing parent dirs are recreated.
+
+        External ``rm -rf`` of the mirror mid-flight (or a brand-new remote
+        open with no prior sidecar) must not leave the cache permanently
+        mute — we re-mkdir and retry once before warning.
+        """
         payload = {
             "version": _SIDECAR_VERSION,
             "ttl_seconds": self._ttl_seconds,
@@ -551,94 +819,232 @@ class CachedRemoteFileSystem:
                 for k, v in self._dir_index.items()
             },
         }
-        self._mirror_root.mkdir(parents=True, exist_ok=True)
+        text = json.dumps(payload, indent=2, sort_keys=True)
         tmp = self._sidecar.with_suffix(self._sidecar.suffix + ".tmp")
-        try:
-            tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+        def _attempt() -> None:
+            self._ensure_mirror_dirs()
+            tmp.write_text(text, encoding="utf-8")
             os.replace(tmp, self._sidecar)  # noqa: PTH105
+
+        try:
+            _attempt()
             self._sidecar_dirty = False
-        except OSError as exc:
-            logger.warning("cache sidecar write failed at %s: %s", self._sidecar, exc)
+        except OSError:
+            # Parent may have vanished between mkdir and replace (e.g. another
+            # process wiped ``~/.molexp/remote_cache/<name>``). Retry once.
             with contextlib.suppress(OSError):
-                tmp.unlink()
+                tmp.unlink(missing_ok=True)
+            try:
+                _attempt()
+                self._sidecar_dirty = False
+            except OSError as exc:
+                logger.warning("cache sidecar write failed at %s: %s", self._sidecar, exc)
+                with contextlib.suppress(OSError):
+                    tmp.unlink(missing_ok=True)
 
 
 @dataclass
 class _PrefetchState:
     warnings: list[PrefetchWarning] = field(default_factory=list)
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def add_warning(self, path: str, reason: str) -> None:
+        with self.lock:
+            self.warnings.append(PrefetchWarning(path=path, reason=reason))
 
 
-def prefetch_workspace_indices(workspace: Workspace) -> list[PrefetchWarning]:
-    """Walk the workspace's entity metadata through ``workspace._fs``.
+def _prefetch_workers(explicit: int | None) -> int:
+    if explicit is not None:
+        return max(1, explicit)
+    raw = os.environ.get("MOLEXP_PREFETCH_WORKERS", "").strip()
+    if raw:
+        with contextlib.suppress(ValueError):
+            return max(1, int(raw))
+    return _DEFAULT_PREFETCH_WORKERS
 
-    Reads (in order):
 
-    1. ``<root>/workspace.json`` — workspace metadata.
-    2. For each project under ``<root>/projects/``: that project's own
-       ``project.json`` metadata.
-    3. For each experiment under ``<project>/experiments/``: its
-       ``experiment.json`` metadata.
-    4. For each run under ``<experiment>/runs/``: its ``run.json``
-       metadata.
+def _parallel_map[T, R](
+    fn: Callable[[T], R],
+    items: Sequence[T],
+    *,
+    max_workers: int,
+    force_fetch_fs: CachedRemoteFileSystem | None = None,
+) -> list[R]:
+    """Map *fn* over *items*, parallel when ``max_workers > 1`` and |items| > 1.
 
-    Child names come from a ``listdir`` of each container directory; the
-    sibling children-index file (``project.json`` / ``experiment.json`` /
-    ``run.json`` at the *parent* path) is read once to warm the cache but
-    is no longer the source of truth — the entity ``*.json`` is.  Every
-    read flows through ``workspace._fs.read_text``; if the FS is a
-    :class:`CachedRemoteFileSystem`, the entries are cached as a side
-    effect, so subsequent navigation clicks hit zero SSH.
+    Preserves input order (submit all, collect in order).  When *force_fetch_fs*
+    is set, every worker thread inherits ``force_fetch`` so active refreshes
+    re-pull remote bytes (``threading.local`` is not inherited otherwise).
+    """
+    if not items:
+        return []
+    if max_workers <= 1 or len(items) == 1:
+        return [fn(item) for item in items]
+    workers = min(max_workers, len(items))
 
-    Missing or unreadable nodes degrade to :class:`PrefetchWarning`
-    entries; the walk continues so a single bad project does not blank
-    the whole tree.
+    def _init() -> None:
+        if force_fetch_fs is not None:
+            force_fetch_fs._tls.force_fetch = True
+
+    with ThreadPoolExecutor(max_workers=workers, initializer=_init) as pool:
+        futures = [pool.submit(fn, item) for item in items]
+        return [fut.result() for fut in futures]
+
+
+def prefetch_workspace_indices(
+    workspace: Workspace,
+    *,
+    max_workers: int | None = None,
+) -> list[PrefetchWarning]:
+    """Outside-in parallel walk of entity metadata through ``workspace._fs``.
+
+    Levels (each level fully completes before the next — outer → inner):
+
+    1. **Workspace** — ``workspace.json`` + ``project.json`` index +
+       ``listdir(projects/)``.
+    2. **Projects** — all ``project.json`` in parallel, then per-project
+       experiment indexes + ``listdir(experiments/)`` in parallel.
+    3. **Experiments** — all ``experiment.json`` in parallel, then per-
+       experiment run indexes + ``listdir(runs/)`` in parallel.
+    4. **Runs** — all ``run.json`` in parallel.
+
+    Concurrency is per level (default 8 workers; ``MOLEXP_PREFETCH_WORKERS``
+    or *max_workers*).  When the FS is a :class:`CachedRemoteFileSystem`,
+    call under :meth:`~CachedRemoteFileSystem.force_fetch` so an **active**
+    refresh re-pulls remote bytes instead of replaying the pin.
+
+    Missing or unreadable nodes become :class:`PrefetchWarning` entries;
+    the walk continues so one bad project does not blank the tree.
 
     Returns:
-        A flat list of warnings in walk order.  Empty list on a clean
-        walk.
+        Warnings collected during the walk (order not guaranteed under
+        parallel execution).
     """
     state = _PrefetchState()
     fs = workspace._fs
     root = str(workspace.root)
-    # Batch the cache sidecar across the whole walk: one write at the end
-    # instead of one per entity read/listdir (O(records) not O(records^2)).
-    # ``batched`` is an optional duck-typed method (CachedRemoteFileSystem only).
+    workers = _prefetch_workers(max_workers)
+    # Propagate active-refresh force_fetch into worker threads (TLS is not
+    # inherited by ThreadPoolExecutor workers).
+    force_fs: CachedRemoteFileSystem | None = None
+    if isinstance(fs, CachedRemoteFileSystem) and getattr(fs._tls, "force_fetch", False):
+        force_fs = fs
+
     batch = (
         fs.batched()  # ty: ignore[call-non-callable]
         if hasattr(fs, "batched")
         else contextlib.nullcontext()
     )
+    # Callers that already entered force_fetch (index/refresh) keep it;
+    # bare prefetch still benefits from parallel structure on any FS.
     with batch:
+        # ── L0: workspace root (serial — tiny) ──────────────────────────
         _safe_read(fs, fs.join(root, "workspace.json"), state)
         projects_dir = fs.join(root, "projects")
-        project_names = _read_container_children(
-            fs,
-            container_dir=projects_dir,
-            index_path=fs.join(root, "project.json"),
-            per_child_metadata="project.json",
-            state=state,
-        )
-        for project_name in project_names:
+        _safe_read(fs, fs.join(root, "project.json"), state, warn_on_missing=False)
+        try:
+            project_names = list(fs.listdir(projects_dir))
+        except FileNotFoundError:
+            return list(state.warnings)
+        except Exception as exc:
+            state.add_warning(projects_dir, str(exc))
+            return list(state.warnings)
+
+        # ── L1: project.json in parallel ────────────────────────────────
+        def _load_project(name: str) -> str | None:
+            meta = fs.join(projects_dir, name, "project.json")
+            return name if _safe_read(fs, meta, state) is not None else None
+
+        healthy_projects = [
+            n
+            for n in _parallel_map(
+                _load_project,
+                project_names,
+                max_workers=workers,
+                force_fetch_fs=force_fs,
+            )
+            if n
+        ]
+
+        # ── L1b: listdir experiments/ per project (parallel) ────────────
+        def _list_experiments(project_name: str) -> list[tuple[str, str]]:
             project_dir = fs.join(projects_dir, project_name)
             experiments_dir = fs.join(project_dir, "experiments")
-            experiment_names = _read_container_children(
-                fs,
-                container_dir=experiments_dir,
-                index_path=fs.join(project_dir, "experiment.json"),
-                per_child_metadata="experiment.json",
-                state=state,
+            _safe_read(fs, fs.join(project_dir, "experiment.json"), state, warn_on_missing=False)
+            try:
+                names = fs.listdir(experiments_dir)
+            except FileNotFoundError:
+                return []
+            except Exception as exc:
+                state.add_warning(experiments_dir, str(exc))
+                return []
+            return [(project_name, n) for n in names]
+
+        exp_pairs: list[tuple[str, str]] = []
+        for pairs in _parallel_map(
+            _list_experiments,
+            healthy_projects,
+            max_workers=workers,
+            force_fetch_fs=force_fs,
+        ):
+            exp_pairs.extend(pairs)
+
+        # ── L2: experiment.json in parallel ─────────────────────────────
+        def _load_experiment(pair: tuple[str, str]) -> tuple[str, str] | None:
+            project_name, exp_name = pair
+            meta = fs.join(projects_dir, project_name, "experiments", exp_name, "experiment.json")
+            return pair if _safe_read(fs, meta, state) is not None else None
+
+        healthy_exps = [
+            p
+            for p in _parallel_map(
+                _load_experiment,
+                exp_pairs,
+                max_workers=workers,
+                force_fetch_fs=force_fs,
             )
-            for experiment_name in experiment_names:
-                experiment_dir = fs.join(experiments_dir, experiment_name)
-                runs_dir = fs.join(experiment_dir, "runs")
-                _read_container_children(
-                    fs,
-                    container_dir=runs_dir,
-                    index_path=fs.join(experiment_dir, "run.json"),
-                    per_child_metadata="run.json",
-                    state=state,
-                )
-    return state.warnings
+            if p
+        ]
+
+        # ── L2b: listdir runs/ per experiment (parallel) ────────────────
+        def _list_runs(pair: tuple[str, str]) -> list[tuple[str, str, str]]:
+            project_name, exp_name = pair
+            experiment_dir = fs.join(projects_dir, project_name, "experiments", exp_name)
+            runs_dir = fs.join(experiment_dir, "runs")
+            _safe_read(fs, fs.join(experiment_dir, "run.json"), state, warn_on_missing=False)
+            try:
+                names = fs.listdir(runs_dir)
+            except FileNotFoundError:
+                return []
+            except Exception as exc:
+                state.add_warning(runs_dir, str(exc))
+                return []
+            return [(project_name, exp_name, n) for n in names]
+
+        run_triples: list[tuple[str, str, str]] = []
+        for triples in _parallel_map(
+            _list_runs, healthy_exps, max_workers=workers, force_fetch_fs=force_fs
+        ):
+            run_triples.extend(triples)
+
+        # ── L3: run.json in parallel (innermost — usually the bulk) ─────
+        def _load_run(triple: tuple[str, str, str]) -> None:
+            project_name, exp_name, run_name = triple
+            meta = fs.join(
+                projects_dir,
+                project_name,
+                "experiments",
+                exp_name,
+                "runs",
+                run_name,
+                "run.json",
+            )
+            _safe_read(fs, meta, state)
+
+        _parallel_map(_load_run, run_triples, max_workers=workers, force_fetch_fs=force_fs)
+
+    return list(state.warnings)
 
 
 def _safe_read(
@@ -652,10 +1058,10 @@ def _safe_read(
         return fs.read_text(path)
     except FileNotFoundError as exc:
         if warn_on_missing:
-            state.warnings.append(PrefetchWarning(path=path, reason=f"not found: {exc}"))
+            state.add_warning(path, f"not found: {exc}")
         return None
     except Exception as exc:
-        state.warnings.append(PrefetchWarning(path=path, reason=str(exc)))
+        state.add_warning(path, str(exc))
         return None
 
 
@@ -666,33 +1072,24 @@ def _read_container_children(
     index_path: str,
     per_child_metadata: str,
     state: _PrefetchState,
+    max_workers: int = 1,
 ) -> list[str]:
-    """Warm the children-index, then list the container directly.
+    """Warm the children-index, then list the container (optional parallel meta).
 
-    The sibling children-index file at *index_path* is read once to warm
-    the cache (navigation reads it back), but the authoritative child
-    names come from a ``listdir`` of *container_dir* plus a per-child
-    metadata probe — the entity ``*.json`` is the sole truth source, the
-    run subdir name (``run-<id>``) differs from any index key, and the
-    index is rebuilt lazily so a fresh hierarchy may lack it.
-
-    A *missing* index is silent (the directory scan covers it); any
-    non-``FileNotFoundError`` transport error on the index read still
-    surfaces as a warning.  Returns the names of subdirectories whose
-    metadata read succeeded; per-child failures are recorded as warnings
-    and omitted.
+    Kept for callers/tests that target a single container.  The main walk
+    uses the outside-in levels in :func:`prefetch_workspace_indices`.
     """
     _safe_read(fs, index_path, state, warn_on_missing=False)
     try:
-        names = fs.listdir(container_dir)
+        names = list(fs.listdir(container_dir))
     except FileNotFoundError:
         return []
     except Exception as exc:
-        state.warnings.append(PrefetchWarning(path=container_dir, reason=str(exc)))
+        state.add_warning(container_dir, str(exc))
         return []
-    healthy: list[str] = []
-    for name in names:
+
+    def _one(name: str) -> str | None:
         meta_path = fs.join(container_dir, name, per_child_metadata)
-        if _safe_read(fs, meta_path, state) is not None:
-            healthy.append(name)
-    return healthy
+        return name if _safe_read(fs, meta_path, state) is not None else None
+
+    return [n for n in _parallel_map(_one, names, max_workers=max_workers) if n]

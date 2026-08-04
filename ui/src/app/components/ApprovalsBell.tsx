@@ -18,9 +18,9 @@ import {
 } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  WorkbenchAction,
   WorkbenchIconAction,
   WorkbenchOperationState,
+  WorkbenchRetryAction,
 } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 
@@ -159,11 +159,7 @@ export function ApprovalsBell(): JSX.Element {
                 density="compact"
                 title="Unavailable"
                 detail={countError}
-                action={
-                  <WorkbenchAction kind="secondary" size="compact" onClick={() => void refresh()}>
-                    Retry
-                  </WorkbenchAction>
-                }
+                action={<WorkbenchRetryAction onClick={() => void refresh()} />}
               />
             )}
             {streamError && (

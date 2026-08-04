@@ -87,7 +87,7 @@ export function CurateComposer({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">Curate</span>
+        <span className="text-label font-medium text-muted-foreground">Curate</span>
         {task && <WorkbenchTag className="font-mono text-micro">{task.status}</WorkbenchTag>}
       </div>
       <Textarea
@@ -101,14 +101,14 @@ export function CurateComposer({
         <WorkbenchAction
           kind="primary"
           size="compact"
-          className="h-7"
+          className="h-control-compact"
           disabled={!request.trim() || inFlight || submitting}
           onClick={() => void submit()}
         >
           {submitting || isRunning ? "…" : "Run"}
         </WorkbenchAction>
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-body-lg text-destructive">{error}</p>}
       {isWaitingApproval && taskId && (
         <ApprovalsInbox variant="detail" taskId={taskId} onDecided={() => undefined} />
       )}

@@ -15,14 +15,14 @@ export const MolqExecutionDetail = ({ execution }: ExecutionDetailRenderProps): 
 
   if (entries.length === 0 && !execution.schedulerJobId) {
     return (
-      <p className="text-xs text-muted-foreground">
+      <p className="text-label text-muted-foreground">
         No molq submission metadata captured for this execution.
       </p>
     );
   }
 
   return (
-    <dl className="space-y-2 text-xs">
+    <dl className="space-y-2 text-label">
       {execution.schedulerJobId && (
         <Row label="scheduler_job_id" value={execution.schedulerJobId} />
       )}
@@ -36,7 +36,7 @@ export const MolqExecutionDetail = ({ execution }: ExecutionDetailRenderProps): 
 const Row = ({ label, value }: { label: string; value: string }): JSX.Element => (
   <div className="flex items-baseline justify-between gap-3">
     <dt className="text-muted-foreground">{label}</dt>
-    <dd className="max-w-[60%] truncate font-mono text-foreground" title={value}>
+    <dd className="max-w-3/5 truncate font-mono text-foreground" title={value}>
       {value}
     </dd>
   </div>

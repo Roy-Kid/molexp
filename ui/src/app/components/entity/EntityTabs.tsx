@@ -28,11 +28,11 @@ export const EntityTabBar = ({
   triggerClassName,
 }: EntityTabBarProps): JSX.Element => {
   return (
-    <div className={cn("shrink-0 border-b border-border/60 bg-background px-4", className)}>
+    <div className={cn("shrink-0 border-b border-border/70 bg-surface px-2", className)}>
       <TabsList
         variant="line"
         className={cn(
-          "h-10 w-full justify-start gap-4 overflow-x-auto rounded-none bg-transparent p-0 sm:gap-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          "h-control-comfortable w-full justify-start gap-4 overflow-x-auto rounded-none bg-transparent p-0 sm:gap-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
           listClassName,
         )}
       >
@@ -42,7 +42,7 @@ export const EntityTabBar = ({
             value={tab.value}
             disabled={tab.disabled}
             className={cn(
-              "h-10 flex-none rounded-none border-0 border-b border-transparent px-0 py-0 text-sm font-medium text-muted-foreground shadow-none after:hidden data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none",
+              "h-control-comfortable flex-none rounded-none border-0 border-b border-transparent px-0 py-0 text-body font-medium text-muted-foreground shadow-none after:hidden hover:text-foreground data-[state=active]:border-accent data-[state=active]:bg-transparent data-[state=active]:text-accent data-[state=active]:shadow-none",
               triggerClassName,
             )}
           >
@@ -61,7 +61,7 @@ export const EntityTabContent = ({
   return (
     <TabsContent
       className={cn(
-        "m-0 flex flex-1 flex-col overflow-hidden p-0 data-[state=inactive]:hidden",
+        "m-0 flex flex-1 flex-col overflow-hidden bg-canvas p-0 data-[state=inactive]:hidden",
         className,
       )}
       {...props}

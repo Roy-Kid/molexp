@@ -112,7 +112,7 @@ def _parse_ir_document(source: str | None) -> dict | None:
         return None
     try:
         doc = json.loads(source)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return None
     return doc if isinstance(doc, dict) else None
 
@@ -205,7 +205,8 @@ class Experiment(Folder):
     @classmethod
     def child_dir(cls, parent: Folder, derived_id: str) -> Path:
         """Folder hook — experiments live under ``experiments/<id>/``."""
-        return Path(parent._fs.join(parent.path(), "experiments", derived_id))
+        # resolve() not path() — pure layout math must not mkdir on remote.
+        return Path(parent._fs.join(parent.resolve(), "experiments", derived_id))
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Experiment:

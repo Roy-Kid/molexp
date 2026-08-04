@@ -20,7 +20,7 @@ import {
   useState,
 } from "react";
 import { type ApiCommand, commandsApi } from "@/app/state/api";
-import { WorkbenchTag } from "@/components/workbench";
+import { WorkbenchAction, WorkbenchTag } from "@/components/workbench";
 
 const PALETTE_HEIGHT_PX = 220;
 
@@ -237,16 +237,18 @@ export const CommandPalette = ({
       ref={popoverRef}
       role="listbox"
       aria-label="Slash commands"
-      className="z-50 overflow-y-auto rounded-[var(--radius-overlay)] border border-border bg-popover shadow-overlay"
+      className="z-50 overflow-y-auto rounded-overlay border border-border bg-popover shadow-overlay"
       style={position}
     >
-      <ul className="flex flex-col-reverse divide-y divide-border divide-y-reverse text-sm">
+      <ul className="flex flex-col-reverse divide-y divide-border divide-y-reverse text-body-lg">
         {state.filtered.map((cmd, idx) => {
           const active = idx === state.activeIndex;
           const Icon = cmd.isBuiltin ? Sparkles : Layers;
           return (
             <li key={`${cmd.isBuiltin ? "builtin" : "skill"}-${cmd.slashName}`}>
-              <button
+              <WorkbenchAction
+                kind="ghost"
+                size="content"
                 type="button"
                 role="option"
                 aria-selected={active}
@@ -263,14 +265,14 @@ export const CommandPalette = ({
                 }`}
               >
                 <Icon
-                  className={`mt-1 h-3.5 w-3.5 shrink-0 ${active ? "text-primary" : "opacity-70"}`}
+                  className={`mt-1 h-3.5 w-3.5 shrink-0 ${active ? "text-accent" : "opacity-70"}`}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-medium text-foreground">
+                    <span className="font-mono text-label font-medium text-foreground">
                       /{cmd.slashName}
                     </span>
-                    <span className="truncate text-xs text-muted-foreground">{cmd.name}</span>
+                    <span className="truncate text-label text-muted-foreground">{cmd.name}</span>
                     {cmd.defaultPlanMode ? (
                       <WorkbenchTag meaning="metadata" className="text-micro">
                         plan
@@ -281,7 +283,9 @@ export const CommandPalette = ({
                     ) : null}
                   </div>
                   {cmd.description ? (
-                    <div className="truncate text-xs text-muted-foreground">{cmd.description}</div>
+                    <div className="truncate text-label text-muted-foreground">
+                      {cmd.description}
+                    </div>
                   ) : null}
                   {cmd.parameters.length > 0 ? (
                     <div className="mt-1 font-mono text-micro text-muted-foreground">
@@ -289,7 +293,7 @@ export const CommandPalette = ({
                     </div>
                   ) : null}
                 </div>
-              </button>
+              </WorkbenchAction>
             </li>
           );
         })}

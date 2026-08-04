@@ -5,6 +5,7 @@ import type { LammpsLogResponse, LammpsThermoStage } from "@/app/state/api";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
 import { Tree, type TreeNodeProps } from "@/components/ui/tree";
+import { CHART_SERIES_PALETTE } from "@/lib/chart-tokens";
 import { buildFileTree, collectFolderIds } from "@/lib/file-tree";
 import { formatBytes } from "@/lib/format-bytes";
 import { MolplotLineChart } from "@/plugins/molplot";
@@ -12,17 +13,6 @@ import type { DiscoveredFile } from "@/plugins/types";
 import { TrajectoryViewer } from "./TrajectoryViewer";
 
 type MolvisTabProps = RendererProps & { discoveredFiles?: DiscoveredFile[] };
-
-const PALETTE = [
-  "oklch(0.55 0.18 255)",
-  "oklch(0.55 0.19 25)",
-  "oklch(0.58 0.14 150)",
-  "oklch(0.68 0.14 70)",
-  "oklch(0.55 0.19 295)",
-  "oklch(0.6 0.12 210)",
-  "oklch(0.58 0.18 350)",
-  "oklch(0.62 0.14 130)",
-];
 
 const TRAJECTORY_PATTERNS = /\.(lammpstrj|lmptrj|lammpsdump|dump|xyz|extxyz|pdb)$/i;
 const LOG_PATTERNS = /(^log\.lammps$|\.lammps\.log$|^lmp\.log$)/i;
@@ -48,7 +38,7 @@ const FileTreeSidebar = ({ files, active, onSelect }: FileTreeSidebarProps): JSX
   const renderNode = (node: TreeNodeProps, defaultRender: ReactNode): ReactNode => {
     if (node.kind === "file" && node.path === active) {
       return (
-        <div className="rounded-sm bg-accent text-accent-foreground [&_span]:text-accent-foreground">
+        <div className="bg-accent-muted text-accent-muted-foreground [&_span]:text-accent-muted-foreground">
           {defaultRender}
         </div>
       );
@@ -57,10 +47,10 @@ const FileTreeSidebar = ({ files, active, onSelect }: FileTreeSidebarProps): JSX
   };
 
   return (
-    <aside className="flex w-60 flex-none flex-col border-r border-border/70 bg-background">
-      <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
-        <Atom className="h-4 w-4 text-muted-foreground" />
-        <span className="text-xs font-medium text-foreground">Files</span>
+    <aside className="flex w-60 flex-none flex-col bg-surface/45">
+      <div className="flex h-control-comfortable items-center gap-2 px-3">
+        <Atom className="h-4 w-4 text-accent" />
+        <span className="text-label font-medium text-foreground">MolVis</span>
         <span className="ml-auto text-micro text-muted-foreground">{files.length}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -115,7 +105,12 @@ const ThermoChart = ({ stage, columnIndex, color }: ThermoChartProps): JSX.Eleme
     };
   }, [color, stage, columnIndex]);
 
-  return <MolplotLineChart config={config} style={{ width: "100%", height: "220px" }} />;
+  return (
+    <MolplotLineChart
+      config={config}
+      style={{ width: "100%", height: "var(--spacing-chart-md)" }}
+    />
+  );
 };
 
 interface ThermoStageProps {
@@ -132,7 +127,7 @@ const ThermoStageView = ({ stage }: ThermoStageProps): JSX.Element => {
 
   if (seriesColumns.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+      <div className="bg-surface/60 px-3 py-6 text-center text-body-lg text-muted-foreground">
         Stage parsed but contains no plottable columns.
       </div>
     );
@@ -143,17 +138,19 @@ const ThermoStageView = ({ stage }: ThermoStageProps): JSX.Element => {
       {seriesColumns.map(({ name, index }, paletteIdx) => {
         const lastValue = rows[rows.length - 1]?.[index];
         return (
-          <section key={name} className="min-w-0 rounded-md border border-border bg-background p-3">
+          <section key={name} className="min-w-0 bg-surface/65 p-3">
             <div className="flex items-baseline justify-between gap-3">
-              <div className="min-w-0 truncate text-sm font-medium text-foreground">{name}</div>
-              <div className="font-mono text-xs text-muted-foreground">
+              <div className="min-w-0 truncate text-body-lg font-medium text-foreground">
+                {name}
+              </div>
+              <div className="font-mono text-label text-muted-foreground">
                 {Number.isFinite(lastValue) ? lastValue.toPrecision(4) : "—"}
               </div>
             </div>
             <ThermoChart
               stage={stage}
               columnIndex={index}
-              color={PALETTE[paletteIdx % PALETTE.length]}
+              color={CHART_SERIES_PALETTE[paletteIdx % CHART_SERIES_PALETTE.length]}
             />
           </section>
         );
@@ -205,7 +202,7 @@ const LogPreview = ({ projectId, experimentId, runId, file }: LogPreviewProps): 
   }
 
   if (response === null) {
-    return <div className="text-sm text-muted-foreground">Loading {file.relPath}…</div>;
+    return <div className="text-body-lg text-muted-foreground">Loading {file.relPath}…</div>;
   }
 
   const stages = response.stages ?? [];
@@ -227,7 +224,7 @@ const LogPreview = ({ projectId, experimentId, runId, file }: LogPreviewProps): 
         return (
           <div key={stageKey} className="flex flex-col gap-2">
             {stages.length > 1 && (
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+              <div className="text-label uppercase tracking-wide text-muted-foreground">
                 Stage {idx + 1}
               </div>
             )}
@@ -265,7 +262,7 @@ const PreviewPane = ({ projectId, experimentId, runId, file }: PreviewPaneProps)
   }
 
   const header = (
-    <div className="flex flex-none items-center gap-2 px-4 pt-4 text-xs text-muted-foreground">
+    <div className="flex flex-none items-center gap-2 px-4 pt-4 text-label text-muted-foreground">
       <span className="truncate font-mono text-foreground" title={file.relPath}>
         {file.relPath}
       </span>

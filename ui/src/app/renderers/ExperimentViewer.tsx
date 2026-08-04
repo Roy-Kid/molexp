@@ -1,13 +1,16 @@
 import {
+  Ban,
   BarChart3,
   Bot,
   Check,
   FileQuestion,
   FlaskConical,
   ListChecks,
+  Play,
   SlidersHorizontal,
   Trash2,
   Workflow as WorkflowIcon,
+  X,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
@@ -15,6 +18,7 @@ import { CreateSweepDialog } from "@/app/components/CreateSweepDialog";
 import { CurateComposer } from "@/app/components/CurateComposer";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
 import {
+  CopyButton,
   DashboardCard,
   DashboardGrid,
   DataTable,
@@ -23,6 +27,7 @@ import {
   EntityPage,
   MetaField,
   MetaGrid,
+  MiniBars,
   ParamChip,
   StatCard,
   StatGrid,
@@ -31,11 +36,15 @@ import {
 } from "@/app/components/entity";
 // Module-path import (not the barrel) — see RunViewer.tsx for the loader rationale.
 import { KnowledgeBacklinksCard } from "@/app/components/entity/KnowledgeBacklinksCard";
-import { countRunStatuses, formatDuration, formatScalar } from "@/app/renderers/dashboardData";
+import {
+  countRunStatuses,
+  formatDuration,
+  formatScalar,
+  successRate,
+} from "@/app/renderers/dashboardData";
 import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
 import { buildExperimentWorkbenchData } from "@/app/renderers/entityWorkbenchData";
 import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
-
 import { canCancel } from "@/app/runs/runLifecycle";
 import {
   buildRunListActions,
@@ -53,9 +62,15 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { Code as InlineCode } from "@/components/ui/code";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
-import { WorkbenchAction, WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
+import {
+  WorkbenchAction,
+  WorkbenchIconAction,
+  WorkbenchTag,
+  WorkbenchToggleAction,
+} from "@/components/workbench";
 import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
 import { formatDateTime } from "@/lib/datetime";
 
@@ -77,10 +92,10 @@ const ParametersCell = ({ run, keys }: { run: RunSummary; keys: string[] }): JSX
   const entries = keys
     .map((key) => [key, run.parameters?.[key]] as const)
     .filter(([, value]) => value !== undefined);
-  if (entries.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+  if (entries.length === 0) return <span className="text-label text-muted-foreground">—</span>;
   const visible = entries.slice(0, 3);
   return (
-    <div className="flex max-w-[320px] flex-wrap items-center gap-1">
+    <div className="flex max-w-80 flex-wrap items-center gap-1">
       {visible.map(([key, value]) => (
         <ParamChip key={key} name={key} value={formatScalar(value)} />
       ))}
@@ -94,7 +109,10 @@ const ParametersCell = ({ run, keys }: { run: RunSummary; keys: string[] }): JSX
           <PopoverContent side="bottom" align="start" className="max-h-80 w-72 overflow-auto p-3">
             <dl className="space-y-2">
               {entries.map(([key, value]) => (
-                <div key={key} className="grid grid-cols-[90px_minmax(0,1fr)] gap-2 text-xs">
+                <div
+                  key={key}
+                  className="grid grid-cols-(--experiment-meta-grid-columns) gap-2 text-label"
+                >
                   <dt className="truncate text-muted-foreground">{key}</dt>
                   <dd className="truncate font-mono text-foreground" title={formatScalar(value)}>
                     {formatScalar(value)}
@@ -105,6 +123,11 @@ const ParametersCell = ({ run, keys }: { run: RunSummary; keys: string[] }): JSX
           </PopoverContent>
         </Popover>
       )}
+      <CopyButton
+        value={JSON.stringify(run.parameters ?? {}, null, 2)}
+        label={`${run.name || run.id} parameters`}
+        className="size-5"
+      />
     </div>
   );
 };
@@ -191,7 +214,11 @@ export const ExperimentViewer = ({
         title: "Cancel run?",
         description: (
           <>
-            Stop <code className="rounded bg-muted px-1 py-1 text-xs">{run.id}</code>?
+            Stop{" "}
+            <InlineCode className="rounded-control bg-muted px-1 py-1 text-label">
+              {run.id}
+            </InlineCode>
+            ?
           </>
         ),
         confirmLabel: "Cancel",
@@ -278,12 +305,15 @@ export const ExperimentViewer = ({
     {
       key: "id",
       header: "Run",
-      width: "w-[180px]",
+      width: "w-44",
       cell: (run) => (
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-foreground">{run.name || run.id}</div>
-          <div className="truncate font-mono text-micro text-muted-foreground">
-            {run.id.substring(0, 12)}
+          <div className="truncate text-body-lg font-medium text-foreground">
+            {run.name || run.id}
+          </div>
+          <div className="flex items-center gap-0.5 font-mono text-micro text-muted-foreground">
+            <span className="truncate">{run.id.substring(0, 12)}</span>
+            <CopyButton value={run.id} label="run ID" className="size-5" />
           </div>
         </div>
       ),
@@ -291,13 +321,13 @@ export const ExperimentViewer = ({
     {
       key: "status",
       header: "State",
-      width: "w-[70px]",
+      width: "w-18",
       cell: (run) => <StatusIcon status={run.status} />,
     },
     {
       key: "parameters",
       header: "Parameters",
-      width: "w-[360px]",
+      width: "w-90",
       cell: (run) => <ParametersCell run={run} keys={parameterKeys} />,
     },
     {
@@ -307,23 +337,26 @@ export const ExperimentViewer = ({
         const preview = formatResultPreview(run.results ?? {});
         const full = JSON.stringify(run.results ?? {}, null, 2);
         return (
-          <span
-            className="block max-w-[260px] truncate font-mono text-xs text-foreground"
-            title={full}
-          >
-            {preview}
-          </span>
+          <div className="flex max-w-72 items-center gap-1">
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-label text-foreground"
+              title={full}
+            >
+              {preview}
+            </span>
+            <CopyButton value={full} label={`${run.name || run.id} results`} className="size-5" />
+          </div>
         );
       },
     },
     {
       key: "duration",
       header: "Duration",
-      width: "w-[100px]",
+      width: "w-24",
       cell: (run) => {
         const d = formatDuration(run.startedAt, run.finishedAt);
         return (
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="font-mono text-label text-muted-foreground">
             {d ?? <span className="text-muted-foreground">—</span>}
           </span>
         );
@@ -332,9 +365,9 @@ export const ExperimentViewer = ({
     {
       key: "updated",
       header: "Updated",
-      width: "w-[160px]",
+      width: "w-40",
       cell: (run) => (
-        <span className="text-xs text-muted-foreground" title={run.updatedAt}>
+        <span className="text-label text-muted-foreground" title={run.updatedAt}>
           {formatDateTime(run.updatedAt)}
         </span>
       ),
@@ -342,17 +375,15 @@ export const ExperimentViewer = ({
     {
       key: "action",
       header: "",
-      width: "w-[88px]",
+      width: "w-24",
       align: "right",
       cell: (run) => {
         const verb = primaryRunVerb(run.status);
         if (!verb) return null;
         return (
-          <WorkbenchAction
-            kind={verb.kind === "cancel" ? "secondary" : "primary"}
-            size="compact"
-            className={`h-6 px-2 text-micro ${verb.kind === "cancel" ? "text-destructive hover:bg-destructive/10 hover:text-destructive" : ""}`}
-            aria-label={verb.label}
+          <WorkbenchIconAction
+            label={verb.label}
+            className={`size-6 ${verb.kind === "cancel" ? "text-destructive hover:bg-destructive/10 hover:text-destructive" : ""}`}
             onClick={(event) => {
               event.stopPropagation();
               if (verb.kind === "start") navigateToRunView(run);
@@ -360,8 +391,8 @@ export const ExperimentViewer = ({
               else if (verb.kind === "resume") void handleResumeRun(run);
             }}
           >
-            {verb.label}
-          </WorkbenchAction>
+            {verb.kind === "cancel" ? <Ban className="size-3.5" /> : <Play className="size-3.5" />}
+          </WorkbenchIconAction>
         );
       },
     },
@@ -373,11 +404,13 @@ export const ExperimentViewer = ({
   const selectionColumn: DataTableColumn<RunSummary> = {
     key: "select",
     header: "",
-    width: "w-[36px]",
+    width: "w-control-comfortable",
     cell: (run) => {
       const checked = multi.selected.has(run.id);
       return (
-        <button
+        <WorkbenchAction
+          kind="ghost"
+          size="content"
           type="button"
           aria-pressed={checked}
           aria-label={checked ? "Deselect run" : "Select run"}
@@ -388,14 +421,14 @@ export const ExperimentViewer = ({
               meta: event.metaKey || event.ctrlKey,
             });
           }}
-          className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+          className={`flex h-4 w-4 items-center justify-center rounded-control border transition-colors ${
             checked
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-border hover:border-primary"
+              ? "border-accent bg-accent text-accent-foreground"
+              : "border-border hover:border-accent"
           }`}
         >
           {checked && <Check className="h-3 w-3" />}
-        </button>
+        </WorkbenchAction>
       );
     },
   };
@@ -412,12 +445,19 @@ export const ExperimentViewer = ({
       title: action.title,
       onSelect: () => action.onSelect(),
     }));
+  const experimentSuccessRate = successRate(counts);
 
   const overviewContent = (
     <DashboardGrid>
       <div className="lg:col-span-12">
         <StatGrid>
           <StatCard label="Runs" value={counts.total} muted={counts.total === 0} />
+          <StatCard
+            label="Success rate"
+            value={experimentSuccessRate === null ? "—" : `${experimentSuccessRate.toFixed(0)}%`}
+            tone="success"
+            muted={experimentSuccessRate === null}
+          />
           <StatCard
             label="Succeeded"
             value={counts.succeeded}
@@ -440,19 +480,55 @@ export const ExperimentViewer = ({
         </StatGrid>
       </div>
 
-      <DashboardCard title="Identity" className="lg:col-span-5">
+      <DashboardCard
+        title="Identity"
+        className="lg:col-span-4"
+        action={
+          <CopyButton
+            value={JSON.stringify(
+              { projectId: experiment.projectId, experimentId: experiment.id },
+              null,
+              2,
+            )}
+            label="experiment coordinates"
+          />
+        }
+      >
         <MetaGrid columns={2}>
-          <MetaField label="Experiment ID" value={experiment.id} mono title={experiment.id} />
-          <MetaField label="Project" value={project?.name ?? projectId} />
+          <MetaField
+            label="Experiment ID"
+            value={experiment.id}
+            mono
+            title={experiment.id}
+            copyValue={experiment.id}
+          />
+          <MetaField label="Project" value={project?.name ?? projectId} copyValue={projectId} />
           <MetaField
             label="Updated"
             value={formatDateTime(experiment.updatedAt)}
             title={experiment.updatedAt}
+            copyValue={experiment.updatedAt}
           />
           <MetaField
             label="Workflow tasks"
             value={workbench.workflowSummary.exists ? workbench.workflowSummary.taskCount : "—"}
           />
+          <MetaField
+            label="Workflow file"
+            value={experiment.workflowFile || "—"}
+            mono
+            title={experiment.workflowFile || undefined}
+            copyValue={experiment.workflowFile || undefined}
+          />
+          {experiment.planRunId && (
+            <MetaField
+              label="Plan run"
+              value={experiment.planRunId}
+              mono
+              title={experiment.planRunId}
+              copyValue={experiment.planRunId}
+            />
+          )}
         </MetaGrid>
       </DashboardCard>
 
@@ -463,7 +539,7 @@ export const ExperimentViewer = ({
             ? "No runs yet"
             : `${counts.total} run${counts.total === 1 ? "" : "s"} in this experiment`
         }
-        className="lg:col-span-7"
+        className="lg:col-span-4"
       >
         <StatusDistribution counts={counts} />
       </DashboardCard>
@@ -486,7 +562,7 @@ export const ExperimentViewer = ({
         bodyClassName="space-y-3"
         action={
           workflowGraph ? (
-            <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-2 text-label text-muted-foreground">
               <WorkflowIcon className="h-3.5 w-3.5" />
               Graph
             </span>
@@ -496,8 +572,28 @@ export const ExperimentViewer = ({
         {workflowGraph ? (
           <WorkflowGraph ir={workflowGraph} height={240} />
         ) : (
-          <p className="text-sm text-muted-foreground">No workflow graph recorded.</p>
+          <p className="text-body-lg text-muted-foreground">No workflow graph recorded.</p>
         )}
+      </DashboardCard>
+
+      <DashboardCard
+        title="Run groups"
+        description={
+          workbench.parameterAxes.some((axis) => axis.count > 1)
+            ? "Grouped by the first varying parameter"
+            : "Grouped by execution state"
+        }
+        className="lg:col-span-4"
+      >
+        <MiniBars
+          data={workbench.runGroups.slice(0, 8).map((group) => ({
+            label: group.label,
+            value: group.runs.length,
+            hint: `${group.counts.succeeded}/${group.counts.total}`,
+            onClick: () => setActiveTab("runs"),
+          }))}
+          emptyLabel="No runs available to group."
+        />
       </DashboardCard>
 
       <DashboardCard
@@ -511,12 +607,12 @@ export const ExperimentViewer = ({
         bodyClassName="space-y-3"
       >
         {workbench.parameterAxes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No parameter axes declared.</p>
+          <p className="text-body-lg text-muted-foreground">No parameter axes declared.</p>
         ) : (
           <Accordion type="multiple" className="border-y border-border">
             {workbench.parameterAxes.map((axis) => (
               <AccordionItem key={axis.key} value={axis.key} className="border-border px-3">
-                <AccordionTrigger className="py-3 text-xs hover:no-underline">
+                <AccordionTrigger className="py-3 text-label hover:no-underline">
                   <span className="inline-flex min-w-0 items-center gap-2">
                     <SlidersHorizontal className="h-3.5 w-3.5 flex-none text-muted-foreground" />
                     <span className="truncate font-medium text-foreground">{axis.key}</span>
@@ -526,13 +622,13 @@ export const ExperimentViewer = ({
                   </WorkbenchTag>
                 </AccordionTrigger>
                 <AccordionContent className="pb-3">
-                  <div className="max-h-44 overflow-auto rounded-md bg-muted/30 p-2">
+                  <div className="max-h-44 overflow-auto rounded-control bg-muted/30 p-2">
                     <div className="flex flex-wrap gap-1">
                       {axis.values.map((value) => (
                         <WorkbenchTag
                           key={`${axis.key}:${value}`}
                           meaning="metadata"
-                          className="max-w-[180px] truncate rounded-md font-mono text-micro font-normal text-muted-foreground"
+                          className="max-w-44 truncate rounded-control font-mono text-micro font-normal text-muted-foreground"
                           title={value}
                         >
                           {value}
@@ -586,6 +682,7 @@ export const ExperimentViewer = ({
         status={experiment.status}
         actions={
           <>
+            <CopyButton value={experiment.id} label="experiment ID" />
             <CreateRunDialog
               projectId={projectId}
               experimentId={experimentId}
@@ -606,7 +703,7 @@ export const ExperimentViewer = ({
             <WorkbenchIconAction
               label="Agent"
               kind="ghost"
-              className="h-7 w-7"
+              className="h-control-compact w-control-compact"
               aria-label="Agent"
               title="Agent"
               onClick={() =>
@@ -624,7 +721,7 @@ export const ExperimentViewer = ({
               kind="ghost"
               onClick={handleDelete}
               disabled={isDeleting}
-              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+              className="h-control-compact w-control-compact text-muted-foreground hover:text-destructive"
               aria-label="Delete"
               title="Delete"
             >
@@ -646,41 +743,32 @@ export const ExperimentViewer = ({
             content: (
               <div className="flex h-full flex-col">
                 <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-                  <WorkbenchAction
-                    kind={multi.enabled ? "primary" : "secondary"}
-                    size="compact"
-                    className="h-7 gap-2"
-                    aria-pressed={multi.enabled}
+                  <WorkbenchToggleAction
+                    label={multi.enabled ? "Exit multi-select" : "Select multiple runs"}
+                    pressed={multi.enabled}
                     onClick={multi.toggleMode}
-                    title="Select multiple runs for compare"
                   >
                     <ListChecks className="h-3.5 w-3.5" />
-                    {multi.enabled ? "Selecting" : "Select"}
-                  </WorkbenchAction>
+                  </WorkbenchToggleAction>
                   {multi.enabled && (
                     <>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-label text-muted-foreground">
                         {multi.selected.size} selected
                       </span>
-                      <WorkbenchAction
-                        kind="secondary"
-                        size="compact"
-                        className="h-7 gap-2"
+                      <WorkbenchIconAction
+                        label="Compare selected runs"
                         disabled={multi.selected.size === 0}
                         onClick={() => setActiveTab("compare")}
                       >
                         <BarChart3 className="h-3.5 w-3.5" />
-                        Compare
-                      </WorkbenchAction>
-                      <WorkbenchAction
-                        kind="ghost"
-                        size="compact"
-                        className="h-7"
+                      </WorkbenchIconAction>
+                      <WorkbenchIconAction
+                        label="Clear run selection"
                         disabled={multi.selected.size === 0}
                         onClick={multi.clear}
                       >
-                        Clear
-                      </WorkbenchAction>
+                        <X className="h-3.5 w-3.5" />
+                      </WorkbenchIconAction>
                       <span className="text-micro text-muted-foreground">⇧ range · ⌘ toggle</span>
                     </>
                   )}
@@ -702,7 +790,7 @@ export const ExperimentViewer = ({
                   }
                   rowActions={runRowActions}
                   rowClassName={(run) =>
-                    multi.enabled && multi.selected.has(run.id) ? "bg-primary/5" : ""
+                    multi.enabled && multi.selected.has(run.id) ? "bg-accent/5" : ""
                   }
                   empty={
                     <EmptyState

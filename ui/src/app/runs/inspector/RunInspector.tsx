@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { EmptyState } from "@/app/components/entity";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RunStatusBadge, WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
+import { RunStatusBadge, WorkbenchIconAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 import { RunMetricsView } from "../metrics/RunMetricsView";
 import type { WorkspaceRunRow } from "../types";
@@ -45,7 +45,7 @@ export const RunInspector = ({
         )}
       >
         <header className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-          <span className="text-sm font-medium text-foreground">Inspector</span>
+          <span className="text-body-lg font-medium text-foreground">Inspector</span>
         </header>
         <div className="flex flex-1 items-center justify-center px-4">
           <EmptyState
@@ -71,13 +71,13 @@ export const RunInspector = ({
           <div className="flex items-center gap-2">
             <RunStatusBadge status={run.status} size="sm" />
             <p
-              className="min-w-0 truncate text-sm font-medium tracking-tight text-foreground"
+              className="min-w-0 truncate text-body-lg font-medium tracking-tight text-foreground"
               title={run.id}
             >
               {run.name || run.id}
             </p>
           </div>
-          <p className="truncate text-xs text-muted-foreground">
+          <p className="truncate text-label text-muted-foreground">
             {run.projectName}
             <span className="mx-1 text-border">·</span>
             {run.experimentName}
@@ -91,7 +91,7 @@ export const RunInspector = ({
           kind="ghost"
           type="button"
           onClick={onClear}
-          className="h-7 w-7 shrink-0 text-muted-foreground"
+          className="h-control-compact w-control-compact shrink-0 text-muted-foreground"
           aria-label="Clear selection"
         >
           <X className="h-3.5 w-3.5" />
@@ -106,7 +106,7 @@ export const RunInspector = ({
         <div className="border-b border-border/60 px-3">
           <TabsList
             variant="line"
-            className="h-9 w-full justify-start gap-3 rounded-none bg-transparent p-0"
+            className="h-control-comfortable w-full justify-start gap-3 rounded-none bg-transparent p-0"
           >
             {(
               [
@@ -119,7 +119,7 @@ export const RunInspector = ({
                 key={value}
                 value={value}
                 className={cn(
-                  "h-9 flex-none rounded-none border-0 border-b border-transparent px-0 text-xs font-medium shadow-none after:hidden",
+                  "h-control-comfortable flex-none rounded-none border-0 border-b border-transparent px-0 text-label font-medium shadow-none after:hidden",
                   "data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none",
                 )}
               >
@@ -159,16 +159,10 @@ export const RunInspector = ({
         </div>
       </Tabs>
 
-      <footer className="border-t border-border/60 px-4 py-3">
-        <WorkbenchAction
-          kind="secondary"
-          size="compact"
-          onClick={() => onOpenRun(run)}
-          className="h-8 w-full text-xs"
-        >
-          <ExternalLink className="mr-2 h-3.5 w-3.5" />
-          Open run detail
-        </WorkbenchAction>
+      <footer className="flex justify-end border-t border-border/60 px-4 py-3">
+        <WorkbenchIconAction label="Open run detail" onClick={() => onOpenRun(run)}>
+          <ExternalLink className="h-3.5 w-3.5" />
+        </WorkbenchIconAction>
       </footer>
     </aside>
   );

@@ -87,9 +87,10 @@ class WorkspaceTarget(BaseModel):
         default=300,
         ge=0,
         description=(
-            "Freshness window for cached file/dir entries. ``0`` disables the "
-            "fast path — every read re-stats the remote FS, but already-fetched "
-            "mirror bytes are still served when mtime matches."
+            "Cache pin policy for the local mirror. ``>0`` (default): pin "
+            "until the operator refreshes via the cache API — age is ignored. "
+            "``0``: strict mode — every read re-stats the remote and reuses "
+            "mirror bytes only when mtime/size still match."
         ),
     )
 

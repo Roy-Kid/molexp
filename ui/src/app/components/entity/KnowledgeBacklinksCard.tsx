@@ -4,7 +4,11 @@ import { useNavigate } from "react-router-dom";
 import type { EntityBacklinkRow } from "@/api/generated/models/EntityBacklinkRow";
 import { KnowledgeService } from "@/api/generated/services/KnowledgeService";
 import { DashboardCard } from "@/app/components/entity/Dashboard";
-import { WorkbenchAction, WorkbenchOperationState } from "@/components/workbench";
+import {
+  WorkbenchAction,
+  WorkbenchOperationState,
+  WorkbenchRetryAction,
+} from "@/components/workbench";
 
 interface KnowledgeBacklinksCardProps {
   kind: "run" | "experiment";
@@ -81,16 +85,12 @@ export const KnowledgeBacklinksCard = ({
           title="Could not load linked notes"
           detail={error}
           action={
-            <WorkbenchAction
-              kind="secondary"
-              size="compact"
+            <WorkbenchRetryAction
               onClick={() => {
                 setRows(null);
                 setRequestVersion((version) => version + 1);
               }}
-            >
-              Retry
-            </WorkbenchAction>
+            />
           }
         />
       ) : rows === null ? (
@@ -100,16 +100,12 @@ export const KnowledgeBacklinksCard = ({
           title="Linked notes unavailable"
           detail="The request finished without a result."
           action={
-            <WorkbenchAction
-              kind="secondary"
-              size="compact"
+            <WorkbenchRetryAction
               onClick={() => {
                 setRows(null);
                 setRequestVersion((version) => version + 1);
               }}
-            >
-              Retry
-            </WorkbenchAction>
+            />
           }
         />
       ) : rows.length === 0 ? (
@@ -127,12 +123,14 @@ export const KnowledgeBacklinksCard = ({
         <ul className="space-y-1">
           {rows.map((row) => (
             <li key={row.path}>
-              <button
+              <WorkbenchAction
+                kind="ghost"
+                size="content"
                 type="button"
                 onClick={() =>
                   navigate(`/knowledge/${row.path.split("/").map(encodeURIComponent).join("/")}`)
                 }
-                className="flex w-full items-center gap-2 truncate rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex w-full items-center gap-2 truncate rounded-control px-2 py-2 text-left text-body-lg transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 title={row.path}
               >
                 <BookOpen className="h-3.5 w-3.5 flex-none text-muted-foreground" />
@@ -141,7 +139,7 @@ export const KnowledgeBacklinksCard = ({
                   <Link2 className="h-3 w-3" />
                   {row.role}
                 </span>
-              </button>
+              </WorkbenchAction>
             </li>
           ))}
         </ul>

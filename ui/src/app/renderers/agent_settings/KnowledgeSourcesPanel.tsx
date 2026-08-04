@@ -5,13 +5,14 @@
  * and capability grounding read the same pin from the MCP store.
  */
 
-import { BookOpen, Check, Server } from "lucide-react";
+import { BookOpen, Check, Server, X } from "lucide-react";
 import type { JSX } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { AgentUnavailableError, resetAgentProbes } from "@/app/state/agentProbe";
 import { type ApiKnowledgeSources, agentAdminApi } from "@/app/state/api";
+import { Code as InlineCode } from "@/components/ui/code";
 import { ProgressSpinner } from "@/components/ui/progress-spinner";
-import { WorkbenchAction, WorkbenchTag } from "@/components/workbench";
+import { WorkbenchAction, WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 import { UnavailableCapability } from "./UnavailableCapability";
 
@@ -91,27 +92,30 @@ export const KnowledgeSourcesPanel = (): JSX.Element => {
     JSON.stringify([...selected].sort()) !== JSON.stringify([...(data?.sources ?? [])].sort());
 
   return (
-    <section className="space-y-3 rounded-[var(--radius-panel)] border border-border bg-surface px-3 py-3">
+    <section className="space-y-3 bg-surface/60 px-3 py-3">
       <header className="flex items-start gap-2">
         <BookOpen className="mt-0.5 size-4 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-foreground">molmcp · knowledge packages</h3>
-          <p className="text-xs text-muted-foreground">
-            Per-MCP scope for the <code className="text-micro">molmcp</code> server (stored as{" "}
-            <code className="text-micro">MOLMCP_SOURCES</code>). Plan sessions and tool calls
-            inherit this pin — e.g. only molpy + molvis + molplot, never atomiverse.
+          <h3 className="text-body-lg font-semibold text-foreground">
+            molmcp · knowledge packages
+          </h3>
+          <p className="text-label text-muted-foreground">
+            Per-MCP scope for the <InlineCode className="text-micro">molmcp</InlineCode> server
+            (stored as <InlineCode className="text-micro">MOLMCP_SOURCES</InlineCode>). Plan
+            sessions and tool calls inherit this pin — e.g. only molpy + molvis + molplot, never
+            atomiverse.
           </p>
         </div>
         {data?.configured ? (
           data.unrestricted ? (
-            <WorkbenchTag meaning="metadata" className="text-xs">
+            <WorkbenchTag meaning="metadata" className="text-label">
               all packages
             </WorkbenchTag>
           ) : (
-            <WorkbenchTag className="text-xs">{selected.length} pinned</WorkbenchTag>
+            <WorkbenchTag className="text-label">{selected.length} pinned</WorkbenchTag>
           )
         ) : (
-          <WorkbenchTag meaning="failed" className="text-xs">
+          <WorkbenchTag meaning="failed" className="text-label">
             molmcp missing
           </WorkbenchTag>
         )}
@@ -126,50 +130,51 @@ export const KnowledgeSourcesPanel = (): JSX.Element => {
       )}
 
       {!loading && data && !data.configured ? (
-        <p className="text-xs text-warning-foreground">
-          Add an MCP server named <code className="text-micro">molmcp</code> below first, then set
-          package scope here.
+        <p className="text-label text-warning-foreground">
+          Add an MCP server named <InlineCode className="text-micro">molmcp</InlineCode> below
+          first, then set package scope here.
         </p>
       ) : null}
 
       {loading ? (
-        <p className="text-xs text-muted-foreground">Loading…</p>
+        <p className="text-label text-muted-foreground">Loading…</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           {packages.map((pkg) => {
             const on = selected.includes(pkg);
             return (
-              <button
+              <WorkbenchAction
+                kind="ghost"
+                size="content"
                 key={pkg}
                 type="button"
                 disabled={!data?.configured}
                 onClick={() => toggle(pkg)}
                 className={cn(
-                  "rounded-md border px-2.5 py-1 font-mono text-xs transition-colors disabled:opacity-40",
+                  "rounded-control px-2.5 py-1 font-mono text-label transition-colors disabled:opacity-40",
                   on
-                    ? "border-info/50 bg-info-soft/40 text-info-foreground"
-                    : "border-border bg-muted/30 text-muted-foreground hover:bg-muted",
+                    ? "bg-info-soft/60 text-info-foreground"
+                    : "bg-muted/40 text-muted-foreground hover:bg-muted",
                 )}
               >
                 {on ? "✓ " : ""}
                 {pkg}
-              </button>
+              </WorkbenchAction>
             );
           })}
         </div>
       )}
 
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      {error ? <p className="text-label text-destructive">{error}</p> : null}
 
       <div className="flex items-center justify-end gap-2">
-        <WorkbenchAction
-          kind="ghost"
-          size="compact"
+        <WorkbenchIconAction
+          label="Clear all knowledge packages"
           disabled={loading || !data?.configured || selected.length === 0}
           onClick={() => setSelected([])}
         >
-          Clear (all packages)
-        </WorkbenchAction>
+          <X className="size-4" />
+        </WorkbenchIconAction>
         <WorkbenchAction
           kind="primary"
           size="compact"

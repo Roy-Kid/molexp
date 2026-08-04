@@ -236,7 +236,7 @@ class DataAssetLibrary:
             if src.is_file():
                 try:
                     os.link(src, dest)
-                except OSError, NotImplementedError:
+                except (OSError, NotImplementedError):
                     shutil.copy2(src, dest)
             else:
                 dest.mkdir(parents=True, exist_ok=True)
@@ -247,7 +247,7 @@ class DataAssetLibrary:
                         target.parent.mkdir(parents=True, exist_ok=True)
                         try:
                             os.link(item, target)
-                        except OSError, NotImplementedError:
+                        except (OSError, NotImplementedError):
                             shutil.copy2(item, target)
         else:
             raise ValueError(f"Unknown import action: {action!r}")

@@ -8,18 +8,23 @@ import {
   mapProjects,
   mapRuns,
   mapWorkflows,
-  mapWorkspaceTree,
   workspaceApi,
 } from "@/app/state/api";
 import { pulseSync } from "@/app/state/syncPulse";
 import type {
-  ExperimentSummary,
   LeftPanelView,
   ProjectSummary,
-  RunSummary,
-  WorkflowSummary,
   WorkspaceSnapshot,
+  WorkspaceTreeNode,
 } from "@/app/types";
+import {
+  direntsToTreeNodes,
+  getWorkspaceFs,
+  mergeTreeChildren,
+  setWorkspaceFsRoot,
+  treeRootFromListing,
+} from "@/lib/workspace-fs";
+import type { WorkspacePath } from "@/lib/workspace-path";
 
 export type WorkspaceStatus = "idle" | "loading" | "ready" | "error";
 
@@ -28,60 +33,86 @@ export interface WorkspaceState {
   status: WorkspaceStatus;
   error: Error | null;
   refresh: () => void;
+  /** Lazy-expand a workspace file-tree directory via WorkspaceFs.listdir. */
+  expandDirectory: (dirPath: WorkspacePath) => Promise<void>;
+  /** Lazy-load experiments under a project (nav expand / open). */
+  expandProject: (projectId: string) => Promise<void>;
+  /** Lazy-load runs under an experiment (nav expand / open). */
+  expandExperiment: (projectId: string, experimentId: string) => Promise<void>;
+  /** True when this project's experiments have been fetched. */
+  isProjectExpanded: (projectId: string) => boolean;
+  /** True when this experiment's runs have been fetched. */
+  isExperimentExpanded: (projectId: string, experimentId: string) => boolean;
 }
 
-const SNAPSHOT_POLL_INTERVAL_MS = 3000;
+// Slice = an independently fetchable chunk of the snapshot.
+// Entity hierarchy (experiments / runs) is **not** a slice — it loads on expand.
+type SnapshotSlice = "workspaces" | "workspaceTree" | "projectsList" | "assets" | "agentSessions";
 
-// Slice = an independently fetchable chunk of the snapshot. Polling refreshes
-// only the slices the active view actually reads, so switching to a quiet
-// view (workflow/agent) stops the unrelated fan-out fetches.
-type SnapshotSlice =
-  | "workspaces" // served-workspace set (drives nav grouping); must precede projectsList
-  | "workspaceTree"
-  | "projectsList"
-  | "experimentsTree" // experiments + runs + workflows (workflows derive from experiments)
-  | "assets"
-  | "agentSessions";
-
-const ALL_SLICES: readonly SnapshotSlice[] = [
+// Bootstrap: shallow only. No fan-out over experiments×runs (that was 20+ HTTP
+// calls on every poll and freezes remote workspaces).
+const BOOTSTRAP_SLICES: readonly SnapshotSlice[] = [
   "workspaces",
-  "workspaceTree",
   "projectsList",
-  "experimentsTree",
-  "assets",
   "agentSessions",
+  "workspaceTree",
 ];
 
-// Per-view polling profile. Empty array = no polling for that view.
-//   workflow: definitions are static (parsed from experiment files); manual
-//             refresh covers authoring edits.
-//   runs:    useWorkspaceRuns owns its own poller.
-//   agent:   AgentViewer drives session state via SSE + targeted ticks.
-// Slices listed before others run first; downstream slices see the freshly
-// fetched value (e.g. assets reads the just-refreshed projects list).
+// Manual full refresh still avoids the old experimentsTree dump — expand
+// caches stay warm; user re-opens folders if they want a re-fetch.
+const REFRESH_SLICES: readonly SnapshotSlice[] = BOOTSTRAP_SLICES;
+
+// Polling: only cheap / view-local slices. Never re-walk the whole entity tree.
+// projects view: no interval — list is static until user expands or hits refresh.
+// workspace: optional soft tree refresh is still heavy on remote → off.
+// assets: load once when entering the view (see effect), not every 3s.
 const VIEW_POLL_SLICES: Record<LeftPanelView, readonly SnapshotSlice[]> = {
-  workspace: ["workspaceTree"],
-  projects: ["workspaces", "projectsList", "experimentsTree"],
+  workspace: [],
+  projects: [],
   workflow: [],
-  asset: ["workspaces", "projectsList", "assets"],
+  asset: [],
   runs: [],
   agent: [],
   knowledge: [],
   settings: [],
 };
 
+const WORKSPACE_TREE_BOOTSTRAP_DEPTH = 2;
+
+const expKey = (projectId: string, experimentId: string): string => `${projectId}/${experimentId}`;
+
 const fetchWorkspaceTree = async (): Promise<WorkspaceSnapshot["workspaceRoot"]> => {
   try {
-    const tree = await workspaceApi.getWorkspaceTree({
-      path: "/",
-      maxDepth: 8,
+    try {
+      const info = await workspaceApi.getWorkspaceInfo();
+      if (info.root) {
+        setWorkspaceFsRoot(info.root);
+      }
+    } catch {
+      // optional
+    }
+    const fs = getWorkspaceFs();
+    const children = await fs.listdir("", {
+      maxDepth: WORKSPACE_TREE_BOOTSTRAP_DEPTH,
       includeCatalog: true,
     });
-    return mapWorkspaceTree("/", tree);
+    return treeRootFromListing(fs.root ?? "/", children);
   } catch (err) {
     console.warn("Workspace tree unavailable:", err);
     return null;
   }
+};
+
+const findTreeNode = (root: WorkspaceTreeNode, path: string): WorkspaceTreeNode | null => {
+  if (root.path === path) return root;
+  for (const child of root.children) {
+    if (child.path === path) return child;
+    if (child.kind === "directory" && path.startsWith(`${child.path}/`)) {
+      const hit = findTreeNode(child, path);
+      if (hit) return hit;
+    }
+  }
+  return null;
 };
 
 const fetchWorkspaces = async (): Promise<WorkspaceSnapshot["workspaces"]> => {
@@ -93,10 +124,6 @@ const fetchWorkspaces = async (): Promise<WorkspaceSnapshot["workspaces"]> => {
   }
 };
 
-// Single-workspace (0 or 1 served) → today's flat /api/projects, untagged.
-// Multiple served → aggregate each workspace's own projects via the namespaced
-// route, tagging every project with its workspaceKey so same-named projects in
-// different workspaces never collide.
 const fetchProjectsList = async (
   workspaces: WorkspaceSnapshot["workspaces"],
 ): Promise<ProjectSummary[]> => {
@@ -117,56 +144,10 @@ const fetchProjectsList = async (
   return perWorkspace.flat();
 };
 
-// Only the active workspace's projects (and untagged single-workspace ones)
-// have their deep tree fetched through the flat routes — fetching another
-// workspace's experiments via the active routes would cross-resolve on a
-// shared project id. Other workspaces show project-name leaves until activated.
 const activeWorkspaceProjects = (snapshot: WorkspaceSnapshot): ProjectSummary[] => {
   if (snapshot.workspaces.length <= 1) return snapshot.projects;
   const activeKey = snapshot.workspaces.find((ws) => ws.active)?.key;
   return snapshot.projects.filter((project) => project.workspaceKey === activeKey);
-};
-
-interface ExperimentsTreeData {
-  experiments: ExperimentSummary[];
-  runs: RunSummary[];
-  workflows: WorkflowSummary[];
-}
-
-const fetchExperimentsTree = async (projects: ProjectSummary[]): Promise<ExperimentsTreeData> => {
-  const experimentsByProject = await Promise.all(
-    projects.map(async (project) => ({
-      projectId: project.id,
-      experiments: await workspaceApi.getExperiments(project.id),
-    })),
-  );
-
-  const experimentSummaries = experimentsByProject.flatMap((item) =>
-    mapExperiments(item.projectId, item.experiments),
-  );
-
-  const runsByExperiment = await Promise.all(
-    experimentsByProject.flatMap((item) =>
-      item.experiments.map(async (experiment) => ({
-        projectId: item.projectId,
-        experimentId: experiment.id,
-        runs: await workspaceApi.getRuns(item.projectId, experiment.id),
-      })),
-    ),
-  );
-
-  const runSummaries = runsByExperiment.flatMap((item) =>
-    mapRuns(item.projectId, item.experimentId, item.runs),
-  );
-
-  const rawExperiments = experimentsByProject.flatMap((item) => item.experiments);
-  const workflowSummaries = mapWorkflows(experimentSummaries, rawExperiments);
-
-  return {
-    experiments: experimentSummaries,
-    runs: runSummaries,
-    workflows: workflowSummaries,
-  };
 };
 
 const fetchAllAssets = async (projects: ProjectSummary[]): Promise<WorkspaceSnapshot["assets"]> => {
@@ -180,8 +161,13 @@ const fetchAllAssets = async (projects: ProjectSummary[]): Promise<WorkspaceSnap
       }
     }),
   );
-  const allAssets = [...mapAssets(await workspaceApi.getAssets()), ...projectAssets.flat()];
-  return Array.from(new Map(allAssets.map((item) => [item.id, item])).values());
+  try {
+    const allAssets = [...mapAssets(await workspaceApi.getAssets()), ...projectAssets.flat()];
+    return Array.from(new Map(allAssets.map((item) => [item.id, item])).values());
+  } catch (err) {
+    console.warn("Workspace assets unavailable:", err);
+    return projectAssets.flat();
+  }
 };
 
 const fetchAgentSessionsList = async (): Promise<WorkspaceSnapshot["agentSessions"]> => {
@@ -204,8 +190,6 @@ const applySlicePatch = async (
       return { workspaceRoot: await fetchWorkspaceTree() };
     case "projectsList":
       return { projects: await fetchProjectsList(current.workspaces) };
-    case "experimentsTree":
-      return await fetchExperimentsTree(activeWorkspaceProjects(current));
     case "assets":
       return { assets: await fetchAllAssets(activeWorkspaceProjects(current)) };
     case "agentSessions":
@@ -213,17 +197,20 @@ const applySlicePatch = async (
   }
 };
 
-// Apply slice patches in order, threading the in-progress snapshot so a slice
-// that depends on a freshly fetched predecessor (e.g. assets after projects)
-// sees the new value within the same fetch cycle.
 const fetchSlices = async (
   current: WorkspaceSnapshot,
   slices: readonly SnapshotSlice[],
+  onProgress?: (next: WorkspaceSnapshot) => void,
 ): Promise<WorkspaceSnapshot> => {
   let next = current;
   for (const slice of slices) {
-    const patch = await applySlicePatch(next, slice);
-    next = { ...next, ...patch };
+    try {
+      const patch = await applySlicePatch(next, slice);
+      next = { ...next, ...patch };
+      onProgress?.(next);
+    } catch (err) {
+      console.warn(`Snapshot slice "${slice}" failed:`, err);
+    }
   }
   return next;
 };
@@ -236,50 +223,175 @@ export const useWorkspaceState = (activeView?: LeftPanelView): WorkspaceState =>
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
 
+  // On-demand load tracking (entity tree). Cleared only on full refresh.
+  const projectsLoadedRef = useRef(new Set<string>());
+  const experimentsLoadedRef = useRef(new Set<string>());
+  const assetsLoadedForViewRef = useRef(false);
+  // Force re-render when expand sets flip without snapshot change shape.
+  const [, bump] = useState(0);
+
   const runFetch = useCallback((slices: readonly SnapshotSlice[], silent: boolean): void => {
     if (slices.length === 0) return;
-    // Coalesce overlapping fetches — a slow snapshot fetch must never queue
-    // additional requests behind it.
     if (inflightRef.current) return;
     inflightRef.current = true;
     if (!silent) setStatus("loading");
 
-    fetchSlices(snapshotRef.current, slices)
+    fetchSlices(snapshotRef.current, slices, (partial) => {
+      snapshotRef.current = partial;
+      setSnapshot(partial);
+      if (!silent) setStatus("ready");
+    })
       .then((nextSnapshot: WorkspaceSnapshot) => {
+        snapshotRef.current = nextSnapshot;
         setSnapshot(nextSnapshot);
         setStatus("ready");
         setError(null);
       })
       .catch((err: Error) => {
         setError(err);
-        setStatus("error");
+        setStatus((prev) => (prev === "ready" ? "ready" : "error"));
       })
       .finally(() => {
         inflightRef.current = false;
-        // Every completed poll / refresh breathes the bottom-strip heartbeat.
         pulseSync();
       });
   }, []);
 
   const refresh = useCallback((): void => {
-    runFetch(ALL_SLICES, false);
+    projectsLoadedRef.current.clear();
+    experimentsLoadedRef.current.clear();
+    assetsLoadedForViewRef.current = false;
+    // Drop cached experiments/runs so counts fall back to server-side totals.
+    setSnapshot((prev) => {
+      const next = {
+        ...prev,
+        experiments: [],
+        runs: [],
+        workflows: [],
+        assets: [],
+      };
+      snapshotRef.current = next;
+      return next;
+    });
+    runFetch(REFRESH_SLICES, false);
   }, [runFetch]);
 
-  // Bootstrap once: every view depends on the snapshot for navigation/inspector
-  // even if it doesn't poll, so we hydrate the full thing on mount.
+  const expandDirectory = useCallback(async (dirPath: WorkspacePath): Promise<void> => {
+    const root = snapshotRef.current.workspaceRoot;
+    if (!root) return;
+    const node = findTreeNode(root, dirPath);
+    if (node?.kind !== "directory") return;
+    if (node.childrenLoaded) return;
+
+    try {
+      const fs = getWorkspaceFs();
+      const children = await fs.listdir(dirPath, { maxDepth: 1, includeCatalog: true });
+      const childNodes = direntsToTreeNodes(children);
+      const nextRoot = mergeTreeChildren(root, dirPath, childNodes);
+      const next = { ...snapshotRef.current, workspaceRoot: nextRoot };
+      snapshotRef.current = next;
+      setSnapshot(next);
+    } catch (err) {
+      console.warn(`expandDirectory(${dirPath}) failed:`, err);
+    }
+  }, []);
+
+  const expandProject = useCallback(async (projectId: string): Promise<void> => {
+    if (projectsLoadedRef.current.has(projectId)) return;
+    projectsLoadedRef.current.add(projectId);
+    try {
+      const raw = await workspaceApi.getExperiments(projectId);
+      const mapped = mapExperiments(projectId, raw);
+      // Workflows for just these experiments (IR if present on the wire).
+      const workflows = mapWorkflows(mapped, raw);
+      setSnapshot((prev) => {
+        const otherExps = prev.experiments.filter((e) => e.projectId !== projectId);
+        const otherWfs = prev.workflows.filter((w) => w.projectId !== projectId);
+        const next: WorkspaceSnapshot = {
+          ...prev,
+          experiments: [...otherExps, ...mapped],
+          workflows: [...otherWfs, ...workflows],
+        };
+        snapshotRef.current = next;
+        return next;
+      });
+      bump((n) => n + 1);
+    } catch (err) {
+      projectsLoadedRef.current.delete(projectId);
+      console.warn(`expandProject(${projectId}) failed:`, err);
+    }
+  }, []);
+
+  const expandExperiment = useCallback(
+    async (projectId: string, experimentId: string): Promise<void> => {
+      const key = expKey(projectId, experimentId);
+      if (experimentsLoadedRef.current.has(key)) return;
+      experimentsLoadedRef.current.add(key);
+      try {
+        const raw = await workspaceApi.getRuns(projectId, experimentId);
+        const mapped = mapRuns(projectId, experimentId, raw);
+        setSnapshot((prev) => {
+          const other = prev.runs.filter(
+            (r) => !(r.projectId === projectId && r.experimentId === experimentId),
+          );
+          const next: WorkspaceSnapshot = {
+            ...prev,
+            runs: [...other, ...mapped],
+          };
+          snapshotRef.current = next;
+          return next;
+        });
+        bump((n) => n + 1);
+      } catch (err) {
+        experimentsLoadedRef.current.delete(key);
+        console.warn(`expandExperiment(${key}) failed:`, err);
+      }
+    },
+    [],
+  );
+
+  const isProjectExpanded = useCallback(
+    (projectId: string): boolean => projectsLoadedRef.current.has(projectId),
+    // `bump` re-renders consumers; the callback reads the live ref.
+    [],
+  );
+
+  const isExperimentExpanded = useCallback(
+    (projectId: string, experimentId: string): boolean =>
+      experimentsLoadedRef.current.has(expKey(projectId, experimentId)),
+    [],
+  );
+
+  // Bootstrap once — shallow only.
   useEffect(() => {
-    runFetch(ALL_SLICES, false);
+    runFetch(BOOTSTRAP_SLICES, false);
   }, [runFetch]);
 
-  // View-scoped polling: refresh only what the active view reads. Switching
-  // views tears down the prior interval and starts the new one.
+  // Assets: load once when entering the asset view (not on every poll).
+  useEffect(() => {
+    if (activeView !== "asset") return;
+    if (assetsLoadedForViewRef.current) return;
+    assetsLoadedForViewRef.current = true;
+    runFetch(["assets"], true);
+  }, [activeView, runFetch]);
+
+  // Optional view-scoped polling (currently all empty — on-demand only).
   useEffect(() => {
     if (activeView === undefined) return;
     const slices = VIEW_POLL_SLICES[activeView];
     if (slices.length === 0) return;
-    const id = setInterval(() => runFetch(slices, true), SNAPSHOT_POLL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [activeView, runFetch]);
+    // Reserved for future light polls; intentionally no default interval.
+  }, [activeView]);
 
-  return { snapshot, status, error, refresh };
+  return {
+    snapshot,
+    status,
+    error,
+    refresh,
+    expandDirectory,
+    expandProject,
+    expandExperiment,
+    isProjectExpanded,
+    isExperimentExpanded,
+  };
 };

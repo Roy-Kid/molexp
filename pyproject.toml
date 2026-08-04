@@ -9,7 +9,7 @@ version = "0.0.2"
 description = "Agent-assisted scientific-workflow platform for FAIR research"
 authors = [{name = "molcrafts"}]
 license = {text = "BSD-3-Clause"}
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 
 dependencies = [
     "pydantic>=2.10",
@@ -87,7 +87,9 @@ markers = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+# Matches requires-python: the lint gate must reject syntax the floor
+# (3.12) cannot parse — PEP 758 `except A, B:` slipped in exactly this way.
+target-version = "py312"
 extend-exclude = [
     "src/molexp/dist",
     "ui",

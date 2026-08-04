@@ -83,7 +83,7 @@ export const PlanDecisionBar = ({
   }
   if (!item) {
     return (
-      <div className="space-y-1 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+      <div className="space-y-1 border-t border-border/60 pt-3 text-label text-muted-foreground">
         <p>
           No live approval request is attached to this task
           {runId ? ` (run ${runId})` : ""}. The plan worker may have restarted — open the Approvals
@@ -96,7 +96,7 @@ export const PlanDecisionBar = ({
 
   return (
     <div className="space-y-2 border-t border-border/60 pt-3" aria-busy={busy !== null}>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-label text-muted-foreground">
         Approve freezes this plan and{" "}
         <strong className="text-foreground">starts workflow generation</strong> (codegen + compile).
         No separate continue step.
@@ -107,7 +107,7 @@ export const PlanDecisionBar = ({
         onChange={(e) => setComment(e.target.value)}
         rows={2}
         disabled={busy !== null}
-        className="border-border/60 bg-muted/30 text-sm shadow-none"
+        className="border-border/60 bg-muted/30 text-body-lg shadow-none"
       />
       {error ? <WorkbenchOperationState kind="error" density="compact" title={error} /> : null}
       {busy ? (

@@ -2,9 +2,16 @@ import { RefreshCw, Terminal } from "lucide-react";
 import type { JSX } from "react";
 import { useEffect, useRef } from "react";
 import {
-  WorkbenchAction,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   WorkbenchIconAction,
   WorkbenchOperationState,
+  WorkbenchRetryAction,
 } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 import type { WorkspaceRunRow } from "../types";
@@ -64,33 +71,35 @@ export const RunInspectorLogs = ({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
         <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">
+        <span className="text-label text-muted-foreground">
           stdout / stderr · <span className="text-foreground">{attemptLabel}</span>
         </span>
         <div className="ml-auto flex items-center gap-1">
           {history.length > 1 && (
-            <select
-              className="h-7 max-w-[140px] rounded-md border border-border bg-background px-2 text-micro text-foreground"
-              value={selectedExecutionId ?? ""}
-              onChange={(event) => {
-                const value = event.target.value;
-                onSelectExecution(value === "" ? null : value);
+            <Select
+              value={selectedExecutionId ?? "__latest__"}
+              onValueChange={(value) => {
+                onSelectExecution(value === "__latest__" ? null : value);
               }}
-              aria-label="Select attempt"
             >
-              <option value="">Latest</option>
-              {history.map((exec, index) => (
-                <option key={exec.executionId} value={exec.executionId}>
-                  #{index + 1} · {exec.status}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger size="sm" className="max-w-36 text-micro" aria-label="Select attempt">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__latest__">Latest</SelectItem>
+                {history.map((exec, index) => (
+                  <SelectItem key={exec.executionId} value={exec.executionId}>
+                    #{index + 1} · {exec.status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
           <WorkbenchIconAction
             label="Refresh logs"
             kind="ghost"
             type="button"
-            className="h-7 w-7 text-muted-foreground"
+            className="h-control-compact w-control-compact text-muted-foreground"
             onClick={onRefresh}
             aria-label="Refresh logs"
             title="Refresh logs"
@@ -111,11 +120,7 @@ export const RunInspectorLogs = ({
             density="compact"
             title="Could not load logs"
             detail={error}
-            action={
-              <WorkbenchAction kind="secondary" size="compact" onClick={onRefresh}>
-                Retry
-              </WorkbenchAction>
-            }
+            action={<WorkbenchRetryAction onClick={onRefresh} />}
           />
         ) : loading && !logs ? (
           <WorkbenchOperationState kind="loading" density="compact" skeletonRows={4} />

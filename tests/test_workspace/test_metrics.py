@@ -1,8 +1,10 @@
-"""``molexp.workspace.metrics`` — run-local JSONL metrics store.
+"""``molexp.workspace.metrics`` — MolRec metrics JSONL under a run root.
 
 ``MetricsWriter`` (``ctx.metrics``) appends to ``metrics/metrics.jsonl`` and
 rebuilds the derived ``metrics/index.json`` on flush; ``read_run_metrics``
-queries the stream. Metrics are run-local data — never workspace assets.
+queries the stream. Layout matches molrec's JSONL reference binding (same as
+molnex ``MetricsWriter``). Metrics are run-local section data — never
+workspace assets.
 """
 
 from __future__ import annotations

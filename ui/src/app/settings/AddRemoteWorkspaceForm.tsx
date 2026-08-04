@@ -10,6 +10,7 @@ import { useState } from "react";
 import type { WorkspaceTargetCreateRequest } from "@/api/generated/models/WorkspaceTargetCreateRequest";
 import type { WorkspaceTargetResponse } from "@/api/generated/models/WorkspaceTargetResponse";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { WorkbenchAction } from "@/components/workbench";
@@ -145,45 +146,47 @@ export function AddRemoteWorkspaceForm({
             placeholder="-o, StrictHostKeyChecking=accept-new"
           />
         </div>
-        <details className="space-y-3">
-          <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+        <Collapsible>
+          <CollapsibleTrigger className="text-label text-muted-foreground">
             Cache (lazy-download mirror)
-          </summary>
-          <div className="space-y-1">
-            <Label htmlFor="add-remote-ws-cache-ttl">Cache TTL (seconds)</Label>
-            <Input
-              id="add-remote-ws-cache-ttl"
-              type="number"
-              min={0}
-              value={form.cache_ttl_seconds ?? DEFAULT_CACHE_TTL_SECONDS}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  cache_ttl_seconds:
-                    e.target.value === "" ? DEFAULT_CACHE_TTL_SECONDS : Number(e.target.value),
-                })
-              }
-              placeholder={String(DEFAULT_CACHE_TTL_SECONDS)}
-            />
-            <p className="text-xs text-muted-foreground">
-              How long a cached file/dir entry stays fresh. 0 always re-stats the remote FS but
-              still serves mirror bytes when mtime matches.
-            </p>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="add-remote-ws-cache-dir">Cache directory (optional)</Label>
-            <Input
-              id="add-remote-ws-cache-dir"
-              value={form.cache_dir ?? ""}
-              onChange={(e) =>
-                setForm({ ...form, cache_dir: e.target.value === "" ? null : e.target.value })
-              }
-              placeholder="~/.molexp/remote_cache/<name>"
-            />
-          </div>
-        </details>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-3 pt-3">
+            <div className="space-y-1">
+              <Label htmlFor="add-remote-ws-cache-ttl">Cache TTL (seconds)</Label>
+              <Input
+                id="add-remote-ws-cache-ttl"
+                type="number"
+                min={0}
+                value={form.cache_ttl_seconds ?? DEFAULT_CACHE_TTL_SECONDS}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    cache_ttl_seconds:
+                      e.target.value === "" ? DEFAULT_CACHE_TTL_SECONDS : Number(e.target.value),
+                  })
+                }
+                placeholder={String(DEFAULT_CACHE_TTL_SECONDS)}
+              />
+              <p className="text-label text-muted-foreground">
+                How long a cached file/dir entry stays fresh. 0 always re-stats the remote FS but
+                still serves mirror bytes when mtime matches.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="add-remote-ws-cache-dir">Cache directory (optional)</Label>
+              <Input
+                id="add-remote-ws-cache-dir"
+                value={form.cache_dir ?? ""}
+                onChange={(e) =>
+                  setForm({ ...form, cache_dir: e.target.value === "" ? null : e.target.value })
+                }
+                placeholder="~/.molexp/remote_cache/<name>"
+              />
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
-      {error && <p className="text-sm text-status-failed-foreground">{error}</p>}
+      {error && <p className="text-body-lg text-status-failed-foreground">{error}</p>}
       <div className="flex justify-end gap-2">
         {onCancel && (
           <WorkbenchAction kind="ghost" size="default" type="button" onClick={onCancel}>

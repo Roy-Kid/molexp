@@ -31,7 +31,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { WorkbenchAction } from "@/components/workbench";
+import { WorkbenchIconAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
 import { SLASH_COMMANDS, slashCommandMarkdown } from "./slashCommands";
 
@@ -148,9 +148,9 @@ export const SlashMenu = ({
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         {trigger ?? (
-          <WorkbenchAction kind="ghost" size="compact" type="button" className="h-7 gap-2 text-xs">
-            <Slash className="h-3.5 w-3.5" /> Insert
-          </WorkbenchAction>
+          <WorkbenchIconAction label="Insert block">
+            <Slash className="h-3.5 w-3.5" />
+          </WorkbenchIconAction>
         )}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-0">
@@ -208,9 +208,9 @@ export const SlashMenu = ({
                   <ChevronLeft className="h-4 w-4 text-muted-foreground" />
                   <span>Back to blocks</span>
                 </CommandItem>
-                {error && <p className="px-3 py-2 text-xs text-destructive">{error}</p>}
+                {error && <p className="px-3 py-2 text-label text-destructive">{error}</p>}
                 {embedding && (
-                  <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                  <p className="flex items-center gap-2 px-3 py-2 text-label text-muted-foreground">
                     <Loader2 className="mol-motion-progress-spin h-3.5 w-3.5" /> Embedding…
                   </p>
                 )}
