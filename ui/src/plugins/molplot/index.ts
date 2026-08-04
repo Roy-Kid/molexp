@@ -28,11 +28,7 @@ const molplotPlugin: UiPluginModule = {
       label: "Metrics",
       priority: 40,
       matcher: {
-        patterns: [
-          "metrics/metrics.jsonl",
-          "**/metrics/metrics.jsonl",
-          "**/metrics.jsonl",
-        ],
+        patterns: ["metrics/metrics.jsonl", "**/metrics/metrics.jsonl", "**/metrics.jsonl"],
         matches: (file) => {
           const blob = `${file.name} ${file.relPath}`.toLowerCase().replace(/\\/g, "/");
           return (
