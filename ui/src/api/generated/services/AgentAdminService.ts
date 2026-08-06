@@ -2,9 +2,18 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { _CommandParseRequest } from '../models/_CommandParseRequest';
+import type { AgentHealthResponse } from '../models/AgentHealthResponse';
 import type { AgentToolListResponse } from '../models/AgentToolListResponse';
+import type { CommandListResponse } from '../models/CommandListResponse';
+import type { CommandParseResponse } from '../models/CommandParseResponse';
+import type { KnowledgeSourcesResponse } from '../models/KnowledgeSourcesResponse';
+import type { KnowledgeSourcesUpdateRequest } from '../models/KnowledgeSourcesUpdateRequest';
+import type { McpSecretListResponse } from '../models/McpSecretListResponse';
+import type { McpSecretPutRequest } from '../models/McpSecretPutRequest';
 import type { McpServerListResponse } from '../models/McpServerListResponse';
 import type { McpServerResponse } from '../models/McpServerResponse';
+import type { McpServerTestResponse } from '../models/McpServerTestResponse';
 import type { McpServerUpsertRequest } from '../models/McpServerUpsertRequest';
 import type { ProviderResponse } from '../models/ProviderResponse';
 import type { ProviderTestResponse } from '../models/ProviderTestResponse';
@@ -14,6 +23,149 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class AgentAdminService {
+    /**
+     * List Admin Providers
+     * Provider form registry for Settings (bootstrap schema; never 503).
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static listAdminProvidersApiAgentAdminProvidersGet(): CancelablePromise<Record<string, any>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/admin/providers',
+        });
+    }
+    /**
+     * List Commands
+     * Slash-command catalog for the chat composer palette.
+     *
+     * Builtins always ship; skill-backed commands join when skill persistence
+     * is wired (currently an empty skill catalog is valid).
+     * @returns CommandListResponse Successful Response
+     * @throws ApiError
+     */
+    public static listCommandsApiAgentCommandsGet(): CancelablePromise<CommandListResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/commands',
+        });
+    }
+    /**
+     * Parse Command
+     * Parse a raw slash line into a builtin / skill / error result.
+     * @param requestBody
+     * @returns CommandParseResponse Successful Response
+     * @throws ApiError
+     */
+    public static parseCommandApiAgentCommandsParsePost(
+        requestBody: _CommandParseRequest,
+    ): CancelablePromise<CommandParseResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agent/commands/parse',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Agent Health
+     * Agent readiness for the UI banner — always 200, never the 503 catch-all.
+     *
+     * ``ready=False`` is a normal configuration state (no model / no API key).
+     * The legacy ``agent.router`` catch-all used to 503 unknown ``/api/agent*``
+     * paths, which made the UI treat "missing route" as "stack unavailable"
+     * and permanently stop probing. This endpoint exists so health is always a
+     * real JSON readiness document.
+     * @returns AgentHealthResponse Successful Response
+     * @throws ApiError
+     */
+    public static agentHealthApiAgentHealthGet(): CancelablePromise<AgentHealthResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/health',
+        });
+    }
+    /**
+     * Get Knowledge Sources
+     * Read package pin from the molmcp MCP server entry (``MOLMCP_SOURCES``).
+     * @returns KnowledgeSourcesResponse Successful Response
+     * @throws ApiError
+     */
+    public static getKnowledgeSourcesApiAgentKnowledgeSourcesGet(): CancelablePromise<KnowledgeSourcesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/knowledge-sources',
+        });
+    }
+    /**
+     * Update Knowledge Sources
+     * Write package pin onto the molmcp server's env (per-MCP, not global agent).
+     * @param requestBody
+     * @returns KnowledgeSourcesResponse Successful Response
+     * @throws ApiError
+     */
+    public static updateKnowledgeSourcesApiAgentKnowledgeSourcesPut(
+        requestBody: KnowledgeSourcesUpdateRequest,
+    ): CancelablePromise<KnowledgeSourcesResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/agent/knowledge-sources',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Mcp Secrets
+     * List secret *keys* (never values) at the given scope.
+     * @param scope
+     * @returns McpSecretListResponse Successful Response
+     * @throws ApiError
+     */
+    public static listMcpSecretsApiAgentMcpSecretsGet(
+        scope: string = 'user',
+    ): CancelablePromise<McpSecretListResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/mcp/secrets',
+            query: {
+                'scope': scope,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Put Mcp Secret
+     * Set or delete a secret value (empty value deletes).
+     * @param key
+     * @param requestBody
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static putMcpSecretApiAgentMcpSecretsKeyPut(
+        key: string,
+        requestBody: McpSecretPutRequest,
+    ): CancelablePromise<Record<string, any>> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/agent/mcp/secrets/{key}',
+            path: {
+                'key': key,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * List Mcp Servers
      * Merged user + workspace MCP server entries (workspace shadows user).
@@ -41,6 +193,83 @@ export class AgentAdminService {
             url: '/api/agent/mcp/servers',
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Delete Mcp Server
+     * Delete one MCP server entry at the given scope.
+     * @param name
+     * @param scope
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteMcpServerApiAgentMcpServersNameDelete(
+        name: string,
+        scope: string = 'user',
+    ): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/agent/mcp/servers/{name}',
+            path: {
+                'name': name,
+            },
+            query: {
+                'scope': scope,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Replace Mcp Server
+     * Replace one MCP server entry (name path must match body).
+     * @param name
+     * @param requestBody
+     * @returns McpServerResponse Successful Response
+     * @throws ApiError
+     */
+    public static replaceMcpServerApiAgentMcpServersNamePut(
+        name: string,
+        requestBody: McpServerUpsertRequest,
+    ): CancelablePromise<McpServerResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/agent/mcp/servers/{name}',
+            path: {
+                'name': name,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Test Mcp Server
+     * Best-effort stdio/HTTP reachability probe (list_tools when possible).
+     * @param name
+     * @param scope
+     * @returns McpServerTestResponse Successful Response
+     * @throws ApiError
+     */
+    public static testMcpServerApiAgentMcpServersNameTestPost(
+        name: string,
+        scope: string = 'user',
+    ): CancelablePromise<McpServerTestResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agent/mcp/servers/{name}/test',
+            path: {
+                'name': name,
+            },
+            query: {
+                'scope': scope,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -125,10 +354,12 @@ export class AgentAdminService {
     }
     /**
      * List Tools
-     * Return tools grouped by their owning MCP server.
+     * Return agent tools: molexp **builtins** + MCP groups when discovered.
      *
-     * Until runtime discovery is connected, expose the honest empty catalog
-     * expected by Settings instead of reporting an unavailable service.
+     * Builtins (``workspace_ensure``, ``run_land``, ``code_write``, …) are
+     * always present with ``source="builtin"``. MCP tools attach as
+     * ``source="mcp:<server>"`` when runtime discovery is connected; until
+     * then ``mcpGroups`` may be empty without hiding builtins.
      * @returns AgentToolListResponse Successful Response
      * @throws ApiError
      */

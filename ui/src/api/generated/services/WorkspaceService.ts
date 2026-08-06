@@ -250,6 +250,9 @@ export class WorkspaceService {
      * List Workspace Files
      * Return a nested file tree rooted at the requested path.
      *
+     * Routes through ``workspace._fs`` so remote workspaces (and the
+     * :class:`CachedRemoteFileSystem` mirror) work the same as local ones.
+     *
      * With ``include=catalog``, file nodes that match a registered asset
      * are enriched with ``assetId``, ``assetKind``, ``producerRunId`` and
      * ``producerTaskId`` so the UI can render lineage chips inline.

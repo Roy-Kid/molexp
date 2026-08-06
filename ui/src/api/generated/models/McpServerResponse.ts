@@ -9,9 +9,11 @@ export type McpServerResponse = {
     args: Array<string>;
     auth?: (Record<string, any> | null);
     command: (string | null);
+    env?: Record<string, string>;
     envKeys: Array<string>;
     headerKeys: Array<string>;
     invalidReason: string;
+    knowledgeSources?: Array<string>;
     name: string;
     scope: string;
     secretRefs: Array<string>;

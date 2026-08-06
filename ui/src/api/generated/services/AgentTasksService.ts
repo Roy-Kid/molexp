@@ -110,6 +110,11 @@ export class AgentTasksService {
     /**
      * Cancel Agent Task
      * Stop the in-flight turn for this task (idempotent when already idle).
+     *
+     * Always succeeds when task metadata exists on disk — including zombie
+     * ``running`` / ``waiting_approval`` rows after a server restart (no live
+     * plan or chat runtime). Previously the chat cancel path 404'd when the
+     * session registry was empty, leaving the UI without a Stop recovery.
      * @param taskId
      * @returns MessageResponse Successful Response
      * @throws ApiError
@@ -157,7 +162,9 @@ export class AgentTasksService {
      * Send a follow-up user message on an existing agent task.
      *
      * Continues the *same* runtime session (does not create a new task). A turn
-     * already in flight is rejected with 409 by the session layer.
+     * that is genuinely live is rejected with 409; disk-only zombie
+     * ``running`` / ``waiting_approval`` rows are reaped first so a frontend
+     * refresh or server restart cannot trap the task forever.
      * @param taskId
      * @param requestBody
      * @returns MessageResponse Successful Response

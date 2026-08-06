@@ -69,25 +69,91 @@ def _get_experiment(proj: Project, key: str) -> Experiment:
         raise
 
 
-def _infer_tags(rel: str, src: Path) -> dict[str, str]:
-    tags: dict[str, str] = {"landed_from": rel}
-    # Directory that looks like a MolRec root (has meta/) — tag for plugins.
-    if src.is_dir() and (src / "meta").exists():
-        tags["molrec"] = "true"
-        sections: list[str] = []
-        for name in (
-            "system",
-            "frame",
-            "trajectory",
-            "observables",
-            "status",
-            "metrics",
-            "method",
-        ):
-            if (src / name).exists():
+# Section directory names from the molrec record layout (external spec).
+_RECORD_SECTIONS: tuple[str, ...] = (
+    "system",
+    "frame",
+    "trajectory",
+    "observables",
+    "status",
+    "metrics",
+    "method",
+)
+
+
+def _read_zarr_group_attrs(group_dir: Path) -> dict[str, object] | None:
+    """Best-effort read of Zarr V3 group attributes from ``group_dir/zarr.json``."""
+    meta_path = group_dir / "zarr.json"
+    if not meta_path.is_file():
+        return None
+    try:
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    attrs = data.get("attributes")
+    return attrs if isinstance(attrs, dict) else {}
+
+
+def _looks_like_record_package(src: Path) -> bool:
+    """True when *src* looks like a scientific record root (molrec layout).
+
+    Preference order (per molrec storage binding, not reimplemented as a
+    library here): Zarr ``meta`` with ``record_schema_version``, else a
+    Zarr-ish tree with ``meta/``, else a bare ``meta/`` directory.
+    """
+    if not src.is_dir():
+        return False
+    attrs = _read_zarr_group_attrs(src / "meta")
+    if attrs is not None and "record_schema_version" in attrs:
+        fmt = attrs.get("format_name")
+        return fmt is None or fmt == "molrec"
+    if (src / "zarr.json").is_file() and (src / "meta").is_dir():
+        return True
+    if (src / "meta" / "zarr.json").is_file():
+        return True
+    return (src / "meta").is_dir()
+
+
+def _record_section_tags(src: Path) -> dict[str, str]:
+    """Asset tags for plugin discovery when *src* is a record-shaped tree."""
+    tags: dict[str, str] = {"molrec": "true"}
+    attrs = _read_zarr_group_attrs(src / "meta")
+    if attrs is not None and "record_schema_version" in attrs:
+        tags["molrec_layout"] = "zarr"
+        tags["record_schema_version"] = str(attrs["record_schema_version"])
+        fmt = attrs.get("format_name")
+        if isinstance(fmt, str) and fmt:
+            tags["format_name"] = fmt
+    elif (src / "zarr.json").is_file() or (src / "meta" / "zarr.json").is_file():
+        tags["molrec_layout"] = "zarr"
+    else:
+        tags["molrec_layout"] = "legacy"
+
+    sections: list[str] = []
+    for name in _RECORD_SECTIONS:
+        section = src / name
+        if name == "metrics":
+            if section.is_dir() or (src / "metrics" / "metrics.jsonl").is_file():
                 sections.append(name)
-        if sections:
-            tags["molrec_sections"] = ",".join(sections)
+            continue
+        if section.is_dir():
+            sections.append(name)
+    if sections:
+        tags["molrec_sections"] = ",".join(sections)
+    return tags
+
+
+def _infer_tags(rel: str, src: Path) -> dict[str, str]:
+    """Tag landed artifacts for plugin discovery.
+
+    A molexp Run is a host, not a record package. Only products under
+    ``artifacts/`` may be tagged as scientific records (molrec-shaped trees).
+    """
+    tags: dict[str, str] = {"landed_from": rel}
+    if src.is_dir() and _looks_like_record_package(src):
+        tags.update(_record_section_tags(src))
     return tags
 
 

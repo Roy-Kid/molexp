@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 from molexp.agent.execution_env import LocalExecutionEnv
@@ -113,6 +114,51 @@ class TestBuildOpsTools:
         assert (run_dir / "source" / "analysis.py").is_file()
         assert not (run_dir / "metrics" / "metrics.jsonl").exists()
         assert "rg_mean" in land
+
+
+class TestLandRecordTagging:
+    """Landing tags record-shaped trees for plugins (molrec layout as tags only)."""
+
+    def test_zarr_meta_attrs_tagged(self, tmp_path: Path) -> None:
+        from molexp.agent.ops.land import _infer_tags, _looks_like_record_package
+
+        root = tmp_path / "pkg"
+        root.mkdir()
+        (root / "zarr.json").write_text(
+            json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {}}),
+            encoding="utf-8",
+        )
+        meta = root / "meta"
+        meta.mkdir()
+        (meta / "zarr.json").write_text(
+            json.dumps(
+                {
+                    "zarr_format": 3,
+                    "node_type": "group",
+                    "attributes": {
+                        "record_schema_version": 1,
+                        "format_name": "molrec",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (root / "status").mkdir()
+        assert _looks_like_record_package(root)
+        tags = _infer_tags("pkg", root)
+        assert tags["molrec"] == "true"
+        assert tags["molrec_layout"] == "zarr"
+        assert tags["record_schema_version"] == "1"
+        assert "status" in tags["molrec_sections"]
+
+    def test_plain_artifact_not_tagged(self, tmp_path: Path) -> None:
+        from molexp.agent.ops.land import _infer_tags
+
+        d = tmp_path / "plots"
+        d.mkdir()
+        (d / "fig.png").write_bytes(b"x")
+        tags = _infer_tags("plots", d)
+        assert "molrec" not in tags
 
 
 class TestAutoDiscoveryLaw:

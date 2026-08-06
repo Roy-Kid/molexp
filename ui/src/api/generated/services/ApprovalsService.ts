@@ -12,6 +12,9 @@ export class ApprovalsService {
     /**
      * List Pending Approvals
      * List every pending approval across suspended plan + curate tasks.
+     *
+     * Empty ``items`` is normal — the inbox only fills when a plan/curate task
+     * is suspended waiting for an operator decision. Not a 404.
      * @returns PendingApprovalsResponse Successful Response
      * @throws ApiError
      */

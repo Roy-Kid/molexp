@@ -23,6 +23,10 @@ export type PlanTaskCreateRequest = {
      */
     ground?: boolean;
     /**
+     * Optional molmcp package allowlist (e.g. molpy, molvis, molplot). When null, uses agent.knowledge_sources from operator config; empty list means unrestricted.
+     */
+    knowledgeSources?: (Array<string> | null);
+    /**
      * Model id; defaults to the configured agent.model.
      */
     model?: (string | null);

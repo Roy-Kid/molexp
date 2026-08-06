@@ -1,8 +1,9 @@
 /**
  * molplot plugin tab — data-driven when MolRec / plot artifacts are present.
  *
- * Vega-Lite artifacts render directly through MolPlot. MolRec directories
- * remain visible in the file rail and explain when a browser reader is needed.
+ * Vega-Lite artifacts render directly through MolPlot. MolRec Zarr
+ * ``observables/`` arrays are not opened in-browser yet — land a ``.vl.json``
+ * export or wait for a molrs-backed reader.
  */
 
 import type { VegaLiteSpec } from "@molcrafts/molplot";
@@ -46,7 +47,7 @@ export const MolplotObservablesTab = ({
 
     if (!file.name.toLowerCase().endsWith(".json")) {
       setError(
-        "This MolRec observable needs a browser reader. Add a Vega-Lite .vl.json artifact to render it directly in MolPlot.",
+        "Not a Vega-Lite plot artifact. MolRec observables live as Zarr arrays (molrec L4); export a .vl.json or use a molrs-backed reader. Host metrics curves use metrics/metrics.jsonl via the Metrics tab.",
       );
       return;
     }

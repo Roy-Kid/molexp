@@ -19,6 +19,19 @@ const LOG_PATTERNS = /(^log\.lammps$|\.lammps\.log$|^lmp\.log$)/i;
 
 const isLogFile = (file: DiscoveredFile): boolean => LOG_PATTERNS.test(file.name);
 
+/** MolRec Zarr group marker (frame / trajectory / meta) — discovery only until a reader ships. */
+const isMolrecZarrMarker = (file: DiscoveredFile): boolean => {
+  if (file.name.toLowerCase() !== "zarr.json") return false;
+  const path = file.relPath.toLowerCase().replace(/\\/g, "/");
+  return (
+    path.includes("/frame/") ||
+    path.includes("/trajectory/") ||
+    path.endsWith("/meta/zarr.json") ||
+    path.endsWith("/frame/zarr.json") ||
+    path.endsWith("/trajectory/zarr.json")
+  );
+};
+
 interface FileTreeSidebarProps {
   files: DiscoveredFile[];
   active: string | null;
@@ -294,6 +307,18 @@ const PreviewPane = ({ projectId, experimentId, runId, file }: PreviewPaneProps)
             className="h-full"
           />
         </div>
+      </div>
+    );
+  }
+
+  if (isMolrecZarrMarker(file)) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <EmptyState
+          icon={<Atom className="h-6 w-6" />}
+          title="MolRec Zarr package"
+          description="This looks like a MolRec Zarr root (frame/trajectory/meta). In-browser MolRec frame streaming is not wired yet — export classic formats (xyz/dump) or use molrs until the Zarr reader lands."
+        />
       </div>
     );
   }

@@ -4,6 +4,11 @@
 /* eslint-disable */
 /**
  * One pending request awaiting an operator decision.
+ *
+ * ``taskId`` is the **single public handle** shared with the Agents hub
+ * (agent-task id / plan conversation id). Decide routes resolve the live
+ * runtime task by this same id — never a second parallel plan-* registry
+ * id that the UI cannot navigate to.
  */
 export type PendingApprovalItem = {
     experimentId: string;

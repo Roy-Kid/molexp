@@ -11,7 +11,7 @@ export type WorkspaceTargetCreateRequest = {
      */
     cache_dir?: (string | null);
     /**
-     * Freshness window for cached file entries; 0 disables the fast path
+     * Mirror pin policy: >0 pin until user refresh; 0 = re-stat remote on every read
      */
     cache_ttl_seconds?: number;
     /**

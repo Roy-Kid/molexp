@@ -11,9 +11,10 @@ export class PluginsService {
      * List Plugins
      * List entry-point–discovered UI bundles.
      *
-     * Built-in plugins (``core``, ``metrics``, ``molq``, ``molvis``) are
-     * statically imported by the frontend and do **not** appear here. The
-     * response carries no UI semantics — those live in each bundle's own
+     * Built-in plugins (``core``, ``molplot``, ``molq``, ``molvis``, …) are
+     * statically imported by the frontend and do **not** appear here. There
+     * is no metrics product plugin — plots are molplot only. The response
+     * carries no UI semantics — those live in each bundle's own
      * ``manifest.json``, fetched by the browser-side loader.
      * @returns UiPluginListResponse Successful Response
      * @throws ApiError

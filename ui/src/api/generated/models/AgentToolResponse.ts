@@ -4,10 +4,14 @@
 /* eslint-disable */
 import type { ToolParameterResponse } from './ToolParameterResponse';
 /**
- * One tool exposed by an MCP server.
+ * One agent tool — molexp **builtin** or MCP-discovered.
  *
- * ``source`` is ``"mcp:<server-name>"`` so the UI can attach the tool to
- * its owning server's expanded row.
+ * ``source`` is:
+ *
+ * * ``"builtin"`` — always-on molexp tools (``workspace_ensure``,
+ * ``run_land``, ``code_write``, …)
+ * * ``"mcp:<server-name>"`` — tool from an MCP server, so the UI can
+ * attach it to that server's expanded row
  */
 export type AgentToolResponse = {
     description?: string;

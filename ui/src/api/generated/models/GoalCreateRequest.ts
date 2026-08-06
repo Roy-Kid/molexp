@@ -14,13 +14,9 @@ export type GoalCreateRequest = {
      */
     instructions_override?: (string | null);
     /**
-     * Agent used for the first conversational turn. 'chat' runs the interactive agent; 'plan' runs the auditable nine-stage PlanMode pipeline.
+     * Agent for the first turn. 'chat' = interactive loop; 'plan' = auditable Plan Mode pipeline. Canonical field — no plan_mode alias.
      */
     mode?: GoalCreateRequest.mode;
-    /**
-     * Deprecated compatibility alias for mode='plan'. AgentTask routes run the auditable nine-stage Planning Agent when true.
-     */
-    plan_mode?: boolean;
     projectId?: (string | null);
     runId?: (string | null);
     /**
@@ -31,7 +27,7 @@ export type GoalCreateRequest = {
 };
 export namespace GoalCreateRequest {
     /**
-     * Agent used for the first conversational turn. 'chat' runs the interactive agent; 'plan' runs the auditable nine-stage PlanMode pipeline.
+     * Agent for the first turn. 'chat' = interactive loop; 'plan' = auditable Plan Mode pipeline. Canonical field — no plan_mode alias.
      */
     export enum mode {
         CHAT = 'chat',

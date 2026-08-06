@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { LammpsLogResponse } from '../models/LammpsLogResponse';
 import type { RunActionResponse } from '../models/RunActionResponse';
+import type { RunAnalyzeFailureRequest } from '../models/RunAnalyzeFailureRequest';
 import type { RunContinueResponse } from '../models/RunContinueResponse';
 import type { RunCreateRequest } from '../models/RunCreateRequest';
 import type { RunExecutionResponse } from '../models/RunExecutionResponse';
@@ -91,6 +92,40 @@ export class RunsService {
                 'experiment_id': experimentId,
                 'run_id': runId,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Analyze Run Failure Route
+     * Analyze a failed run into a sourced FailureAnalysis KnowledgeItem.
+     *
+     * Shares :func:`molexp.services.run_failure.analyze_run_failure` with the CLI
+     * (close-loop-02). Deterministic narrative when ``narrative`` is omitted.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param requestBody
+     * @returns string Successful Response
+     * @throws ApiError
+     */
+    public static analyzeRunFailureRouteApiProjectsProjectIdExperimentsExperimentIdRunsRunIdAnalyzeFailurePost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        requestBody: RunAnalyzeFailureRequest,
+    ): CancelablePromise<Record<string, string>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/analyze-failure',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },
@@ -487,6 +522,67 @@ export class RunsService {
         });
     }
     /**
+     * Detect Run Metrics Sources
+     * Classify foreign log formats under the run directory (read-only).
+     *
+     * Does not write the metrics buffer. Host ≠ MolRec: detection never invents
+     * meta/status sections.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static detectRunMetricsSourcesApiProjectsProjectIdExperimentsExperimentIdRunsRunIdMetricsDetectGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+    ): CancelablePromise<Record<string, any>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/metrics/detect',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Ingest Run Metrics
+     * Ingest foreign logs into the run host metrics JSONL buffer (additive).
+     *
+     * Shares :func:`molexp.plugins.metrics_ingest.ingest_run` with the CLI.
+     * Skips are returned; the route does not fail the whole call when one
+     * converter cannot run.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static ingestRunMetricsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdMetricsIngestPost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+    ): CancelablePromise<Record<string, any>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/metrics/ingest',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Rerun Run
      * Rerun a failed/cancelled run in a new execution (no clone).
      *
@@ -710,6 +806,43 @@ export class RunsService {
                 'run_id': runId,
                 'ws': ws,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Analyze Run Failure Route
+     * Analyze a failed run into a sourced FailureAnalysis KnowledgeItem.
+     *
+     * Shares :func:`molexp.services.run_failure.analyze_run_failure` with the CLI
+     * (close-loop-02). Deterministic narrative when ``narrative`` is omitted.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param ws
+     * @param requestBody
+     * @returns string Successful Response
+     * @throws ApiError
+     */
+    public static analyzeRunFailureRouteApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdAnalyzeFailurePost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        ws: string,
+        requestBody: RunAnalyzeFailureRequest,
+    ): CancelablePromise<Record<string, string>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/analyze-failure',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+                'ws': ws,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },
@@ -1135,6 +1268,73 @@ export class RunsService {
                 'key': key,
                 'since_line': sinceLine,
                 'limit': limit,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Detect Run Metrics Sources
+     * Classify foreign log formats under the run directory (read-only).
+     *
+     * Does not write the metrics buffer. Host ≠ MolRec: detection never invents
+     * meta/status sections.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param ws
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static detectRunMetricsSourcesApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdMetricsDetectGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        ws: string,
+    ): CancelablePromise<Record<string, any>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/metrics/detect',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Ingest Run Metrics
+     * Ingest foreign logs into the run host metrics JSONL buffer (additive).
+     *
+     * Shares :func:`molexp.plugins.metrics_ingest.ingest_run` with the CLI.
+     * Skips are returned; the route does not fail the whole call when one
+     * converter cannot run.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param ws
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static ingestRunMetricsApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdMetricsIngestPost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        ws: string,
+    ): CancelablePromise<Record<string, any>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/metrics/ingest',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+                'ws': ws,
             },
             errors: {
                 422: `Validation Error`,
