@@ -145,6 +145,31 @@ def build_experiment_plan_review_pack(ctx: HarnessRunContext) -> ReviewPack:
     # Full 12-section experiment plan book for audit / preview (not form fields).
     summary = render_experiment_plan_document(plan, title_fallback=title)
 
+    # Prior knowledge (close-loop-01): surface the assembled digest so the human
+    # gate can see which workspace knowledge shaped this plan.
+    knowledge_ref = ctx.artifact_store.latest_by_kind("knowledge_context")
+    subject_refs: list[PlanArtifactRef] = [ref]
+    if knowledge_ref is not None:
+        try:
+            digest = ctx.artifact_store.get(knowledge_ref.id).decode("utf-8").strip()
+        except Exception:
+            digest = ""
+        if digest:
+            # Cap the pack surface — full digest stays on the artifact.
+            max_digest_chars = 4000
+            clipped = (
+                digest
+                if len(digest) <= max_digest_chars
+                else (digest[:max_digest_chars] + "\n… (digest truncated in review pack)")
+            )
+            summary = (
+                f"{summary.rstrip()}\n\n"
+                f"## Prior knowledge\n\n"
+                f"_Artifact `{knowledge_ref.id}` (kind=knowledge_context)_\n\n"
+                f"{clipped}\n"
+            )
+            subject_refs.append(knowledge_ref)
+
     # Operator form: comment only — Priority / keep_tasks / confirm checkbox removed.
     fields: list[FormField] = [
         FormTextField(
@@ -160,11 +185,12 @@ def build_experiment_plan_review_pack(ctx: HarnessRunContext) -> ReviewPack:
         step_title="Review experiment plan",
         policy="hard",
         summary_md=summary,
-        subject_refs=[ref],
+        subject_refs=subject_refs,
         form=FormDocument(title=title, description_md=objective or None, fields=fields),
         decision_options=["approve", "reject", "revise"],
         audit_hints=[
             "Approve freezes the board; revise re-opens planning with your comment.",
+            "Prior knowledge section lists workspace FailureAnalysis/Finding digests that grounded planning.",
         ],
     )
 

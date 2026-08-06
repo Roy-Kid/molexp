@@ -36,6 +36,7 @@ from molexp.harness.plan.disk_board import DiskTaskBoard
 from molexp.harness.plan_tools import BOARD_TOOLS, as_loop_tool
 from molexp.harness.schemas import AgentCallSpec, ApprovalRequest, ModeResult
 from molexp.harness.stages.approval_gate import Approver
+from molexp.harness.stages.assemble_knowledge_context import AssembleKnowledgeContext
 from molexp.harness.stages.plan_reachability_probe import PlanReachabilityProbe
 from molexp.harness.stages.realize_board import RealizeBoard
 from molexp.harness.stages.review_pack_builders import build_experiment_plan_review_pack
@@ -63,7 +64,12 @@ if TYPE_CHECKING:
     #: just to name it. Services inject the real projector.
     LoopEventObserver = Callable[[object], Awaitable[None]]
 
-__all__ = ["InteractiveLoopPlanRunner", "PlanLoopRunner", "PlanOrchestrator"]
+__all__ = [
+    "InteractiveLoopPlanRunner",
+    "PlanLoopRunner",
+    "PlanOrchestrator",
+    "plan_loop_system_prompt",
+]
 
 _LOG = get_logger(__name__)
 
@@ -83,6 +89,31 @@ _PLAN_LOOP_PREAMBLE = (
     "5. When the board is complete and every task has acceptance criteria, stop.\n"
     "Do not write workflow Python yourself; realization codegen happens after approval."
 )
+
+_KNOWLEDGE_DIGEST_GUIDANCE = (
+    "\n\n## Prior knowledge (workspace digest)\n"
+    "A deterministic digest of this workspace's prior knowledge may follow. "
+    "Ground the board in it: treat FailureAnalysis items as known pitfalls to avoid, "
+    "Findings as established results not to re-derive, and Decisions/Constraints as "
+    "standing choices to respect. When a prior item shapes a task, cite its path in "
+    "the task description or acceptance criteria.\n\n"
+)
+
+
+def plan_loop_system_prompt(knowledge_digest: str | None = None) -> str:
+    """Build the planning InteractiveLoop system prompt, optionally with a digest.
+
+    Args:
+        knowledge_digest: Text of the ``knowledge_context`` artifact, or None/empty
+            for the bare planner preamble.
+
+    Returns:
+        Full system prompt string for :class:`InteractiveLoopPlanRunner`.
+    """
+    body = (knowledge_digest or "").strip()
+    if not body:
+        return _PLAN_LOOP_PREAMBLE
+    return _PLAN_LOOP_PREAMBLE + _KNOWLEDGE_DIGEST_GUIDANCE + body
 
 
 @runtime_checkable
@@ -164,6 +195,11 @@ class PlanOrchestrator:
         )
         hooks = LoopHooks(should_stop=self._make_form_guard(spec, board_file))
 
+        # Prior-knowledge digest first (close-loop-01): auditable artifact +
+        # lineage parent for experiment_plan; InteractiveLoopPlanRunner reads
+        # the latest knowledge_context from the store into its system prompt.
+        knowledge_ref = await AssembleKnowledgeContext().run(ctx)
+
         await self._loop_runner.run_planning(
             ctx=ctx,
             board=read_board(board_file),
@@ -187,7 +223,7 @@ class PlanOrchestrator:
             kind="experiment_plan",
             obj=plan.model_dump(mode="json"),
             created_by=self.name,
-            parent_ids=[],
+            parent_ids=[knowledge_ref.id],
         )
 
         # Render the operator-facing plan book *before* the review gate so the
@@ -225,7 +261,13 @@ class PlanOrchestrator:
             parent_ids=(plan_ref.id, render.output_artifact.id),
         )
 
-        stage_artifacts: list[Any] = [plan_ref, render.output_artifact, audit_ref, frozen_ref]
+        stage_artifacts: list[Any] = [
+            knowledge_ref,
+            plan_ref,
+            render.output_artifact,
+            audit_ref,
+            frozen_ref,
+        ]
         final = render.output_artifact
 
         if self._realize:
@@ -378,11 +420,20 @@ class InteractiveLoopPlanRunner:
             router=gateway.router,
             execution_env=LocalExecutionEnv(scratch_dir=ctx.workspace_root / ".plan_scratch"),
         )
+        digest: str | None = None
+        knowledge_ref = ctx.artifact_store.latest_by_kind("knowledge_context")
+        if knowledge_ref is not None:
+            try:
+                digest = ctx.artifact_store.get(knowledge_ref.id).decode("utf-8")
+            except Exception as exc:  # pragma: no cover — store read is best-effort for prompt
+                _LOG.debug(f"[plan-loop] knowledge_context read failed: {exc!r}")
+                digest = None
+
         # Plan board tools + chat ops surface (no default ensure/land).
         loop = InteractiveLoop(
             config=InteractiveLoopConfig(
                 workspace_root=ctx.workspace_root,
-                system_prompt=_PLAN_LOOP_PREAMBLE,
+                system_prompt=plan_loop_system_prompt(digest),
                 operation_mode="chat",
             ),
             hooks=hooks,

@@ -1,22 +1,29 @@
-"""MolRec metrics JSONL stream under a run / record root.
+"""MolRec metrics **JSONL append buffer** under a run / record root.
 
-On-disk layout (shared with molrec + molnex provisional writer)::
+Latest molrec L4 (see molrec ``docs/spec/storage.md``)::
 
-    <root>/metrics/metrics.jsonl   # authoritative append-only stream
-    <root>/metrics/index.json      # optional, derived on flush
+    <root>/metrics/metrics.jsonl   # append-only text buffer (SoT for curves)
+    <root>/metrics/index.json      # HOST-ONLY series cache (not molrec L4)
 
-Compact keys ``t`` / ``k`` / ``s`` / ``w`` / ``v`` / ``tags`` follow the
-molrec metrics JSONL reference binding (see molrec ``docs/spec/metrics.md``).
-When *root* is a molexp run directory, this is the run-local stream used by
-``GET …/runs/{id}/metrics`` and the UI :class:`RunMetricsView`. When *root*
-is a landed MolRec package, the same paths apply.
+The buffer path and compact keys ``t`` / ``k`` / ``s`` / ``w`` / ``v`` /
+``tags`` follow molrec ``docs/spec/metrics.md``. When *root* is a molexp
+**Run** directory, this is the run-local stream used by
+``GET …/runs/{id}/metrics`` and the UI metrics tab. When *root* is a landed
+MolRec package, the same buffer path applies under that package.
 
-Metrics intentionally do not flow through the workspace asset manifest —
-they are section data of the run/record, not catalogued products.
+**Layering (do not conflate):**
+
+* A molexp Run is a workspace host (``run.json`` / ``_ops/run.json``), not a
+  MolRec record. Run lifecycle state is **not** MolRec ``status/``.
+* ``metrics/index.json`` is a **host-derived cache** rebuilt on flush for
+  listing; it is **not** part of the molrec reference binding (which puts a
+  closed summary on Zarr ``metrics/`` group attributes when using a pure
+  Zarr package). Consumers that need the curve MUST read ``metrics.jsonl``.
+* Metrics intentionally do not flow through the workspace asset manifest.
 
 Originally lived under ``molexp.plugins.metrics``; this module is workspace
-infrastructure (not a plugin). A future molpy reference implementation may
-own the writer; molexp keeps a copy so the host does not depend on molnex.
+infrastructure (not a plugin). Writers in molnex/molpy share the same buffer
+layout.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from __future__ import annotations
 import json
 import math
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +43,7 @@ from .base import _atomic_write_json
 
 METRICS_DIRNAME = "metrics"
 METRICS_FILENAME = "metrics.jsonl"
+# Host-only series cache (not part of the molrec on-disk binding).
 METRICS_INDEX_FILENAME = "index.json"
 
 MetricRecord = dict[str, JSONValue]
@@ -214,7 +223,11 @@ def _update_index_with_record(
 
 
 def rebuild_metrics_index(run_dir: Path) -> dict[str, JSONValue]:
-    """Rebuild and persist ``metrics/index.json`` from the JSONL stream."""
+    """Rebuild the host-only series cache from the JSONL buffer.
+
+    Writes ``metrics/index.json`` (:data:`METRICS_INDEX_FILENAME`).
+    Host-only series cache; the JSONL buffer remains authoritative.
+    """
 
     index = _empty_index()
     metrics_file = _metrics_path(run_dir)
@@ -405,15 +418,63 @@ class MetricsWriter:
             with _metrics_path(self._run_dir).open("a", encoding="utf-8") as fh:
                 fh.write(line)
                 fh.write("\n")
-            # The derived ``index.json`` is rebuilt once on :meth:`flush`
-            # (run-context exit), not rewritten per record — ``metrics.jsonl``
-            # is the source of truth and ``read_run_metrics`` reads it directly.
+            # Host series cache rebuilt once on :meth:`flush` (run-context
+            # exit), not per record. ``metrics.jsonl`` is the SoT;
+            # ``read_run_metrics`` reads the buffer directly.
             self._index_dirty = True
 
         return payload
 
+    def log_many(
+        self, records: Iterable[MetricRecord], *, tags: dict[str, JSONValue] | None = None
+    ) -> int:
+        """Append many records through a single open file handle.
+
+        Same per-record validation as :meth:`log`, but one ``open()`` and one
+        lock acquisition for the whole stream instead of one per record — the
+        bulk path adoption converters use when a thermo table or a tfevents
+        stream becomes tens of thousands of metric records. Streams the input,
+        so memory stays flat regardless of stream length.
+
+        Args:
+            records: Iterable of metric records (compact-key dicts).
+            tags: Optional tags applied to every record in the batch.
+
+        Returns:
+            Number of records appended.
+        """
+        count = 0
+        with self._lock:
+            handle = None
+            try:
+                for record in records:
+                    payload: MetricRecord = {
+                        key: value for key, value in record.items() if value is not None
+                    }
+                    payload.setdefault("w", datetime.now().isoformat())
+                    if tags is not None:
+                        payload["tags"] = tags
+                    payload = _validate_record(payload)
+                    # Open on the first record, not before: a stream that
+                    # yields nothing — or raises on its first item — must
+                    # leave no directory and no empty ``metrics.jsonl``
+                    # behind, or callers would see a metrics buffer that
+                    # holds no metrics.
+                    if handle is None:
+                        _metrics_dir(self._run_dir).mkdir(parents=True, exist_ok=True)
+                        handle = _metrics_path(self._run_dir).open("a", encoding="utf-8")
+                    handle.write(json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
+                    handle.write("\n")
+                    count += 1
+            finally:
+                if handle is not None:
+                    handle.close()
+            if count:
+                self._index_dirty = True
+        return count
+
     def flush(self) -> None:
-        """Rebuild the derived ``metrics/index.json`` from the JSONL once."""
+        """Rebuild the host-only series cache from the JSONL buffer once."""
         with self._lock:
             if not self._index_dirty:
                 return

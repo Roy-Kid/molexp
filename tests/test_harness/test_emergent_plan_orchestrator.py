@@ -235,3 +235,69 @@ class TestModeLikeShape:
         result = await drive_plan_mode(orch, run=run, user_input=_USER_INPUT, gateway=_gateway(run))
         assert isinstance(result, ModeResult)
         assert run.status == "succeeded"
+
+
+class TestPriorKnowledgeWire:
+    """close-loop-01: AssembleKnowledgeContext on the live PlanOrchestrator path."""
+
+    async def test_assembles_knowledge_context_and_lineages_experiment_plan(self, run: Any) -> None:
+        orch = PlanOrchestrator(
+            loop_runner=_CannedBoardRunner(_valid_board()),
+            approve=auto_grant_approver,
+            realize=False,
+        )
+        result = await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
+
+        store = _store(run)
+        knowledge = store.latest_by_kind("knowledge_context")
+        plan = store.latest_by_kind("experiment_plan")
+        assert knowledge is not None
+        assert plan is not None
+        assert knowledge.id in plan.parent_ids
+        assert knowledge.id in {a.id for a in result.stage_artifacts}
+        digest = store.get(knowledge.id).decode("utf-8")
+        # Empty workspace still gets a uniform honest digest (no crash).
+        assert digest.strip()
+
+    async def test_failure_analysis_path_appears_in_digest(self, tmp_path: Path) -> None:
+        from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
+
+        ws = Workspace(root=tmp_path / "ws-fa", name="lab")
+        ws.materialize()
+        exp = ws.add_project("p").add_experiment("e")
+        run = exp.add_run(params={"mode": "plan"}, id="plan-fa")
+        item = KnowledgeItem(name="failure-grid")
+        exp.add_folder(item)
+        item.write_knowledge_meta(
+            KnowledgeMeta(
+                kind="FailureAnalysis",
+                sources=[SourceRef(kind="run", ref=run.id)],
+                created_by="test",
+            )
+        )
+        item.write_index("grid too coarse near r_min — unique-fa-marker")
+
+        orch = PlanOrchestrator(
+            loop_runner=_CannedBoardRunner(_valid_board()),
+            approve=auto_grant_approver,
+            realize=False,
+        )
+        await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
+
+        store = FileArtifactStore(root=run.run_dir / "artifacts")
+        knowledge = store.latest_by_kind("knowledge_context")
+        assert knowledge is not None
+        digest = store.get(knowledge.id).decode("utf-8")
+        assert "unique-fa-marker" in digest
+        assert "FailureAnalysis" in digest
+
+
+class TestPlanLoopSystemPrompt:
+    def test_appends_digest_when_present(self) -> None:
+        from molexp.harness.modes.plan_orchestrator import plan_loop_system_prompt
+
+        bare = plan_loop_system_prompt(None)
+        with_digest = plan_loop_system_prompt("# Prior\n\npath: failure-x")
+        assert bare in with_digest
+        assert "failure-x" in with_digest
+        assert "Prior knowledge" in with_digest

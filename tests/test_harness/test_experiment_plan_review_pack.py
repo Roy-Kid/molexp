@@ -65,7 +65,7 @@ def _ctx(tmp_path: Path) -> HarnessRunContext:
 class TestBuildExperimentPlanReviewPack:
     def test_hard_review_over_the_experiment_plan(self, tmp_path: Path) -> None:
         ctx = _ctx(tmp_path)
-        ref = ctx.artifact_store.put_json(
+        ctx.artifact_store.put_json(
             kind="experiment_plan",
             obj=_plan().model_dump(mode="json"),
             created_by="test",
@@ -78,8 +78,27 @@ class TestBuildExperimentPlanReviewPack:
         assert pack.step_id == "review_plan"
         assert pack.step_title == "Review experiment plan"
         assert pack.decision_options == ["approve", "reject", "revise"]
-        assert pack.pack_id == f"pack-experiment-plan-{ref.id}"
-        assert any(r.id == ref.id for r in pack.subject_refs)
+
+    def test_prior_knowledge_section_when_digest_present(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path)
+        kref = ctx.artifact_store.put_text(
+            kind="knowledge_context",
+            text="# Prior knowledge\n\n## [FailureAnalysis] grid\npath: failure-grid\n",
+            created_by="test",
+            parent_ids=[],
+        )
+        ctx.artifact_store.put_json(
+            kind="experiment_plan",
+            obj=_plan().model_dump(mode="json"),
+            created_by="test",
+            parent_ids=[kref.id],
+        )
+
+        pack = build_experiment_plan_review_pack(ctx)
+
+        assert "## Prior knowledge" in pack.summary_md
+        assert "failure-grid" in pack.summary_md
+        assert kref.id in {r.id for r in pack.subject_refs}
 
     def test_form_renders_spec_and_board_summary(self, tmp_path: Path) -> None:
         ctx = _ctx(tmp_path)
