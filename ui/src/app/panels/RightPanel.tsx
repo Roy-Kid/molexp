@@ -1,3 +1,4 @@
+import { CopilotPanel } from "@/app/components/CopilotPanel";
 import { refFromSelection } from "@/app/entities/interop";
 import { RelatedPanel } from "@/app/entities/RelatedPanel";
 import {
@@ -24,7 +25,12 @@ export const RightPanel = ({
   onRefresh,
 }: RightPanelProps): JSX.Element => {
   if (!selection) {
-    return <NodeInspector title="Inspector" empty emptyHint="Inspector is idle." />;
+    return (
+      <div className="flex h-full flex-col overflow-auto">
+        <CopilotPanel snapshot={snapshot} />
+        <NodeInspector title="Inspector" empty emptyHint="Select an entity for details." />
+      </div>
+    );
   }
 
   const plan = renderPlanByObjectType[selection.objectType];
@@ -35,6 +41,7 @@ export const RightPanel = ({
 
   return (
     <div className="flex h-full flex-col overflow-auto">
+      <CopilotPanel snapshot={snapshot} />
       {renderers.map((renderer) => (
         <renderer.Component
           key={`${renderer.title}-${renderer.panelSlot}`}
