@@ -545,6 +545,42 @@ def run_harvest(
     rprint(f"[green]OK[/green] Harvested KnowledgeItem: {item.name}")
 
 
+@run_app.command("ingest-metrics")
+def run_ingest_metrics(
+    project_id: Annotated[str, typer.Argument(help="Project ID")],
+    experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
+    run_id: Annotated[str, typer.Argument(help="Run ID")],
+    target_spec: TargetOption = ".",
+) -> None:
+    """Ingest foreign logs into the run host metrics buffer (additive).
+
+    A molexp Run is a host, not a MolRec record — only ``metrics/metrics.jsonl``
+    (+ host ``metrics/index.json`` cache) is written. Source logs are untouched.
+    """
+    ws = _open_ws(target_spec)
+    from molexp.plugins.metrics_ingest import detect_log_formats, ingest_run
+    from molexp.workspace import ExperimentNotFoundError as _ExpNotFound
+    from molexp.workspace import ProjectNotFoundError as _ProjNotFound
+    from molexp.workspace import RunNotFoundError as _RunNotFound
+
+    try:
+        project = ws.get_project(project_id)
+        experiment = project.get_experiment(experiment_id)
+        run = experiment.get_run(run_id)
+    except (_ProjNotFound, _ExpNotFound, _RunNotFound) as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from None
+
+    hits = detect_log_formats(run.run_dir)
+    result = ingest_run(run.run_dir)
+    rprint(
+        f"[green]OK[/green] ingest-metrics run={run.id} "
+        f"records={result.records} hits={len(hits)} skips={len(result.skipped)}"
+    )
+    for skip in result.skipped:
+        rprint(f"  [dim]skip[/dim] {skip.format.value}: {skip.path.name} — {skip.reason}")
+
+
 @run_app.command("analyze-failure")
 def run_analyze_failure(
     project_id: Annotated[str, typer.Argument(help="Project ID")],

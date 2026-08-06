@@ -2,30 +2,64 @@
 
 ## Scientific data vs plugins (dependency DAG)
 
-Science products are **MolRec records**, not molexp-first-class “metrics”:
+**A molexp Run is not a MolRec record.** The Run is a workspace *host*
+(``run.json`` identity, ``_ops/run.json`` hot lifecycle, ``artifacts/``,
+``source/``). Scientific packages are **MolRec** products landed under the
+run or written beside it. Do not treat ``_ops`` / ``run.json`` as MolRec
+``status/`` / ``meta/``.
+
+Latest molrec L4 (see molrec ``docs/spec/storage.md``):
 
 ```text
-molrec (spec)  ←  JSONL metrics binding + (arrays) molrs Zarr
+molrec (spec)
+  └── one Zarr V3 root
+        ├── group attributes  → meta / status / method / closed metrics summary
+        ├── array groups      → frame / system / trajectory / observables
+        └── metrics/metrics.jsonl   → append-only text buffer only
                       ↑
-         molnex / molpy write Run packages + metrics stream
+         molnex / molpy / molrs write packages + buffer
                       ↓
-              molexp Run storage (host only)
+              molexp Run (host storage only)
                       ↓
-              UI plugins match sections and open:
-                molvis  ← frame / trajectory
-                molplot ← charts / series / observables / metrics JSONL
-                molq    ← scheduler chrome only (not science formats)
+              UI plugins match buffer / tags / classic files:
+                molplot ← metrics JSONL (+ VL artifacts)
+                molvis  ← classic trajectories (MolRec Zarr reader: future)
+                molq    ← scheduler chrome only
 ```
 
 - **Core** Run UI lists products under **Outputs** and routes previews.
 - **Plugins** activate only when files/tags match — never hard-wired as core tabs.
-- **Charts are molplot only** — including training curves from
-  ``metrics/metrics.jsonl`` (MolRec append binding; same layout as molexp
-  ``ctx.metrics`` and molnex ``MolRecMetricsHook``). There is no separate
-  metrics product package.
-- Live metrics use **JSONL**, not Zarr append. See molrec metrics spec.
-- Builtin agent `run_land` attaches MolRec roots + source; training writers
-  own the metrics stream.
+- **Charts are molplot only** — training curves from ``metrics/metrics.jsonl``
+  (MolRec JSONL buffer; same layout as molexp ``ctx.metrics`` and molnex
+  writers). There is no separate metrics product package.
+- Live metrics use the **JSONL text buffer**, never Zarr chunk append.
+- ``metrics/index.json`` under a run is a **host-derived series cache**
+  (rebuildable listing aid). It is **not** molrec L4; the buffer is SoT.
+- Builtin agent ``run_land`` tags MolRec roots via Zarr ``meta`` attributes
+  (``record_schema_version`` / ``format_name=molrec``) when present; training
+  writers own the buffer stream.
+
+### Ingest foreign logs into the host metrics buffer
+
+Scientific packages may leave **LAMMPS logs**, **TensorBoard event dirs**, or
+**CSV** tables beside a run. :mod:`molexp.plugins.metrics_ingest` classifies
+them by content and **appends** into the run-local host buffer
+(``metrics/metrics.jsonl`` + rebuildable ``metrics/index.json``). Source files
+are never deleted or rewritten. A molexp Run remains a **host** — ingest does
+not write MolRec ``meta`` / ``status``.
+
+```bash
+# CLI (same core as the API)
+molexp runs ingest-metrics <project> <experiment> <run_id>
+```
+
+```http
+GET  /api/projects/{p}/experiments/{e}/runs/{r}/metrics/detect
+POST /api/projects/{p}/experiments/{e}/runs/{r}/metrics/ingest
+```
+
+Unrecognised files are skipped with a reason (never guessed). Missing optional
+dependencies (e.g. TensorBoard) skip that format without failing the call.
 
 ---
 

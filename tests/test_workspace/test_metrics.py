@@ -1,10 +1,9 @@
-"""``molexp.workspace.metrics`` — MolRec metrics JSONL under a run root.
+"""``molexp.workspace.metrics`` — MolRec JSONL buffer under a run root.
 
-``MetricsWriter`` (``ctx.metrics``) appends to ``metrics/metrics.jsonl`` and
-rebuilds the derived ``metrics/index.json`` on flush; ``read_run_metrics``
-queries the stream. Layout matches molrec's JSONL reference binding (same as
-molnex ``MetricsWriter``). Metrics are run-local section data — never
-workspace assets.
+``MetricsWriter`` (``ctx.metrics``) appends to ``metrics/metrics.jsonl``
+(SoT) and rebuilds the **host-only** series cache ``metrics/index.json`` on
+flush. The cache is not molrec L4. ``read_run_metrics`` reads the buffer.
+Metrics are run-local section data — never workspace assets.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.workspace.metrics import read_run_metrics
+from molexp.workspace.metrics import MetricsWriter, read_run_metrics
 
 
 class TestMetricsWriter:
@@ -47,13 +46,15 @@ class TestMetricsWriter:
         kinds = {entry["kind"] for entry in manifest["assets"].values()}
         assert "metrics" not in kinds
 
-    def test_index_accumulates_across_writes_and_series(self, run):
+    def test_host_series_cache_accumulates_across_writes_and_series(self, run):
+        """``index.json`` is a host cache rebuilt from the buffer — not molrec L4."""
         with run.start() as ctx:
             ctx.metrics.scalar("train/loss", 0.3, step=1)
             ctx.metrics.scalar("train/loss", 0.2, step=2)
             ctx.metrics.scalar("eval/acc", 0.8, step=2)
 
-        index = json.loads((Path(run.run_dir) / "metrics" / "index.json").read_text())
+        cache = Path(run.run_dir) / "metrics" / "index.json"
+        index = json.loads(cache.read_text())
         assert index["line_count"] == 3
         assert index["series_count"] == 2
         assert index["series"]["train/loss"]["count"] == 2
@@ -95,3 +96,44 @@ class TestReadRunMetrics:
         assert result.parse_errors == 1
         assert [record["v"] for record in result.records] == [0.3, 0.2]
         assert result.next_line == 3
+
+
+class TestLogMany:
+    """Bulk append path — one open for the whole stream."""
+
+    def test_appends_every_record(self, tmp_path: Path) -> None:
+        writer = MetricsWriter(tmp_path)
+        written = writer.log_many(
+            {"t": "scalar", "k": "train/loss", "s": i, "v": float(i)} for i in range(5)
+        )
+        assert written == 5
+        lines = (tmp_path / "metrics" / "metrics.jsonl").read_text().splitlines()
+        assert len(lines) == 5
+
+    def test_applies_batch_tags_to_every_record(self, tmp_path: Path) -> None:
+        writer = MetricsWriter(tmp_path)
+        writer.log_many([{"t": "scalar", "k": "a", "v": 1.0}], tags={"src": "bulk"})
+        record = json.loads((tmp_path / "metrics" / "metrics.jsonl").read_text().strip())
+        assert record["tags"] == {"src": "bulk"}
+
+    def test_an_empty_stream_creates_nothing(self, tmp_path: Path) -> None:
+        writer = MetricsWriter(tmp_path)
+        assert writer.log_many(iter(())) == 0
+        assert not (tmp_path / "metrics").exists()
+
+    def test_a_stream_that_raises_first_creates_nothing(self, tmp_path: Path) -> None:
+        """No empty buffer left behind — callers treat its presence as truth."""
+
+        def exploding():
+            raise RuntimeError("upstream parser died")
+            yield  # pragma: no cover
+
+        writer = MetricsWriter(tmp_path)
+        with pytest.raises(RuntimeError):
+            writer.log_many(exploding())
+        assert not (tmp_path / "metrics").exists()
+
+    def test_validates_each_record(self, tmp_path: Path) -> None:
+        writer = MetricsWriter(tmp_path)
+        with pytest.raises(ValueError):
+            writer.log_many([{"t": "scalar", "k": "", "v": 1.0}])
