@@ -199,6 +199,17 @@ describe("command palette catalog", () => {
     expect(kinds).toEqual(new Set(["project", "experiment", "run", "workflow", "asset", "agent"]));
   });
 
+  it("indexes knowledge docs when provided (close-loop-06)", () => {
+    const catalog = buildCatalog(snapshot, [
+      { relPath: "experiments/e1/failure-analysis-r1", name: "fa", title: "Failure analysis" },
+    ]);
+    const kinds = new Set(catalog.map((e) => e.ref.kind));
+    expect(kinds.has("knowledge")).toBe(true);
+    const hit = catalog.find((e) => e.ref.kind === "knowledge");
+    expect(hit?.ref.id).toBe("experiments/e1/failure-analysis-r1");
+    expect(entityPath(hit!.ref, snapshot)).toContain("/knowledge/");
+  });
+
   it("matches by name across kinds and ranks prefix first", () => {
     const catalog = buildCatalog(snapshot);
     const hits = searchCatalog(catalog, "run");
