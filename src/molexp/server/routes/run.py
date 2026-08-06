@@ -47,6 +47,7 @@ from ..schemas import (
     LammpsThermoStage,
     MetricSeriesResponse,
     RunActionResponse,
+    RunAnalyzeFailureRequest,
     RunContinueResponse,
     RunCreateRequest,
     RunExecutionResponse,
@@ -879,6 +880,44 @@ def harvest_run_route(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # Bundle-relative path so the UI can open Knowledge without stripping roots.
+    try:
+        rel = item.resolve().relative_to(workspace.resolve()).as_posix()
+    except Exception:
+        rel = item.name
+    return {"name": item.name, "path": rel}
+
+
+@router.post("/{run_id}/analyze-failure")
+def analyze_run_failure_route(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    body: RunAnalyzeFailureRequest,
+    workspace=Depends(get_workspace),  # noqa: ANN001
+) -> dict[str, str]:
+    """Analyze a failed run into a sourced FailureAnalysis KnowledgeItem.
+
+    Shares :func:`molexp.services.run_failure.analyze_run_failure` with the CLI
+    (close-loop-02). Deterministic narrative when ``narrative`` is omitted.
+    """
+    from molexp.services.run_failure import analyze_run_failure
+
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = _get_run_or_none(experiment, run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    try:
+        item = analyze_run_failure(
+            run,
+            created_by=body.created_by,
+            narrative=body.narrative,
+            force=body.force,
+            name=body.name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         rel = item.resolve().relative_to(workspace.resolve()).as_posix()
     except Exception:

@@ -28,6 +28,7 @@ from .requests import (
     McpStdioSpecRequest,
     ProjectCreateRequest,
     ProjectUpdateRequest,
+    RunAnalyzeFailureRequest,
     RunCreateRequest,
     RunHarvestRequest,
     RunStartRequest,
@@ -145,12 +146,10 @@ from .workspace_targets import (
 )
 
 __all__ = [
-    # Responses
     "AgentEvent",
     "AgentHealthResponse",
     "AgentProviderResponse",
     "AgentProviderTestResponse",
-    # Requests
     "AgentProviderUpdateRequest",
     "AgentSessionListResponse",
     "AgentSessionResponse",
@@ -213,7 +212,6 @@ __all__ = [
     "McpToolGroupResponse",
     "MessageResponse",
     "MetricSeriesResponse",
-    # Molq
     "MolqJobDetailResponse",
     "MolqJobSummary",
     "MolqJobTransition",
@@ -226,6 +224,7 @@ __all__ = [
     "ProjectResponse",
     "ProjectUpdateRequest",
     "RunActionResponse",
+    "RunAnalyzeFailureRequest",
     "RunContinueResponse",
     "RunCreateRequest",
     "RunExecutionResponse",
@@ -247,7 +246,6 @@ __all__ = [
     "SkillListResponse",
     "SkillResponse",
     "SkillUpdateRequest",
-    # Targets
     "TargetCreateRequest",
     "TargetListResponse",
     "TargetResponse",
@@ -266,7 +264,6 @@ __all__ = [
     "WorkflowDocumentResponse",
     "WorkflowSnapshotResponse",
     "WorkspaceContextResponse",
-    # Workspace runs aggregate
     "WorkspaceExecutionRow",
     "WorkspaceFolderResponse",
     "WorkspaceInfoResponse",

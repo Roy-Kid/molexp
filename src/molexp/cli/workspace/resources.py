@@ -545,6 +545,49 @@ def run_harvest(
     rprint(f"[green]OK[/green] Harvested KnowledgeItem: {item.name}")
 
 
+@run_app.command("analyze-failure")
+def run_analyze_failure(
+    project_id: Annotated[str, typer.Argument(help="Project ID")],
+    experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
+    run_id: Annotated[str, typer.Argument(help="Run ID")],
+    narrative: Annotated[
+        str | None,
+        typer.Option("--narrative", help="Optional interpretation (else deterministic)"),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Also accept cancelled runs (default: failed only)"),
+    ] = False,
+    created_by: Annotated[str, typer.Option("--created-by")] = "cli",
+    target_spec: TargetOption = ".",
+) -> None:
+    """Analyze a failed run into a FailureAnalysis KnowledgeItem (shared service)."""
+    ws = _open_ws(target_spec)
+    from molexp.services.run_failure import analyze_run_failure
+    from molexp.workspace import ExperimentNotFoundError as _ExpNotFound
+    from molexp.workspace import ProjectNotFoundError as _ProjNotFound
+    from molexp.workspace import RunNotFoundError as _RunNotFound
+
+    try:
+        project = ws.get_project(project_id)
+        experiment = project.get_experiment(experiment_id)
+        run = experiment.get_run(run_id)
+    except (_ProjNotFound, _ExpNotFound, _RunNotFound) as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from None
+    try:
+        item = analyze_run_failure(
+            run,
+            created_by=created_by,
+            narrative=narrative,
+            force=force,
+        )
+    except ValueError as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from None
+    rprint(f"[green]OK[/green] FailureAnalysis: {item.name}")
+
+
 @run_app.command("info")
 def run_info(
     project_id: Annotated[str, typer.Argument(help="Project ID")],

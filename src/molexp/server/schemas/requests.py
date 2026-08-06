@@ -123,6 +123,21 @@ class RunHarvestRequest(BaseModel):
     )
 
 
+class RunAnalyzeFailureRequest(BaseModel):
+    """Analyze a failed run into a sourced FailureAnalysis KnowledgeItem."""
+
+    narrative: str | None = Field(
+        default=None,
+        description="Optional interpretation; when omitted a deterministic template is used",
+    )
+    created_by: str = Field(default="ui", description="Author string")
+    force: bool = Field(
+        default=False,
+        description="When true, also accept cancelled runs (default: failed only)",
+    )
+    name: str | None = Field(default=None, description="Optional KnowledgeItem name")
+
+
 class RunStartRequest(BaseModel):
     """Body for the ``run`` (start) verb on a pending run.
 
