@@ -50,6 +50,11 @@ export function canHarvest(status: string): boolean {
   return HARVESTABLE_STATUSES.has(status.toLowerCase());
 }
 
+/** Failed-only domain for analyze_run_failure (cancelled needs force). */
+export function canAnalyzeFailure(status: string): boolean {
+  return status.toLowerCase() === "failed";
+}
+
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL_STATUSES.has(status.toLowerCase());
 }

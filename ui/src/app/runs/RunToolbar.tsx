@@ -19,14 +19,17 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  Stethoscope,
 } from "lucide-react";
 import { type JSX, useCallback, useEffect, useState } from "react";
 import type { TargetResponse } from "@/api/generated/models/TargetResponse";
 import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
 import { TargetsService } from "@/api/generated/services/TargetsService";
 import { HarvestDialog } from "@/app/components/HarvestDialog";
+import { postAnalyzeFailure } from "@/app/runs/analyzeFailure";
 import { ParametersForm } from "@/app/runs/ParametersForm";
 import {
+  canAnalyzeFailure,
   canCancel,
   canHarvest,
   canRerun,
@@ -124,6 +127,7 @@ export function RunToolbar({
   const showCancel = canCancel(status);
   const showRetry = canResume(status) && canRerun(status);
   const showHarvest = canHarvest(status);
+  const showAnalyze = canAnalyzeFailure(status);
 
   const [startOpen, setStartOpen] = useState(false);
   const [targets, setTargets] = useState<TargetResponse[]>([]);
@@ -333,6 +337,20 @@ export function RunToolbar({
         )}
 
         {/* ── Knowledge (outcome only) ────────────────────────────────── */}
+        {showAnalyze && (
+          <WorkbenchIconAction
+            label="Analyze failure"
+            disabled={busy}
+            onClick={() => {
+              void runVerb("Failure analyzed", async () => {
+                const result = await postAnalyzeFailure(projectId, experimentId, runId);
+                onHarvested(result.path || result.name);
+              });
+            }}
+          >
+            <Stethoscope className="h-3.5 w-3.5" />
+          </WorkbenchIconAction>
+        )}
         {showHarvest && (
           <HarvestDialog
             projectId={projectId}

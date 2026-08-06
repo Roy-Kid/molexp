@@ -14,6 +14,7 @@ import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
 import { pathForNextAction } from "@/app/components/copilotPaths";
 import type { WorkspaceSnapshot } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "@/components/ui/toast";
 import { WorkbenchAction } from "@/components/workbench";
 
 export { pathForNextAction } from "@/app/components/copilotPaths";
@@ -27,20 +28,53 @@ interface CopilotPanelProps {
 const ActionRow = ({
   action,
   snapshot,
+  onDiagnosed,
 }: {
   action: NextActionResponse;
   snapshot: WorkspaceSnapshot;
+  onDiagnosed?: () => void;
 }): JSX.Element => {
   const navigate = useNavigate();
   const path = pathForNextAction(action, snapshot);
+  const [busy, setBusy] = useState(false);
+
+  const onClick = async (): Promise<void> => {
+    if (action.kind === "diagnose_failed_run") {
+      const run = snapshot.runs.find((r) => r.id === action.target);
+      if (!run) {
+        if (path) navigate(path);
+        return;
+      }
+      const ok = window.confirm(
+        `Analyze failure for run ${run.id}? Writes a FailureAnalysis knowledge item.`,
+      );
+      if (!ok) return;
+      setBusy(true);
+      try {
+        const { postAnalyzeFailure } = await import("@/app/runs/analyzeFailure");
+        const result = await postAnalyzeFailure(run.projectId, run.experimentId, run.id);
+        toast.success(result.path ? `Analyzed → ${result.path}` : "Failure analyzed");
+        onDiagnosed?.();
+        if (path) navigate(path);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    // retry_failed_run and others: navigate only — never auto-resume.
+    if (path) navigate(path);
+  };
+
   return (
     <WorkbenchAction
       kind="ghost"
       size="content"
       type="button"
-      disabled={!path}
+      disabled={!path || busy}
       onClick={() => {
-        if (path) navigate(path);
+        void onClick();
       }}
       className="group flex w-full flex-col items-start gap-1 rounded-control px-2 py-2 text-left transition-colors hover:bg-muted/60 disabled:opacity-40"
     >
@@ -65,6 +99,8 @@ export const CopilotPanel = ({ snapshot, refreshKey = 0 }: CopilotPanelProps): J
   const [data, setData] = useState<WorkspaceSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [localRefresh, setLocalRefresh] = useState(0);
+  const effectiveRefresh = refreshKey + localRefresh;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -81,9 +117,9 @@ export const CopilotPanel = ({ snapshot, refreshKey = 0 }: CopilotPanelProps): J
   }, []);
 
   useEffect(() => {
-    void refreshKey;
+    void effectiveRefresh;
     load();
-  }, [load, refreshKey]);
+  }, [load, effectiveRefresh]);
 
   if (loading && !data) {
     return (
@@ -168,6 +204,7 @@ export const CopilotPanel = ({ snapshot, refreshKey = 0 }: CopilotPanelProps): J
               key={`${action.kind}:${action.target}:${action.rationale}`}
               action={action}
               snapshot={snapshot}
+              onDiagnosed={() => setLocalRefresh((n) => n + 1)}
             />
           ))
         )}
