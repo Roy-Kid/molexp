@@ -5,7 +5,13 @@
 
 import { describe, expect, it } from "@rstest/core";
 
-import { eventVisualFor, FEED_EMPTY_TEXT, resolveEventRef } from "@/app/runs/activityFeed";
+import {
+  eventTypeFilterLabel,
+  eventVisualFor,
+  FEED_EMPTY_TEXT,
+  resolveEventRef,
+  WORKSPACE_EVENT_TYPES,
+} from "@/app/runs/activityFeed";
 
 describe("eventVisualFor", () => {
   it("maps every spine event type to a distinct label", () => {
@@ -33,6 +39,17 @@ describe("eventVisualFor", () => {
 
   it("renders an unknown type by its raw name instead of hiding it", () => {
     expect(eventVisualFor("mystery.event").label).toBe("mystery.event");
+  });
+});
+
+describe("WORKSPACE_EVENT_TYPES filter chips", () => {
+  it("lists every known spine type with a human filter label", () => {
+    expect(WORKSPACE_EVENT_TYPES).toContain("run.failed");
+    expect(WORKSPACE_EVENT_TYPES).toContain("knowledge.created");
+    expect(WORKSPACE_EVENT_TYPES.length).toBeGreaterThanOrEqual(8);
+    for (const type of WORKSPACE_EVENT_TYPES) {
+      expect(eventTypeFilterLabel(type).length).toBeGreaterThan(0);
+    }
   });
 });
 

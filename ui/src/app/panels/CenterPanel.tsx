@@ -3,6 +3,7 @@ import {
   renderPlanByObjectType,
   resolveRenderer,
 } from "@/app/registry";
+import { ActivityPage } from "@/app/runs/ActivityPage";
 import type { RunInspectorRegistration } from "@/app/runs/inspector/RunInspector";
 import { RunsPage } from "@/app/runs/RunsPage";
 import { SettingsPage } from "@/app/settings/SettingsPage";
@@ -25,6 +26,10 @@ const EMPTY_SELECTION_COPY: Partial<Record<LeftPanelView, EmptySelectionCopy>> =
   knowledge: {
     title: "No document selected",
     description: "Pick a note from the left, or create a new one.",
+  },
+  activity: {
+    title: "Workspace activity",
+    description: "The global event timeline fills the center panel for this section.",
   },
 };
 
@@ -71,6 +76,9 @@ export const CenterPanel = ({
   if (!selection) {
     if (leftPanelView === "runs") {
       return <RunsPage snapshot={snapshot} onInspectorChange={onRunInspectorChange} />;
+    }
+    if (leftPanelView === "activity") {
+      return <ActivityPage snapshot={snapshot} />;
     }
     if (leftPanelView === "workflow") {
       return <WorkflowsPage snapshot={snapshot} onRefresh={onRefresh} />;

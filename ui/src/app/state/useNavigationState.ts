@@ -1,11 +1,13 @@
 import { useCallback, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { leftPanelViewFromPath } from "@/app/entities/paths";
 import type { LeftPanelView, ObjectView, Selection, WorkspaceSnapshot } from "@/app/types";
 
 const sectionRootByView: Record<LeftPanelView, string> = {
   projects: "/projects",
   workspace: "/workspace",
   runs: "/runs",
+  activity: "/activity",
   workflow: "/workflows",
   asset: "/assets",
   agent: "/agent-tasks",
@@ -40,30 +42,7 @@ const buildWorkspaceFileSelection = (searchParams: URLSearchParams): Selection |
   };
 };
 
-export const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
-  if (pathname.startsWith("/workspace")) {
-    return "workspace";
-  }
-  if (pathname.startsWith("/runs")) {
-    return "runs";
-  }
-  if (pathname.startsWith("/workflows")) {
-    return "workflow";
-  }
-  if (pathname.startsWith("/assets")) {
-    return "asset";
-  }
-  if (pathname.startsWith("/agent-tasks")) {
-    return "agent";
-  }
-  if (pathname.startsWith("/knowledge")) {
-    return "knowledge";
-  }
-  if (pathname.startsWith("/settings")) {
-    return "settings";
-  }
-  return "projects";
-};
+export { leftPanelViewFromPath as getLeftPanelViewFromPath } from "@/app/entities/paths";
 
 const parseObjectView = (raw: string | null): ObjectView | undefined => {
   if (
@@ -264,7 +243,7 @@ export const useNavigationState = (snapshot: WorkspaceSnapshot): NavigationState
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
 
   const leftPanelView = useMemo(
-    () => getLeftPanelViewFromPath(location.pathname),
+    () => leftPanelViewFromPath(location.pathname),
     [location.pathname],
   );
 

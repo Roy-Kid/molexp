@@ -48,6 +48,12 @@ const VISUALS: Record<string, EventVisual> = {
   },
 };
 
+/** Stable ordered list of known spine types for filter chips. */
+export const WORKSPACE_EVENT_TYPES: readonly string[] = Object.keys(VISUALS);
+
+/** Chip label for a filter (uses visual label without "created/started" verb if possible). */
+export const eventTypeFilterLabel = (type: string): string => VISUALS[type]?.label ?? type;
+
 const FALLBACK_VISUAL: EventVisual = {
   icon: CircleDot,
   label: "",

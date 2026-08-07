@@ -4,6 +4,7 @@ export type LeftPanelView =
   | "workspace"
   | "projects"
   | "runs"
+  | "activity"
   | "asset"
   | "workflow"
   | "agent"

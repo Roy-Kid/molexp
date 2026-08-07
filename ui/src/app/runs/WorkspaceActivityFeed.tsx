@@ -24,6 +24,8 @@ interface WorkspaceActivityFeedProps {
   onSelectRun: (runId: string) => void;
   onOpenKnowledge: (path: string) => void;
   max?: number;
+  /** Optional spine type filter (e.g. ``run.failed``); ``null``/undefined = all. */
+  eventType?: string | null;
 }
 
 /**
@@ -36,6 +38,7 @@ export const WorkspaceActivityFeed = ({
   onSelectRun,
   onOpenKnowledge,
   max = 20,
+  eventType = null,
 }: WorkspaceActivityFeedProps): JSX.Element => {
   const [events, setEvents] = useState<WorkspaceEventRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +51,17 @@ export const WorkspaceActivityFeed = ({
     const tickOnce = async (): Promise<void> => {
       try {
         const rows = await WorkspaceService.getWorkspaceEventsApiEventsGet(
-          undefined,
+          (eventType as
+            | "run.created"
+            | "run.started"
+            | "run.failed"
+            | "run.completed"
+            | "asset.added"
+            | "knowledge.created"
+            | "workflow.created"
+            | "experiment.created"
+            | null
+            | undefined) ?? undefined,
           undefined,
           max,
         );
@@ -68,7 +81,7 @@ export const WorkspaceActivityFeed = ({
       cancelled = true;
       clearInterval(id);
     };
-  }, [max, tick]);
+  }, [max, tick, eventType]);
 
   if (loading && events.length === 0 && !error) {
     return <WorkbenchOperationState kind="loading" density="compact" skeletonRows={3} />;

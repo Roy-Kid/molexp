@@ -1,4 +1,5 @@
 import {
+  Activity,
   Archive,
   Ban,
   Blocks,
@@ -113,6 +114,7 @@ interface ViewOption {
 const viewOptions: ViewOption[] = [
   { id: "projects", label: "Experiments", icon: Blocks },
   { id: "runs", label: "Runs", icon: PlayCircle },
+  { id: "activity", label: "Activity", icon: Activity },
   { id: "workflow", label: "Workflows", icon: Workflow },
   { id: "workspace", label: "Workspace", icon: FolderTree },
   { id: "asset", label: "Assets", icon: Archive },
@@ -124,6 +126,7 @@ const listHeaderByView: Record<LeftPanelView, string> = {
   projects: "Experiments",
   workspace: "Workspace",
   runs: "Runs",
+  activity: "Activity",
   asset: "Assets",
   workflow: "Workflows",
   agent: "Agents",
@@ -1274,6 +1277,15 @@ export const LeftPanel = ({
         filters={runsFilters}
         onFiltersChange={handleRunsFiltersChange}
       />
+    ),
+    activity: (
+      <div className="space-y-2 px-2 py-3 text-label text-muted-foreground">
+        <p className="font-medium text-foreground">Event spine</p>
+        <p>
+          The center panel shows the workspace-wide activity timeline (runs, knowledge, assets).
+          Filter by event type there.
+        </p>
+      </div>
     ),
     asset: <TreeView nodes={assetNodes} activeId={activeId} emptyTitle={EMPTY_COPY.assets.title} />,
     workflow: (

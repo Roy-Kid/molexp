@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { EntityRef } from "@/app/entities/kinds";
-import type { WorkspaceSnapshot } from "@/app/types";
+import type { LeftPanelView, WorkspaceSnapshot } from "@/app/types";
 
 const enc = encodeURIComponent;
 
@@ -70,9 +70,23 @@ export const SECTION_PATH = {
   projects: "/projects",
   workspace: "/workspace",
   runs: "/runs",
+  activity: "/activity",
   workflows: "/workflows",
   assets: "/assets",
   agents: "/agent-tasks",
   knowledge: "/knowledge",
   settings: "/settings",
 } as const;
+
+/** Pure pathname → left-rail section (no router). Used by navigation state. */
+export const leftPanelViewFromPath = (pathname: string): LeftPanelView => {
+  if (pathname.startsWith("/workspace")) return "workspace";
+  if (pathname.startsWith("/runs")) return "runs";
+  if (pathname.startsWith("/activity")) return "activity";
+  if (pathname.startsWith("/workflows")) return "workflow";
+  if (pathname.startsWith("/assets")) return "asset";
+  if (pathname.startsWith("/agent-tasks")) return "agent";
+  if (pathname.startsWith("/knowledge")) return "knowledge";
+  if (pathname.startsWith("/settings")) return "settings";
+  return "projects";
+};

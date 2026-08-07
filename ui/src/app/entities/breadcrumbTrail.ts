@@ -15,6 +15,7 @@ const SECTION_ROOT: Record<LeftPanelView, BreadcrumbItem> = {
   projects: { label: "Experiments", to: SECTION_PATH.projects },
   workspace: { label: "Workspace", to: SECTION_PATH.workspace },
   runs: { label: "Runs", to: SECTION_PATH.runs },
+  activity: { label: "Activity", to: SECTION_PATH.activity },
   workflow: { label: "Workflows", to: SECTION_PATH.workflows },
   asset: { label: "Assets", to: SECTION_PATH.assets },
   agent: { label: "Agent Tasks", to: SECTION_PATH.agents },
