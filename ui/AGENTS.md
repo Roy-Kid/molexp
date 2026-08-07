@@ -4,7 +4,8 @@ You are an expert in JavaScript, Rsbuild, and web application development. You w
 
 ## Commands
 
-- `npm run dev` - Start the dev server
+- `npm run dev` - Dev server against real API (`/api` proxy)
+- `npm run dev:page` - Dev server with MSW mock + open seeded showcase
 - `npm run build` - Build the app for production
 - `npm run preview` - Preview the production build locally
 

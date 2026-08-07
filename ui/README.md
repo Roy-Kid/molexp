@@ -4,88 +4,48 @@ Single-page application for Molexp that mirrors the Workspace and Workflow split
 
 ## Development
 
-Install dependencies:
+Install dependencies (repo root or `ui/`):
 
 ```bash
 npm install
 ```
 
-Run the dev server:
+| Script | Backend | Notes |
+|--------|---------|--------|
+| `npm run dev` | Real API (`/api` proxy) | Needs `molexp serve` (or equivalent) on the API port |
+| `npm run dev:page` | **MSW mock** | No Python server; opens the seeded Protein Folding showcase |
 
 ```bash
+# Real backend (UI only; start the API separately)
 npm run dev
+
+# Mock showcase (recommended for UI work without a server)
+npm run dev:page
 ```
 
-Build for production:
+Build / preview:
 
 ```bash
 npm run build
-```
-
-Preview the production build:
-
-```bash
 npm run preview
 ```
 
 ## API Client Generation
-This project uses an auto-generated API client based on the backend OpenAPI specification.
 
-To regenerate the client:
+Auto-generated client from the backend OpenAPI spec (`src/api/generated` — do not hand-edit).
 
-1. Ensure the Python backend environment is active.
-2. Generate the `openapi.json` spec:
+1. Dump the spec (repo root, Python env active):
    ```bash
-   cd ../../molexp
-   python3 -c "from molexp.server.app import create_app; import json; print(json.dumps(create_app().openapi()))" > openapi.json
+   python scripts/dump_openapi.py
    ```
-3. Run the generator script:
+2. Regenerate:
    ```bash
-   cd ui
    npm run generate:api
    ```
-   *Note: This command uses `openapi-typescript-codegen` (Node.js) instead of the Java-based generator.*
 
-The client source is generated into `src/api/generated`. Do not modify these files manually.
+## Mock layer
 
-## Development with Mocks
-
-The UI includes an MSW (Mock Service Worker) based API mocking layer for local development and testing without a real backend.
-
-From the repository root, launch the complete feature showcase and open it in
-the browser:
-
-```bash
-npm run dev:page
-```
-
-This starts the UI without the Python server, opens the populated Protein
-Folding project, and provides fixtures for entity dashboards, workflows, runs,
-metrics, scheduler data, assets, knowledge, agents, approvals, plans, curation,
-settings, and workspace activity.
-
-### Enabling Mocks
-
-To enable API mocking in development:
-
-1. Run the dev server with the mock flag:
-   ```bash
-   npm run dev:mock
-   ```
-
-2. All API requests will be intercepted by MSW
-
-### Disabling Mocks
-
-To connect to the real backend, run the dev server without `--mock`.
-
-### Mock Layer Documentation
-
-See [`mocks/README.md`](mocks/README.md) for:
-- Architecture overview
-- How to seed custom data for tests
-- How to override handlers for specific scenarios
-- API coverage details
+`dev:page` enables MSW. See [`mocks/README.md`](mocks/README.md) for architecture, seeding, and handler overrides.
 
 
 ## Registry System

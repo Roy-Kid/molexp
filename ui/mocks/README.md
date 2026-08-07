@@ -46,27 +46,17 @@ ui/mocks/
 
 ## Development Usage
 
-### Enabling Mocks in Development
-
-From the repository root, launch the full feature showcase:
+| Script | Mode |
+|--------|------|
+| `npm run dev` | Real API proxy (no MSW) |
+| `npm run dev:page` | MSW mock + open seeded Protein Folding project |
 
 ```bash
+# From repo root or ui/
 npm run dev:page
 ```
 
-This opens the seeded project automatically. To start mock mode without
-opening a browser:
-
-1. Run the development server with the mock script:
-   ```bash
-   npm run dev:mock
-   ```
-
-2. All API requests will be intercepted by MSW. Check the browser console for `[MSW]` prefixed logs.
-
-### Disabling Mocks
-
-Run the dev server without `--mock` to connect to the real backend.
+Console logs are prefixed with `[MSW]`. To hit a real backend, use `npm run dev` instead (and start the API separately).
 
 ## Test Usage
 

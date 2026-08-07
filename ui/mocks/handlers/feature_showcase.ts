@@ -1,5 +1,5 @@
 /**
- * Cross-feature fixtures for `npm run dev:page` / `dev:mock`.
+ * Cross-feature fixtures for `npm run dev:page`.
  *
  * Domain handlers own entity CRUD. This file fills the small read models that
  * span domains (knowledge, activity, plans, approvals, cache and workspaces),

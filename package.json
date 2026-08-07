@@ -9,7 +9,6 @@
   "scripts": {
     "dev": "npm run dev -w molexp-ui",
     "dev:page": "npm run dev:page -w molexp-ui --",
-    "dev:mock": "npm run dev:mock -w molexp-ui",
     "build": "npm run build -w molexp-ui",
     "build:ui": "npm run build -w molexp-ui",
     "typecheck": "npm run typecheck -w molexp-ui",

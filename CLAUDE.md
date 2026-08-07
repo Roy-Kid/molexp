@@ -20,7 +20,7 @@ mol_project:
   ci:
     config: .github/workflows/ci.yml
   dev:
-    command: "cd ui && npm run dev:mock"
+    command: "cd ui && npm run dev:page"
     url: "http://localhost:5173"
     ready_pattern: "Local:"
     url_pattern: "Local:\\s+(https?://\\S+)"
