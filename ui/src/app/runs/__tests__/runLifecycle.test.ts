@@ -1,9 +1,5 @@
 import { describe, expect, it } from "@rstest/core";
-import {
-  canAnalyzeFailure,
-  canHarvest,
-  canStart,
-} from "@/app/runs/runLifecycle";
+import { canAnalyzeFailure, canHarvest, canStart } from "@/app/runs/runLifecycle";
 
 describe("runLifecycle knowledge affordances", () => {
   it("exposes harvest on terminal statuses", () => {
