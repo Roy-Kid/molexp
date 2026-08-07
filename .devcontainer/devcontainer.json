@@ -1,22 +1,19 @@
-// For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/anaconda
 {
+  "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.schema.json",
   "name": "molexp",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {},
-    "ghcr.io/devcontainers/features/anaconda:1": {}
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true
+    },
+    // FastAPI/typer backend + the molexp-ui npm workspace, so both toolchains.
+    "ghcr.io/molcrafts/devcontainers/molexp:1": {}
   },
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "ms-python.python",
-        "ms-python.black-formatter",
-        "ms-python.isort",
-        "ms-toolsai.jupyter"
-      ]
-    }
+  "postCreateCommand": "uv sync --extra dev && npm install && prek install",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": { "label": "molexp API (uvicorn)", "onAutoForward": "notify" }
   },
-  "mounts": [],
-  "remoteUser": "root"
+  "remoteUser": "vscode"
 }
