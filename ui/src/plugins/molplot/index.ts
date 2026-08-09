@@ -52,11 +52,7 @@ const molplotPlugin: UiPluginModule = {
       label: "MolPlot",
       priority: 45,
       matcher: {
-        patterns: [
-          "**/.molexp-artifact.json",
-          "*.vl.json",
-          "**/*.vl.json",
-        ],
+        patterns: ["**/.molexp-artifact.json", "*.vl.json", "**/*.vl.json"],
         matches: (file) => {
           const path = `${file.relPath}`.toLowerCase().replace(/\\/g, "/");
           const name = file.name.toLowerCase();

@@ -112,15 +112,17 @@ def molq_config(tmp_path, monkeypatch):
     monkeypatch.setenv("MOLCRAFTS_HOME", str(tmp_path))
     config_dir = tmp_path / "molq" / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.toml"
+    config_path = config_dir / "config.yaml"
     jobs_dir = tmp_path / "jobs"
     jobs_dir.mkdir()
+    # molq ≥0.8 reads YAML only (TOML is rejected with ConfigError).
     config_path.write_text(
         f"""
-[profiles.demo]
-scheduler = "local"
-cluster_name = "demo-local"
-jobs_dir = "{jobs_dir}"
+profiles:
+  demo:
+    scheduler: local
+    cluster_name: demo-local
+    jobs_dir: "{jobs_dir}"
 """.strip()
     )
     dashboard._reset_submitor_cache()

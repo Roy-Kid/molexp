@@ -76,9 +76,7 @@ const molvisPlugin: UiPluginModule = {
         // them via a same-stem `.py` reader sidecar. See
         // molexp.server.preview and GET /api/assets/{id}/preview.
         matches: (file) =>
-          file.hasPreviewSidecar === true ||
-          isClassicMolvisFile(file) ||
-          isMolrecZarrMarker(file),
+          file.hasPreviewSidecar === true || isClassicMolvisFile(file) || isMolrecZarrMarker(file),
       },
       Component: MolvisTab,
     });

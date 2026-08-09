@@ -206,8 +206,12 @@ describe("command palette catalog", () => {
     const kinds = new Set(catalog.map((e) => e.ref.kind));
     expect(kinds.has("knowledge")).toBe(true);
     const hit = catalog.find((e) => e.ref.kind === "knowledge");
-    expect(hit?.ref.id).toBe("experiments/e1/failure-analysis-r1");
-    expect(entityPath(hit!.ref, snapshot)).toContain("/knowledge/");
+    expect(hit).toBeDefined();
+    if (hit === undefined) {
+      return;
+    }
+    expect(hit.ref.id).toBe("experiments/e1/failure-analysis-r1");
+    expect(entityPath(hit.ref, snapshot)).toContain("/knowledge/");
   });
 
   it("matches by name across kinds and ranks prefix first", () => {
