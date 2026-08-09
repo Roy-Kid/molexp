@@ -34,6 +34,7 @@ from .fs_local import LocalFileSystem
 from .models import FolderMetadata, WorkspaceMetadata
 from .project import Project
 from .utils import slugify
+from .validate import ValidationReport, validate_workspace
 
 # CLI-level root override: set by ``molexp run`` before executing the user
 # script so a script's ``me.Workspace(...)`` resolves against the CLI instead
@@ -207,6 +208,17 @@ class Workspace(Folder):
                 self.root, self.scope, event_root=_LocalPath(str(self.root))
             )
         return self._data_assets
+
+    # ── Conformance ─────────────────────────────────────────────────────
+
+    def validate(self) -> ValidationReport:
+        """Check this workspace against the layout + OKF laws. Writes nothing.
+
+        Reads through this workspace's own filesystem, so a remote workspace
+        validates over its own transport. See
+        :func:`~molexp.workspace.validate.validate_workspace`.
+        """
+        return validate_workspace(self.resolve(), fs=self._fs)
 
     # ── System folder accessors (singletons via lowercase property) ──────
 

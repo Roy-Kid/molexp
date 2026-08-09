@@ -72,3 +72,39 @@ def info(target_spec: TargetOption = ".") -> None:
         rprint("\n[bold]Profiles:[/bold]")
         for pname, count in sorted(profile_counts.items()):
             rprint(f"  [cyan]{pname}[/cyan]: {count}")
+
+
+@app.command()
+def validate(target_spec: TargetOption = ".", strict: bool = False) -> None:
+    """Check the workspace against the layout + OKF laws.
+
+    Read-only. Exits non-zero when the tree violates the layout law, so it
+    drops straight into a pre-commit hook or CI step. ``--strict`` also fails
+    on warnings (lazily-created state that is absent but legal).
+    """
+    try:
+        target, _transport, _fs, ws = open_workspace(target_spec)
+    except FileNotFoundError as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    except Exception as exc:
+        rprint(f"[red]Failed to open workspace:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    report = ws.validate()
+    rprint(f"[bold]Workspace:[/bold] {target}")
+
+    # Rule ids are printed bare: rich would eat a bracketed ``[run.ops]`` as
+    # console markup and silently drop it.
+    for v in report.errors:
+        rprint(f"  [red]error[/red]   {v.rule} — {v.path}: {v.detail}")
+    for v in report.warnings:
+        rprint(f"  [yellow]warning[/yellow] {v.rule} — {v.path}: {v.detail}")
+
+    if report.ok and not report.warnings:
+        rprint("\n[green]conforms[/green] — no violations")
+        return
+
+    rprint(f"\n{len(report.errors)} error(s), {len(report.warnings)} warning(s)")
+    if report.errors or (strict and report.warnings):
+        raise typer.Exit(1)

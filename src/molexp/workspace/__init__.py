@@ -138,6 +138,7 @@ from .targets import (
     target_run_dir,
     to_transport,
 )
+from .validate import ValidationReport, Violation, validate_workspace
 from .workspace import Workspace
 from .workspace_context import (
     ArtifactRef,
@@ -241,6 +242,8 @@ __all__ = [
     "Target",
     "TargetNotFound",
     "UniformSpace",
+    "ValidationReport",
+    "Violation",
     "WorkflowRef",
     "Workspace",
     "WorkspaceContext",
@@ -305,5 +308,6 @@ __all__ = [
     "target_run_dir",
     "target_to_transport",
     "to_transport",
+    "validate_workspace",
     "write_knowledge_item",
 ]
