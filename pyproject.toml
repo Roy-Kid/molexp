@@ -25,7 +25,6 @@ dependencies = [
     # molpy is a hard dependency (Frame/Block and the io readers); molrs is
     # reached ONLY through molpy — never import molrs directly.
     "molcrafts-molpy>=0.11.2",
-    "tidewave[fastapi]",
 ]
 
 [project.optional-dependencies]
