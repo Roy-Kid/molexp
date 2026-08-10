@@ -67,8 +67,13 @@ export interface FlowgramCanvasProps {
   onNodeClick?: (taskId: string) => void;
   /** When true the canvas is editable (drag / connect / add / remove). */
   editable?: boolean;
-  /** Fires on every edit with the current document (editable mode only). */
-  onChange?: (document: FlowgramDocument) => void;
+  /**
+   * Fires on user edits with the current document (editable mode only).
+   * Receives `null` when the undo stack is empty again (discard / undo-all)
+   * so the host can clear its dirty flag — mount-time auto-layout never
+   * counts as an edit.
+   */
+  onChange?: (document: FlowgramDocument | null) => void;
   className?: string;
 }
 
@@ -127,20 +132,41 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
  * `useAutoLayout` can resolve the layout service the free-layout preset
  * registers. Runs a frame after mount, then once more shortly after in case the
  * first pass beat the node-size ResizeObserver.
+ *
+ * Two independent gates:
+ * - **visual** (`onVisualReady`) — lift the layout mask once nodes are placed
+ * - **dirty** (`settledRef`) — open `onContentChange` only after layout is done,
+ *   history is cleared, and a quiet window has passed. Auto-layout emits
+ *   MOVE_NODE for every node; those must never set the host dirty flag
+ *   (experiment dashboard was prompting "save changes" on leave with zero edits).
  */
-const AutoLayoutOnMount = ({ settledRef }: { settledRef: MutableRefObject<boolean> }): null => {
+const AutoLayoutOnMount = ({
+  settledRef,
+  ignoreDirtyUntilRef,
+  onVisualReady,
+}: {
+  settledRef: MutableRefObject<boolean>;
+  ignoreDirtyUntilRef: MutableRefObject<number>;
+  onVisualReady: () => void;
+}): null => {
   const autoLayout = useAutoLayout();
-  // `useAutoLayout()` hands back a fresh bound fn every render, so the effect
-  // must NOT depend on it — otherwise every re-render (notably a node drag)
-  // re-fires auto-layout + fitView and the node snaps back / the view jumps.
-  // Capture the latest fn in a ref and run the layout exactly once on mount.
+  const ctx = useClientContext();
+  // `useAutoLayout()` / history clear need stable refs — fresh bound fns every
+  // render would re-fire layout on every drag re-render.
   const autoLayoutRef = useRef(autoLayout);
   autoLayoutRef.current = autoLayout;
+  const historyRef = useRef(ctx.history);
+  historyRef.current = ctx.history;
+  const onVisualReadyRef = useRef(onVisualReady);
+  onVisualReadyRef.current = onVisualReady;
   const ranRef = useRef(false);
   useEffect(() => {
     if (ranRef.current) return;
     ranRef.current = true;
     let active = true;
+    let visualReady = false;
+    let dirtyGateOpen = false;
+
     const run = async () => {
       try {
         await autoLayoutRef.current();
@@ -148,24 +174,53 @@ const AutoLayoutOnMount = ({ settledRef }: { settledRef: MutableRefObject<boolea
         console.error("[flowgram auto-layout]", err);
       }
     };
+
+    const markVisualReady = (): void => {
+      if (!active || visualReady) return;
+      visualReady = true;
+      onVisualReadyRef.current();
+    };
+
+    const openDirtyGate = (): void => {
+      if (!active || dirtyGateOpen) return;
+      dirtyGateOpen = true;
+      // Drop layout-generated undo entries so canUndo() is false until a real
+      // user drag/connect. onContentChange keys dirty off canUndo().
+      try {
+        historyRef.current.clear();
+      } catch {
+        // History is optional when the canvas is read-only.
+      }
+      settledRef.current = true;
+      // Brief suppress for straggler MOVE_NODEs that land after history.clear().
+      ignoreDirtyUntilRef.current = Date.now() + 200;
+    };
+
+    const settleAfterLayout = async (): Promise<void> => {
+      await run();
+      // Residual ResizeObserver / fitView MOVE_NODEs often land a frame or two
+      // after the layout promise resolves — wait them out before opening dirty.
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 120);
+      });
+      if (!active) return;
+      openDirtyGate();
+      markVisualReady();
+    };
+
     const raf = requestAnimationFrame(() => {
       if (active) void run();
     });
     const retry = setTimeout(() => {
-      if (active) {
-        void run().finally(() => {
-          // The mount-time layout passes are done — content changes from here
-          // on are USER edits (the gate `onContentChange` checks, so the
-          // auto-layout itself never marks the document dirty).
-          settledRef.current = true;
-        });
-      }
+      if (active) void settleAfterLayout();
     }, 250);
+    // Visual only: never open the dirty gate early (that was the false-dirty bug).
+    const failSafe = setTimeout(markVisualReady, 800);
     return () => {
       active = false;
-      // An unmounted canvas never settles — but it also never edits.
       cancelAnimationFrame(raf);
       clearTimeout(retry);
+      clearTimeout(failSafe);
     };
   }, [settledRef]);
   return null;
@@ -233,6 +288,11 @@ export const FlowgramCanvas = ({
   onChangeRef.current = onChange;
   // False until the mount-time auto-layout passes finish (AutoLayoutOnMount).
   const layoutSettledRef = useRef(false);
+  // Epoch ms — ignore dirty signals until this time (residual layout after gate).
+  const ignoreDirtyUntilRef = useRef(0);
+  // Visual gate: keep a solid mask up while coarse-grid → dagre still jumps.
+  // Ref for dirty tracking; state for the overlay (ref alone cannot re-render).
+  const [layoutReady, setLayoutReady] = useState(false);
 
   const editorProps = useMemo<FreeLayoutProps>(() => {
     // Resolve each edge's status so its colour/animation tracks the run. An edge
@@ -293,10 +353,19 @@ export const FlowgramCanvas = ({
             nodeEngine: { enable: true },
             history: { enable: true },
             onContentChange(ctx) {
-              // The mount-time auto-layout also mutates the document; only
-              // post-settle changes are user edits worth a dirty flag (an
-              // unguarded page used to warn on unload without any edit).
+              // Dirty tracking is history-backed, not "any document mutation":
+              // 1) Mount-time auto-layout MOVE_NODEs fire before the dirty gate
+              //    opens (AutoLayoutOnMount clears history, then opens the gate).
+              // 2) A short post-gate suppress ignores residual layout MOVE_NODEs.
+              // 3) After that, only undoable user edits count — if the user
+              //    undoes everything, canUndo() is false and we emit null so
+              //    the host drops its draft (no false leave-prompt).
               if (!layoutSettledRef.current) return;
+              if (Date.now() < ignoreDirtyUntilRef.current) return;
+              if (!ctx.history.canUndo()) {
+                onChangeRef.current?.(null);
+                return;
+              }
               onChangeRef.current?.(ctx.document.toJSON() as unknown as FlowgramDocument);
             },
           }
@@ -327,11 +396,32 @@ export const FlowgramCanvas = ({
     <SubworkflowExpandContext.Provider value={(taskId, inner) => setExpanded({ taskId, inner })}>
       <NodeDataContext.Provider value={nodeDataById}>
         <div className={`relative h-full w-full ${className ?? ""}`}>
-          <FreeLayoutEditorProvider {...editorProps}>
-            <EditorRenderer />
-            <AutoLayoutOnMount settledRef={layoutSettledRef} />
-            <FlowgramCanvasControls editable={editable} />
-          </FreeLayoutEditorProvider>
+          {/*
+            Keep the editor mounted and sized under the mask (opacity only) so
+            node ResizeObservers + auto-layout measure real rects. Hiding via
+            display:none / unmount would zero sizes and re-trigger the jump.
+          */}
+          <div
+            className={`h-full w-full mol-motion-fade ${layoutReady ? "opacity-100" : "opacity-0"}`}
+            aria-hidden={!layoutReady}
+          >
+            <FreeLayoutEditorProvider {...editorProps}>
+              <EditorRenderer />
+              <AutoLayoutOnMount
+                settledRef={layoutSettledRef}
+                ignoreDirtyUntilRef={ignoreDirtyUntilRef}
+                onVisualReady={() => setLayoutReady(true)}
+              />
+              <FlowgramCanvasControls editable={editable} />
+            </FreeLayoutEditorProvider>
+          </div>
+          {!layoutReady && (
+            <div
+              className="absolute inset-0 z-20 bg-canvas"
+              aria-busy="true"
+              aria-label="Laying out workflow"
+            />
+          )}
         </div>
       </NodeDataContext.Provider>
 

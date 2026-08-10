@@ -1,18 +1,15 @@
-import { Boxes, FileQuestion, ServerCog } from "lucide-react";
+import { FileQuestion, ServerCog } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
-  DashboardCard,
-  DashboardGrid,
+  DashboardCanvas,
   EmptyState,
   EntityHeader,
-  EntityMetric,
   EntityTabBar,
   EntityTabContent,
   EntityTabs,
-  StatCard,
-  StatGrid,
+  OverviewSurface,
 } from "@/app/components/entity";
-import { formatScalar, statusTone } from "@/app/renderers/dashboardData";
+import { formatScalar } from "@/app/renderers/dashboardData";
 import { RunExecutionsPanel } from "@/app/renderers/RunExecutionsPanel";
 import { RunLogsPanel } from "@/app/renderers/RunLogsPanel";
 import { RunViewer } from "@/app/renderers/RunViewer";
@@ -22,8 +19,15 @@ import { POST_DISPATCH_TAB, RunToolbar } from "@/app/runs/RunToolbar";
 import { workspaceApi } from "@/app/state/api";
 import { useDiscoveredFileTypesForRun } from "@/app/state/useDiscoveredFileTypes";
 import type { ApiAssetResponse, RendererProps } from "@/app/types";
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import { WorkbenchAction } from "@/components/workbench";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { formatDateTime } from "@/lib/datetime";
 
 const getExecutorEntry = (
   executorInfo: Record<string, string>,
@@ -38,15 +42,9 @@ const getExecutorEntry = (
   return null;
 };
 
-const formatExecutorLabel = (key: string): string => {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
-};
-
 export const MolqRunViewer = (props: RendererProps): JSX.Element => {
   const {
     run,
-    project,
-    experiment,
     workflow,
     selectedRunId,
     activeTab,
@@ -109,44 +107,48 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
   const scheduler = getExecutorEntry(run.executorInfo, "scheduler") ?? "unknown";
   const cluster = getExecutorEntry(run.executorInfo, "cluster_name", "cluster") ?? "default";
   const jobId = getExecutorEntry(run.executorInfo, "job_id") ?? "pending";
-  const schedulerJobId = getExecutorEntry(run.executorInfo, "scheduler_job_id") ?? "not assigned";
-  const details = Object.entries(run.executorInfo);
   const outputResults = resultEntries.map(([key, value]) => ({ key, value }));
 
-  const fieldGrid = (entries: [string, unknown][], emptyLabel: string): JSX.Element =>
+  const keyValueTable = (entries: [string, unknown][], emptyLabel: string): JSX.Element =>
     entries.length === 0 ? (
-      <p className="text-label italic text-muted-foreground">{emptyLabel}</p>
+      <p className="py-4 text-label text-muted-foreground">{emptyLabel}</p>
     ) : (
-      <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
-        {entries.map(([key, value]) => (
-          <div key={key} className="min-w-0">
-            <dt className="truncate text-micro uppercase tracking-wide text-muted-foreground">
-              {key}
-            </dt>
-            <dd
-              className="truncate font-mono text-label text-foreground"
-              title={formatScalar(value)}
-            >
-              {formatScalar(value)}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-2/5">Key</TableHead>
+            <TableHead>Value</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {entries.map(([key, value]) => {
+            const text = formatScalar(value);
+            return (
+              <TableRow key={key}>
+                <TableCell className="align-top text-label text-muted-foreground">{key}</TableCell>
+                <TableCell className="break-all font-mono text-label text-foreground" title={text}>
+                  {text}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     );
+
+  const ops: string[] = [];
+  if (run.startedAt) ops.push(`started ${formatDateTime(run.startedAt)}`);
+  if (duration) ops.push(duration);
+  ops.push(scheduler, cluster);
+  if (jobId !== "pending") ops.push(`job ${jobId}`);
+  if (attemptCount > 1) ops.push(`${attemptCount} attempts`);
+  if (runAssets.length > 0) ops.push(`${runAssets.length} assets`);
 
   return (
     <div className="flex h-full flex-col bg-background">
       <EntityHeader
         icon={ServerCog}
         title={run.name}
-        status={run.status}
-        subtitle={run.summary || undefined}
-        metrics={
-          <>
-            <EntityMetric label="scheduler" value={scheduler} />
-            <EntityMetric label="cluster" value={cluster} />
-          </>
-        }
         actions={
           <RunToolbar
             projectId={run.projectId}
@@ -195,117 +197,64 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
                 label: `Executions${attemptCount ? ` (${attemptCount})` : ""}`,
               },
               { value: "logs", label: "Logs" },
+              // Plugin tabs (molq, metrics, …) — data-driven only.
               ...runTabContributions.map((tab) => ({ value: tab.value, label: tab.label })),
               ...discoveredPlugins.map(({ contribution, files }) => ({
                 value: contribution.value,
                 label: `${contribution.label} (${files.length})`,
               })),
-              { value: "scheduler", label: "Scheduler" },
             ]}
           />
 
           <EntityTabContent value="overview">
-            <DashboardGrid>
-              <div className="lg:col-span-12">
-                <StatGrid>
-                  <StatCard label="Status" value={run.status} tone={statusTone(run.status)} />
-                  <StatCard label="Duration" value={duration ?? "—"} muted={!duration} />
-                  <StatCard
-                    label="Attempts"
-                    value={attemptCount || 1}
-                    hint={attemptCount > 1 ? `${attemptCount} executions` : "single attempt"}
-                  />
-                  <StatCard label="Scheduler" value={scheduler} />
-                  <StatCard label="Cluster" value={cluster} />
-                </StatGrid>
-              </div>
-
-              <DashboardCard title="Scheduler" className="lg:col-span-5">
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
-                  <div className="min-w-0">
-                    <dt className="text-micro uppercase tracking-wide text-muted-foreground">
-                      Job ID
-                    </dt>
-                    <dd className="truncate font-mono text-label text-foreground">{jobId}</dd>
-                  </div>
-                  <div className="min-w-0">
-                    <dt className="text-micro uppercase tracking-wide text-muted-foreground">
-                      Scheduler Job ID
-                    </dt>
-                    <dd className="truncate font-mono text-label text-foreground">
-                      {schedulerJobId}
-                    </dd>
-                  </div>
-                  <div className="min-w-0">
-                    <dt className="text-micro uppercase tracking-wide text-muted-foreground">
-                      Backend
-                    </dt>
-                    <dd className="truncate font-mono text-label text-foreground">molq</dd>
-                  </div>
-                  <div className="min-w-0">
-                    <dt className="text-micro uppercase tracking-wide text-muted-foreground">
-                      Cluster
-                    </dt>
-                    <dd className="truncate font-mono text-label text-foreground">{cluster}</dd>
-                  </div>
-                </dl>
-              </DashboardCard>
-
-              <DashboardCard title="Lineage" className="lg:col-span-7">
-                <div className="flex flex-wrap gap-2">
-                  <WorkbenchAction
-                    kind="secondary"
-                    size="compact"
-                    className="h-control-compact px-2 text-label"
-                    onClick={() => setSelection({ objectType: "project", objectId: run.projectId })}
+            <OverviewSurface>
+              <DashboardCanvas className="max-w-4xl space-y-10">
+                {run.errorMessage && (
+                  <section
+                    className="rounded-panel border border-status-failed/25 bg-status-failed-soft px-4 py-3"
+                    aria-label="Run error"
                   >
-                    Project · {project?.name || run.projectId}
-                  </WorkbenchAction>
-                  <WorkbenchAction
-                    kind="secondary"
-                    size="compact"
-                    className="h-control-compact px-2 text-label"
-                    onClick={() =>
-                      setSelection({ objectType: "experiment", objectId: run.experimentId })
-                    }
-                  >
-                    Experiment · {experiment?.name || run.experimentId}
-                  </WorkbenchAction>
-                  {workflow && (
-                    <WorkbenchAction
-                      kind="secondary"
-                      size="compact"
-                      className="h-control-compact px-2 text-label"
-                      onClick={() =>
-                        setSelection({
-                          objectType: "workflow",
-                          objectId: workflow.id,
-                          workflowId: workflow.id,
-                        })
-                      }
-                    >
-                      Workflow · {workflow.name}
-                    </WorkbenchAction>
-                  )}
+                    <p className="text-label font-medium text-status-failed-foreground">Error</p>
+                    <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-label leading-relaxed text-status-failed-foreground">
+                      {run.errorMessage}
+                    </pre>
+                  </section>
+                )}
+
+                {ops.length > 0 && (
+                  <p className="font-mono text-micro tabular-nums text-muted-foreground">
+                    {ops.join(" · ")}
+                  </p>
+                )}
+
+                {run.summary ? (
+                  <p className="max-w-2xl text-body leading-relaxed text-muted-foreground">
+                    {run.summary}
+                  </p>
+                ) : null}
+
+                <div className="grid gap-10 lg:grid-cols-2">
+                  <section className="min-w-0 space-y-3">
+                    <h3 className="text-body-lg font-medium text-foreground">
+                      Parameters
+                      <span className="ml-2 font-mono text-micro font-normal text-muted-foreground">
+                        {parameterEntries.length}
+                      </span>
+                    </h3>
+                    {keyValueTable(parameterEntries, "No parameters")}
+                  </section>
+                  <section className="min-w-0 space-y-3">
+                    <h3 className="text-body-lg font-medium text-foreground">
+                      Results
+                      <span className="ml-2 font-mono text-micro font-normal text-muted-foreground">
+                        {resultEntries.length}
+                      </span>
+                    </h3>
+                    {keyValueTable(resultEntries, "No results")}
+                  </section>
                 </div>
-              </DashboardCard>
-
-              {run.errorMessage && (
-                <DashboardCard title="Error" className="border-destructive/30 lg:col-span-12">
-                  <pre className="whitespace-pre-wrap break-words font-mono text-label text-destructive">
-                    {run.errorMessage}
-                  </pre>
-                </DashboardCard>
-              )}
-
-              <DashboardCard title="Parameters" className="lg:col-span-6">
-                {fieldGrid(parameterEntries, "—")}
-              </DashboardCard>
-
-              <DashboardCard title="Results" className="lg:col-span-6">
-                {fieldGrid(resultEntries, "—")}
-              </DashboardCard>
-            </DashboardGrid>
+              </DashboardCanvas>
+            </OverviewSurface>
           </EntityTabContent>
 
           <EntityTabContent value="outputs">
@@ -365,33 +314,6 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
               </EntityTabContent>
             );
           })}
-
-          <EntityTabContent value="scheduler">
-            <div className="flex-1 overflow-auto p-4">
-              <section>
-                <h3 className="flex items-center gap-2 text-micro font-medium uppercase text-muted-foreground">
-                  <Boxes className="h-3.5 w-3.5" />
-                  Normalized Executor Info
-                </h3>
-                <div className="mt-2 overflow-hidden border-y border-border/70">
-                  <Table className="w-full text-left text-body-lg">
-                    <TableBody className="divide-y divide-border/50">
-                      {details.map(([key, value]) => (
-                        <TableRow key={key}>
-                          <TableCell className="w-56 py-2 pr-4 text-label font-medium text-muted-foreground">
-                            {formatExecutorLabel(key)}
-                          </TableCell>
-                          <TableCell className="break-all py-2 font-mono text-label text-foreground">
-                            {value}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </section>
-            </div>
-          </EntityTabContent>
         </EntityTabs>
       </div>
       {confirmDialog}

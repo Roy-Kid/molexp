@@ -27,6 +27,13 @@ export interface RelationGroup {
   refs: EntityRef[];
 }
 
+/**
+ * Ancestor / provenance edges — shown as **Lineage** in the right inspector.
+ * Everything else from ``resolveRelations`` is **Related** (children, siblings).
+ * Order is display order for the lineage chain (project → experiment → …).
+ */
+export const LINEAGE_RELATIONS: readonly string[] = ["project", "experiment", "workflow", "plan"];
+
 const projectRef = (id: string, snapshot: WorkspaceSnapshot): EntityRef => {
   const project = snapshot.projects.find((p) => p.id === id);
   return { kind: "project", id, label: project?.name ?? id, status: project?.status };

@@ -12,7 +12,8 @@ import type { BreadcrumbItem, LeftPanelView, Selection, WorkspaceSnapshot } from
 import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 
 const SECTION_ROOT: Record<LeftPanelView, BreadcrumbItem> = {
-  projects: { label: "Experiments", to: SECTION_PATH.projects },
+  // Top of the hierarchy is Project (not Experiment) — see LeftPanel viewOptions.
+  projects: { label: "Projects", to: SECTION_PATH.projects },
   workspace: { label: "Workspace", to: SECTION_PATH.workspace },
   runs: { label: "Runs", to: SECTION_PATH.runs },
   activity: { label: "Activity", to: SECTION_PATH.activity },

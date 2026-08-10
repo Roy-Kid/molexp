@@ -61,6 +61,11 @@ export interface EntityTabContribution {
   value: string;
   label: string;
   priority?: number;
+  /**
+   * Optional gate (e.g. molq backend only). When omitted the tab is always
+   * offered for ``objectType``.
+   */
+  matches?: (context: { selection: Selection; snapshot: WorkspaceSnapshot }) => boolean;
   Component: React.ComponentType<RendererProps>;
 }
 

@@ -6,15 +6,21 @@
 import { afterEach, beforeEach, describe, expect, it, rs } from "@rstest/core";
 
 import {
+  listEntityTabs,
   listExecutionColumns,
   listExecutionDetails,
+  registerEntityTabContribution,
   registerExecutionColumn,
   registerExecutionDetail,
 } from "@/app/registry";
 import { resetContributionRuntimeForTests } from "@/plugins/contribution-runtime";
 import { molqApi } from "@/plugins/molq/api";
 import { formatDuration, formatRelative } from "@/plugins/molq/format";
-import type { ExecutionColumnContribution, ExecutionDetailContribution } from "@/plugins/types";
+import type {
+  EntityTabContribution,
+  ExecutionColumnContribution,
+  ExecutionDetailContribution,
+} from "@/plugins/types";
 
 beforeEach(() => {
   resetContributionRuntimeForTests();
@@ -103,6 +109,76 @@ describe("execution column registry", () => {
 
     const cols = listExecutionColumns("molq");
     expect(cols.map((c) => c.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("molq entity tab gate", () => {
+  it("listEntityTabs filters by matches so Molq only appears for molq backends", () => {
+    const isMolq = (
+      runId: string,
+      runs: Array<{ id: string; executorInfo: Record<string, string> }>,
+    ) => runs.find((r) => r.id === runId)?.executorInfo.backend === "molq";
+
+    registerEntityTabContribution({
+      id: "molq:run-tab",
+      objectType: "run",
+      value: "molq",
+      label: "Molq",
+      matches: ({ selection, snapshot }) => isMolq(selection.objectId, snapshot.runs),
+      Component: (() => null) as EntityTabContribution["Component"],
+    });
+
+    const baseRun = {
+      name: "r",
+      status: "succeeded" as const,
+      summary: "",
+      updatedAt: "",
+      projectId: "p",
+      experimentId: "e",
+      profile: null,
+      configHash: null,
+      parameters: {},
+      results: {},
+      workflowSource: null,
+      workflowSnapshot: null,
+      startedAt: null,
+      finishedAt: null,
+      executionHistory: [],
+      errorMessage: null,
+    };
+
+    const molqTabs = listEntityTabs("run", {
+      selection: { objectType: "run", objectId: "r1" },
+      snapshot: {
+        workspaces: [],
+        projects: [],
+        experiments: [],
+        runs: [{ ...baseRun, id: "r1", name: "r1", executorInfo: { backend: "molq" } }],
+        assets: [],
+        workflows: [],
+        agentSessions: [],
+        workspaceRoot: null,
+        consoleEntries: [],
+      },
+    });
+    expect(molqTabs.map((t) => t.value)).toEqual(["molq"]);
+    expect(molqTabs[0]?.label).toBe("Molq");
+
+    const localTabs = listEntityTabs("run", {
+      selection: { objectType: "run", objectId: "r2" },
+      snapshot: {
+        workspaces: [],
+        projects: [],
+        experiments: [],
+        runs: [{ ...baseRun, id: "r2", name: "r2", executorInfo: { backend: "local" } }],
+        assets: [],
+        workflows: [],
+        agentSessions: [],
+        workspaceRoot: null,
+        consoleEntries: [],
+      },
+    });
+    expect(localTabs.map((t) => t.value)).toEqual([]);
   });
 });
 

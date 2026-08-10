@@ -501,7 +501,7 @@ export const agentAdminHandlers = [
   // Test connection mock — the real backend probes the actual provider, but
   // here we cannot reach the network. Always return ok=false with a clear
   // "[MOCK]" prefix so users running `dev:mock` aren't tricked into thinking
-  // a fake key worked. Switch to `npm run dev` against a real backend to
+  // a fake key worked. Switch to `npm run dev:api` against a real backend to
   // actually validate credentials.
   http.post("/api/agent/provider/test", async ({ request }) => {
     const body = (await request.json()) as {
@@ -530,7 +530,7 @@ export const agentAdminHandlers = [
       latencyMs: 0,
       reply: "",
       error:
-        "[MOCK] dev:mock cannot validate credentials. Run `npm run dev` against a real backend to actually test the API key.",
+        "[MOCK] dev:mock cannot validate credentials. Run `npm run dev:api` against a real backend to actually test the API key.",
     });
   }),
 

@@ -23,7 +23,12 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 @router.get("", response_model=list[ProjectResponse])
 def list_projects(workspace=Depends(get_workspace)) -> list[ProjectResponse]:  # noqa: ANN001
-    return [ProjectResponse.from_model(p) for p in workspace.list_projects()]
+    # experimentCount is what the UI shows before a project is expanded
+    # ("3 exp" vs forever "…"); cheap list_experiments on open is intentional.
+    return [
+        ProjectResponse.from_model(p, experiment_count=len(p.list_experiments()))
+        for p in workspace.list_projects()
+    ]
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

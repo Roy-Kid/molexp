@@ -17,7 +17,7 @@ interface EmptySelectionCopy {
 }
 
 // Per-view empty-selection copy — the placeholder must speak the language of
-// the section the user is looking at, not always the Experiments tree.
+// the section the user is looking at, not always the Projects tree.
 const EMPTY_SELECTION_COPY: Partial<Record<LeftPanelView, EmptySelectionCopy>> = {
   agent: {
     title: "No agent task selected",

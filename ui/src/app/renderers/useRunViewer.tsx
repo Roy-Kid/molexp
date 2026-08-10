@@ -62,7 +62,11 @@ export const useRunViewer = (props: RendererProps): UseRunViewer => {
   const [logs, setLogs] = useState<RunLogs>(null);
   const [logsError, setLogsError] = useState<string | null>(null);
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
-  const runTabContributions = listEntityTabs("run");
+  // Filter plugin tabs (e.g. molq) by contribution.matches when present.
+  const runTabContributions = listEntityTabs("run", {
+    selection: props.selection,
+    snapshot: props.snapshot,
+  });
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { alert, dialog: alertDialog } = useAlert();
 

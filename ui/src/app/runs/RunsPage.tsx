@@ -382,7 +382,7 @@ export const RunsPage = ({
       <EntityHeader
         icon={ListChecks}
         title="Runs"
-        subtitle={headerSummary}
+        titleTooltip={headerSummary}
         actions={
           <>
             {tab === "overview" && (
@@ -393,16 +393,19 @@ export const RunsPage = ({
                 onReset={layout.reset}
               />
             )}
-            <span className="hidden text-label text-muted-foreground sm:inline">
-              Synced {lastSyncedAt ? formatRelative(lastSyncedAt.toISOString()) : "—"}
-            </span>
             <WorkbenchIconAction
               label={loading ? "Refreshing runs" : "Refresh runs"}
               kind="ghost"
               type="button"
               onClick={refresh}
               disabled={loading}
-              title={loading ? "Refreshing…" : "Refresh"}
+              title={
+                loading
+                  ? "Refreshing…"
+                  : lastSyncedAt
+                    ? `Refresh · synced ${formatRelative(lastSyncedAt.toISOString())}`
+                    : "Refresh"
+              }
               size="default"
               className="text-muted-foreground hover:text-foreground"
             >

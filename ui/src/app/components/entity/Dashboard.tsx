@@ -1,10 +1,12 @@
 import { WorkbenchAction, WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 // ─────────────────────────────────────────────────────────────────────────────
 // Dashboard primitives — section / chart vocabulary for entity Overviews.
-// Pure presentation only; no shadcn Card layout wrappers.
+// Shared by Project / Experiment / Run so hierarchy pages share one surface
+// language (canvas shell + mono section headers + hairline borders). Pure
+// presentation only; no shadcn Card layout wrappers.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, type LucideIcon } from "lucide-react";
 import { type JSX, type ReactNode, useId, useState } from "react";
 
 import { STATUS_GROUPS } from "@/app/runs/statusGroups";
@@ -140,7 +142,11 @@ interface StatCardProps {
   active?: boolean;
 }
 
-/** One headline number. The atom of every dashboard. */
+/**
+ * Headline number for rare decision-bearing metrics (e.g. filterable run
+ * dashboards). Prefer MetaStrip / StatusInline on Project · Experiment · Run
+ * overviews — see information-design stage `info`.
+ */
 export const StatCard = ({
   label,
   value,
@@ -202,11 +208,234 @@ interface StatGridProps {
   className?: string;
 }
 
-/** Responsive grid for a row of StatCard. */
+/** Responsive grid for a row of StatCard. Prefer MetaStrip on entity overviews. */
 export const StatGrid = ({ children, className }: StatGridProps): JSX.Element => (
   <div
     className={cn(
-      "grid grid-cols-2 gap-1 bg-surface/95 p-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
+      "grid grid-cols-2 border-b border-border/70 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
+      className,
+    )}
+  >
+    {children}
+  </div>
+);
+
+// ── MetaStrip — dense fact row (settings / secondary panels only) ────────────
+
+export interface MetaStripItem {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  copyValue?: string;
+  tone?: StatTone;
+  /** Hide when value is empty/zero noise. */
+  hide?: boolean;
+}
+
+interface MetaStripProps {
+  items: MetaStripItem[];
+  className?: string;
+  /** Optional trailing control cluster (actions, status bar). */
+  trailing?: ReactNode;
+}
+
+/**
+ * Compact fact row for settings and secondary panels.
+ * Entity overviews should prefer OverviewToolbar + a primary table instead.
+ */
+export const MetaStrip = ({ items, className, trailing }: MetaStripProps): JSX.Element => {
+  const visible = items.filter((item) => !item.hide);
+  return (
+    <div
+      className={cn(
+        "flex min-h-control-comfortable flex-wrap items-center gap-x-1 gap-y-1 border-b border-border bg-surface-subtle/40 px-3 py-1.5",
+        className,
+      )}
+    >
+      <dl className="flex min-w-0 flex-1 flex-wrap items-center gap-x-0 gap-y-1">
+        {visible.map((item, index) => (
+          <div key={item.label} className="flex min-w-0 items-center">
+            {index > 0 && <span className="mx-2 h-3 w-px shrink-0 bg-border" aria-hidden />}
+            <dt className="mr-1.5 shrink-0 text-micro text-muted-foreground">{item.label}</dt>
+            <dd
+              className={cn(
+                "flex min-w-0 items-center gap-0.5 text-label text-foreground",
+                item.mono && "font-mono",
+                item.tone && item.tone !== "neutral" && STAT_VALUE_TONE[item.tone],
+                item.tone === "neutral" && "tabular-nums",
+              )}
+            >
+              <span className="min-w-0 truncate">{item.value}</span>
+              {item.copyValue !== undefined && (
+                <CopyButton value={item.copyValue} label={item.label} className="size-5" />
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {trailing != null && (
+        <div className="ml-auto flex shrink-0 items-center gap-2">{trailing}</div>
+      )}
+    </div>
+  );
+};
+
+// ── OverviewToolbar — single chrome band above the primary table ─────────────
+
+interface OverviewToolbarProps {
+  /** Status rollup, fixed-param chips, filters. */
+  leading?: ReactNode;
+  /** Counts, “Open workflow”, etc. */
+  trailing?: ReactNode;
+  className?: string;
+}
+
+/**
+ * One 36px band under entity tabs. Overview pages use this instead of stacking
+ * MetaStrip + StatusInline + constants + section headers.
+ */
+export const OverviewToolbar = ({
+  leading,
+  trailing,
+  className,
+}: OverviewToolbarProps): JSX.Element => (
+  <div
+    className={cn(
+      "flex h-9 shrink-0 items-center gap-3 border-b border-border bg-surface px-3",
+      className,
+    )}
+  >
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">{leading}</div>
+    {trailing != null && <div className="ml-auto flex shrink-0 items-center gap-2">{trailing}</div>}
+  </div>
+);
+
+// ── StatusInline — one-line status bar + counts (not a legend card) ──────────
+
+interface StatusInlineProps {
+  counts: StatusCountRollup;
+  className?: string;
+  /** Drop own border/padding when nested in OverviewToolbar. */
+  embedded?: boolean;
+}
+
+/** Compact status: thin bar + non-zero counts only. Empty → null. */
+export const StatusInline = ({
+  counts,
+  className,
+  embedded = false,
+}: StatusInlineProps): JSX.Element | null => {
+  if (counts.total === 0) return null;
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3",
+        !embedded && "min-h-control-compact border-b border-border px-3 py-1.5",
+        className,
+      )}
+    >
+      <div className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:w-32">
+        <div className="flex h-full w-full">
+          {STATUS_GROUPS.map((group) => {
+            const value = counts[group.id];
+            if (value === 0) return null;
+            return (
+              <div
+                key={group.id}
+                title={`${group.label}: ${value}`}
+                className="h-full min-w-0.5"
+                style={{
+                  width: `${(value / counts.total) * 100}%`,
+                  backgroundColor: group.color,
+                }}
+              />
+            );
+          })}
+        </div>
+      </div>
+      <ul className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-micro tabular-nums text-muted-foreground">
+        {STATUS_GROUPS.map((group) => {
+          const value = counts[group.id];
+          if (value === 0) return null;
+          return (
+            <li key={group.id} className="inline-flex items-center gap-1">
+              <span
+                aria-hidden
+                className="size-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: group.color }}
+              />
+              <span className="font-medium text-foreground">{value}</span>
+              <span className="hidden sm:inline">{group.label}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+};
+
+// ── OverviewSurface ──────────────────────────────────────────────────────────
+
+interface OverviewSurfaceProps {
+  children: ReactNode;
+  className?: string;
+  /** Extra classes on the fill surface. */
+  surfaceClassName?: string;
+}
+
+/**
+ * Entity work surface shell. Solid background (no instrumentation grid).
+ * Inventory tabs fill height; Overview dashboards scroll with air.
+ */
+export const OverviewSurface = ({
+  children,
+  className,
+  surfaceClassName,
+}: OverviewSurfaceProps): JSX.Element => (
+  <div
+    className={cn(
+      "molexp-dashboard flex min-h-0 flex-1 flex-col overflow-auto bg-background",
+      className,
+    )}
+  >
+    <div className={cn("min-h-0 min-w-0 flex-1", surfaceClassName)}>{children}</div>
+  </div>
+);
+
+/**
+ * Padded, max-width canvas — Overview posture and inventory tabs share this air.
+ */
+export const DashboardCanvas = ({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}): JSX.Element => (
+  <div className={cn("mx-auto w-full max-w-5xl space-y-10 px-6 py-8 md:px-10 md:py-10", className)}>
+    {children}
+  </div>
+);
+
+/**
+ * Inventory tab body: same padding language as Overview, wider for tables.
+ * Full-height tables pass ``fill`` and put the table in a flex child.
+ */
+export const InventoryCanvas = ({
+  children,
+  className,
+  fill = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  /** Stretch to fill the tab (for DataTable tabs). */
+  fill?: boolean;
+}): JSX.Element => (
+  <div
+    className={cn(
+      fill
+        ? "flex h-full min-h-0 w-full flex-col px-4 pt-4 md:px-6 md:pt-5"
+        : "mx-auto w-full max-w-6xl space-y-6 px-6 py-6 md:px-10 md:py-8",
       className,
     )}
   >
@@ -218,6 +447,7 @@ export const StatGrid = ({ children, className }: StatGridProps): JSX.Element =>
 
 interface DashboardCardProps {
   title?: ReactNode;
+  /** Quiet secondary line under the title — prefer short counts, not prose. */
   description?: ReactNode;
   /** Right-aligned header slot — a count, a control, a link. */
   action?: ReactNode;
@@ -226,9 +456,19 @@ interface DashboardCardProps {
   bodyClassName?: string;
   /** Soft destructive surface for error banners. */
   variant?: "default" | "destructive";
+  /** Optional section glyph (Run overview style). */
+  icon?: LucideIcon;
+  /** Optional count badge in the section header. */
+  count?: number;
+  /** Copy payload for the header copy control. */
+  copyText?: string;
+  copyLabel?: string;
 }
 
-/** A titled section that groups related content on a dashboard (no Card chrome). */
+/**
+ * Quiet section on a full-bleed work surface.
+ * Toolbar-height label row — no accent gradients, no card chrome.
+ */
 export const DashboardCard = ({
   title,
   description,
@@ -237,38 +477,68 @@ export const DashboardCard = ({
   className,
   bodyClassName,
   variant = "default",
+  icon: Icon,
+  count,
+  copyText,
+  copyLabel,
 }: DashboardCardProps): JSX.Element => {
   const headingId = useId();
+  const hasHeader =
+    title != null || action != null || count !== undefined || copyText !== undefined;
 
   return (
     <section
       aria-labelledby={title != null ? headingId : undefined}
-      className={cn("flex min-w-0 flex-col bg-surface/95", className)}
+      aria-label={typeof title === "string" ? title : undefined}
+      className={cn(
+        "flex min-w-0 flex-col",
+        variant === "destructive" && "bg-status-failed-soft",
+        className,
+      )}
     >
-      {(title != null || action != null || description != null) && (
-        <header className="flex flex-row items-start justify-between gap-4 px-4 pb-1 pt-4">
-          <div className="min-w-0">
-            {title != null && (
-              <h3
-                id={headingId}
-                className={cn(
-                  "text-body font-semibold tracking-tight text-foreground",
-                  variant === "destructive" && "text-status-failed-foreground",
-                )}
-              >
-                {title}
-              </h3>
+      {hasHeader && (
+        <header className="flex h-control-compact items-center gap-2 border-b border-border px-3">
+          {Icon != null && (
+            <Icon
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground",
+                variant === "destructive" && "text-status-failed",
+              )}
+              aria-hidden
+            />
+          )}
+          {title != null && (
+            <h3
+              id={headingId}
+              className={cn(
+                "min-w-0 truncate text-label font-medium text-foreground",
+                variant === "destructive" && "text-status-failed-foreground",
+              )}
+            >
+              {title}
+            </h3>
+          )}
+          {count !== undefined && (
+            <span className="font-mono text-micro tabular-nums text-muted-foreground">{count}</span>
+          )}
+          {description != null && (
+            <span className="hidden min-w-0 truncate text-micro text-muted-foreground sm:inline">
+              {description}
+            </span>
+          )}
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {copyText !== undefined && (
+              <CopyButton
+                value={copyText}
+                label={copyLabel ?? String(title ?? "section")}
+                className="size-5"
+              />
             )}
-            {description != null && (
-              <p className="mt-1 max-w-2xl text-label leading-relaxed text-muted-foreground">
-                {description}
-              </p>
-            )}
+            {action}
           </div>
-          {action != null && <div className="flex-none self-center">{action}</div>}
         </header>
       )}
-      <div className={cn("px-4 pb-4 pt-3", bodyClassName)}>{children}</div>
+      <div className={cn("min-w-0", bodyClassName ?? "px-3 py-2")}>{children}</div>
     </section>
   );
 };
@@ -574,22 +844,23 @@ export const EntityPath = ({ segments, trailing, className }: EntityPathProps): 
 // ── Chip / tag ───────────────────────────────────────────────────────────────
 
 interface ParamChipProps {
-  name: string;
+  /** Optional key; omit for bare value chips in a labeled axis row. */
+  name?: string;
   value: string;
   className?: string;
 }
 
-/** Compact key=value chip used in run tables and parameter previews. */
+/** Compact key=value (or value-only) chip used in param previews. */
 export const ParamChip = ({ name, value, className }: ParamChipProps): JSX.Element => (
   <WorkbenchTag
     meaning="metadata"
     className={cn(
-      "max-w-36 gap-1 rounded-control border-border/70 bg-muted/30 px-2 py-1 font-normal",
+      "max-w-40 gap-1 rounded-control border-border/70 bg-muted/30 px-2 py-1 font-normal",
       className,
     )}
-    title={`${name}=${value}`}
+    title={name ? `${name}=${value}` : value}
   >
-    <span className="truncate text-muted-foreground">{name}</span>
+    {name ? <span className="truncate text-muted-foreground">{name}</span> : null}
     <span className="truncate font-mono text-foreground">{value}</span>
   </WorkbenchTag>
 );
@@ -599,18 +870,23 @@ export const ParamChip = ({ name, value, className }: ParamChipProps): JSX.Eleme
 interface DashboardGridProps {
   children: ReactNode;
   className?: string;
+  /** Classes for the outer canvas shell (padding / overflow). */
+  shellClassName?: string;
 }
 
-/** Scroll container + responsive 12-col grid the Overview lays cards onto. */
-export const DashboardGrid = ({ children, className }: DashboardGridProps): JSX.Element => (
-  <div className="molexp-dashboard flex-1 overflow-auto bg-canvas">
-    <div
-      className={cn(
-        "mx-auto grid w-full max-w-7xl grid-cols-1 items-start gap-4 p-4 sm:p-5 lg:grid-cols-12",
-        className,
-      )}
-    >
-      {children}
-    </div>
-  </div>
+/**
+ * Full-bleed surface with an optional 12-col grid for multi-column overviews.
+ * Prefer MetaStrip + primary table; avoid stacking equal empty widgets.
+ */
+export const DashboardGrid = ({
+  children,
+  className,
+  shellClassName,
+}: DashboardGridProps): JSX.Element => (
+  <OverviewSurface
+    className={shellClassName}
+    surfaceClassName={cn("grid grid-cols-1 content-start lg:grid-cols-12", className)}
+  >
+    {children}
+  </OverviewSurface>
 );

@@ -87,6 +87,22 @@ describe("mapExperiments", () => {
     ]);
     expect(inline.summary).toBe("");
   });
+
+  it("does not put inline workflow IR JSON into workflowFile", () => {
+    const [inline] = mapExperiments("proj-alpha", [
+      {
+        ...fixtureExperiment,
+        workflow: JSON.stringify({
+          name: "structure-sweep",
+          task_configs: [{ id: "build" }],
+          links: [],
+        }),
+      },
+    ]);
+    expect(inline.workflowFile).toBe("structure-sweep");
+    expect(inline.workflowSource?.startsWith("{")).toBe(true);
+    expect(inline.workflowFile.includes("task_configs")).toBe(false);
+  });
 });
 
 describe("mapRuns", () => {

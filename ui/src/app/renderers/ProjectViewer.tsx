@@ -5,32 +5,31 @@ import {
   FlaskConical,
   FolderKanban,
   Play,
-  Trash2,
   Workflow,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
 import {
   CopyButton,
-  DashboardCard,
+  DashboardCanvas,
   DataTable,
   EMPTY_COPY,
   EmptyState,
   EntityPage,
-  MetaField,
-  MetaGrid,
-  MiniBars,
-  StatCard,
-  StatGrid,
+  InventoryCanvas,
+  OverviewHighlight,
+  OverviewSurface,
   StatusDistribution,
+  StatusDonut,
 } from "@/app/components/entity";
-import { successRate } from "@/app/renderers/dashboardData";
+import { statusDonutSegments, successRate } from "@/app/renderers/dashboardData";
 import { buildProjectWorkbenchData } from "@/app/renderers/entityWorkbenchData";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAssetResponse, ExperimentSummary, RendererProps } from "@/app/types";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import {
   WorkbenchAction,
   WorkbenchIconAction,
@@ -38,25 +37,6 @@ import {
   WorkbenchRetryAction,
 } from "@/components/workbench";
 import { formatDateTime } from "@/lib/datetime";
-
-const countAssetsByKind = (assets: ApiAssetResponse[]): Array<[string, number]> => {
-  const counts = new Map<string, number>();
-  for (const asset of assets) {
-    counts.set(asset.kind, (counts.get(asset.kind) ?? 0) + 1);
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-};
-
-/**
- * Every project tab uses the same grid-backed shell and one continuous work
- * surface. Content may be tabular or dashboard-like, but it never becomes a
- * collection of floating cards.
- */
-const ProjectTabSurface = ({ children }: { children: ReactNode }): JSX.Element => (
-  <div className="molexp-dashboard flex-1 overflow-auto bg-canvas p-3 sm:p-4">
-    <div className="mx-auto min-h-full w-full max-w-7xl bg-surface/95">{children}</div>
-  </div>
-);
 
 export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps): JSX.Element => {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -72,6 +52,7 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
   const [settledProjectAssetsId, setSettledProjectAssetsId] = useState<string | null>(null);
   const [projectAssetsRequestVersion, setProjectAssetsRequestVersion] = useState(0);
   const [createRunExperimentId, setCreateRunExperimentId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("overview");
   const { setSelection } = useNavigationState(snapshot);
 
   const projectId = selection.objectId;
@@ -128,7 +109,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     () => buildProjectWorkbenchData(projectId, snapshot, projectAssets),
     [projectId, snapshot, projectAssets],
   );
-  const projectAssetsByKind = useMemo(() => countAssetsByKind(projectAssets), [projectAssets]);
   const projectAssetsPending = projectAssetsLoading || settledProjectAssetsId !== projectId;
 
   const handleDelete = async () => {
@@ -399,192 +379,53 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     ? snapshot.experiments.find((experiment) => experiment.id === createRunExperimentId)
     : null;
   const projectSuccessRate = successRate(workbench.counts);
+  const donutSegments = statusDonutSegments(workbench.counts);
 
-  const overviewContent = (
-    <ProjectTabSurface>
-      <StatGrid className="bg-surface-subtle/55">
-        <StatCard label="Experiments" value={projectExperiments.length} />
-        <StatCard label="Runs" value={projectRuns.length} muted={projectRuns.length === 0} />
-        <StatCard
-          label="Success rate"
-          value={projectSuccessRate === null ? "—" : `${projectSuccessRate.toFixed(0)}%`}
-          tone="success"
-          muted={projectSuccessRate === null}
-        />
-        <StatCard
-          label="Running"
-          value={workbench.counts.running}
-          tone="running"
-          muted={workbench.counts.running === 0}
-        />
-        <StatCard
-          label="Failed"
-          value={workbench.counts.failed}
-          tone="error"
-          muted={workbench.counts.failed === 0}
-        />
-        <StatCard
-          label="Assets"
-          value={projectAssetsPending ? "—" : projectAssetsError ? "!" : projectAssets.length}
-          hint={projectAssetsPending ? "Loading" : projectAssetsError ? "Unavailable" : undefined}
-          tone={projectAssetsError ? "error" : "neutral"}
-          muted={!projectAssetsPending && !projectAssetsError && projectAssets.length === 0}
-        />
-      </StatGrid>
-
-      <div className="grid gap-x-6 px-1 py-2 lg:grid-cols-12">
-        <DashboardCard
-          title="Identity"
-          className="bg-transparent lg:col-span-4"
-          bodyClassName="space-y-3"
-        >
-          <MetaGrid columns={2}>
-            <MetaField
-              label="Project ID"
-              value={project.id}
-              mono
-              title={project.id}
-              copyValue={project.id}
-            />
-            <MetaField label="State" value={project.status} mono />
-            <MetaField
-              label="Updated"
-              value={formatDateTime(project.updatedAt)}
-              title={project.updatedAt}
-              copyValue={project.updatedAt}
-            />
-            {project.workspaceKey && (
-              <MetaField
-                label="Workspace"
-                value={project.workspaceKey}
-                mono
-                copyValue={project.workspaceKey}
-              />
-            )}
-          </MetaGrid>
-          {project.summary && (
-            <p className="text-body-lg leading-relaxed text-muted-foreground">{project.summary}</p>
-          )}
-        </DashboardCard>
-
-        <DashboardCard
-          title="Run status"
-          description={
-            workbench.counts.total === 0
-              ? "No runs yet"
-              : `${workbench.counts.total} run${workbench.counts.total === 1 ? "" : "s"} across experiments`
-          }
-          className="bg-transparent lg:col-span-4"
-        >
-          <StatusDistribution counts={workbench.counts} />
-        </DashboardCard>
-
-        <DashboardCard
-          title="Assets by kind"
-          description={
-            projectAssetsPending
-              ? "Loading asset registry"
-              : projectAssetsError
-                ? "Asset registry unavailable"
-                : projectAssets.length === 0
-                  ? "Nothing registered"
-                  : `${projectAssets.length} registered asset${projectAssets.length === 1 ? "" : "s"}`
-          }
-          className="bg-transparent lg:col-span-4"
-        >
-          {projectAssetsPending ? (
-            <WorkbenchOperationState
-              kind="loading"
-              density="compact"
-              title="Loading project assets…"
-              skeletonRows={3}
-            />
-          ) : projectAssetsError ? (
-            <WorkbenchOperationState
-              kind="error"
-              density="compact"
-              title="Could not load project assets"
-              detail={projectAssetsError}
-              action={
-                <WorkbenchRetryAction
-                  onClick={() => {
-                    setProjectAssetsLoading(true);
-                    setProjectAssetsRequestVersion((version) => version + 1);
-                  }}
-                />
-              }
-            />
-          ) : (
-            <MiniBars
-              data={projectAssetsByKind.slice(0, 8).map(([kind, count]) => ({
-                label: kind,
-                value: count,
-              }))}
-              emptyLabel="No assets registered under this project."
-            />
-          )}
-        </DashboardCard>
-      </div>
-
-      <DashboardCard
-        title="Experiment matrix"
-        description={`${projectExperiments.length} experiment${projectExperiments.length === 1 ? "" : "s"} · live operational rollup`}
-        className="bg-surface-subtle/35"
-        bodyClassName="p-0"
-      >
-        {workbench.experiments.length === 0 ? (
-          <p className="px-3 py-4 text-label text-muted-foreground">
-            No experiments in this project yet.
-          </p>
+  // Overview = posture only (donut + metrics). No attention lists; inventory is other tabs.
+  const overviewWithNav = (
+    <OverviewSurface>
+      <DashboardCanvas>
+        {workbench.counts.total === 0 && projectExperiments.length === 0 ? (
+          <EmptyState
+            title={EMPTY_COPY.experiments.title}
+            description={EMPTY_COPY.experiments.description}
+            icon={<FlaskConical className="size-5" aria-hidden />}
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <div className="divide-y divide-border/60">
-              {workbench.experiments.map((item) => (
-                <div
-                  key={item.experiment.id}
-                  className="group grid min-w-170 grid-cols-(--project-run-grid-columns) items-center gap-3 px-3 py-2 transition-colors hover:bg-interactive/50"
-                >
-                  <WorkbenchAction
-                    kind="ghost"
-                    size="content"
-                    type="button"
-                    className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => navigateToExperiment(item.experiment.id)}
-                  >
-                    <span className="block truncate text-body font-medium text-foreground">
-                      {item.experiment.name}
-                    </span>
-                    <span className="block truncate font-mono text-micro text-muted-foreground">
-                      {item.experiment.id}
-                    </span>
-                  </WorkbenchAction>
-                  <span className="text-right font-mono text-label tabular-nums text-foreground">
-                    {item.counts.total} runs
-                  </span>
-                  <StatusDistribution counts={item.counts} legend={false} />
-                  <span className="text-right font-mono text-label tabular-nums text-muted-foreground">
-                    {item.workflowSummary.exists
-                      ? `${item.workflowSummary.taskCount} tasks`
-                      : "no graph"}
-                  </span>
-                  <span
-                    className="truncate text-right text-micro text-muted-foreground"
-                    title={item.experiment.updatedAt}
-                  >
-                    {formatDateTime(item.experiment.updatedAt)}
-                  </span>
-                  <CopyButton
-                    value={item.experiment.id}
-                    label={`${item.experiment.name} ID`}
-                    className="size-5"
-                  />
-                </div>
-              ))}
+          <section className="grid gap-10 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center">
+            {workbench.counts.total > 0 ? (
+              <StatusDonut
+                segments={donutSegments}
+                size={148}
+                thickness={16}
+                centerValue={workbench.counts.total}
+                centerLabel="runs"
+              />
+            ) : (
+              <div className="flex size-36 items-center justify-center rounded-full border border-dashed border-border text-micro text-muted-foreground">
+                no runs
+              </div>
+            )}
+            <div className="grid gap-6 sm:grid-cols-3">
+              <OverviewHighlight label="Experiments" value={projectExperiments.length} />
+              <OverviewHighlight
+                label="Runs"
+                value={projectRuns.length}
+                detail={
+                  projectSuccessRate === null
+                    ? undefined
+                    : `${projectSuccessRate.toFixed(0)}% succeeded`
+                }
+              />
+              <OverviewHighlight
+                label="Assets"
+                value={projectAssetsPending ? "…" : projectAssetsError ? "!" : projectAssets.length}
+              />
             </div>
-          </div>
+          </section>
         )}
-      </DashboardCard>
-    </ProjectTabSurface>
+      </DashboardCanvas>
+    </OverviewSurface>
   );
 
   return (
@@ -592,211 +433,194 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
       <EntityPage
         icon={FolderKanban}
         title={project.name}
-        status={project.status}
-        subtitle={project.summary || undefined}
         actions={<CopyButton value={project.id} label="project ID" />}
+        activeTab={activeTab}
+        onActiveTabChange={setActiveTab}
         tabs={[
           {
             value: "overview",
             label: "Overview",
-            content: overviewContent,
+            content: overviewWithNav,
           },
           {
             value: "experiments",
-            label: "Experiments",
+            label:
+              projectExperiments.length > 0
+                ? `Experiments (${projectExperiments.length})`
+                : "Experiments",
             content: (
-              <ProjectTabSurface>
-                <div className="flex min-h-full flex-col" aria-busy={deletingExperimentId !== null}>
-                  {deletingExperimentId && (
-                    <WorkbenchOperationState
-                      kind="running"
-                      density="compact"
-                      title="Deleting experiment…"
-                      detail={deletingExperimentId}
-                    />
-                  )}
-                  {experimentDeleteError && (
-                    <WorkbenchOperationState
-                      kind="error"
-                      density="compact"
-                      title="Could not delete experiment"
-                      detail={experimentDeleteError.message}
-                      action={
-                        <WorkbenchRetryAction
-                          onClick={() =>
-                            void handleDeleteExperiment(experimentDeleteError.experiment)
-                          }
-                        />
-                      }
-                    />
-                  )}
-                  <DataTable
-                    columns={experimentColumns}
-                    data={projectExperiments}
-                    getRowKey={(exp) => exp.id}
-                    getRowLabel={(exp) => `Open experiment ${exp.name}`}
-                    onRowActivate={(exp) => navigateToExperiment(exp.id)}
-                    rowActions={experimentRowActions}
-                    empty={
-                      <EmptyState
-                        title={EMPTY_COPY.experiments.title}
-                        description={EMPTY_COPY.experiments.description}
+              <OverviewSurface surfaceClassName="flex min-h-0 flex-col overflow-hidden">
+                <InventoryCanvas fill className="min-h-0 flex-1">
+                  <div
+                    className="flex min-h-0 flex-1 flex-col"
+                    aria-busy={deletingExperimentId !== null}
+                  >
+                    {deletingExperimentId && (
+                      <WorkbenchOperationState
+                        kind="running"
+                        density="compact"
+                        title="Deleting experiment…"
+                        detail={deletingExperimentId}
                       />
-                    }
-                  />
-                </div>
-              </ProjectTabSurface>
+                    )}
+                    {experimentDeleteError && (
+                      <WorkbenchOperationState
+                        kind="error"
+                        density="compact"
+                        title="Could not delete experiment"
+                        detail={experimentDeleteError.message}
+                        action={
+                          <WorkbenchRetryAction
+                            onClick={() =>
+                              void handleDeleteExperiment(experimentDeleteError.experiment)
+                            }
+                          />
+                        }
+                      />
+                    )}
+                    <div className="min-h-0 flex-1 overflow-auto">
+                      <DataTable
+                        columns={experimentColumns}
+                        data={projectExperiments}
+                        getRowKey={(exp) => exp.id}
+                        getRowLabel={(exp) => `Open experiment ${exp.name}`}
+                        onRowActivate={(exp) => navigateToExperiment(exp.id)}
+                        rowActions={experimentRowActions}
+                        empty={
+                          <EmptyState
+                            title={EMPTY_COPY.experiments.title}
+                            description={EMPTY_COPY.experiments.description}
+                          />
+                        }
+                      />
+                    </div>
+                  </div>
+                </InventoryCanvas>
+              </OverviewSurface>
             ),
           },
           {
             value: "assets",
             label: "Assets",
             content: (
-              <ProjectTabSurface>
-                <div className="flex min-h-full flex-col">
-                  {projectAssetsPending ? (
-                    <WorkbenchOperationState
-                      kind="loading"
-                      title="Loading project assets…"
-                      skeletonRows={5}
-                    />
-                  ) : projectAssetsError ? (
-                    <WorkbenchOperationState
-                      kind="error"
-                      title="Could not load project assets"
-                      detail={projectAssetsError}
-                      action={
-                        <WorkbenchRetryAction
-                          onClick={() => {
-                            setProjectAssetsLoading(true);
-                            setProjectAssetsRequestVersion((version) => version + 1);
-                          }}
+              <OverviewSurface surfaceClassName="flex min-h-0 flex-col overflow-hidden">
+                <InventoryCanvas fill className="min-h-0 flex-1">
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {projectAssetsPending ? (
+                      <WorkbenchOperationState
+                        kind="loading"
+                        title="Loading project assets…"
+                        skeletonRows={5}
+                      />
+                    ) : projectAssetsError ? (
+                      <WorkbenchOperationState
+                        kind="error"
+                        title="Could not load project assets"
+                        detail={projectAssetsError}
+                        action={
+                          <WorkbenchRetryAction
+                            onClick={() => {
+                              setProjectAssetsLoading(true);
+                              setProjectAssetsRequestVersion((version) => version + 1);
+                            }}
+                          />
+                        }
+                      />
+                    ) : (
+                      <div className="min-h-0 flex-1 overflow-auto">
+                        <DataTable
+                          columns={assetColumns}
+                          data={projectAssets}
+                          getRowKey={(asset) => asset.id}
+                          getRowLabel={(asset) => `Open asset ${asset.name}`}
+                          onRowActivate={(asset) =>
+                            setSelection({ objectType: "asset", objectId: asset.id })
+                          }
+                          rowActions={assetRowActions}
+                          empty={<EmptyState title={EMPTY_COPY.assets.title} />}
                         />
-                      }
-                    />
-                  ) : (
-                    <DataTable
-                      columns={assetColumns}
-                      data={projectAssets}
-                      getRowKey={(asset) => asset.id}
-                      getRowLabel={(asset) => `Open asset ${asset.name}`}
-                      onRowActivate={(asset) =>
-                        setSelection({ objectType: "asset", objectId: asset.id })
-                      }
-                      rowActions={assetRowActions}
-                      empty={<EmptyState title={EMPTY_COPY.assets.title} />}
-                    />
-                  )}
-                </div>
-              </ProjectTabSurface>
+                      </div>
+                    )}
+                  </div>
+                </InventoryCanvas>
+              </OverviewSurface>
             ),
           },
           {
             value: "settings",
             label: "Settings",
             content: (
-              <ProjectTabSurface>
-                <div className="flex min-h-full">
-                  <nav
-                    aria-label="Project settings categories"
-                    className="hidden w-44 shrink-0 bg-surface-subtle/45 p-2 sm:flex sm:flex-col sm:gap-0.5"
-                  >
-                    <WorkbenchAction
-                      kind="ghost"
-                      size="content"
-                      type="button"
-                      className="flex w-full items-center gap-2 border-l-2 border-accent bg-accent-muted/50 px-2.5 py-1.5 text-left text-micro font-medium text-foreground"
-                      onClick={() =>
-                        document.getElementById("project-settings-general")?.scrollIntoView()
-                      }
-                    >
-                      <FolderKanban className="size-3.5 text-accent" aria-hidden />
-                      Project
-                    </WorkbenchAction>
-                    <WorkbenchAction
-                      kind="ghost"
-                      size="content"
-                      type="button"
-                      className="flex w-full items-center gap-2 border-l-2 border-transparent px-2.5 py-1.5 text-left text-micro text-muted-foreground transition-colors hover:bg-interactive hover:text-foreground"
-                      onClick={() =>
-                        document.getElementById("project-settings-lifecycle")?.scrollIntoView()
-                      }
-                    >
-                      <Trash2 className="size-3.5" aria-hidden />
-                      Lifecycle
-                    </WorkbenchAction>
-                  </nav>
-
-                  <div className="min-w-0 flex-1 px-5 py-4 sm:px-6">
-                    <section id="project-settings-general" className="space-y-3 py-3">
-                      <h3 className="text-body font-semibold tracking-tight text-foreground">
-                        Project
-                      </h3>
-                      <dl className="space-y-1">
-                        <div className="flex min-h-control-compact items-center justify-between gap-4 px-0.5">
-                          <dt className="text-micro text-muted-foreground">Name</dt>
-                          <dd className="truncate text-body text-foreground">{project.name}</dd>
-                        </div>
-                        <div className="flex min-h-control-compact items-center justify-between gap-4 px-0.5">
-                          <dt className="text-micro text-muted-foreground">Identifier</dt>
-                          <dd className="flex min-w-0 items-center gap-1 font-mono text-label text-foreground">
-                            <span className="truncate">{project.id}</span>
-                            <CopyButton value={project.id} label="project ID" />
-                          </dd>
-                        </div>
-                        <div className="flex min-h-control-compact items-center justify-between gap-4 px-0.5">
-                          <dt className="text-micro text-muted-foreground">Contents</dt>
-                          <dd className="text-label text-foreground">
+              <OverviewSurface>
+                <DashboardCanvas className="max-w-3xl space-y-8">
+                  <section className="space-y-3">
+                    <h3 className="text-body-lg font-medium text-foreground">Project</h3>
+                    <Table>
+                      <TableBody>
+                        <TableRow>
+                          <TableCell className="w-36 text-label text-muted-foreground">
+                            Name
+                          </TableCell>
+                          <TableCell className="text-label text-foreground">
+                            {project.name}
+                          </TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell className="text-label text-muted-foreground">ID</TableCell>
+                          <TableCell className="font-mono text-label text-foreground">
+                            {project.id}
+                          </TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell className="text-label text-muted-foreground">
+                            Contents
+                          </TableCell>
+                          <TableCell className="font-mono text-label text-muted-foreground">
                             {projectExperiments.length} experiments · {projectRuns.length} runs
-                          </dd>
-                        </div>
-                      </dl>
-                    </section>
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </section>
 
-                    <section id="project-settings-lifecycle" className="space-y-3 py-7">
-                      <h3 className="text-body font-semibold tracking-tight text-foreground">
-                        Lifecycle
-                      </h3>
-                      <div className="flex items-center justify-between gap-4 px-0.5 py-1.5 hover:bg-interactive/40">
-                        <div className="min-w-0">
-                          <p className="text-body text-foreground">Delete project</p>
-                          <p className="mt-0.5 text-micro leading-relaxed text-muted-foreground">
-                            Remove this project and its experiment and run hierarchy from the
-                            workspace view. This cannot be undone from the UI.
-                          </p>
-                        </div>
-                        <WorkbenchAction
-                          kind="danger"
-                          size="compact"
-                          onClick={handleDelete}
-                          disabled={isDeleting}
-                          aria-busy={isDeleting}
-                        >
-                          {isDeleting ? "Deleting…" : "Delete project"}
-                        </WorkbenchAction>
+                  <section className="space-y-3">
+                    <h3 className="text-body-lg font-medium text-foreground">Lifecycle</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-4 rounded-panel border border-border px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-body text-foreground">Delete project</p>
+                        <p className="mt-0.5 text-micro text-muted-foreground">
+                          Removes project, experiments, and runs. Cannot be undone from the UI.
+                        </p>
                       </div>
-
-                      {isDeleting && (
-                        <WorkbenchOperationState
-                          kind="running"
-                          density="compact"
-                          title="Deleting project…"
-                          detail={projectId}
-                        />
-                      )}
-                      {deleteError && (
-                        <WorkbenchOperationState
-                          kind="error"
-                          density="compact"
-                          title="Could not delete project"
-                          detail={deleteError}
-                          action={<WorkbenchRetryAction onClick={() => void handleDelete()} />}
-                        />
-                      )}
-                    </section>
-                  </div>
-                </div>
-              </ProjectTabSurface>
+                      <WorkbenchAction
+                        kind="danger"
+                        size="compact"
+                        onClick={handleDelete}
+                        disabled={isDeleting}
+                        aria-busy={isDeleting}
+                      >
+                        {isDeleting ? "Deleting…" : "Delete project"}
+                      </WorkbenchAction>
+                    </div>
+                    {isDeleting && (
+                      <WorkbenchOperationState
+                        kind="running"
+                        density="compact"
+                        title="Deleting project…"
+                        detail={projectId}
+                      />
+                    )}
+                    {deleteError && (
+                      <WorkbenchOperationState
+                        kind="error"
+                        density="compact"
+                        title="Could not delete project"
+                        detail={deleteError}
+                        action={<WorkbenchRetryAction onClick={() => void handleDelete()} />}
+                      />
+                    )}
+                  </section>
+                </DashboardCanvas>
+              </OverviewSurface>
             ),
           },
         ]}

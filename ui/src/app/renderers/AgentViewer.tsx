@@ -618,12 +618,7 @@ const HeaderSettingsAction = ({ onOpenSettings }: { onOpenSettings: () => void }
 const SessionHeader = ({ session }: { session: ApiAgentSession }): JSX.Element => (
   // Markdown-stripped short title (plan tasks carry a curated report title);
   // the raw multi-line goal stays reachable via the hover tooltip.
-  <EntityHeader
-    icon={Bot}
-    title={agentTaskDisplayTitle(session)}
-    titleTooltip={session.goal}
-    status={session.status}
-  />
+  <EntityHeader icon={Bot} title={agentTaskDisplayTitle(session)} titleTooltip={session.goal} />
 );
 
 const NewSessionHeader = ({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element => {
@@ -631,7 +626,6 @@ const NewSessionHeader = ({ onOpenSettings }: { onOpenSettings: () => void }): J
     <EntityHeader
       icon={Bot}
       title="New agent task"
-      subtitle="Set the task goal"
       actions={<HeaderSettingsAction onOpenSettings={onOpenSettings} />}
     />
   );

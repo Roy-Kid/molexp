@@ -30,23 +30,15 @@ interface EntityHeaderProps {
   title: string;
   /** Hover tooltip on the title, e.g. the untruncated source text. */
   titleTooltip?: string;
-  subtitle?: string;
-  status?: string;
-  /** Inline element rendered after the status badge (e.g. "Live" indicator). */
-  titleAccessory?: ReactNode;
+  /** Primary / secondary controls — prefer one primary icon + a More menu. */
   actions?: ReactNode;
-  metrics?: ReactNode;
 }
 
 export const EntityHeader = ({
   icon: Icon,
   title,
   titleTooltip,
-  subtitle,
-  status,
-  titleAccessory,
   actions,
-  metrics,
 }: EntityHeaderProps): JSX.Element => {
   return (
     <section className="bg-surface">
@@ -57,33 +49,12 @@ export const EntityHeader = ({
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <h2
             className="truncate text-title font-semibold tracking-tight text-foreground"
-            title={titleTooltip}
+            title={titleTooltip ?? title}
           >
             {title}
           </h2>
-          {status && (
-            <div className="flex-none">
-              <StatusBadge status={status} size="sm" dot />
-            </div>
-          )}
-          {titleAccessory}
-          {subtitle && (
-            <>
-              <span className="hidden h-4 w-px flex-none bg-border lg:block" aria-hidden />
-              <p
-                className="hidden min-w-0 truncate text-label text-muted-foreground lg:block"
-                title={subtitle}
-              >
-                {subtitle}
-              </p>
-            </>
-          )}
         </div>
-
-        {metrics && (
-          <div className="hidden flex-none items-baseline justify-end gap-3 xl:flex">{metrics}</div>
-        )}
-        {actions && <div className="flex flex-none items-center gap-1">{actions}</div>}
+        {actions && <div className="flex flex-none items-center gap-0.5">{actions}</div>}
       </div>
     </section>
   );
@@ -132,10 +103,8 @@ interface EntityPageProps {
   // Header — forwarded verbatim to :class:`EntityHeader`.
   icon: ComponentType<{ className?: string }>;
   title: string;
-  subtitle?: string;
-  status?: string;
+  titleTooltip?: string;
   actions?: ReactNode;
-  metrics?: ReactNode;
 
   // Tabs — controlled (pass ``activeTab`` + ``onActiveTabChange``) or
   // uncontrolled (pass ``defaultTab``). Omit ``tabs`` entirely for a
@@ -152,10 +121,8 @@ interface EntityPageProps {
 export const EntityPage = ({
   icon,
   title,
-  subtitle,
-  status,
+  titleTooltip,
   actions,
-  metrics,
   tabs,
   activeTab,
   defaultTab,
@@ -164,14 +131,7 @@ export const EntityPage = ({
 }: EntityPageProps): JSX.Element => {
   return (
     <div className="flex h-full flex-col bg-background">
-      <EntityHeader
-        icon={icon}
-        title={title}
-        subtitle={subtitle}
-        status={status}
-        actions={actions}
-        metrics={metrics}
-      />
+      <EntityHeader icon={icon} title={title} titleTooltip={titleTooltip} actions={actions} />
 
       {tabs && tabs.length > 0 ? (
         <EntityTabs

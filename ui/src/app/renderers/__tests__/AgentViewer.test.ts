@@ -317,9 +317,8 @@ describe("groupEventsIntoTurns", () => {
     expect(turns[0].result?.type).toBe("clarification_required");
     expect(turns[0].inProgress).toBe(false);
     expect(turns[0].steps).toEqual([]);
-    expect((turns[0].result?.payload as { questions?: string }).questions).toContain(
-      "project and experiment",
-    );
+    const payload = turns[0].result?.payload as { questions?: string } | undefined;
+    expect(payload?.questions).toContain("project and experiment");
   });
 });
 

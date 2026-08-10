@@ -128,8 +128,21 @@ const fetchWorkspaces = async (): Promise<WorkspaceSnapshot["workspaces"]> => {
 const fetchProjectsList = async (
   workspaces: WorkspaceSnapshot["workspaces"],
 ): Promise<ProjectSummary[]> => {
-  if (workspaces.length <= 1) {
+  // Always stamp workspaceKey so the multi-workspace nav filter
+  // (`project.workspaceKey === ws.key`) never drops a single-ws project.
+  if (workspaces.length === 0) {
     return mapProjects(await workspaceApi.getProjects());
+  }
+  if (workspaces.length === 1) {
+    const ws = workspaces[0];
+    if (ws.unreachable) return [];
+    try {
+      // Prefer flat /api/projects (active workspace) — same data, one RTT.
+      return mapProjects(await workspaceApi.getProjects(), ws.key);
+    } catch (err) {
+      console.warn(`Projects unavailable for workspace ${ws.key}:`, err);
+      return [];
+    }
   }
   const perWorkspace = await Promise.all(
     workspaces.map(async (ws) => {
@@ -299,12 +312,12 @@ export const useWorkspaceState = (activeView?: LeftPanelView): WorkspaceState =>
 
   const expandProject = useCallback(async (projectId: string): Promise<void> => {
     if (projectsLoadedRef.current.has(projectId)) return;
-    projectsLoadedRef.current.add(projectId);
     try {
       const raw = await workspaceApi.getExperiments(projectId);
       const mapped = mapExperiments(projectId, raw);
       // Workflows for just these experiments (IR if present on the wire).
       const workflows = mapWorkflows(mapped, raw);
+      projectsLoadedRef.current.add(projectId);
       setSnapshot((prev) => {
         const otherExps = prev.experiments.filter((e) => e.projectId !== projectId);
         const otherWfs = prev.workflows.filter((w) => w.projectId !== projectId);
@@ -312,13 +325,16 @@ export const useWorkspaceState = (activeView?: LeftPanelView): WorkspaceState =>
           ...prev,
           experiments: [...otherExps, ...mapped],
           workflows: [...otherWfs, ...workflows],
+          // Keep project chip in sync once we know the true exp count.
+          projects: prev.projects.map((p) =>
+            p.id === projectId ? { ...p, experimentCount: mapped.length } : p,
+          ),
         };
         snapshotRef.current = next;
         return next;
       });
       bump((n) => n + 1);
     } catch (err) {
-      projectsLoadedRef.current.delete(projectId);
       console.warn(`expandProject(${projectId}) failed:`, err);
     }
   }, []);
@@ -327,16 +343,25 @@ export const useWorkspaceState = (activeView?: LeftPanelView): WorkspaceState =>
     async (projectId: string, experimentId: string): Promise<void> => {
       const key = expKey(projectId, experimentId);
       if (experimentsLoadedRef.current.has(key)) return;
-      experimentsLoadedRef.current.add(key);
       try {
         const raw = await workspaceApi.getRuns(projectId, experimentId);
         const mapped = mapRuns(projectId, experimentId, raw);
+        // Mark loaded only after success — so emptyChildLabel stays "Loading…"
+        // rather than "No runs" while the remote fetch is in flight.
+        experimentsLoadedRef.current.add(key);
         setSnapshot((prev) => {
           const other = prev.runs.filter(
             (r) => !(r.projectId === projectId && r.experimentId === experimentId),
           );
+          // Stamp runCount so the right-side chip flips from "…" to "N run".
+          const experiments = prev.experiments.map((e) =>
+            e.projectId === projectId && e.id === experimentId
+              ? { ...e, runCount: mapped.length }
+              : e,
+          );
           const next: WorkspaceSnapshot = {
             ...prev,
+            experiments,
             runs: [...other, ...mapped],
           };
           snapshotRef.current = next;
@@ -344,7 +369,6 @@ export const useWorkspaceState = (activeView?: LeftPanelView): WorkspaceState =>
         });
         bump((n) => n + 1);
       } catch (err) {
-        experimentsLoadedRef.current.delete(key);
         console.warn(`expandExperiment(${key}) failed:`, err);
       }
     },

@@ -1,11 +1,10 @@
-import { AlertTriangle, GitBranch, ScrollText, Workflow } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { type JSX, useEffect, useMemo, useState } from "react";
 import {
   CopyButton,
-  DashboardCard,
   EmptyState,
-  MetaField,
-  MetaGrid,
+  InventoryCanvas,
+  OverviewSurface,
   StatusIcon,
   statusKey,
 } from "@/app/components/entity";
@@ -13,11 +12,14 @@ import { formatDuration } from "@/app/renderers/dashboardData";
 import { workspaceApi } from "@/app/state/api";
 import type { RunSummary, WorkflowSummary } from "@/app/types";
 import {
-  RunStatusBadge,
-  WorkbenchAction,
-  WorkbenchIconAction,
-  WorkbenchTag,
-} from "@/components/workbench";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { RunStatusBadge, WorkbenchAction } from "@/components/workbench";
 import { normalizeTaskGraph } from "@/components/workflow/flowgram-document";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
@@ -33,8 +35,6 @@ const formatTimeOfDay = (iso: string | null): string => {
 interface RunExecutionsPanelProps {
   run: RunSummary;
   workflow?: WorkflowSummary;
-  /** Controlled selected attempt (null → latest). Lifted so the owning viewer
-   *  can also scope its log fetch to the chosen attempt. */
   selectedExecutionId: string | null;
   onSelectExecution: (executionId: string) => void;
   onInspectTask: (taskId: string, runId: string) => void;
@@ -43,9 +43,8 @@ interface RunExecutionsPanelProps {
 }
 
 /**
- * The attempt history of a run plus the per-attempt (read-only) workflow graph.
- * A first-class surface — previously this was buried in an Overview section and
- * absent entirely from the scheduler-backed run view.
+ * Attempt history + per-attempt workflow graph.
+ * Layout matches Overview language: padded canvas, shadcn Table (no card lists).
  */
 export const RunExecutionsPanel = ({
   run,
@@ -78,6 +77,7 @@ export const RunExecutionsPanel = ({
     const load = (): void => {
       if (!effectiveExecutionId) {
         setExecutionGraph(null);
+        setExecutionGraphError(null);
         return;
       }
       workspaceApi
@@ -111,239 +111,200 @@ export const RunExecutionsPanel = ({
 
   const staticWorkflowIr = useMemo(() => parseWorkflowIr(run.workflowSource), [run.workflowSource]);
   const workflowIr = executionGraph ?? staticWorkflowIr;
-  // Which task node(s) actually broke this attempt — drives the failure banner
-  // and tells the user, at a glance, which node to look at in the graph below.
-  // Only meaningful when we have the EXECUTION graph (the static template is all
-  // `pending`); falls back to the run-level error when a failure left no graph.
   const failedTasks = executionGraph
     ? executionGraph.task_configs.filter((t) => statusKey(t.status) === "failed")
     : [];
   const attemptFailed =
     statusKey(effectiveExecution?.status) === "failed" || statusKey(run.status) === "failed";
-  const edgeStatusSummary = workflowIr
-    ? workflowIr.links.reduce<Record<string, number>>((acc, link) => {
-        const status = link.status ?? "pending";
-        acc[status] = (acc[status] ?? 0) + 1;
-        return acc;
-      }, {})
-    : {};
 
   if (history.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
-        <EmptyState
-          icon={<GitBranch className="h-5 w-5" />}
-          title="No executions"
-          description={
-            run.status === "pending"
-              ? "Start the run to open the first execution attempt."
-              : "This run has no recorded attempts."
-          }
-        />
-      </div>
+      <OverviewSurface>
+        <InventoryCanvas>
+          <EmptyState
+            title="No executions"
+            description={
+              run.status === "pending"
+                ? "Start the run to open the first execution attempt."
+                : "This run has no recorded attempts."
+            }
+          />
+        </InventoryCanvas>
+      </OverviewSurface>
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4 md:p-4">
-      <DashboardCard
-        title="Attempts"
-        description={`${history.length} execution${history.length === 1 ? "" : "s"}`}
-        bodyClassName="p-0"
-      >
-        <ol className="divide-y divide-border/60">
-          {history.map((rec, index) => {
-            const active = rec.executionId === effectiveExecutionId;
-            const d = formatDuration(rec.startedAt, rec.finishedAt);
-            return (
-              <li key={rec.executionId}>
-                <WorkbenchAction
-                  kind="ghost"
-                  size="content"
-                  type="button"
-                  onClick={() => onSelectExecution(rec.executionId)}
-                  className={cn(
-                    "grid w-full grid-cols-(--run-execution-grid-columns) items-center gap-3 px-4 py-3 text-left transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                    active ? "bg-muted/50" : "hover:bg-muted/30",
-                  )}
-                  title={rec.executionId}
-                >
-                  <div className="flex items-center gap-3">
-                    <StatusIcon status={rec.status} />
-                    <span className="font-mono text-label text-muted-foreground">#{index + 1}</span>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate font-mono text-label text-foreground">
-                      {rec.executionId}
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-micro text-muted-foreground">
-                      <span>
-                        {formatTimeOfDay(rec.startedAt)}
-                        {d ? ` · ${d}` : ""}
-                      </span>
-                      <span className="truncate font-mono">
-                        {rec.schedulerJobId ?? run.executorInfo.backend ?? "local"}
-                      </span>
-                    </div>
-                  </div>
-                  <RunStatusBadge status={rec.status} size="sm" />
-                </WorkbenchAction>
-              </li>
-            );
-          })}
-        </ol>
-      </DashboardCard>
-
-      <DashboardCard
-        title={effectiveExecution ? `Execution #${effectiveIndex + 1}` : "Execution details"}
-        description={effectiveExecution?.executionId}
-        action={
-          effectiveExecution ? (
-            <div className="flex items-center gap-1">
-              <CopyButton value={effectiveExecution.executionId} label="execution ID" />
-              {onViewLogs && (
-                <WorkbenchIconAction label="View execution logs" onClick={onViewLogs}>
-                  <ScrollText className="h-3.5 w-3.5" />
-                </WorkbenchIconAction>
-              )}
-            </div>
-          ) : undefined
-        }
-      >
-        {effectiveExecution ? (
-          <MetaGrid columns={5}>
-            <MetaField
-              label="State"
-              value={<RunStatusBadge status={effectiveExecution.status} size="sm" />}
-            />
-            <MetaField
-              label="Start"
-              value={formatDateTime(effectiveExecution.startedAt)}
-              title={effectiveExecution.startedAt ?? undefined}
-            />
-            <MetaField
-              label="End"
-              value={formatDateTime(effectiveExecution.finishedAt)}
-              title={effectiveExecution.finishedAt ?? undefined}
-            />
-            <MetaField
-              label="Duration"
-              value={
-                formatDuration(effectiveExecution.startedAt, effectiveExecution.finishedAt) ?? "—"
-              }
-              mono
-            />
-            <MetaField
-              label="Backend"
-              value={effectiveExecution.schedulerJobId ?? run.executorInfo.backend ?? "local"}
-              mono
-              copyValue={effectiveExecution.schedulerJobId ?? run.executorInfo.backend ?? "local"}
-            />
-          </MetaGrid>
-        ) : (
-          <p className="text-body-lg text-muted-foreground">Select an execution to inspect it.</p>
-        )}
-      </DashboardCard>
-
-      <DashboardCard
-        title="Attempt workflow"
-        description={
-          workflowIr
-            ? `${workflowIr.task_configs.length} tasks · ${workflowIr.links.length} deps`
-            : "No snapshot"
-        }
-        className="min-h-0 flex-1"
-        bodyClassName="flex min-h-0 flex-1 flex-col gap-3"
-        action={
-          <div className="flex items-center gap-1">
-            {onViewLogs && (
-              <WorkbenchIconAction label="View execution logs" onClick={onViewLogs}>
-                <ScrollText className="h-3.5 w-3.5" />
-              </WorkbenchIconAction>
-            )}
-            {workflow && onOpenWorkflow && (
-              <WorkbenchIconAction label="Open workflow definition" onClick={onOpenWorkflow}>
-                <Workflow className="h-3.5 w-3.5" />
-              </WorkbenchIconAction>
-            )}
-          </div>
-        }
-      >
-        {workflowIr ? (
-          <>
-            {failedTasks.length > 0 ? (
-              <div className="border-y border-destructive/30 bg-destructive/5 px-3 py-3 text-label">
-                <div className="flex flex-wrap items-center gap-2 font-medium text-destructive">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  Failed at{" "}
-                  {failedTasks.map((t, i) => (
-                    <span key={t.id}>
-                      {i > 0 && ", "}
-                      <WorkbenchAction
-                        kind="ghost"
-                        size="content"
-                        type="button"
-                        className="font-mono underline-offset-2 hover:underline"
-                        onClick={() => onInspectTask(t.id, run.id)}
-                      >
-                        {t.id}
-                      </WorkbenchAction>
-                    </span>
-                  ))}
-                </div>
-                {failedTasks.map((t) =>
-                  t.error ? (
-                    <pre
-                      key={t.id}
-                      className="mt-2 whitespace-pre-wrap break-words font-mono text-micro leading-relaxed text-destructive/90"
-                    >
-                      {t.error}
-                    </pre>
-                  ) : null,
-                )}
-              </div>
-            ) : attemptFailed && !executionGraph ? (
-              <div className="border-y border-destructive/30 bg-destructive/5 px-3 py-3 text-label">
-                <div className="flex items-center gap-2 font-medium text-destructive">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  This attempt failed before any task ran — no per-node state was recorded.
-                </div>
-                {run.errorMessage && (
-                  <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-micro leading-relaxed text-destructive/90">
-                    {run.errorMessage}
-                  </pre>
-                )}
-              </div>
-            ) : null}
-            <WorkflowGraph
-              ir={workflowIr}
-              height={420}
-              onNodeClick={(taskId) => onInspectTask(taskId, run.id)}
-            />
-            {Object.keys(edgeStatusSummary).length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(edgeStatusSummary).map(([status, count]) => (
-                  <WorkbenchTag
-                    key={status}
-                    meaning="metadata"
-                    className="rounded-control font-normal text-micro text-muted-foreground"
+    <OverviewSurface>
+      <InventoryCanvas className="max-w-6xl space-y-8">
+        <section className="space-y-3">
+          <h3 className="text-body-lg font-medium text-foreground">
+            Attempts
+            <span className="ml-2 font-mono text-micro font-normal text-muted-foreground">
+              {history.length}
+            </span>
+          </h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-16">#</TableHead>
+                <TableHead className="w-24">State</TableHead>
+                <TableHead>Execution</TableHead>
+                <TableHead className="w-40">Started</TableHead>
+                <TableHead className="w-28">Duration</TableHead>
+                <TableHead className="w-36">Backend</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {history.map((rec, index) => {
+                const active = rec.executionId === effectiveExecutionId;
+                const d = formatDuration(rec.startedAt, rec.finishedAt);
+                return (
+                  <TableRow
+                    key={rec.executionId}
+                    className={cn("cursor-pointer", active && "bg-muted/40")}
+                    onClick={() => onSelectExecution(rec.executionId)}
+                    data-state={active ? "selected" : undefined}
                   >
-                    {status}: {count}
-                  </WorkbenchTag>
-                ))}
+                    <TableCell className="font-mono text-label text-muted-foreground">
+                      <span className="inline-flex items-center gap-2">
+                        <StatusIcon status={rec.status} />
+                        {index + 1}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <RunStatusBadge status={rec.status} size="sm" />
+                    </TableCell>
+                    <TableCell className="font-mono text-label text-foreground">
+                      {rec.executionId}
+                    </TableCell>
+                    <TableCell className="text-label text-muted-foreground">
+                      {formatTimeOfDay(rec.startedAt)}
+                    </TableCell>
+                    <TableCell className="font-mono text-label text-muted-foreground">
+                      {d ?? "—"}
+                    </TableCell>
+                    <TableCell className="truncate font-mono text-label text-muted-foreground">
+                      {rec.schedulerJobId ?? run.executorInfo.backend ?? "local"}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </section>
+
+        {effectiveExecution && (
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-body-lg font-medium text-foreground">
+                Execution #{effectiveIndex + 1}
+              </h3>
+              <div className="flex items-center gap-3">
+                <CopyButton value={effectiveExecution.executionId} label="execution ID" />
+                {onViewLogs && (
+                  <WorkbenchAction kind="ghost" size="compact" type="button" onClick={onViewLogs}>
+                    Logs
+                  </WorkbenchAction>
+                )}
+                {workflow && onOpenWorkflow && (
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="compact"
+                    type="button"
+                    onClick={onOpenWorkflow}
+                  >
+                    Open workflow
+                  </WorkbenchAction>
+                )}
               </div>
-            )}
-            {executionGraphError && (
-              <p className="text-label text-destructive">{executionGraphError}</p>
-            )}
-          </>
-        ) : (
-          <p className="text-body-lg text-muted-foreground">
-            No workflow snapshot recorded for this run.
-          </p>
+            </div>
+            <Table>
+              <TableBody>
+                <TableRow>
+                  <TableCell className="w-36 text-label text-muted-foreground">State</TableCell>
+                  <TableCell>
+                    <RunStatusBadge status={effectiveExecution.status} size="sm" />
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-label text-muted-foreground">Start</TableCell>
+                  <TableCell className="font-mono text-label">
+                    {formatDateTime(effectiveExecution.startedAt)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-label text-muted-foreground">End</TableCell>
+                  <TableCell className="font-mono text-label">
+                    {formatDateTime(effectiveExecution.finishedAt)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-label text-muted-foreground">Duration</TableCell>
+                  <TableCell className="font-mono text-label">
+                    {formatDuration(effectiveExecution.startedAt, effectiveExecution.finishedAt) ??
+                      "—"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-label text-muted-foreground">Backend</TableCell>
+                  <TableCell className="font-mono text-label">
+                    {effectiveExecution.schedulerJobId ?? run.executorInfo.backend ?? "local"}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </section>
         )}
-      </DashboardCard>
-    </div>
+
+        <section className="space-y-3">
+          <h3 className="text-body-lg font-medium text-foreground">Attempt workflow</h3>
+          {workflowIr ? (
+            <>
+              {failedTasks.length > 0 ? (
+                <div className="rounded-panel border border-status-failed/25 bg-status-failed-soft px-3 py-3 text-label">
+                  <div className="flex flex-wrap items-center gap-2 font-medium text-status-failed-foreground">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    Failed at{" "}
+                    {failedTasks.map((t, i) => (
+                      <span key={t.id}>
+                        {i > 0 && ", "}
+                        <WorkbenchAction
+                          kind="ghost"
+                          size="content"
+                          type="button"
+                          className="font-mono underline-offset-2 hover:underline"
+                          onClick={() => onInspectTask(t.id, run.id)}
+                        >
+                          {t.id}
+                        </WorkbenchAction>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : attemptFailed && !executionGraph ? (
+                <div className="rounded-panel border border-status-failed/25 bg-status-failed-soft px-3 py-3 text-label text-status-failed-foreground">
+                  This attempt failed before any task ran.
+                </div>
+              ) : null}
+              <div className="overflow-hidden rounded-panel border border-border bg-canvas">
+                <WorkflowGraph
+                  ir={workflowIr}
+                  height={420}
+                  onNodeClick={(taskId) => onInspectTask(taskId, run.id)}
+                />
+              </div>
+              {executionGraphError && (
+                <p className="text-label text-destructive">{executionGraphError}</p>
+              )}
+            </>
+          ) : (
+            <p className="text-label text-muted-foreground">
+              No workflow snapshot recorded for this run.
+            </p>
+          )}
+        </section>
+      </InventoryCanvas>
+    </OverviewSurface>
   );
 };

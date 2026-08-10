@@ -54,10 +54,25 @@ export interface RunGroupSummary {
 
 export interface ExperimentWorkbenchData {
   counts: RunStatusCounts;
+  /** All parameter keys seen across declared space + runs. */
   parameterAxes: ParameterAxisSummary[];
+  /**
+   * Keys with more than one distinct value — columns on the run list.
+   * Keys with a single value are constants (shown once, not per row).
+   */
+  varyingAxes: ParameterAxisSummary[];
+  fixedAxes: ParameterAxisSummary[];
   runGroups: RunGroupSummary[];
   workflowSummary: WorkflowRollup;
 }
+
+/** Split axes by scientific layer: varying (table columns) vs fixed (once). */
+export const partitionParameterAxes = (
+  axes: ParameterAxisSummary[],
+): { varyingAxes: ParameterAxisSummary[]; fixedAxes: ParameterAxisSummary[] } => ({
+  varyingAxes: axes.filter((axis) => axis.count > 1),
+  fixedAxes: axes.filter((axis) => axis.count === 1),
+});
 
 const latestRunTime = (run: RunSummary): number =>
   Date.parse(run.finishedAt ?? run.startedAt ?? run.updatedAt ?? "") || 0;
@@ -219,9 +234,12 @@ export const buildExperimentWorkbenchData = (
   workflow: Pick<WorkflowSummary, "graph"> | undefined,
 ): ExperimentWorkbenchData => {
   const parameterAxes = buildParameterAxes(experiment, runs);
+  const { varyingAxes, fixedAxes } = partitionParameterAxes(parameterAxes);
   return {
     counts: countRunStatuses(runs),
     parameterAxes,
+    varyingAxes,
+    fixedAxes,
     runGroups: buildRunGroups(runs, parameterAxes),
     workflowSummary: summarizeWorkflowGraph(workflow),
   };

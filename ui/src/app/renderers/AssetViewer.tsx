@@ -12,7 +12,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { AssetLineageNode } from "@/api/generated/models/AssetLineageNode";
 import type { AssetLineageResponse } from "@/api/generated/models/AssetLineageResponse";
 import {
-  EntityMetric,
   EntityPage,
   KeyValueGrid,
   OverviewHighlight,
@@ -591,21 +590,12 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
     <EntityPage
       icon={meta.icon}
       title={asset.name}
-      status={assetSummary?.status}
-      subtitle={`${meta.label} · ${scopeLabel}`}
       actions={
         <WorkbenchIconAction label={`Download ${asset.name}`} asChild>
           <a href={downloadUrl} download={asset.name}>
             <Download className="h-4 w-4" />
           </a>
         </WorkbenchIconAction>
-      }
-      metrics={
-        <>
-          <EntityMetric label="Kind" value={meta.label} />
-          <EntityMetric label="Scope" value={asset.scope_kind} />
-          <EntityMetric label="Size" value={formatBytes(size)} />
-        </>
       }
       tabs={[
         {

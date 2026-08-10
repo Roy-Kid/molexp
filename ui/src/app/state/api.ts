@@ -861,23 +861,60 @@ export const mapProjects = (
   }));
 };
 
+/** True when ``workflow`` carries inline IR JSON rather than a path/filename. */
+const isInlineWorkflowPayload = (value: string): boolean => {
+  const trimmed = value.trim();
+  return trimmed.startsWith("{") || trimmed.startsWith("[");
+};
+
+/**
+ * Split API ``experiment.workflow`` into a short display path/name and optional
+ * source body. Mock/feature-showcase data often ships the full IR as the
+ * ``workflow`` string — never surface that blob as a UI label.
+ */
+export const splitExperimentWorkflowField = (
+  workflow: string | null | undefined,
+): { workflowFile: string; workflowSource: string | null } => {
+  if (workflow == null || workflow === "") {
+    return { workflowFile: "", workflowSource: null };
+  }
+  if (!isInlineWorkflowPayload(workflow)) {
+    return { workflowFile: workflow, workflowSource: workflow };
+  }
+  let displayName = "";
+  try {
+    const parsed = JSON.parse(workflow) as { name?: unknown };
+    if (typeof parsed.name === "string" && parsed.name.trim()) {
+      displayName = parsed.name.trim();
+    }
+  } catch {
+    // keep empty display name
+  }
+  return { workflowFile: displayName, workflowSource: workflow };
+};
+
 export const mapExperiments = (
   projectId: string,
   experiments: ApiExperimentResponse[],
 ): ExperimentSummary[] => {
-  return experiments.map((experiment) => ({
-    id: experiment.id,
-    name: experiment.name,
-    status: "active",
-    summary: experiment.description || "",
-    workflowFile: experiment.workflow ?? "",
-    updatedAt: experiment.created,
-    projectId,
-    parameterSpace: (experiment.parameterSpace ?? {}) as Record<string, unknown>,
-    workflowSource: experiment.workflow ?? null,
-    planRunId: experiment.planRunId ?? null,
-    runCount: experiment.runCount ?? null,
-  }));
+  return experiments.map((experiment) => {
+    const { workflowFile, workflowSource } = splitExperimentWorkflowField(
+      experiment.workflow ?? null,
+    );
+    return {
+      id: experiment.id,
+      name: experiment.name,
+      status: "active",
+      summary: experiment.description || "",
+      workflowFile,
+      updatedAt: experiment.created,
+      projectId,
+      parameterSpace: (experiment.parameterSpace ?? {}) as Record<string, unknown>,
+      workflowSource,
+      planRunId: experiment.planRunId ?? null,
+      runCount: experiment.runCount ?? null,
+    };
+  });
 };
 
 export const mapRuns = (

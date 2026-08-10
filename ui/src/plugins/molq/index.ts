@@ -1,4 +1,5 @@
 import {
+  registerEntityTabContribution,
   registerExecutionColumn,
   registerExecutionDetail,
   registerRendererContribution,
@@ -7,6 +8,7 @@ import type { UiPluginModule } from "@/plugins/types";
 import { MolqExecutionColumn } from "./MolqExecutionColumn";
 import { MolqExecutionDetail } from "./MolqExecutionDetail";
 import { MolqRunInspector } from "./MolqRunInspector";
+import { MolqRunTab } from "./MolqRunTab";
 import { MolqRunViewer } from "./MolqRunViewer";
 
 const isMolqRun = (
@@ -48,6 +50,17 @@ const molqPlugin: UiPluginModule = {
       priority: 100,
       matches: ({ selection, snapshot }) => isMolqRun(selection.objectId, snapshot.runs),
       Component: MolqRunInspector,
+    });
+
+    // Run center tab — replaces the old hard-coded "Scheduler" tab (now "Molq").
+    registerEntityTabContribution({
+      id: "molq:run-tab",
+      objectType: "run",
+      value: "molq",
+      label: "Molq",
+      priority: 40,
+      matches: ({ selection, snapshot }) => isMolqRun(selection.objectId, snapshot.runs),
+      Component: MolqRunTab,
     });
 
     // Workspace Runs page contributions: cluster + scheduler job id columns,

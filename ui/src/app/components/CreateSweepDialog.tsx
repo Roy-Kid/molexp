@@ -1,8 +1,8 @@
 /**
  * Minimal sweep create: one param axis × values → N runs.
+ * Opened from a parent menu / button (controlled dialog, no built-in trigger).
  */
 
-import { Grid3x3 } from "lucide-react";
 import { useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import {
@@ -12,26 +12,28 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
-import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
+import { WorkbenchAction } from "@/components/workbench";
 
 interface CreateSweepDialogProps {
   projectId: string;
   experimentId: string;
   /** Called after runs are created; parent should refresh and open Runs tab. */
   onCreated: (count: number) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 export function CreateSweepDialog({
   projectId,
   experimentId,
   onCreated,
+  open,
+  onOpenChange,
 }: CreateSweepDialogProps): JSX.Element {
-  const [open, setOpen] = useState(false);
   const [paramKey, setParamKey] = useState("temperature");
   const [valuesText, setValuesText] = useState("300, 350, 400");
   const [busy, setBusy] = useState(false);
@@ -63,7 +65,7 @@ export function CreateSweepDialog({
           parameters: { [key]: value },
         });
       }
-      setOpen(false);
+      onOpenChange(false);
       toast.success(`${values.length} runs`);
       onCreated(values.length);
     } catch (err) {
@@ -74,12 +76,7 @@ export function CreateSweepDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <WorkbenchIconAction label="Create sweep">
-          <Grid3x3 className="h-3.5 w-3.5" />
-        </WorkbenchIconAction>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Sweep</DialogTitle>

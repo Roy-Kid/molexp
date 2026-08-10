@@ -57,39 +57,69 @@ export const buildMetadataFields = (
       if (!project) {
         return emptyFields("project", selection.objectId);
       }
-      return [
-        { label: "Project", value: project.name },
+      const fields: MetadataField[] = [
+        { label: "Name", value: project.name },
+        { label: "Project ID", value: project.id },
         { label: "Status", value: project.status },
-        { label: "Summary", value: project.summary },
         { label: "Updated", value: project.updatedAt },
       ];
+      if (project.summary) {
+        fields.push({ label: "Summary", value: project.summary });
+      }
+      if (project.workspaceKey) {
+        fields.push({ label: "Workspace", value: project.workspaceKey });
+      }
+      return fields;
     },
     experiment: () => {
       const experiment = findExperiment(snapshot, selection.objectId);
       if (!experiment) {
         return emptyFields("experiment", selection.objectId);
       }
-      return [
-        { label: "Experiment", value: experiment.name },
-        { label: "Project", value: experiment.projectId },
+      const fields: MetadataField[] = [
+        { label: "Name", value: experiment.name },
+        { label: "Experiment ID", value: experiment.id },
         { label: "Status", value: experiment.status },
-        { label: "Summary", value: experiment.summary },
         { label: "Updated", value: experiment.updatedAt },
       ];
+      if (experiment.summary) {
+        fields.push({ label: "Summary", value: experiment.summary });
+      }
+      if (
+        experiment.workflowFile &&
+        !experiment.workflowFile.trim().startsWith("{") &&
+        !experiment.workflowFile.trim().startsWith("[")
+      ) {
+        fields.push({ label: "Workflow file", value: experiment.workflowFile });
+      }
+      if (experiment.planRunId) {
+        fields.push({ label: "Plan run ID", value: experiment.planRunId });
+      }
+      fields.push({ label: "Project ID", value: experiment.projectId });
+      return fields;
     },
     run: () => {
       const run = findRun(snapshot, selection.objectId);
       if (!run) {
         return emptyFields("run", selection.objectId);
       }
+      // Parent project/experiment/workflow live under inspector Lineage — ids
+      // stay here only as copyable coordinates, not as the navigation surface.
       const fields: MetadataField[] = [
-        { label: "Run", value: run.name },
-        { label: "Project", value: run.projectId },
-        { label: "Experiment", value: run.experimentId },
+        { label: "Name", value: run.name || run.id },
+        { label: "Run ID", value: run.id },
         { label: "Status", value: run.status },
-        { label: "Summary", value: run.summary },
         { label: "Updated", value: run.updatedAt },
       ];
+      if (run.summary) {
+        fields.push({ label: "Summary", value: run.summary });
+      }
+      if (run.startedAt) {
+        fields.push({ label: "Started", value: run.startedAt });
+      }
+      if (run.finishedAt) {
+        fields.push({ label: "Finished", value: run.finishedAt });
+      }
       if (run.executorInfo.backend) {
         fields.push({ label: "Backend", value: run.executorInfo.backend });
       }
@@ -105,6 +135,8 @@ export const buildMetadataFields = (
       if (run.executorInfo.job_id) {
         fields.push({ label: "Job ID", value: run.executorInfo.job_id });
       }
+      fields.push({ label: "Project ID", value: run.projectId });
+      fields.push({ label: "Experiment ID", value: run.experimentId });
       return fields;
     },
     asset: () => {

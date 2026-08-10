@@ -110,8 +110,6 @@ export const WorkflowViewer = (props: RendererProps): JSX.Element => {
     <EntityPage
       icon={Workflow}
       title={workflow.name}
-      status={workflow.status}
-      subtitle={workflow.summary || undefined}
       activeTab={activeTab}
       onActiveTabChange={setActiveTab}
       tabs={[

@@ -39,11 +39,7 @@ export const ActivityPage = ({ snapshot }: ActivityPageProps): JSX.Element => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <EntityHeader
-        icon={Activity}
-        title="Activity"
-        subtitle="Workspace event spine — what just happened across runs, knowledge, and assets."
-      />
+      <EntityHeader icon={Activity} title="Activity" />
       <div className="flex flex-wrap gap-1 border-b border-border/70 px-3 py-2">
         <WorkbenchAction
           kind="ghost"

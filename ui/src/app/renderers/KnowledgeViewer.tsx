@@ -245,11 +245,7 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <EntityHeader
-        icon={BookOpen}
-        title="Knowledge"
-        subtitle="Notes and literature references for this workspace (OKF concepts)."
-      />
+      <EntityHeader icon={BookOpen} title="Knowledge" />
       <div className={`${COLUMN} flex-1 space-y-6 overflow-auto px-4 py-6 md:px-8`}>
         {error && <p className="text-body-lg text-destructive">{error}</p>}
         {empty && (

@@ -54,16 +54,17 @@ beforeEach(() => {
 });
 
 describe("editor plugin renderer registration", () => {
-  it.each(
-    EDITOR_FILE_KINDS,
-  )("resolves a non-null editor renderer for fileKind=%s after register()", (fileKind) => {
-    editorPlugin.register();
+  it.each(EDITOR_FILE_KINDS)(
+    "resolves a non-null editor renderer for fileKind=%s after register()",
+    (fileKind) => {
+      editorPlugin.register();
 
-    const contribution = resolveRendererContribution(editorKey(fileKind));
+      const contribution = resolveRendererContribution(editorKey(fileKind));
 
-    expect(contribution).not.toBeNull();
-    expect(contribution?.panelSlot).toBe("center");
-  });
+      expect(contribution).not.toBeNull();
+      expect(contribution?.panelSlot).toBe("center");
+    },
+  );
 });
 
 describe("editor plugin override / extension point", () => {

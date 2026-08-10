@@ -35,12 +35,7 @@ export const WorkflowsPage = ({ snapshot, onRefresh }: WorkflowsPageProps): JSX.
 
   return (
     <div className="flex h-full flex-col">
-      <EntityHeader
-        icon={WorkflowIcon}
-        title="Workflows"
-        subtitle="Workflow definitions across the workspace — open one to inspect its task graph."
-        actions={newWorkflowButton}
-      />
+      <EntityHeader icon={WorkflowIcon} title="Workflows" actions={newWorkflowButton} />
       <CreateWorkflowDialog
         projects={snapshot.projects}
         onCreated={handleCreated}

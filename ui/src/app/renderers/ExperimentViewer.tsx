@@ -1,45 +1,39 @@
 import {
   Ban,
-  BarChart3,
   Bot,
   Check,
+  Copy,
   FileQuestion,
   FlaskConical,
-  ListChecks,
+  Grid3x3,
+  Maximize2,
+  MoreHorizontal,
   Play,
-  SlidersHorizontal,
   Trash2,
-  Workflow as WorkflowIcon,
-  X,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import { CreateSweepDialog } from "@/app/components/CreateSweepDialog";
-import { CurateComposer } from "@/app/components/CurateComposer";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
 import {
   CopyButton,
-  DashboardCard,
-  DashboardGrid,
+  DashboardCanvas,
   DataTable,
   EMPTY_COPY,
   EmptyState,
   EntityPage,
-  MetaField,
-  MetaGrid,
-  MiniBars,
+  InventoryCanvas,
+  OverviewHighlight,
+  OverviewSurface,
   ParamChip,
-  StatCard,
-  StatGrid,
-  StatusDistribution,
+  StatusDonut,
   StatusIcon,
 } from "@/app/components/entity";
-// Module-path import (not the barrel) — see RunViewer.tsx for the loader rationale.
-import { KnowledgeBacklinksCard } from "@/app/components/entity/KnowledgeBacklinksCard";
 import {
   countRunStatuses,
   formatDuration,
   formatScalar,
+  statusDonutSegments,
   successRate,
 } from "@/app/renderers/dashboardData";
 import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
@@ -56,22 +50,27 @@ import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ObjectView, RendererProps, RunSummary } from "@/app/types";
 import { useConfirm } from "@/components/ConfirmDialog";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Code as InlineCode } from "@/components/ui/code";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { toast } from "@/components/ui/toast";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  WorkbenchAction,
-  WorkbenchIconAction,
-  WorkbenchTag,
-  WorkbenchToggleAction,
-} from "@/components/workbench";
-import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { toast } from "@/components/ui/toast";
+import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
+import { parseWorkflowIr } from "@/components/workflow/workflow-graph";
 import { formatDateTime } from "@/lib/datetime";
 
 const formatResultPreview = (results: Record<string, unknown>): string => {
@@ -140,7 +139,14 @@ export const ExperimentViewer = ({
   onRefresh,
 }: RendererProps): JSX.Element => {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [sweepOpen, setSweepOpen] = useState(false);
+  // Workflow is overview-only (expand modal); never a tab value.
   const [activeTab, setActiveTab] = useState("overview");
+  const [workflowExpanded, setWorkflowExpanded] = useState(false);
+
+  const setEntityTab = useCallback((value: string) => {
+    setActiveTab(value === "workflow" ? "overview" : value);
+  }, []);
   const { setSelection } = useNavigationState(snapshot);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
@@ -293,7 +299,6 @@ export const ExperimentViewer = ({
   }
 
   const workflow = snapshot.workflows.find((item) => item.experimentId === experiment.id);
-  const project = snapshot.projects.find((item) => item.id === projectId);
   const workflowGraph = workflow?.graph ?? parseWorkflowIr(experiment.workflowSource);
   const workbench = buildExperimentWorkbenchData(
     experiment,
@@ -328,7 +333,16 @@ export const ExperimentViewer = ({
       key: "parameters",
       header: "Parameters",
       width: "w-90",
-      cell: (run) => <ParametersCell run={run} keys={parameterKeys} />,
+      cell: (run) => (
+        <ParametersCell
+          run={run}
+          keys={
+            workbench.varyingAxes.length > 0
+              ? workbench.varyingAxes.map((axis) => axis.key)
+              : parameterKeys
+          }
+        />
+      ),
     },
     {
       key: "result",
@@ -446,221 +460,38 @@ export const ExperimentViewer = ({
       onSelect: () => action.onSelect(),
     }));
   const experimentSuccessRate = successRate(counts);
+  const donutSegments = statusDonutSegments(counts);
 
-  const overviewContent = (
-    <DashboardGrid>
-      <div className="lg:col-span-12">
-        <StatGrid>
-          <StatCard label="Runs" value={counts.total} muted={counts.total === 0} />
-          <StatCard
-            label="Success rate"
-            value={experimentSuccessRate === null ? "—" : `${experimentSuccessRate.toFixed(0)}%`}
-            tone="success"
-            muted={experimentSuccessRate === null}
-          />
-          <StatCard
-            label="Succeeded"
-            value={counts.succeeded}
-            tone="success"
-            muted={counts.succeeded === 0}
-          />
-          <StatCard
-            label="Running"
-            value={counts.running}
-            tone="running"
-            muted={counts.running === 0}
-          />
-          <StatCard label="Failed" value={counts.failed} tone="error" muted={counts.failed === 0} />
-          <StatCard
-            label="Pending"
-            value={counts.pending}
-            tone="warning"
-            muted={counts.pending === 0}
-          />
-        </StatGrid>
-      </div>
-
-      <DashboardCard
-        title="Identity"
-        className="lg:col-span-4"
-        action={
-          <CopyButton
-            value={JSON.stringify(
-              { projectId: experiment.projectId, experimentId: experiment.id },
-              null,
-              2,
-            )}
-            label="experiment coordinates"
-          />
-        }
-      >
-        <MetaGrid columns={2}>
-          <MetaField
-            label="Experiment ID"
-            value={experiment.id}
-            mono
-            title={experiment.id}
-            copyValue={experiment.id}
-          />
-          <MetaField label="Project" value={project?.name ?? projectId} copyValue={projectId} />
-          <MetaField
-            label="Updated"
-            value={formatDateTime(experiment.updatedAt)}
-            title={experiment.updatedAt}
-            copyValue={experiment.updatedAt}
-          />
-          <MetaField
-            label="Workflow tasks"
-            value={workbench.workflowSummary.exists ? workbench.workflowSummary.taskCount : "—"}
-          />
-          <MetaField
-            label="Workflow file"
-            value={experiment.workflowFile || "—"}
-            mono
-            title={experiment.workflowFile || undefined}
-            copyValue={experiment.workflowFile || undefined}
-          />
-          {experiment.planRunId && (
-            <MetaField
-              label="Plan run"
-              value={experiment.planRunId}
-              mono
-              title={experiment.planRunId}
-              copyValue={experiment.planRunId}
-            />
-          )}
-        </MetaGrid>
-      </DashboardCard>
-
-      <DashboardCard
-        title="Run status"
-        description={
-          counts.total === 0
-            ? "No runs yet"
-            : `${counts.total} run${counts.total === 1 ? "" : "s"} in this experiment`
-        }
-        className="lg:col-span-4"
-      >
-        <StatusDistribution counts={counts} />
-      </DashboardCard>
-
-      <KnowledgeBacklinksCard
-        kind="experiment"
-        projectId={experiment.projectId}
-        experimentId={experiment.id}
-        className="lg:col-span-4"
-      />
-
-      <DashboardCard
-        title="Workflow"
-        description={
-          workflowGraph
-            ? `${workbench.workflowSummary.taskCount} tasks · ${workbench.workflowSummary.linkCount} links · ${workbench.workflowSummary.parallelGroupCount} parallel`
-            : "No graph recorded"
-        }
-        className="lg:col-span-8"
-        bodyClassName="space-y-3"
-        action={
-          workflowGraph ? (
-            <span className="inline-flex items-center gap-2 text-label text-muted-foreground">
-              <WorkflowIcon className="h-3.5 w-3.5" />
-              Graph
-            </span>
-          ) : undefined
-        }
-      >
-        {workflowGraph ? (
-          <WorkflowGraph ir={workflowGraph} height={240} />
-        ) : (
-          <p className="text-body-lg text-muted-foreground">No workflow graph recorded.</p>
-        )}
-      </DashboardCard>
-
-      <DashboardCard
-        title="Run groups"
-        description={
-          workbench.parameterAxes.some((axis) => axis.count > 1)
-            ? "Grouped by the first varying parameter"
-            : "Grouped by execution state"
-        }
-        className="lg:col-span-4"
-      >
-        <MiniBars
-          data={workbench.runGroups.slice(0, 8).map((group) => ({
-            label: group.label,
-            value: group.runs.length,
-            hint: `${group.counts.succeeded}/${group.counts.total}`,
-            onClick: () => setActiveTab("runs"),
-          }))}
-          emptyLabel="No runs available to group."
-        />
-      </DashboardCard>
-
-      <DashboardCard
-        title="Parameter space"
-        description={
-          workbench.parameterAxes.length === 0
-            ? "No axes declared"
-            : `${workbench.parameterAxes.length} axis${workbench.parameterAxes.length === 1 ? "" : "es"}`
-        }
-        className="lg:col-span-6"
-        bodyClassName="space-y-3"
-      >
-        {workbench.parameterAxes.length === 0 ? (
-          <p className="text-body-lg text-muted-foreground">No parameter axes declared.</p>
-        ) : (
-          <Accordion type="multiple" className="border-y border-border">
-            {workbench.parameterAxes.map((axis) => (
-              <AccordionItem key={axis.key} value={axis.key} className="border-border px-3">
-                <AccordionTrigger className="py-3 text-label hover:no-underline">
-                  <span className="inline-flex min-w-0 items-center gap-2">
-                    <SlidersHorizontal className="h-3.5 w-3.5 flex-none text-muted-foreground" />
-                    <span className="truncate font-medium text-foreground">{axis.key}</span>
-                  </span>
-                  <WorkbenchTag className="ml-auto mr-2 font-mono text-micro">
-                    {axis.count}
-                  </WorkbenchTag>
-                </AccordionTrigger>
-                <AccordionContent className="pb-3">
-                  <div className="max-h-44 overflow-auto rounded-control bg-muted/30 p-2">
-                    <div className="flex flex-wrap gap-1">
-                      {axis.values.map((value) => (
-                        <WorkbenchTag
-                          key={`${axis.key}:${value}`}
-                          meaning="metadata"
-                          className="max-w-44 truncate rounded-control font-mono text-micro font-normal text-muted-foreground"
-                          title={value}
-                        >
-                          {value}
-                        </WorkbenchTag>
-                      ))}
-                    </div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        )}
-      </DashboardCard>
-
-      <DashboardCard
-        title="Curate"
-        description="Reorganize workspace content with an agent"
-        className="lg:col-span-6"
-      >
-        <CurateComposer
-          projectId={projectId}
-          experimentId={experimentId}
-          onComplete={() => onRefresh()}
-        />
-      </DashboardCard>
-    </DashboardGrid>
-  );
+  const paramAxes = [...workbench.varyingAxes, ...workbench.fixedAxes];
+  const latestRun =
+    runs.length === 0
+      ? null
+      : [...runs].sort(
+          (a, b) =>
+            Date.parse(b.updatedAt || b.finishedAt || b.startedAt || "0") -
+            Date.parse(a.updatedAt || a.finishedAt || a.startedAt || "0"),
+        )[0];
+  const completedDurationMs = runs.flatMap((run) => {
+    if (!run.startedAt || !run.finishedAt) return [];
+    const ms = Date.parse(run.finishedAt) - Date.parse(run.startedAt);
+    return Number.isFinite(ms) && ms >= 0 ? [ms] : [];
+  });
+  const medianDurationLabel = (() => {
+    if (completedDurationMs.length === 0) return null;
+    const sorted = [...completedDurationMs].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const left = sorted[mid - 1];
+    const right = sorted[mid];
+    if (right === undefined) return null;
+    const ms = sorted.length % 2 === 0 && left !== undefined ? (left + right) / 2 : right;
+    // formatDuration expects two ISO instants — anchor at epoch for a pure delta.
+    return formatDuration(new Date(0).toISOString(), new Date(ms).toISOString());
+  })();
 
   const workflowSelection = workflow
     ? { objectType: "workflow" as const, objectId: workflow.id, workflowId: workflow.id }
     : null;
-  const workflowTabContent = workflowSelection ? (
+  const workflowViewer = workflowSelection ? (
     <WorkflowGraphViewer
       selection={workflowSelection}
       snapshot={snapshot}
@@ -670,8 +501,153 @@ export const ExperimentViewer = ({
     />
   ) : (
     <div className="flex h-full items-center justify-center">
-      <EmptyState icon={<WorkflowIcon className="h-6 w-6" />} title="No workflow" />
+      <EmptyState
+        title="No workflow"
+        description="Attach or generate a workflow for this experiment."
+      />
     </div>
+  );
+
+  const workflowLabel =
+    workflow?.name ||
+    (experiment.workflowFile && !experiment.workflowFile.trim().startsWith("{")
+      ? experiment.workflowFile
+      : null) ||
+    "Workflow";
+
+  // Single graph instance: overview embed when collapsed, modal when expanded.
+  // Moving it (not cloning) avoids dual canvases and keeps edit state.
+  const workflowCanvas = workflowExpanded ? null : (
+    <div className="h-[min(28rem,52vh)] min-h-80 overflow-hidden rounded-panel border border-border bg-canvas">
+      {workflowViewer}
+    </div>
+  );
+
+  // Always pass full tab bodies (EntityTabContent hides inactive with CSS).
+  // Conditional `activeTab === … ? content : null` remounted Flowgram on every switch.
+  const overviewContent = (
+    <OverviewSurface>
+      <DashboardCanvas className="max-w-6xl space-y-10">
+        <section className="grid gap-10 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center">
+          {counts.total > 0 ? (
+            <StatusDonut
+              segments={donutSegments}
+              size={148}
+              thickness={16}
+              centerValue={counts.total}
+              centerLabel="runs"
+            />
+          ) : (
+            <div className="flex size-36 items-center justify-center rounded-full border border-dashed border-border text-micro text-muted-foreground">
+              no runs
+            </div>
+          )}
+          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            <OverviewHighlight
+              label="Succeeded"
+              value={counts.succeeded}
+              detail={
+                experimentSuccessRate === null
+                  ? undefined
+                  : `${experimentSuccessRate.toFixed(0)}% of terminal`
+              }
+            />
+            <OverviewHighlight label="Failed" value={counts.failed} />
+            <OverviewHighlight
+              label="In flight"
+              value={counts.running + counts.pending}
+              detail={
+                counts.running + counts.pending > 0
+                  ? `${counts.running} running · ${counts.pending} queued`
+                  : undefined
+              }
+            />
+            <OverviewHighlight
+              label="Median duration"
+              value={medianDurationLabel ?? "—"}
+              detail={
+                completedDurationMs.length > 0
+                  ? `${completedDurationMs.length} finished runs`
+                  : undefined
+              }
+            />
+            <OverviewHighlight
+              label="Latest run"
+              value={latestRun ? latestRun.name || latestRun.id.slice(0, 10) : "—"}
+              detail={
+                latestRun
+                  ? `${latestRun.status} · ${formatDateTime(latestRun.updatedAt)}`
+                  : undefined
+              }
+            />
+          </div>
+        </section>
+
+        {paramAxes.length > 0 && (
+          <section className="space-y-3">
+            <h3 className="text-body-lg font-medium text-foreground">Parameters</h3>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-40">Name</TableHead>
+                  <TableHead>Values</TableHead>
+                  <TableHead className="w-24">Role</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paramAxes.map((axis) => {
+                  const varying = axis.count > 1;
+                  return (
+                    <TableRow key={axis.key}>
+                      <TableCell className="font-mono text-label">{axis.key}</TableCell>
+                      <TableCell className="font-mono text-label text-muted-foreground">
+                        {axis.values.slice(0, 12).join(", ")}
+                        {axis.values.length > 12 ? ` +${axis.values.length - 12}` : ""}
+                      </TableCell>
+                      <TableCell className="text-micro text-muted-foreground">
+                        {varying ? "varying" : "fixed"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </section>
+        )}
+
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-2">
+              <h3 className="text-body-lg font-medium text-foreground">Workflow</h3>
+              {workbench.workflowSummary.exists && (
+                <p className="truncate font-mono text-micro text-muted-foreground">
+                  {/* Never dump workflow IR JSON — name/path only. */}
+                  {workflowLabel}
+                </p>
+              )}
+            </div>
+            {workbench.workflowSummary.exists && (
+              <WorkbenchIconAction
+                label="Expand workflow"
+                kind="ghost"
+                className="h-control-compact w-control-compact"
+                aria-label="Expand workflow"
+                title="Expand workflow"
+                onClick={() => setWorkflowExpanded(true)}
+              >
+                <Maximize2 className="h-4 w-4" />
+              </WorkbenchIconAction>
+            )}
+          </div>
+          {workflowCanvas}
+          {workflowExpanded && (
+            <div className="flex h-[min(28rem,52vh)] min-h-80 items-center justify-center rounded-panel border border-dashed border-border bg-canvas text-label text-muted-foreground">
+              Open in modal…
+            </div>
+          )}
+        </section>
+      </DashboardCanvas>
+    </OverviewSurface>
   );
 
   return (
@@ -679,10 +655,8 @@ export const ExperimentViewer = ({
       <EntityPage
         icon={FlaskConical}
         title={experiment.name}
-        status={experiment.status}
         actions={
           <>
-            <CopyButton value={experiment.id} label="experiment ID" />
             <CreateRunDialog
               projectId={projectId}
               experimentId={experimentId}
@@ -692,131 +666,173 @@ export const ExperimentViewer = ({
                 navigateToRun(runId);
               }}
             />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <WorkbenchIconAction label="More">
+                  <MoreHorizontal className="h-4 w-4" />
+                </WorkbenchIconAction>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={() => setSweepOpen(true)}>
+                  <Grid3x3 className="h-3.5 w-3.5" />
+                  Sweep
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() =>
+                    setSelection({
+                      objectType: "agent",
+                      objectId: "new",
+                      scope: { projectId, experimentId },
+                    })
+                  }
+                >
+                  <Bot className="h-3.5 w-3.5" />
+                  Agent
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    void navigator.clipboard.writeText(experiment.id);
+                    toast.success("Copied");
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy ID
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={isDeleting}
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => void handleDelete()}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <CreateSweepDialog
               projectId={projectId}
               experimentId={experimentId}
+              open={sweepOpen}
+              onOpenChange={setSweepOpen}
               onCreated={() => {
                 onRefresh();
                 setActiveTab("runs");
               }}
             />
-            <WorkbenchIconAction
-              label="Agent"
-              kind="ghost"
-              className="h-control-compact w-control-compact"
-              aria-label="Agent"
-              title="Agent"
-              onClick={() =>
-                setSelection({
-                  objectType: "agent",
-                  objectId: "new",
-                  scope: { projectId, experimentId },
-                })
-              }
-            >
-              <Bot className="h-4 w-4" />
-            </WorkbenchIconAction>
-            <WorkbenchIconAction
-              label="Delete"
-              kind="ghost"
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="h-control-compact w-control-compact text-muted-foreground hover:text-destructive"
-              aria-label="Delete"
-              title="Delete"
-            >
-              <Trash2 className="h-4 w-4" />
-            </WorkbenchIconAction>
           </>
         }
-        activeTab={activeTab}
-        onActiveTabChange={setActiveTab}
+        activeTab={activeTab === "workflow" ? "overview" : activeTab}
+        onActiveTabChange={setEntityTab}
         tabs={[
           {
             value: "overview",
             label: "Overview",
-            content: activeTab === "overview" ? overviewContent : null,
+            content: overviewContent,
           },
           {
             value: "runs",
-            label: `Runs${counts.total ? ` (${counts.total})` : ""}`,
+            label: counts.total > 0 ? `Runs (${counts.total})` : "Runs",
             content: (
-              <div className="flex h-full flex-col">
-                <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-                  <WorkbenchToggleAction
-                    label={multi.enabled ? "Exit multi-select" : "Select multiple runs"}
-                    pressed={multi.enabled}
-                    onClick={multi.toggleMode}
-                  >
-                    <ListChecks className="h-3.5 w-3.5" />
-                  </WorkbenchToggleAction>
-                  {multi.enabled && (
-                    <>
-                      <span className="text-label text-muted-foreground">
-                        {multi.selected.size} selected
-                      </span>
-                      <WorkbenchIconAction
-                        label="Compare selected runs"
-                        disabled={multi.selected.size === 0}
-                        onClick={() => setActiveTab("compare")}
+              <OverviewSurface surfaceClassName="flex min-h-0 flex-col overflow-hidden">
+                <InventoryCanvas fill className="min-h-0 flex-1 gap-0 space-y-0">
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <WorkbenchAction
+                        kind={multi.enabled ? "secondary" : "ghost"}
+                        size="compact"
+                        type="button"
+                        onClick={multi.toggleMode}
                       >
-                        <BarChart3 className="h-3.5 w-3.5" />
-                      </WorkbenchIconAction>
-                      <WorkbenchIconAction
-                        label="Clear run selection"
-                        disabled={multi.selected.size === 0}
-                        onClick={multi.clear}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </WorkbenchIconAction>
-                      <span className="text-micro text-muted-foreground">⇧ range · ⌘ toggle</span>
-                    </>
-                  )}
-                </div>
-                <DataTable
-                  columns={tableColumns}
-                  data={runs}
-                  getRowKey={(run) => run.id}
-                  getRowLabel={(run) =>
-                    multi.enabled
-                      ? `${multi.selected.has(run.id) ? "Deselect" : "Select"} run ${run.name || run.id}`
-                      : `Open run ${run.name || run.id}`
-                  }
-                  onRowActivate={
-                    multi.enabled
-                      ? (run) =>
-                          multi.selectAt(runIndex.get(run.id) ?? 0, { shift: false, meta: true })
-                      : (run) => navigateToRun(run.id)
-                  }
-                  rowActions={runRowActions}
-                  rowClassName={(run) =>
-                    multi.enabled && multi.selected.has(run.id) ? "bg-accent/5" : ""
-                  }
-                  empty={
-                    <EmptyState
-                      title={EMPTY_COPY.runs.title}
-                      description={EMPTY_COPY.runs.description}
-                    />
-                  }
-                />
-              </div>
+                        {multi.enabled ? "Done selecting" : "Select"}
+                      </WorkbenchAction>
+                      {multi.enabled && (
+                        <>
+                          <span className="text-label text-muted-foreground">
+                            {multi.selected.size} selected
+                          </span>
+                          <WorkbenchAction
+                            kind="ghost"
+                            size="compact"
+                            type="button"
+                            disabled={multi.selected.size === 0}
+                            onClick={() => setActiveTab("compare")}
+                          >
+                            Compare
+                          </WorkbenchAction>
+                          <WorkbenchAction
+                            kind="ghost"
+                            size="compact"
+                            type="button"
+                            disabled={multi.selected.size === 0}
+                            onClick={multi.clear}
+                          >
+                            Clear
+                          </WorkbenchAction>
+                        </>
+                      )}
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-auto">
+                      <DataTable
+                        columns={tableColumns}
+                        data={runs}
+                        getRowKey={(run) => run.id}
+                        getRowLabel={(run) =>
+                          multi.enabled
+                            ? `${multi.selected.has(run.id) ? "Deselect" : "Select"} run ${run.name || run.id}`
+                            : `Open run ${run.name || run.id}`
+                        }
+                        onRowActivate={
+                          multi.enabled
+                            ? (run) =>
+                                multi.selectAt(runIndex.get(run.id) ?? 0, {
+                                  shift: false,
+                                  meta: true,
+                                })
+                            : (run) => navigateToRun(run.id)
+                        }
+                        rowActions={runRowActions}
+                        rowClassName={(run) =>
+                          multi.enabled && multi.selected.has(run.id) ? "bg-accent/5" : ""
+                        }
+                        empty={
+                          <EmptyState
+                            title={EMPTY_COPY.runs.title}
+                            description={EMPTY_COPY.runs.description}
+                          />
+                        }
+                      />
+                    </div>
+                  </div>
+                </InventoryCanvas>
+              </OverviewSurface>
             ),
-          },
-          {
-            value: "workflow",
-            label: "Workflow",
-            content: activeTab === "workflow" ? workflowTabContent : null,
           },
           {
             value: "compare",
             label: "Compare",
-            content:
-              activeTab === "compare" ? (
-                <ExperimentCompare runs={runs} onOpenRun={navigateToRun} />
-              ) : null,
+            content: (
+              <OverviewSurface>
+                <InventoryCanvas>
+                  <ExperimentCompare runs={runs} onOpenRun={navigateToRun} />
+                </InventoryCanvas>
+              </OverviewSurface>
+            ),
           },
         ]}
       />
+      <Dialog open={workflowExpanded} onOpenChange={setWorkflowExpanded}>
+        <DialogContent
+          className="flex h-[min(92vh,56rem)] max-w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,80rem)]"
+          showCloseButton
+        >
+          <DialogHeader className="shrink-0 border-b border-border px-4 py-3 pr-12 text-left">
+            <DialogTitle className="font-mono text-body-lg">{workflowLabel}</DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-hidden bg-canvas">
+            {workflowExpanded ? workflowViewer : null}
+          </div>
+        </DialogContent>
+      </Dialog>
       {confirmDialog}
     </>
   );

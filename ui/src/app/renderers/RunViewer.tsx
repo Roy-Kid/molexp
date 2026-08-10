@@ -1,6 +1,6 @@
 import { FileQuestion, PlayCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { CopyButton, EmptyState, EntityMetric, EntityPage } from "@/app/components/entity";
+import { EmptyState, EntityPage } from "@/app/components/entity";
 import { RunExecutionsPanel } from "@/app/renderers/RunExecutionsPanel";
 import { RunLogsPanel } from "@/app/renderers/RunLogsPanel";
 import { RunOutputsPanel } from "@/app/renderers/run/RunOutputsPanel";
@@ -26,8 +26,6 @@ const openKnowledgePath = (
 export const RunViewer = (props: RendererProps): JSX.Element => {
   const {
     run,
-    project,
-    experiment,
     workflow,
     selectedRunId,
     activeTab,
@@ -90,29 +88,12 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
   const overviewContent = (
     <RunOverview
       run={run}
-      project={project}
-      experiment={experiment}
-      workflow={workflow}
       backend={backend}
       duration={duration}
       attemptCount={attemptCount}
       assets={runAssets}
       parameters={parameterEntries}
       results={resultEntries}
-      onOpenProject={() => setSelection({ objectType: "project", objectId: run.projectId })}
-      onOpenExperiment={() =>
-        setSelection({ objectType: "experiment", objectId: run.experimentId })
-      }
-      onOpenWorkflow={
-        workflow
-          ? () =>
-              setSelection({
-                objectType: "workflow",
-                objectId: workflow.id,
-                workflowId: workflow.id,
-              })
-          : undefined
-      }
     />
   );
 
@@ -208,45 +189,32 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
       <EntityPage
         icon={PlayCircle}
         title={run.name}
-        status={run.status}
-        subtitle={run.summary || undefined}
-        metrics={
-          <>
-            <EntityMetric label="duration" value={duration ?? "—"} />
-            <EntityMetric label="attempts" value={attemptCount} />
-            <EntityMetric label="assets" value={runAssets.length} />
-            <EntityMetric label="results" value={resultEntries.length} />
-          </>
-        }
         actions={
-          <>
-            <CopyButton value={run.id} label="run ID" />
-            <RunToolbar
-              projectId={run.projectId}
-              experimentId={run.experimentId}
-              runId={run.id}
-              status={run.status}
-              params={run.parameters ?? {}}
-              onRefresh={props.onRefresh}
-              onCancel={handleCancelRun}
-              onDispatched={() => setActiveTab(POST_DISPATCH_TAB)}
-              onOpenAgent={() =>
-                setSelection({
-                  objectType: "agent",
-                  objectId: "new",
-                  scope: {
-                    projectId: run.projectId,
-                    experimentId: run.experimentId,
-                    runId: run.id,
-                  },
-                })
-              }
-              onHarvested={(path) => {
-                props.onRefresh();
-                if (path) openKnowledgePath(path, setSelection);
-              }}
-            />
-          </>
+          <RunToolbar
+            projectId={run.projectId}
+            experimentId={run.experimentId}
+            runId={run.id}
+            status={run.status}
+            params={run.parameters ?? {}}
+            onRefresh={props.onRefresh}
+            onCancel={handleCancelRun}
+            onDispatched={() => setActiveTab(POST_DISPATCH_TAB)}
+            onOpenAgent={() =>
+              setSelection({
+                objectType: "agent",
+                objectId: "new",
+                scope: {
+                  projectId: run.projectId,
+                  experimentId: run.experimentId,
+                  runId: run.id,
+                },
+              })
+            }
+            onHarvested={(path) => {
+              props.onRefresh();
+              if (path) openKnowledgePath(path, setSelection);
+            }}
+          />
         }
         activeTab={activeTab}
         onActiveTabChange={setActiveTab}

@@ -191,14 +191,7 @@ export const AgentSettingsViewer = ({ onLaunchSession }: AgentSettingsViewerProp
       content: renderTabContent(def.contentKey, onLaunchSession),
     };
   });
-  return (
-    <EntityPage
-      icon={Settings}
-      title="Agent settings"
-      subtitle="Model, instructions, skills, MCP tools, and knowledge package scope"
-      tabs={tabs}
-    />
-  );
+  return <EntityPage icon={Settings} title="Agent settings" tabs={tabs} />;
 };
 
 const SettingsScroll = ({

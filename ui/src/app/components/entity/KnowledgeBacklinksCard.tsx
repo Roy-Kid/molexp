@@ -4,11 +4,7 @@ import { useNavigate } from "react-router-dom";
 import type { EntityBacklinkRow } from "@/api/generated/models/EntityBacklinkRow";
 import { KnowledgeService } from "@/api/generated/services/KnowledgeService";
 import { DashboardCard } from "@/app/components/entity/Dashboard";
-import {
-  WorkbenchAction,
-  WorkbenchOperationState,
-  WorkbenchRetryAction,
-} from "@/components/workbench";
+import { WorkbenchAction } from "@/components/workbench";
 
 interface KnowledgeBacklinksCardProps {
   kind: "run" | "experiment";
@@ -19,10 +15,8 @@ interface KnowledgeBacklinksCardProps {
 }
 
 /**
- * Knowledge documents citing this entity (vision-loop-10) — a thin read over
- * `GET /api/knowledge/entity-backlinks` (itself a `Bundle.backlinks` delegator).
- * Rows navigate to the Knowledge section. The empty state renders (never
- * hidden) so the knowledge↔entity seam stays discoverable.
+ * Knowledge documents citing this entity. Renders only when backlinks exist —
+ * never reserves overview fold for empty/loading chrome.
  */
 export const KnowledgeBacklinksCard = ({
   kind,
@@ -30,19 +24,15 @@ export const KnowledgeBacklinksCard = ({
   experimentId,
   runId,
   className,
-}: KnowledgeBacklinksCardProps): JSX.Element => {
+}: KnowledgeBacklinksCardProps): JSX.Element | null => {
   const navigate = useNavigate();
   const requestKey = `${kind}:${projectId}:${experimentId}:${runId ?? ""}`;
   const [rows, setRows] = useState<EntityBacklinkRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [settledRequestKey, setSettledRequestKey] = useState("");
-  const [requestVersion, setRequestVersion] = useState(0);
 
   useEffect(() => {
-    void requestVersion;
     let cancelled = false;
     setRows(null);
-    setError(null);
     KnowledgeService.entityBacklinksApiKnowledgeEntityBacklinksGet(
       kind,
       projectId,
@@ -52,10 +42,8 @@ export const KnowledgeBacklinksCard = ({
       .then((response) => {
         if (!cancelled) setRows(response.backlinks);
       })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load linked knowledge");
-        }
+      .catch(() => {
+        if (!cancelled) setRows([]);
       })
       .finally(() => {
         if (!cancelled) setSettledRequestKey(requestKey);
@@ -63,87 +51,42 @@ export const KnowledgeBacklinksCard = ({
     return () => {
       cancelled = true;
     };
-  }, [kind, projectId, experimentId, runId, requestKey, requestVersion]);
+  }, [kind, projectId, experimentId, runId, requestKey]);
+
+  if (settledRequestKey !== requestKey || !rows || rows.length === 0) {
+    return null;
+  }
 
   return (
     <DashboardCard
       title="Knowledge"
-      description={kind === "run" ? "Notes that cite this run" : "Notes that cite this experiment"}
+      icon={BookOpen}
+      description={kind === "run" ? "Notes citing this run" : "Notes citing this experiment"}
       className={className}
     >
-      {settledRequestKey !== requestKey || (rows === null && !error) ? (
-        <WorkbenchOperationState
-          kind="loading"
-          density="compact"
-          title="Loading linked notes…"
-          skeletonRows={2}
-        />
-      ) : error ? (
-        <WorkbenchOperationState
-          kind="error"
-          density="compact"
-          title="Could not load linked notes"
-          detail={error}
-          action={
-            <WorkbenchRetryAction
-              onClick={() => {
-                setRows(null);
-                setRequestVersion((version) => version + 1);
-              }}
-            />
-          }
-        />
-      ) : rows === null ? (
-        <WorkbenchOperationState
-          kind="error"
-          density="compact"
-          title="Linked notes unavailable"
-          detail="The request finished without a result."
-          action={
-            <WorkbenchRetryAction
-              onClick={() => {
-                setRows(null);
-                setRequestVersion((version) => version + 1);
-              }}
-            />
-          }
-        />
-      ) : rows.length === 0 ? (
-        <WorkbenchOperationState
-          kind="empty"
-          density="compact"
-          title="No linked notes yet"
-          detail={
-            kind === "run"
-              ? "No knowledge documents cite this run."
-              : "No knowledge documents cite this experiment."
-          }
-        />
-      ) : (
-        <ul className="space-y-1">
-          {rows.map((row) => (
-            <li key={row.path}>
-              <WorkbenchAction
-                kind="ghost"
-                size="content"
-                type="button"
-                onClick={() =>
-                  navigate(`/knowledge/${row.path.split("/").map(encodeURIComponent).join("/")}`)
-                }
-                className="flex w-full items-center gap-2 truncate rounded-control px-2 py-2 text-left text-body-lg transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                title={row.path}
-              >
-                <BookOpen className="h-3.5 w-3.5 flex-none text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-foreground">{row.title}</span>
-                <span className="inline-flex items-center gap-1 font-mono text-micro text-muted-foreground">
-                  <Link2 className="h-3 w-3" />
-                  {row.role}
-                </span>
-              </WorkbenchAction>
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul className="space-y-1">
+        {rows.map((row) => (
+          <li key={row.path}>
+            <WorkbenchAction
+              kind="ghost"
+              size="content"
+              type="button"
+              onClick={() =>
+                navigate(`/knowledge/${row.path.split("/").map(encodeURIComponent).join("/")}`)
+              }
+              className="flex w-full items-center gap-2 truncate rounded-control px-2 py-2 text-left text-body-lg transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title={row.path}
+            >
+              <BookOpen className="h-3.5 w-3.5 flex-none text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-foreground">{row.title}</span>
+              <span className="inline-flex items-center gap-1 font-mono text-micro text-muted-foreground">
+                <Link2 className="h-3 w-3" />
+                {row.role}
+              </span>
+            </WorkbenchAction>
+          </li>
+        ))}
+      </ul>
     </DashboardCard>
   );
 };

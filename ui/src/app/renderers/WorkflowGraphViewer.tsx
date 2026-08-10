@@ -29,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { WorkbenchDismissAction, WorkbenchTag } from "@/components/workbench";
+import { WorkbenchDismissAction } from "@/components/workbench";
 import { FlowgramCanvas } from "@/components/workflow/flowgram-canvas";
 import { FlowgramCanvasToolbar } from "@/components/workflow/flowgram-canvas-toolbar";
 import {
@@ -151,20 +151,12 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
   }
 
   const isEmpty = !document || document.nodes.length === 0;
-  const taskCount = graph?.task_configs.length ?? 0;
-  const linkCount = graph?.links.length ?? 0;
-  const parallelCount = graph?.links.filter((link) => link.kind === "parallel").length ?? 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="relative min-h-0 w-full flex-1">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex flex-col gap-2 px-3 py-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-control border border-border bg-background/90 px-2 py-1 text-micro text-muted-foreground">
-              <WorkbenchTag meaning="metadata">{taskCount} tasks</WorkbenchTag>
-              <WorkbenchTag meaning="metadata">{linkCount} links</WorkbenchTag>
-              <WorkbenchTag meaning="metadata">{parallelCount} parallel</WorkbenchTag>
-            </div>
+          <div className="flex items-start justify-end gap-2">
             <div className="pointer-events-auto flex items-center rounded-control border border-border bg-background/90 px-1 py-1">
               <FlowgramCanvasToolbar
                 onSave={handleSave}

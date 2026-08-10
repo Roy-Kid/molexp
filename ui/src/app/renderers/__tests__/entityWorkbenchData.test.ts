@@ -137,6 +137,21 @@ describe("buildExperimentWorkbenchData", () => {
     ]);
   });
 
+  it("partitions varying vs fixed parameter axes for scientific layers", () => {
+    const mixedRuns = [
+      run("run-a", "succeeded", { mode: "block", temperature: 300 }),
+      run("run-b", "failed", { mode: "random", temperature: 300 }),
+    ];
+    const data = buildExperimentWorkbenchData(
+      experiment("mixed", { mode: ["block", "random"], temperature: 300 }),
+      mixedRuns,
+      workflow,
+    );
+    expect(data.varyingAxes.map((axis) => axis.key)).toEqual(["mode"]);
+    expect(data.fixedAxes.map((axis) => axis.key)).toEqual(["temperature"]);
+    expect(data.fixedAxes[0]?.values).toEqual(["300"]);
+  });
+
   it("summarizes workflow graph and groups runs by the primary parameter axis", () => {
     const data = buildExperimentWorkbenchData(snapshot.experiments[0], snapshot.runs, workflow);
     expect(data.workflowSummary).toMatchObject({

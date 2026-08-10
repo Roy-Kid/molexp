@@ -67,8 +67,14 @@ export const registerEntityTabContribution = (entry: EntityTabContribution): voi
 
 export const listEntityTabs = (
   objectType: EntityTabContribution["objectType"],
+  context?: {
+    selection: import("@/app/types").Selection;
+    snapshot: import("@/app/types").WorkspaceSnapshot;
+  },
 ): EntityTabContribution[] => {
-  return listEntityTabContributions(objectType);
+  const tabs = listEntityTabContributions(objectType);
+  if (!context) return tabs;
+  return tabs.filter((tab) => (tab.matches ? tab.matches(context) : true));
 };
 
 export const registerFileTypeContribution = (entry: FileTypeContribution): void => {
