@@ -129,7 +129,11 @@ export function RemoteWorkspacesPanel(): JSX.Element {
   };
 
   const listError =
-    listQuery.error instanceof Error ? listQuery.error.message : listQuery.isError ? "Failed to list remote workspaces" : null;
+    listQuery.error instanceof Error
+      ? listQuery.error.message
+      : listQuery.isError
+        ? "Failed to list remote workspaces"
+        : null;
 
   return (
     <div className="space-y-4">

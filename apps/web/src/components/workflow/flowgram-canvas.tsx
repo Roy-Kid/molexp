@@ -222,7 +222,7 @@ const AutoLayoutOnMount = ({
       clearTimeout(retry);
       clearTimeout(failSafe);
     };
-  }, [settledRef]);
+  }, [settledRef, ignoreDirtyUntilRef]);
   return null;
 };
 
@@ -417,6 +417,7 @@ export const FlowgramCanvas = ({
           </div>
           {!layoutReady && (
             <div
+              role="status"
               className="absolute inset-0 z-20 bg-canvas"
               aria-busy="true"
               aria-label="Laying out workflow"

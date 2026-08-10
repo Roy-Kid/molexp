@@ -145,9 +145,7 @@ export interface PathDisplayContext {
  * Parse ``host:/absolute`` (or ``user@host:/absolute``) from a serve label.
  * Returns null when the label is not host-qualified.
  */
-export const parseHostQualifiedLabel = (
-  label: string,
-): { host: string; root: string } | null => {
+export const parseHostQualifiedLabel = (label: string): { host: string; root: string } | null => {
   // SCP / serve form: everything before the first ``:/``-style host:abs split
   // — absolute path after the colon (``Arrhenius:/home/...``, ``u@h:/data``).
   const m = label.match(/^([^:]+):(\/.*)$/);
@@ -164,10 +162,7 @@ export const parseHostQualifiedLabel = (
  *
  * *path* may be workspace-relative or already absolute under the workspace root.
  */
-export const formatQualifiedPath = (
-  path: WorkspacePath,
-  ctx: PathDisplayContext = {},
-): string => {
+export const formatQualifiedPath = (path: WorkspacePath, ctx: PathDisplayContext = {}): string => {
   const workspace = ctx.workspace ?? null;
   const knownRoot = (workspace?.path || ctx.root || "").replace(/\/+$/, "");
 

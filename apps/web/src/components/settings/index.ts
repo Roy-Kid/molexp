@@ -3,4 +3,4 @@
  * MolCrafts UI package (shadcn-style extraction).
  */
 export { SettingsRow, SettingsSection } from "./SettingsSection";
-export { SettingsShell, type SettingsNavEntry } from "./SettingsShell";
+export { type SettingsNavEntry, SettingsShell } from "./SettingsShell";

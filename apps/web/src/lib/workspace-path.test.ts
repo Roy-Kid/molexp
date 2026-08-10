@@ -97,8 +97,8 @@ describe("workspace-path (pure POSIX)", () => {
   });
 
   it("runWorkspaceRelativePath", () => {
-    expect(
-      runWorkspaceRelativePath({ projectId: "p1", experimentId: "e1", id: "abc12345" }),
-    ).toBe("projects/p1/experiments/e1/runs/run-abc12345");
+    expect(runWorkspaceRelativePath({ projectId: "p1", experimentId: "e1", id: "abc12345" })).toBe(
+      "projects/p1/experiments/e1/runs/run-abc12345",
+    );
   });
 });

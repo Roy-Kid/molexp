@@ -124,15 +124,10 @@ export function SettingsShell({
           {visible.map((item, index) => {
             const isActive = activeId === item.id;
             const prev = visible[index - 1];
-            const showGroup =
-              item.group &&
-              item.group !== "general" &&
-              prev?.group !== item.group;
+            const showGroup = item.group && item.group !== "general" && prev?.group !== item.group;
             return (
               <Fragment key={item.id}>
-                {showGroup ? (
-                  <NavSeparator label={item.groupLabel ?? item.group ?? ""} />
-                ) : null}
+                {showGroup ? <NavSeparator label={item.groupLabel ?? item.group ?? ""} /> : null}
                 <button
                   type="button"
                   onClick={() => scrollToCategory(item.id)}
@@ -146,10 +141,7 @@ export function SettingsShell({
                 >
                   {item.icon ? (
                     <span
-                      className={cn(
-                        "shrink-0",
-                        isActive ? "text-accent" : "text-muted-foreground",
-                      )}
+                      className={cn("shrink-0", isActive ? "text-accent" : "text-muted-foreground")}
                     >
                       {item.icon}
                     </span>
@@ -161,10 +153,7 @@ export function SettingsShell({
           })}
         </nav>
 
-        <div
-          ref={scrollRef}
-          className="min-w-0 flex-1 overflow-y-auto overscroll-contain"
-        >
+        <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="space-y-0 px-5 py-4 sm:px-6">
             {visible.map((section, index) => (
               <div

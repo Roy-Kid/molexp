@@ -15,9 +15,11 @@ from pathlib import Path
 from molexp.services.plan_runtime import record as plan_record
 
 _REPO = Path(__file__).resolve().parents[2]
-_PLAN_STAGES_TS = _REPO / "ui" / "src" / "app" / "renderers" / "agent" / "planStages.ts"
-_APPROVALS_TSX = _REPO / "ui" / "src" / "app" / "renderers" / "agent" / "ApprovalsInbox.tsx"
-_REVIEW_TSX = _REPO / "ui" / "src" / "app" / "renderers" / "agent" / "ReviewSurface.tsx"
+_PLAN_STAGES_TS = _REPO / "apps" / "web" / "src" / "app" / "renderers" / "agent" / "planStages.ts"
+_APPROVALS_TSX = (
+    _REPO / "apps" / "web" / "src" / "app" / "renderers" / "agent" / "ApprovalsInbox.tsx"
+)
+_REVIEW_TSX = _REPO / "apps" / "web" / "src" / "app" / "renderers" / "agent" / "ReviewSurface.tsx"
 
 
 def _ts_stage_kinds(source: str) -> list[str]:
