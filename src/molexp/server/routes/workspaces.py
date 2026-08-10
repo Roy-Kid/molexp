@@ -7,7 +7,9 @@ This route exposes that set so the UI can list them and switch between them via
 matching the unchanged single-workspace behaviour.
 """
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from molexp.server.dependencies import (
@@ -15,7 +17,9 @@ from molexp.server.dependencies import (
     get_served_workspaces,
     get_workspace_by_key,
 )
+from molexp.server.deps.auth import get_optional_user
 from molexp.server.exceptions import RemoteWorkspaceUnreachableError
+from molexp.services.auth import AuthUser, get_auth_service, is_auth_enabled
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -52,14 +56,22 @@ def _is_unreachable(key: str) -> bool:
 
 
 @router.get("", response_model=list[ServedWorkspaceResponse])
-def list_workspaces() -> list[ServedWorkspaceResponse]:
+def list_workspaces(
+    user: Annotated[AuthUser | None, Depends(get_optional_user)] = None,
+) -> list[ServedWorkspaceResponse]:
     """List the workspaces ``molexp serve`` was started with.
 
     A remote workspace whose transport is currently unreachable is still
     listed, flagged ``unreachable`` so the UI can degrade gracefully rather
     than failing the whole list.
+
+    When auth is enabled, the list is filtered by the user's workspace allowlist.
     """
     active_key = active_served_key()
+    served = get_served_workspaces()
+    if is_auth_enabled() and user is not None:
+        allowed = set(get_auth_service().filter_workspaces(user, [w.key for w in served]))
+        served = [w for w in served if w.key in allowed]
     return [
         ServedWorkspaceResponse(
             key=w.key,
@@ -69,5 +81,5 @@ def list_workspaces() -> list[ServedWorkspaceResponse]:
             active=w.key == active_key,
             unreachable=_is_unreachable(w.key) if w.is_remote else False,
         )
-        for w in get_served_workspaces()
+        for w in served
     ]

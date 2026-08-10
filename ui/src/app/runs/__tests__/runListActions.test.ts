@@ -73,4 +73,16 @@ describe("buildRunListActions", () => {
     expect(ids).not.toContain("resume");
     expect(ids).not.toContain("cancel");
   });
+
+  it("disables write verbs with hover tip when writeDeniedReason is set", () => {
+    const actions = buildRunListActions(baseRun("failed"), {
+      ...noopHandlers,
+      writeDeniedReason: "viewer cannot write",
+    });
+    const resume = actions.find((a) => a.id === "resume");
+    expect(resume?.disabled).toBe(true);
+    expect(resume?.title).toBe("viewer cannot write");
+    const copy = actions.find((a) => a.id === "copy-id");
+    expect(copy?.disabled).toBeFalsy();
+  });
 });

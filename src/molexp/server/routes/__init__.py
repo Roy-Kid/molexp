@@ -6,12 +6,14 @@ This package contains all the modularized API routes organized by domain.
 from fastapi import APIRouter, Depends, Request
 
 from ..dependencies import assert_served_workspace, assert_workspace_writable
+from ..deps.auth import require_user_if_enabled
 from . import (
     agent,
     agent_admin,
     agent_tasks,
     approvals,
     asset,
+    auth,
     catalog,
     curate_tasks,
     execution,
@@ -58,10 +60,29 @@ def _bind_ws(ws: str, request: Request) -> str:
 
     Declares the ``{ws}`` path param, 404s early when it names no served
     workspace, and 405s a mutating request against a remote workspace (before
-    body validation). Resolved ahead of the endpoint body.
+    body validation). Resolved ahead of the endpoint body. When auth is on,
+    also enforces the caller's workspace allowlist.
     """
+    from fastapi import HTTPException, status
+
+    from molexp.services.auth import AuthError, get_auth_service, is_auth_enabled
+
+    from ..deps.auth import get_session_id
+
     assert_served_workspace(ws)
     assert_workspace_writable(ws, request.method)
+    if is_auth_enabled():
+        session_id = get_session_id(request, request.cookies.get("molexp_session"))
+        user = get_auth_service().resolve_session(session_id)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+            )
+        try:
+            get_auth_service().assert_workspace_access(user, ws)
+        except AuthError as exc:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.message) from exc
     return ws
 
 
@@ -81,38 +102,46 @@ def create_api_router() -> APIRouter:
     """
     api_router = APIRouter()
 
+    # Auth routes are outside the session gate (login/status are public;
+    # me/users carry their own Depends).
+    api_router.include_router(auth.router)
+
+    # Everything else is gated when ``services.auth`` is enabled.
+    gated = APIRouter(dependencies=[Depends(require_user_if_enabled)])
+
     # agent_admin BEFORE agent: both mount under /agent, and agent.router ends
     # in a legacy 503 catch-all — registration order decides which wins, so
     # the real provider/mcp routes must come first.
-    api_router.include_router(agent_admin.router)
-    api_router.include_router(agent.router)
-    api_router.include_router(agent_tasks.router)
-    api_router.include_router(approvals.router)
-    api_router.include_router(knowledge.router)
-    api_router.include_router(curate_tasks.router)
-    api_router.include_router(plan_tasks.router)
-    api_router.include_router(plans.router)
-    api_router.include_router(plans.flat_router)
-    api_router.include_router(project.router)
-    api_router.include_router(experiment.router)
-    api_router.include_router(run.router)
-    api_router.include_router(asset.router)
-    api_router.include_router(preview.router)
-    api_router.include_router(catalog.router)
-    api_router.include_router(workspace.router)
-    api_router.include_router(workspace.events_router)
-    api_router.include_router(workspaces.router)
-    api_router.include_router(registry.router)
-    api_router.include_router(execution.router)
-    api_router.include_router(molq.router)
-    api_router.include_router(targets.router)
-    api_router.include_router(tensorboard.router)
-    api_router.include_router(workflow.router)
-    api_router.include_router(git.router)
+    gated.include_router(agent_admin.router)
+    gated.include_router(agent.router)
+    gated.include_router(agent_tasks.router)
+    gated.include_router(approvals.router)
+    gated.include_router(knowledge.router)
+    gated.include_router(curate_tasks.router)
+    gated.include_router(plan_tasks.router)
+    gated.include_router(plans.router)
+    gated.include_router(plans.flat_router)
+    gated.include_router(project.router)
+    gated.include_router(experiment.router)
+    gated.include_router(run.router)
+    gated.include_router(asset.router)
+    gated.include_router(preview.router)
+    gated.include_router(catalog.router)
+    gated.include_router(workspace.router)
+    gated.include_router(workspace.events_router)
+    gated.include_router(workspaces.router)
+    gated.include_router(registry.router)
+    gated.include_router(execution.router)
+    gated.include_router(molq.router)
+    gated.include_router(targets.router)
+    gated.include_router(tensorboard.router)
+    gated.include_router(workflow.router)
+    gated.include_router(git.router)
 
     # Aggregate surface: the same domain routers, namespaced by workspace.
-    api_router.include_router(_create_workspace_scoped_router(), prefix="/workspaces/{ws}")
+    gated.include_router(_create_workspace_scoped_router(), prefix="/workspaces/{ws}")
 
+    api_router.include_router(gated)
     return api_router
 
 
@@ -121,6 +150,7 @@ __all__ = [
     "agent_admin",
     "agent_tasks",
     "asset",
+    "auth",
     "catalog",
     "create_api_router",
     "curate_tasks",

@@ -218,15 +218,17 @@ def create_app(
     # 3.5 Per-plugin static-asset mounts (third-party only)
     _mount_plugin_static_dirs(app)
 
-    # 4. System Routes (Health Check)
+    # 4. System Routes (Health Check) — always public (auth gate does not wrap app-level routes)
     @app.get("/api/health", response_model=HealthResponse, tags=["system"])
     def health_check() -> HealthResponse:
         from molexp.plugins import Capability, registry
+        from molexp.services.auth import is_auth_enabled
 
         return HealthResponse(
             status="healthy",
             workspace_available=True,
             capabilities={cap.value: registry.is_available(cap) for cap in Capability},
+            auth_required=is_auth_enabled(),
         )
 
     # 5. Static file serving (production) or root fallback (dev / no build)

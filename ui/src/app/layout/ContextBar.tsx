@@ -1,4 +1,5 @@
 import { Loader2, Menu, RefreshCw, Search } from "lucide-react";
+import { UserMenu } from "@/app/auth";
 import { ApprovalsBell } from "@/app/components/ApprovalsBell";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -53,6 +54,7 @@ export const ContextBar = ({
             </kbd>
           </div>
           <ApprovalsBell />
+          <UserMenu />
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>

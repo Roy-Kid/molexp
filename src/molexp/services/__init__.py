@@ -17,6 +17,8 @@ Contents:
 - :mod:`molexp.services.agent_task_store` — on-disk metadata/events for
   user-facing agent tasks (consumed by the Agents-hub routes and the plan
   recorder).
+- :mod:`molexp.services.auth` — filesystem users + sessions for
+  ``molexp serve`` HTTP auth (CLI ``molexp auth`` and the server share it).
 
 Layer rules: services may import ``molexp.harness`` / ``molexp.agent`` /
 ``molexp.workflow`` / ``molexp.workspace`` (and cross-layer primitives);

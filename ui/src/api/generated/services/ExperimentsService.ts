@@ -13,17 +13,22 @@ export class ExperimentsService {
     /**
      * List Experiments
      * @param projectId
+     * @param molexpSession
      * @returns ExperimentResponse Successful Response
      * @throws ApiError
      */
     public static listExperimentsApiProjectsProjectIdExperimentsGet(
         projectId: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<Array<ExperimentResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/projects/{project_id}/experiments',
             path: {
                 'project_id': projectId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -34,18 +39,23 @@ export class ExperimentsService {
      * Create Experiment
      * @param projectId
      * @param requestBody
+     * @param molexpSession
      * @returns ExperimentResponse Successful Response
      * @throws ApiError
      */
     public static createExperimentApiProjectsProjectIdExperimentsPost(
         projectId: string,
         requestBody: ExperimentCreateRequest,
+        molexpSession?: (string | null),
     ): CancelablePromise<ExperimentResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/projects/{project_id}/experiments',
             path: {
                 'project_id': projectId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             body: requestBody,
             mediaType: 'application/json',
@@ -58,12 +68,14 @@ export class ExperimentsService {
      * Delete Experiment
      * @param projectId
      * @param experimentId
+     * @param molexpSession
      * @returns MessageResponse Successful Response
      * @throws ApiError
      */
     public static deleteExperimentApiProjectsProjectIdExperimentsExperimentIdDelete(
         projectId: string,
         experimentId: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'DELETE',
@@ -71,6 +83,9 @@ export class ExperimentsService {
             path: {
                 'project_id': projectId,
                 'experiment_id': experimentId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -81,12 +96,14 @@ export class ExperimentsService {
      * Get Experiment
      * @param projectId
      * @param experimentId
+     * @param molexpSession
      * @returns ExperimentResponse Successful Response
      * @throws ApiError
      */
     public static getExperimentApiProjectsProjectIdExperimentsExperimentIdGet(
         projectId: string,
         experimentId: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<ExperimentResponse> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -94,6 +111,9 @@ export class ExperimentsService {
             path: {
                 'project_id': projectId,
                 'experiment_id': experimentId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -105,12 +125,14 @@ export class ExperimentsService {
      * Comparison matrix: parameter columns x run rows + final metric values per run.
      * @param projectId
      * @param experimentId
+     * @param molexpSession
      * @returns ExperimentComparisonResponse Successful Response
      * @throws ApiError
      */
     public static getExperimentComparisonApiProjectsProjectIdExperimentsExperimentIdComparisonGet(
         projectId: string,
         experimentId: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<ExperimentComparisonResponse> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -118,6 +140,9 @@ export class ExperimentsService {
             path: {
                 'project_id': projectId,
                 'experiment_id': experimentId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -128,12 +153,14 @@ export class ExperimentsService {
      * List Experiments
      * @param projectId
      * @param ws
+     * @param molexpSession
      * @returns ExperimentResponse Successful Response
      * @throws ApiError
      */
     public static listExperimentsApiWorkspacesWsProjectsProjectIdExperimentsGet(
         projectId: string,
         ws: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<Array<ExperimentResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -141,6 +168,9 @@ export class ExperimentsService {
             path: {
                 'project_id': projectId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -152,6 +182,7 @@ export class ExperimentsService {
      * @param projectId
      * @param ws
      * @param requestBody
+     * @param molexpSession
      * @returns ExperimentResponse Successful Response
      * @throws ApiError
      */
@@ -159,6 +190,7 @@ export class ExperimentsService {
         projectId: string,
         ws: string,
         requestBody: ExperimentCreateRequest,
+        molexpSession?: (string | null),
     ): CancelablePromise<ExperimentResponse> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -166,6 +198,9 @@ export class ExperimentsService {
             path: {
                 'project_id': projectId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             body: requestBody,
             mediaType: 'application/json',
@@ -179,6 +214,7 @@ export class ExperimentsService {
      * @param projectId
      * @param experimentId
      * @param ws
+     * @param molexpSession
      * @returns MessageResponse Successful Response
      * @throws ApiError
      */
@@ -186,6 +222,7 @@ export class ExperimentsService {
         projectId: string,
         experimentId: string,
         ws: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'DELETE',
@@ -194,6 +231,9 @@ export class ExperimentsService {
                 'project_id': projectId,
                 'experiment_id': experimentId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -205,6 +245,7 @@ export class ExperimentsService {
      * @param projectId
      * @param experimentId
      * @param ws
+     * @param molexpSession
      * @returns ExperimentResponse Successful Response
      * @throws ApiError
      */
@@ -212,6 +253,7 @@ export class ExperimentsService {
         projectId: string,
         experimentId: string,
         ws: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<ExperimentResponse> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -220,6 +262,9 @@ export class ExperimentsService {
                 'project_id': projectId,
                 'experiment_id': experimentId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -232,6 +277,7 @@ export class ExperimentsService {
      * @param projectId
      * @param experimentId
      * @param ws
+     * @param molexpSession
      * @returns ExperimentComparisonResponse Successful Response
      * @throws ApiError
      */
@@ -239,6 +285,7 @@ export class ExperimentsService {
         projectId: string,
         experimentId: string,
         ws: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<ExperimentComparisonResponse> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -247,6 +294,9 @@ export class ExperimentsService {
                 'project_id': projectId,
                 'experiment_id': experimentId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,

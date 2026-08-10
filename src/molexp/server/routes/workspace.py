@@ -6,13 +6,14 @@ import io
 import mimetypes
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from molexp._typing import JSONValue
+from molexp.services.auth import AuthError, AuthUser, get_auth_service, is_auth_enabled
 from molexp.workspace import ContextFocus, Workspace, assemble_workspace_context
 from molexp.workspace.events import WorkspaceEvent, WorkspaceEventType, read_workspace_events
 from molexp.workspace.fs_cached import CachedRemoteFileSystem, prefetch_workspace_indices
@@ -20,11 +21,13 @@ from molexp.workspace.fs_local import LocalFileSystem
 
 from ..dependencies import (
     get_remote_fs_factory,
+    get_served_workspaces,
     get_workspace,
     get_workspace_target_registry,
     set_active_workspace_descriptor,
     set_workspace_path_override,
 )
+from ..deps.auth import get_optional_user
 from ..preview import resolve_sidecar
 from ..schemas import (
     FileContentResponse,
@@ -464,10 +467,56 @@ def read_workspace_file_blob(
     return StreamingResponse(io.BytesIO(data), media_type=media_type)
 
 
+def _assert_open_workspace_allowed(
+    request: WorkspaceOpenRequest,
+    user: AuthUser | None,
+) -> None:
+    """When auth is on, require a session and allowlist for served keys."""
+    if not is_auth_enabled():
+        return
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    # Map open target → served key when possible.
+    key: str | None = None
+    if isinstance(request, WorkspaceOpenLocalRequest):
+        path = str(Path(request.path).expanduser().resolve())
+        for sw in get_served_workspaces():
+            if not sw.is_remote and sw.path is not None and Path(sw.path).resolve() == Path(path):
+                key = sw.key
+                break
+        # Opening an arbitrary local path outside the served set is admin-only
+        # when auth is on (otherwise any operator could escape allowlist).
+        if key is None and user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins can open paths outside the served workspace set",
+            )
+    else:
+        name = getattr(request, "name", None)
+        if isinstance(name, str):
+            for sw in get_served_workspaces():
+                aliases = {sw.key, sw.target_name}
+                if sw.remote_target is not None:
+                    aliases.add(sw.remote_target.name)
+                aliases.discard(None)
+                if name in aliases:
+                    key = sw.key
+                    break
+    if key is not None:
+        try:
+            get_auth_service().assert_workspace_access(user, key)
+        except AuthError as exc:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.message) from exc
+
+
 @router.post("/open", response_model=WorkspaceInfoResponse)
 def open_workspace(
     request: WorkspaceOpenRequest,
     registry=Depends(get_workspace_target_registry),  # noqa: ANN001
+    user: Annotated[AuthUser | None, Depends(get_optional_user)] = None,
 ) -> WorkspaceInfoResponse:
     """Set the active workspace — local path or registered remote descriptor.
 
@@ -477,6 +526,7 @@ def open_workspace(
     *before* the cache is reset, so the new workspace starts from a
     clean subscriber slate.
     """
+    _assert_open_workspace_allowed(request, user)
     if isinstance(request, WorkspaceOpenLocalRequest):
         path = Path(request.path).expanduser().resolve()
         created = False
@@ -498,32 +548,33 @@ def open_workspace(
             assetCount=len(workspace.assets.list()),
         )
 
-    # Remote branch
-    try:
-        target = registry.get(request.name)
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"workspace target {request.name!r} not found",
-        ) from exc
+    # Remote branch — CLI ``-ws host:path`` injects an inline ServedWorkspace
+    # target (not the on-disk registry). Prefer that resolver so open accepts
+    # the served key *or* target_name the UI may send.
+    from molexp.server.deps.served import resolve_served_remote_target
 
     from ..workspace_targets import target_to_filesystem_for_workspace_target
+
+    try:
+        target = resolve_served_remote_target(request.name)
+    except KeyError:
+        try:
+            target = registry.get(request.name)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"workspace target {request.name!r} not found",
+            ) from exc
 
     fs = target_to_filesystem_for_workspace_target(target)
     set_active_workspace_descriptor(target.name)
     workspace = Workspace(target.root_path, fs=fs)
-    # Pin-until-refresh: warm → local only; cold → SSH + async index walk.
-    # Explicit refresh is POST /api/workspace/cache/refresh (blocking index).
+    # Linking a remote always force-refreshes (async). UI polls
+    # GET /api/workspace/cache/status for the file-count progress bar.
     if isinstance(fs, CachedRemoteFileSystem):
-        warnings = fs.prepare(workspace, block_index=False)
-        # Cold open may still be indexing in the background — don't block the
-        # response on a full tree walk (that was the slow path).
-        if fs.indexed:
-            project_count = len(workspace.list_projects())
-            asset_count = len(workspace.assets.list())
-        else:
-            project_count = 0
-            asset_count = 0
+        warnings = fs.prepare(workspace, block_index=False, refresh_on_open=True)
+        project_count = len(workspace.list_projects()) if fs.indexed else 0
+        asset_count = len(workspace.assets.list()) if fs.indexed else 0
         return WorkspaceInfoResponse(
             root=str(workspace.root),
             projectCount=project_count,
@@ -743,6 +794,21 @@ class CacheControlResponse(BaseModel):
     )
 
 
+class CacheStatusResponse(BaseModel):
+    """Live remote-index progress for the MolVis-style status bar."""
+
+    cached: bool = Field(..., description="False when the active workspace is local")
+    connected: bool | None = None
+    indexed: bool | None = None
+    ready: bool | None = None
+    indexing: bool | None = None
+    phase: str = "idle"
+    total: int = 0
+    done: int = 0
+    percent: float | None = None
+    message: str = ""
+
+
 def _require_cached_fs(workspace) -> CachedRemoteFileSystem:  # noqa: ANN001
     fs = getattr(workspace, "_fs", None)
     if not isinstance(fs, CachedRemoteFileSystem):
@@ -751,6 +817,31 @@ def _require_cached_fs(workspace) -> CachedRemoteFileSystem:  # noqa: ANN001
             detail="Active workspace has no cache (local workspaces are not cached).",
         )
     return fs
+
+
+@router.get("/cache/status", response_model=CacheStatusResponse)
+def workspace_cache_status(workspace=Depends(get_workspace)) -> CacheStatusResponse:  # noqa: ANN001
+    """Poll remote-index progress (file-count total → fetch done).
+
+    Local workspaces return ``cached=false`` with idle progress. The UI
+    status strip polls this while ``phase`` is ``counting`` / ``fetching``.
+    """
+    fs = getattr(workspace, "_fs", None)
+    if not isinstance(fs, CachedRemoteFileSystem):
+        return CacheStatusResponse(cached=False, phase="idle", message="")
+    progress = fs.progress
+    return CacheStatusResponse(
+        cached=True,
+        connected=fs.connected,
+        indexed=fs.indexed,
+        ready=fs.ready,
+        indexing=fs.indexing,
+        phase=progress.phase,
+        total=progress.total,
+        done=progress.done,
+        percent=progress.percent,
+        message=progress.message,
+    )
 
 
 @router.post("/cache/invalidate", response_model=CacheControlResponse)

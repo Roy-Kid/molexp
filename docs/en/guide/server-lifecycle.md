@@ -13,6 +13,37 @@ Pick the foreground CLI unless you specifically need a daemonized process.
 molexp serve -ws ./lab --port 8000 --host localhost
 ```
 
+### HTTP auth (optional)
+
+By default the API is open on loopback. To require login for the UI and
+`/api/*` (filesystem users under `~/.molexp/auth/`):
+
+```bash
+# Bootstrap the default admin (password via prompt or MOLEXP_AUTH_PASSWORD)
+molexp auth login -u admin
+
+molexp serve -ws ./lab --auth
+# optional: require a specific account to exist
+molexp serve -ws ./lab --auth -u admin
+```
+
+CLI surface mirrors `gh auth`: `login` / `logout` / `status` / `switch` /
+`token` / `refresh`, plus `molexp auth users …` for the local user table.
+Binding a non-loopback `--host` without `--auth` (or `auth.enabled` in
+`~/.molexp/config.json`) is refused at startup.
+
+Admin users can manage accounts from **Settings → Users** in the UI (shadcn
+table + dialogs; data via TanStack Query).
+
+| Config / flag | Meaning |
+|---|---|
+| `--auth` / `auth.enabled: true` | Require login for `/api/*` (except status/login/health) |
+| `-u` / `--user` | Require that username already exists at serve start |
+| `auth.session_ttl_hours` | Session lifetime (default **168** = 7 days) |
+
+Failed logins are rate-limited in-process (5 failures / 5 minutes → 5 minute
+lockout per username and client host).
+
 - Resolves the local workspace with `pathlib.Path`; if the directory or
   `workspace.json` is missing, initializes the workspace at that exact path.
 - Activates the workspace through the server's path override without changing
@@ -79,8 +110,10 @@ molexp serve --dev -ws ./lab --port 8000
 # optional: --ui-port 5173
 ```
 
-- Spawns `MOLEXP_API_PORT=<api-port> npm run dev -- --port=<ui-port>`
-  so `/api` on the UI origin proxies to this process.
+- Spawns the `ui` leaf script
+  `MOLEXP_API_PORT=<api-port> npm run dev:api -- --port=<ui-port>`
+  (repo root: `npm run dev:api`) so `/api` on the UI origin proxies to
+  this process. Offline mock UI is `npm run dev:ui` (MSW), not this path.
 - Prints **Dev UI** `http://localhost:<ui-port>` — open that for live
   reload. The API port still serves the bundled `dist` if present; that
   is the production package, not HMR.
@@ -133,7 +166,7 @@ manager.stop(ui=True)
 | `port` | `8000` | Port |
 | `dev` | `True` | Pass `--reload` to uvicorn |
 | `background` | `False` | Run as a subprocess (daemon) |
-| `ui` | `False` | Also start `npm run dev` in `ui/` |
+| `ui` | `False` | Also start the `ui` leaf `npm run dev:api` (root: `npm run dev:api`) |
 | `sample_data` | `False` | Run `create_sample_data.py` first (legacy helper) |
 | `kill_on_exit` | `False` | When `background=True`, tie subprocess lifetime to the parent process (keeps it in the same PG and registers `atexit` + signal handlers) |
 

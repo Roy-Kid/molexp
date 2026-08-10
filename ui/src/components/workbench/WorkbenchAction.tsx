@@ -7,6 +7,7 @@ import { Slot, Slottable } from "@radix-ui/react-slot";
 import { RefreshCw, X } from "lucide-react";
 import type { ButtonHTMLAttributes, JSX, ReactNode } from "react";
 
+import { DeniedHint } from "@/app/auth/DeniedHint";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +32,11 @@ export interface WorkbenchActionProps
   icon?: ReactNode;
   children?: ReactNode;
   asChild?: boolean;
+  /**
+   * When set, the control is disabled and hover shows this explanation
+   * (permission denial, etc.). Prefer over only setting `disabled`.
+   */
+  deniedReason?: string | null;
 }
 
 const SIZE_MAP = {
@@ -48,20 +54,29 @@ export const WorkbenchAction = ({
   className,
   asChild,
   type = "button",
+  deniedReason,
+  disabled,
+  title,
   ...rest
-}: WorkbenchActionProps): JSX.Element => (
-  <Button
-    type={asChild ? undefined : type}
-    variant={KIND_TO_VARIANT[kind]}
-    size={SIZE_MAP[size]}
-    className={cn(className)}
-    asChild={asChild}
-    {...rest}
-  >
-    {icon}
-    {asChild ? <Slottable>{children}</Slottable> : children}
-  </Button>
-);
+}: WorkbenchActionProps): JSX.Element => {
+  const blocked = Boolean(deniedReason);
+  const button = (
+    <Button
+      type={asChild ? undefined : type}
+      variant={KIND_TO_VARIANT[kind]}
+      size={SIZE_MAP[size]}
+      className={cn(className)}
+      asChild={asChild}
+      disabled={disabled || blocked}
+      title={blocked ? undefined : title}
+      {...rest}
+    >
+      {icon}
+      {asChild ? <Slottable>{children}</Slottable> : children}
+    </Button>
+  );
+  return <DeniedHint reason={deniedReason}>{button}</DeniedHint>;
+};
 
 export interface WorkbenchIconActionProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
@@ -71,6 +86,8 @@ export interface WorkbenchIconActionProps
   size?: "compact" | "default";
   children: ReactNode;
   asChild?: boolean;
+  /** Permission / policy denial — disables control and explains on hover. */
+  deniedReason?: string | null;
 }
 
 export const WorkbenchIconAction = ({
@@ -81,21 +98,29 @@ export const WorkbenchIconAction = ({
   className,
   asChild,
   type = "button",
+  deniedReason,
+  disabled,
+  title,
   ...rest
-}: WorkbenchIconActionProps): JSX.Element => (
-  <Button
-    type={asChild ? undefined : type}
-    variant={KIND_TO_VARIANT[kind]}
-    size="icon"
-    aria-label={label}
-    title={label}
-    className={cn(size === "compact" ? "size-control-compact" : "size-control", className)}
-    asChild={asChild}
-    {...rest}
-  >
-    {children}
-  </Button>
-);
+}: WorkbenchIconActionProps): JSX.Element => {
+  const blocked = Boolean(deniedReason);
+  const button = (
+    <Button
+      type={asChild ? undefined : type}
+      variant={KIND_TO_VARIANT[kind]}
+      size="icon"
+      aria-label={label}
+      title={blocked ? undefined : (title ?? label)}
+      className={cn(size === "compact" ? "size-control-compact" : "size-control", className)}
+      asChild={asChild}
+      disabled={disabled || blocked}
+      {...rest}
+    >
+      {children}
+    </Button>
+  );
+  return <DeniedHint reason={deniedReason}>{button}</DeniedHint>;
+};
 
 export type WorkbenchRetryActionProps = Omit<
   WorkbenchIconActionProps,

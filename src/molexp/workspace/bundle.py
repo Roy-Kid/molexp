@@ -31,6 +31,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, NamedTuple
 
 from molexp.ids import slugify
+from molexp.path import Path as MolPath
 
 from .bundle_index import (
     INDEX_JSON_FILENAME,
@@ -256,7 +257,8 @@ class Bundle:
         parent._parent = None
         parent._name = self._fs.basename(directory)
         parent._kind = "bundle.parent"
-        parent._root_path = _StdPath(self._fs.dirname(directory))
+        # Folder._root_path is molexp.path.Path (not pathlib.Path).
+        parent._root_path = MolPath(self._fs.dirname(directory))  # type: ignore[assignment]
         parent._fs = self._fs
         parent._children_cache = {}
         return parent

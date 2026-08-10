@@ -1,10 +1,10 @@
 /**
  * Run header toolbar — one place for every status-gated action.
  *
- * Layout (left → right):
- *   1. Lifecycle (Start | Resume/Rerun/Fresh | Cancel) — only what status allows
- *   2. Harvest — when outcome can become knowledge
- *   3. More menu — Export / Copy / Agent (always available)
+ * Layout (left → right), deliberately sparse:
+ *   1. One primary lifecycle verb (Start | Resume | Cancel)
+ *   2. Harvest / Analyze when the outcome allows it
+ *   3. More menu — Rerun variants, Export, Copy ID, Agent
  *
  * Shared by RunViewer and MolqRunViewer so molq runs get the same verbs.
  */
@@ -25,6 +25,7 @@ import { type JSX, useCallback, useEffect, useState } from "react";
 import type { TargetResponse } from "@/api/generated/models/TargetResponse";
 import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
 import { TargetsService } from "@/api/generated/services/TargetsService";
+import { usePermissions } from "@/app/auth";
 import { HarvestDialog } from "@/app/components/HarvestDialog";
 import { postAnalyzeFailure } from "@/app/runs/analyzeFailure";
 import { ParametersForm } from "@/app/runs/ParametersForm";
@@ -123,6 +124,7 @@ export function RunToolbar({
   onOpenAgent,
   onHarvested,
 }: RunToolbarProps): JSX.Element {
+  const { writeDeniedReason } = usePermissions();
   const showStart = canStart(status);
   const showCancel = canCancel(status);
   const showRetry = canResume(status) && canRerun(status);
@@ -213,121 +215,102 @@ export function RunToolbar({
     <>
       <div className="flex items-center gap-1">
         {/* ── Lifecycle (status-disjoint) ─────────────────────────────── */}
-        {showStart && (
-          <Dialog
-            open={startOpen}
-            onOpenChange={(open) => {
-              setStartOpen(open);
-              if (open) setStartParams(params);
-              else setStartError(null);
-            }}
-          >
-            <DialogTrigger asChild>
-              <WorkbenchIconAction label="Start run">
-                <Play className="h-3.5 w-3.5" />
-              </WorkbenchIconAction>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-dialog-md">
-              <DialogHeader>
-                <DialogTitle>Start</DialogTitle>
-                <DialogDescription className="sr-only">Inputs and target</DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-3 py-2">
-                <div className="grid gap-2">
-                  <span className="text-label font-medium">Inputs</span>
-                  {inputSchema ? (
-                    <SchemaForm
-                      key={String(startOpen)}
-                      schema={inputSchema}
-                      value={startParams}
-                      onChange={setStartParams}
-                    />
-                  ) : (
-                    <ParametersForm
-                      key={String(startOpen)}
-                      value={params}
-                      onChange={setStartParams}
-                    />
-                  )}
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="start-target">Target</Label>
-                  <Select value={target} onValueChange={setTarget}>
-                    <SelectTrigger id="start-target">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {targets.map((t) => (
-                        <SelectItem key={t.name} value={t.name}>
-                          <span className="flex items-center gap-2">
-                            <span className="font-medium">{t.name}</span>
-                            <span className="text-micro uppercase text-muted-foreground">
-                              {t.isRemote ? "remote" : "local"}
-                            </span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {startError && <p className="text-body-lg text-destructive">{startError}</p>}
-              </div>
-              <DialogFooter>
-                <WorkbenchAction
-                  kind="primary"
-                  size="default"
-                  disabled={starting || !target}
-                  onClick={() => void handleStart()}
-                >
-                  {starting ? "…" : "Start"}
-                </WorkbenchAction>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-
-        {showRetry && (
-          <>
-            <WorkbenchIconAction
-              label="Continue last execution"
-              disabled={busy}
-              onClick={() =>
-                void runVerb("Resumed", () =>
-                  workspaceApi.resumeRun(projectId, experimentId, runId),
-                )
-              }
-            >
+        {showStart &&
+          (writeDeniedReason ? (
+            <WorkbenchIconAction label="Start run" deniedReason={writeDeniedReason}>
               <Play className="h-3.5 w-3.5" />
             </WorkbenchIconAction>
-            <WorkbenchIconAction
-              label="New execution from top"
-              disabled={busy}
-              onClick={() =>
-                void runVerb("Rerun", () =>
-                  workspaceApi.rerunRun(projectId, experimentId, runId, false),
-                )
-              }
+          ) : (
+            <Dialog
+              open={startOpen}
+              onOpenChange={(open) => {
+                setStartOpen(open);
+                if (open) setStartParams(params);
+                else setStartError(null);
+              }}
             >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </WorkbenchIconAction>
-            <WorkbenchIconAction
-              label="Rerun without cache"
-              disabled={busy}
-              onClick={() =>
-                void runVerb("Rerun fresh", () =>
-                  workspaceApi.rerunRun(projectId, experimentId, runId, true),
-                )
-              }
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-            </WorkbenchIconAction>
-          </>
+              <DialogTrigger asChild>
+                <WorkbenchIconAction label="Start run">
+                  <Play className="h-3.5 w-3.5" />
+                </WorkbenchIconAction>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-dialog-md">
+                <DialogHeader>
+                  <DialogTitle>Start</DialogTitle>
+                  <DialogDescription className="sr-only">Inputs and target</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-3 py-2">
+                  <div className="grid gap-2">
+                    <span className="text-label font-medium">Inputs</span>
+                    {inputSchema ? (
+                      <SchemaForm
+                        key={String(startOpen)}
+                        schema={inputSchema}
+                        value={startParams}
+                        onChange={setStartParams}
+                      />
+                    ) : (
+                      <ParametersForm
+                        key={String(startOpen)}
+                        value={params}
+                        onChange={setStartParams}
+                      />
+                    )}
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="start-target">Target</Label>
+                    <Select value={target} onValueChange={setTarget}>
+                      <SelectTrigger id="start-target">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {targets.map((t) => (
+                          <SelectItem key={t.name} value={t.name}>
+                            <span className="flex items-center gap-2">
+                              <span className="font-medium">{t.name}</span>
+                              <span className="text-micro uppercase text-muted-foreground">
+                                {t.isRemote ? "remote" : "local"}
+                              </span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {startError && <p className="text-body-lg text-destructive">{startError}</p>}
+                </div>
+                <DialogFooter>
+                  <WorkbenchAction
+                    kind="primary"
+                    size="default"
+                    disabled={starting || !target}
+                    onClick={() => void handleStart()}
+                  >
+                    {starting ? "…" : "Start"}
+                  </WorkbenchAction>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          ))}
+
+        {showRetry && (
+          <WorkbenchIconAction
+            label="Continue last execution"
+            disabled={busy}
+            deniedReason={writeDeniedReason}
+            onClick={() =>
+              void runVerb("Resumed", () => workspaceApi.resumeRun(projectId, experimentId, runId))
+            }
+          >
+            <Play className="h-3.5 w-3.5" />
+          </WorkbenchIconAction>
         )}
 
         {showCancel && (
           <WorkbenchIconAction
             label="Cancel run"
             className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            deniedReason={writeDeniedReason}
             onClick={() => {
               void onCancel();
             }}
@@ -337,52 +320,38 @@ export function RunToolbar({
         )}
 
         {/* ── Knowledge (outcome only) ────────────────────────────────── */}
-        {showAnalyze && (
-          <WorkbenchIconAction
-            label="Analyze failure"
-            disabled={busy}
-            onClick={() => {
-              void runVerb("Failure analyzed", async () => {
-                const result = await postAnalyzeFailure(projectId, experimentId, runId);
-                onHarvested(result.path || result.name);
-              });
-            }}
-          >
-            <Stethoscope className="h-3.5 w-3.5" />
-          </WorkbenchIconAction>
-        )}
-        {showHarvest && (
-          <HarvestDialog
-            projectId={projectId}
-            experimentId={experimentId}
-            runId={runId}
-            onHarvested={onHarvested}
-            trigger={
-              <WorkbenchIconAction label="Harvest to knowledge">
-                <BookMarked className="h-3.5 w-3.5" />
-              </WorkbenchIconAction>
-            }
-          />
-        )}
+        {showHarvest &&
+          (writeDeniedReason ? (
+            <WorkbenchIconAction label="Harvest to knowledge" deniedReason={writeDeniedReason}>
+              <BookMarked className="h-3.5 w-3.5" />
+            </WorkbenchIconAction>
+          ) : (
+            <HarvestDialog
+              projectId={projectId}
+              experimentId={experimentId}
+              runId={runId}
+              onHarvested={onHarvested}
+              trigger={
+                <WorkbenchIconAction label="Harvest to knowledge">
+                  <BookMarked className="h-3.5 w-3.5" />
+                </WorkbenchIconAction>
+              }
+            />
+          ))}
 
-        {/* ── Utilities ───────────────────────────────────────────────── */}
+        {/* ── Utilities + secondary lifecycle ─────────────────────────── */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <WorkbenchIconAction
-              label="More"
-              kind="ghost"
-              className="h-control-compact w-control-compact"
-              aria-label="More"
-            >
+            <WorkbenchIconAction label="More">
               <MoreHorizontal className="h-4 w-4" />
             </WorkbenchIconAction>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuContent align="end" className="w-44">
             {showRetry && (
               <>
                 <DropdownMenuItem
-                  className="sm:hidden"
-                  disabled={busy}
+                  disabled={busy || Boolean(writeDeniedReason)}
+                  title={writeDeniedReason ?? undefined}
                   onClick={() =>
                     void runVerb("Rerun", () =>
                       workspaceApi.rerunRun(projectId, experimentId, runId, false),
@@ -393,18 +362,36 @@ export function RunToolbar({
                   Rerun
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  className="sm:hidden"
-                  disabled={busy}
+                  disabled={busy || Boolean(writeDeniedReason)}
+                  title={writeDeniedReason ?? undefined}
                   onClick={() =>
                     void runVerb("Rerun fresh", () =>
                       workspaceApi.rerunRun(projectId, experimentId, runId, true),
                     )
                   }
                 >
-                  <RefreshCw className="h-3.5 w-3.5" />
+                  <RotateCcw className="h-3.5 w-3.5" />
                   Rerun fresh
                 </DropdownMenuItem>
-                <DropdownMenuSeparator className="sm:hidden" />
+                <DropdownMenuSeparator />
+              </>
+            )}
+            {showAnalyze && (
+              <>
+                <DropdownMenuItem
+                  disabled={busy || Boolean(writeDeniedReason)}
+                  title={writeDeniedReason ?? undefined}
+                  onClick={() => {
+                    void runVerb("Failure analyzed", async () => {
+                      const result = await postAnalyzeFailure(projectId, experimentId, runId);
+                      onHarvested(result.path || result.name);
+                    });
+                  }}
+                >
+                  <Stethoscope className="h-3.5 w-3.5" />
+                  Analyze failure
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
               </>
             )}
             <DropdownMenuItem asChild>

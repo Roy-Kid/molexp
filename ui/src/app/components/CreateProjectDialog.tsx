@@ -16,9 +16,14 @@ import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 
 interface CreateProjectDialogProps {
   onProjectCreated: () => void;
+  /** When set, the trigger is disabled and hover explains why. */
+  writeDeniedReason?: string | null;
 }
 
-export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogProps) {
+export function CreateProjectDialog({
+  onProjectCreated,
+  writeDeniedReason,
+}: CreateProjectDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -26,6 +31,7 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (writeDeniedReason) return;
     setIsLoading(true);
     setError(null);
 
@@ -45,6 +51,20 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
     }
   };
 
+  if (writeDeniedReason) {
+    return (
+      <WorkbenchIconAction
+        label="New project"
+        kind="ghost"
+        className="h-control-compact w-control-compact"
+        aria-label="New project"
+        deniedReason={writeDeniedReason}
+      >
+        <Plus className="h-4 w-4" />
+      </WorkbenchIconAction>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -62,7 +82,7 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
           <DialogTitle>Create Project</DialogTitle>
           <DialogDescription>Create a new project to organize your experiments.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={(e) => void handleSubmit(e)}>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
               <Label htmlFor="name" className="text-left sm:text-right">

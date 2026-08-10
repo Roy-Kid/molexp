@@ -76,6 +76,11 @@ from molexp.cli.config_cmd import config_app  # noqa: E402
 
 app.add_typer(config_app, name="config")
 
+# ── auth (filesystem users + gh-shaped login) ────────────────────────────────
+from molexp.cli.auth_cmd import auth_app  # noqa: E402
+
+app.add_typer(auth_app, name="auth")
+
 # ── knowledge group (OKF notes + literature) ─────────────────────────────────
 from molexp.cli.knowledge_cmd import knowledge_app  # noqa: E402
 

@@ -1,12 +1,9 @@
 /**
- * Settings tab for managing remote workspace descriptors — the entries
- * that point the server's active workspace at a remote SSH root.
- * Mirrors ComputeTargetsPanel's visual structure (header + list + inline
- * Test result + sidebar Add form) but operates on the workspace-target
- * registry (POST /api/workspace/targets) and POST /api/workspace/open
- * with `kind: "remote"`.
+ * Settings section: remote workspace descriptors.
+ * List/mutations via TanStack Query (no hand-rolled useEffect fetch).
  */
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Check,
@@ -17,14 +14,15 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { TargetTestResponse } from "@/api/generated/models/TargetTestResponse";
-import type { WorkspaceTargetResponse } from "@/api/generated/models/WorkspaceTargetResponse";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
+import { usePermissions } from "@/app/auth";
 import { WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 import { emitWorkspaceSwitching } from "../state/workspaceSwitchEvents";
 import { AddRemoteWorkspaceDialog } from "./AddRemoteWorkspaceDialog";
+import { settingsKeys } from "./settingsKeys";
 
 interface CacheStatus {
   dropped: number;
@@ -32,10 +30,8 @@ interface CacheStatus {
 }
 
 export function RemoteWorkspacesPanel(): JSX.Element {
-  const [targets, setTargets] = useState<WorkspaceTargetResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
-
+  const { writeDeniedReason } = usePermissions();
+  const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TargetTestResponse | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -43,33 +39,34 @@ export function RemoteWorkspacesPanel(): JSX.Element {
   const [openWarnings, setOpenWarnings] = useState<string[]>([]);
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setListError(null);
-    try {
+  const listQuery = useQuery({
+    queryKey: settingsKeys.remoteWorkspaces(),
+    queryFn: async () => {
       const res = await WorkspaceService.listWorkspaceTargetsApiWorkspaceTargetsGet();
-      setTargets(res.targets);
-    } catch (err) {
-      setListError(err instanceof Error ? err.message : "Failed to list remote workspaces");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return res.targets;
+    },
+  });
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const targets = listQuery.data ?? [];
+  const invalidate = async (): Promise<void> => {
+    await queryClient.invalidateQueries({ queryKey: settingsKeys.remoteWorkspaces() });
+  };
+
+  const deleteMutation = useMutation({
+    mutationFn: (name: string) =>
+      WorkspaceService.deleteWorkspaceTargetApiWorkspaceTargetsNameDelete(name),
+    onSuccess: async (_data, name) => {
+      if (activeName === name) setActiveName(null);
+      await invalidate();
+    },
+  });
 
   const handleDelete = async (name: string): Promise<void> => {
     setBusy(name);
     setActionError(null);
     setTestResult(null);
     try {
-      await WorkspaceService.deleteWorkspaceTargetApiWorkspaceTargetsNameDelete(name);
-      if (activeName === name) {
-        setActiveName(null);
-      }
-      await refresh();
+      await deleteMutation.mutateAsync(name);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to delete remote workspace");
     } finally {
@@ -131,28 +128,32 @@ export function RemoteWorkspacesPanel(): JSX.Element {
     }
   };
 
+  const listError =
+    listQuery.error instanceof Error ? listQuery.error.message : listQuery.isError ? "Failed to list remote workspaces" : null;
+
   return (
-    <section className="space-y-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-2xl space-y-1">
-          <p className="font-mono text-micro uppercase tracking-wider text-accent">Connections</p>
-          <h3 className="text-title font-semibold text-foreground">Remote workspaces</h3>
-          <p className="text-body text-muted-foreground">
-            Mount an SSH-reachable root as the active workspace. {targets.length}{" "}
-            {targets.length === 1 ? "connection is" : "connections are"} registered.
-          </p>
-        </div>
-        <AddRemoteWorkspaceDialog
-          trigger={
-            <WorkbenchIconAction label="Add remote workspace">
-              <Plus className="size-3.5" />
-            </WorkbenchIconAction>
-          }
-          onCreated={() => void refresh()}
-        />
-      </header>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-body text-muted-foreground">
+          {targets.length} {targets.length === 1 ? "connection is" : "connections are"} registered.
+        </p>
+        {writeDeniedReason ? (
+          <WorkbenchIconAction label="Add remote workspace" deniedReason={writeDeniedReason}>
+            <Plus className="size-3.5" />
+          </WorkbenchIconAction>
+        ) : (
+          <AddRemoteWorkspaceDialog
+            trigger={
+              <WorkbenchIconAction label="Add remote workspace">
+                <Plus className="size-3.5" />
+              </WorkbenchIconAction>
+            }
+            onCreated={() => void invalidate()}
+          />
+        )}
+      </div>
       {listError && <p className="text-body-lg text-status-failed-foreground">{listError}</p>}
-      {loading && targets.length === 0 ? (
+      {listQuery.isLoading && targets.length === 0 ? (
         <p className="text-body-lg text-muted-foreground">Loading…</p>
       ) : targets.length === 0 ? (
         <p className="bg-surface/60 px-4 py-8 text-center text-body text-muted-foreground">
@@ -184,6 +185,7 @@ export function RemoteWorkspacesPanel(): JSX.Element {
                   <WorkbenchIconAction
                     label={`Test ${t.name}`}
                     disabled={busy === t.name}
+                    deniedReason={writeDeniedReason}
                     onClick={() => void handleTest(t.name)}
                   >
                     <FlaskConical className="size-4" />
@@ -191,6 +193,7 @@ export function RemoteWorkspacesPanel(): JSX.Element {
                   <WorkbenchIconAction
                     label={isActive ? `${t.name} is active` : `Set ${t.name} active`}
                     disabled={busy === t.name || isActive}
+                    deniedReason={writeDeniedReason}
                     onClick={() => void handleSetActive(t.name)}
                   >
                     {isActive ? <Check className="size-4" /> : <Power className="size-4" />}
@@ -199,6 +202,7 @@ export function RemoteWorkspacesPanel(): JSX.Element {
                     <WorkbenchIconAction
                       label="Re-fetch navigation from remote"
                       disabled={busy === t.name}
+                      deniedReason={writeDeniedReason}
                       onClick={() => void handleRefreshCache(t.name)}
                     >
                       <RefreshCw className="h-4 w-4" />
@@ -209,6 +213,7 @@ export function RemoteWorkspacesPanel(): JSX.Element {
                     kind="ghost"
                     title={isActive ? "Switch to another workspace first" : `Remove ${t.name}`}
                     disabled={busy === t.name || isActive}
+                    deniedReason={writeDeniedReason}
                     onClick={() => void handleDelete(t.name)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -277,6 +282,6 @@ export function RemoteWorkspacesPanel(): JSX.Element {
           </ul>
         </div>
       )}
-    </section>
+    </div>
   );
 }

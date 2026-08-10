@@ -16,13 +16,22 @@ export class PluginsService {
      * is no metrics product plugin — plots are molplot only. The response
      * carries no UI semantics — those live in each bundle's own
      * ``manifest.json``, fetched by the browser-side loader.
+     * @param molexpSession
      * @returns UiPluginListResponse Successful Response
      * @throws ApiError
      */
-    public static listPluginsApiPluginsGet(): CancelablePromise<UiPluginListResponse> {
+    public static listPluginsApiPluginsGet(
+        molexpSession?: (string | null),
+    ): CancelablePromise<UiPluginListResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/plugins',
+            cookies: {
+                'molexp_session': molexpSession,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
 }

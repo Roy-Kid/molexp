@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { agentHandlers } from "./agent";
 import { agentAdminHandlers } from "./agent_admin";
 import { assetHandlers } from "./assets";
+import { authHandlers } from "./auth";
 import { catalogHandlers } from "./catalog";
 import { executionHandlers } from "./execution";
 import { experimentHandlers } from "./experiments";
@@ -32,6 +33,7 @@ const unsupportedMockApiHandler = http.all(/\/api\/.*/, ({ request }) =>
  * All mock handlers combined
  */
 export const handlers = [
+    ...authHandlers,
     ...agentHandlers,
     ...agentAdminHandlers,
     ...assetHandlers,

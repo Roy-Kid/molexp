@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { AuthGate, AuthProvider, LoginPage } from "@/app/auth";
 import { AppShell } from "@/app/layout/AppShell";
 import { ErrorBoundary } from "@/app/layout/ErrorBoundary";
 import { OAuthCallbackPage } from "@/app/oauth/OAuthCallbackPage";
@@ -130,7 +131,18 @@ const App = (): JSX.Element => {
   if (location.pathname === "/oauth-callback") {
     return <OAuthCallbackPage />;
   }
-  return <WorkspaceApp pathname={location.pathname} />;
+
+  return (
+    <AuthProvider>
+      {location.pathname === "/login" ? (
+        <LoginPage />
+      ) : (
+        <AuthGate>
+          <WorkspaceApp pathname={location.pathname} />
+        </AuthGate>
+      )}
+    </AuthProvider>
+  );
 };
 
 export default App;

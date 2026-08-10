@@ -15,25 +15,43 @@ export class ApprovalsService {
      *
      * Empty ``items`` is normal — the inbox only fills when a plan/curate task
      * is suspended waiting for an operator decision. Not a 404.
+     * @param molexpSession
      * @returns PendingApprovalsResponse Successful Response
      * @throws ApiError
      */
-    public static listPendingApprovalsApiApprovalsGet(): CancelablePromise<PendingApprovalsResponse> {
+    public static listPendingApprovalsApiApprovalsGet(
+        molexpSession?: (string | null),
+    ): CancelablePromise<PendingApprovalsResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/approvals',
+            cookies: {
+                'molexp_session': molexpSession,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**
      * Stream Approval Events
      * SSE: one ``changed`` event per suspend/decision — the UI refetch signal.
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static streamApprovalEventsApiApprovalsEventsGet(): CancelablePromise<any> {
+    public static streamApprovalEventsApiApprovalsEventsGet(
+        molexpSession?: (string | null),
+    ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/approvals/events',
+            cookies: {
+                'molexp_session': molexpSession,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**
@@ -45,6 +63,7 @@ export class ApprovalsService {
      * @param taskKind
      * @param taskId
      * @param requestBody
+     * @param molexpSession
      * @returns ApprovalDecisionResponse Successful Response
      * @throws ApiError
      */
@@ -52,6 +71,7 @@ export class ApprovalsService {
         taskKind: 'plan' | 'curate',
         taskId: string,
         requestBody: ApprovalDecisionRequest,
+        molexpSession?: (string | null),
     ): CancelablePromise<ApprovalDecisionResponse> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -59,6 +79,9 @@ export class ApprovalsService {
             path: {
                 'task_kind': taskKind,
                 'task_id': taskId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             body: requestBody,
             mediaType: 'application/json',

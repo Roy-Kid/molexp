@@ -19,6 +19,7 @@ export class TensorboardService {
      * @param runId
      * @param tag Repeatable scalar-tag filter
      * @param logdir Relative path under run_dir; default = discover every tfevents dir
+     * @param molexpSession
      * @returns TensorboardScalarsResponse Successful Response
      * @throws ApiError
      */
@@ -28,6 +29,7 @@ export class TensorboardService {
         runId: string,
         tag?: (Array<string> | null),
         logdir?: (string | null),
+        molexpSession?: (string | null),
     ): CancelablePromise<TensorboardScalarsResponse> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -36,6 +38,9 @@ export class TensorboardService {
                 'project_id': projectId,
                 'experiment_id': experimentId,
                 'run_id': runId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             query: {
                 'tag': tag,
@@ -59,6 +64,7 @@ export class TensorboardService {
      * @param ws
      * @param tag Repeatable scalar-tag filter
      * @param logdir Relative path under run_dir; default = discover every tfevents dir
+     * @param molexpSession
      * @returns TensorboardScalarsResponse Successful Response
      * @throws ApiError
      */
@@ -69,6 +75,7 @@ export class TensorboardService {
         ws: string,
         tag?: (Array<string> | null),
         logdir?: (string | null),
+        molexpSession?: (string | null),
     ): CancelablePromise<TensorboardScalarsResponse> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -78,6 +85,9 @@ export class TensorboardService {
                 'experiment_id': experimentId,
                 'run_id': runId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             query: {
                 'tag': tag,

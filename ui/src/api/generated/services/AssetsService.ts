@@ -24,6 +24,7 @@ export class AssetsService {
      * @param taskId
      * @param contentHash
      * @param limit
+     * @param molexpSession
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
@@ -34,10 +35,14 @@ export class AssetsService {
         taskId?: (string | null),
         contentHash?: (string | null),
         limit: number = 100,
+        molexpSession?: (string | null),
     ): CancelablePromise<Array<AssetResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/assets',
+            cookies: {
+                'molexp_session': molexpSession,
+            },
             query: {
                 'kind': kind,
                 'scope_kind': scopeKind,
@@ -55,15 +60,20 @@ export class AssetsService {
      * Import Data Asset
      * Upload a file and register it as a workspace-scoped ``DataAsset``.
      * @param formData
+     * @param molexpSession
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
     public static importDataAssetApiAssetsDataImportPost(
         formData: Body_import_data_asset_api_assets_data_import_post,
+        molexpSession?: (string | null),
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/assets/data/import',
+            cookies: {
+                'molexp_session': molexpSession,
+            },
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
@@ -78,15 +88,20 @@ export class AssetsService {
      * The file stays where it is — only an index entry is created — so a
      * same-stem preview sidecar remains a real sibling of the resolved path.
      * @param requestBody
+     * @param molexpSession
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
     public static registerDataAssetApiAssetsDataRegisterPost(
         requestBody: DataAssetRegisterRequest,
+        molexpSession?: (string | null),
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/assets/data/register',
+            cookies: {
+                'molexp_session': molexpSession,
+            },
             body: requestBody,
             mediaType: 'application/json',
             errors: {
@@ -97,17 +112,22 @@ export class AssetsService {
     /**
      * Get Asset
      * @param assetId
+     * @param molexpSession
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
     public static getAssetApiAssetsAssetIdGet(
         assetId: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/assets/{asset_id}',
             path: {
                 'asset_id': assetId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -118,17 +138,22 @@ export class AssetsService {
      * Asset Content
      * Download the asset's file content.
      * @param assetId
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
     public static assetContentApiAssetsAssetIdContentGet(
         assetId: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/assets/{asset_id}/content',
             path: {
                 'asset_id': assetId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -143,17 +168,22 @@ export class AssetsService {
      * declare ``consumed=[...]`` on artifact / data registration. The
      * starting asset is excluded from both lists.
      * @param assetId
+     * @param molexpSession
      * @returns AssetLineageResponse Successful Response
      * @throws ApiError
      */
     public static getAssetLineageApiAssetsAssetIdLineageGet(
         assetId: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<AssetLineageResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/assets/{asset_id}/lineage',
             path: {
                 'asset_id': assetId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -182,6 +212,7 @@ export class AssetsService {
      * @param assetId
      * @param format
      * @param limit
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
@@ -189,12 +220,16 @@ export class AssetsService {
         assetId: string,
         format: 'frames' | 'png' = 'frames',
         limit: number = 200,
+        molexpSession?: (string | null),
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/assets/{asset_id}/preview',
             path: {
                 'asset_id': assetId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             query: {
                 'format': format,
@@ -210,18 +245,23 @@ export class AssetsService {
      * Return the last N lines (``LogAsset`` only).
      * @param assetId
      * @param n
+     * @param molexpSession
      * @returns string Successful Response
      * @throws ApiError
      */
     public static assetTailApiAssetsAssetIdTailGet(
         assetId: string,
         n: number = 100,
+        molexpSession?: (string | null),
     ): CancelablePromise<string> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/assets/{asset_id}/tail',
             path: {
                 'asset_id': assetId,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             query: {
                 'n': n,
@@ -245,6 +285,7 @@ export class AssetsService {
      * @param taskId
      * @param contentHash
      * @param limit
+     * @param molexpSession
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
@@ -256,12 +297,16 @@ export class AssetsService {
         taskId?: (string | null),
         contentHash?: (string | null),
         limit: number = 100,
+        molexpSession?: (string | null),
     ): CancelablePromise<Array<AssetResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/workspaces/{ws}/assets',
             path: {
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             query: {
                 'kind': kind,
@@ -281,18 +326,23 @@ export class AssetsService {
      * Upload a file and register it as a workspace-scoped ``DataAsset``.
      * @param ws
      * @param formData
+     * @param molexpSession
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
     public static importDataAssetApiWorkspacesWsAssetsDataImportPost(
         ws: string,
         formData: Body_import_data_asset_api_workspaces__ws__assets_data_import_post,
+        molexpSession?: (string | null),
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/workspaces/{ws}/assets/data/import',
             path: {
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             formData: formData,
             mediaType: 'multipart/form-data',
@@ -309,18 +359,23 @@ export class AssetsService {
      * same-stem preview sidecar remains a real sibling of the resolved path.
      * @param ws
      * @param requestBody
+     * @param molexpSession
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
     public static registerDataAssetApiWorkspacesWsAssetsDataRegisterPost(
         ws: string,
         requestBody: DataAssetRegisterRequest,
+        molexpSession?: (string | null),
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/workspaces/{ws}/assets/data/register',
             path: {
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             body: requestBody,
             mediaType: 'application/json',
@@ -333,12 +388,14 @@ export class AssetsService {
      * Get Asset
      * @param assetId
      * @param ws
+     * @param molexpSession
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
     public static getAssetApiWorkspacesWsAssetsAssetIdGet(
         assetId: string,
         ws: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -346,6 +403,9 @@ export class AssetsService {
             path: {
                 'asset_id': assetId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -357,12 +417,14 @@ export class AssetsService {
      * Download the asset's file content.
      * @param assetId
      * @param ws
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
     public static assetContentApiWorkspacesWsAssetsAssetIdContentGet(
         assetId: string,
         ws: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -370,6 +432,9 @@ export class AssetsService {
             path: {
                 'asset_id': assetId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -385,12 +450,14 @@ export class AssetsService {
      * starting asset is excluded from both lists.
      * @param assetId
      * @param ws
+     * @param molexpSession
      * @returns AssetLineageResponse Successful Response
      * @throws ApiError
      */
     public static getAssetLineageApiWorkspacesWsAssetsAssetIdLineageGet(
         assetId: string,
         ws: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<AssetLineageResponse> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -398,6 +465,9 @@ export class AssetsService {
             path: {
                 'asset_id': assetId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -427,6 +497,7 @@ export class AssetsService {
      * @param ws
      * @param format
      * @param limit
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
@@ -435,6 +506,7 @@ export class AssetsService {
         ws: string,
         format: 'frames' | 'png' = 'frames',
         limit: number = 200,
+        molexpSession?: (string | null),
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -442,6 +514,9 @@ export class AssetsService {
             path: {
                 'asset_id': assetId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             query: {
                 'format': format,
@@ -458,6 +533,7 @@ export class AssetsService {
      * @param assetId
      * @param ws
      * @param n
+     * @param molexpSession
      * @returns string Successful Response
      * @throws ApiError
      */
@@ -465,6 +541,7 @@ export class AssetsService {
         assetId: string,
         ws: string,
         n: number = 100,
+        molexpSession?: (string | null),
     ): CancelablePromise<string> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -472,6 +549,9 @@ export class AssetsService {
             path: {
                 'asset_id': assetId,
                 'ws': ws,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             query: {
                 'n': n,

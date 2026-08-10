@@ -44,6 +44,11 @@ export interface RunListHandlers {
   /** New execution; `fresh` bypasses cache. */
   rerun: (run: RunSummary, fresh?: boolean) => void;
   copyId: (run: RunSummary) => void;
+  /**
+   * When set, lifecycle verbs (start/resume/rerun/cancel/harvest) are disabled
+   * and this string is shown as the hover tip (role / auth denial).
+   */
+  writeDeniedReason?: string | null;
 }
 
 /** Compact primary control for a table row (one button max). */
@@ -66,11 +71,17 @@ export function primaryRunVerb(status: string): RunPrimaryVerb {
   }
 }
 
+function gateWrite(action: RunListAction, denied: string | null | undefined): RunListAction {
+  if (!denied) return action;
+  return { ...action, disabled: true, title: denied };
+}
+
 /**
  * Full context-menu / row-menu for one run.
  * Lifecycle verbs only appear when allowed; utilities always available.
  */
 export function buildRunListActions(run: RunSummary, handlers: RunListHandlers): RunListAction[] {
+  const denied = handlers.writeDeniedReason ?? null;
   const actions: RunListAction[] = [
     {
       id: "open",
@@ -93,64 +104,94 @@ export function buildRunListActions(run: RunSummary, handlers: RunListHandlers):
   ];
 
   if (canStart(run.status)) {
-    actions.push({
-      id: "start",
-      label: "Start",
-      icon: Play,
-      separatorBefore: true,
-      title: "Open run to start",
-      onSelect: () => handlers.open(run),
-    });
+    actions.push(
+      gateWrite(
+        {
+          id: "start",
+          label: "Start",
+          icon: Play,
+          separatorBefore: true,
+          title: "Open run to start",
+          onSelect: () => handlers.open(run),
+        },
+        denied,
+      ),
+    );
   }
 
   if (canResume(run.status)) {
-    actions.push({
-      id: "resume",
-      label: "Resume",
-      icon: Play,
-      separatorBefore: true,
-      title: "Continue last execution",
-      onSelect: () => handlers.resume(run),
-    });
+    actions.push(
+      gateWrite(
+        {
+          id: "resume",
+          label: "Resume",
+          icon: Play,
+          separatorBefore: true,
+          title: "Continue last execution",
+          onSelect: () => handlers.resume(run),
+        },
+        denied,
+      ),
+    );
   }
 
   if (canRerun(run.status)) {
-    actions.push({
-      id: "rerun",
-      label: "Rerun",
-      icon: RefreshCw,
-      title: "New execution from top",
-      onSelect: () => handlers.rerun(run, false),
-    });
-    actions.push({
-      id: "rerun-fresh",
-      label: "Fresh",
-      icon: RefreshCw,
-      title: "Rerun without cache",
-      onSelect: () => handlers.rerun(run, true),
-    });
+    actions.push(
+      gateWrite(
+        {
+          id: "rerun",
+          label: "Rerun",
+          icon: RefreshCw,
+          title: "New execution from top",
+          onSelect: () => handlers.rerun(run, false),
+        },
+        denied,
+      ),
+    );
+    actions.push(
+      gateWrite(
+        {
+          id: "rerun-fresh",
+          label: "Fresh",
+          icon: RefreshCw,
+          title: "Rerun without cache",
+          onSelect: () => handlers.rerun(run, true),
+        },
+        denied,
+      ),
+    );
   }
 
   if (canCancel(run.status)) {
-    actions.push({
-      id: "cancel",
-      label: "Cancel",
-      icon: Ban,
-      destructive: true,
-      separatorBefore: true,
-      onSelect: () => handlers.cancel(run),
-    });
+    actions.push(
+      gateWrite(
+        {
+          id: "cancel",
+          label: "Cancel",
+          icon: Ban,
+          destructive: true,
+          separatorBefore: true,
+          onSelect: () => handlers.cancel(run),
+        },
+        denied,
+      ),
+    );
   }
 
   if (canHarvest(run.status)) {
-    actions.push({
-      id: "harvest",
-      label: "Harvest",
-      icon: BookMarked,
-      separatorBefore: true,
-      title: "Open run to harvest",
-      onSelect: () => handlers.open(run),
-    });
+    actions.push(
+      gateWrite(
+        {
+          id: "harvest",
+          label: "Harvest",
+          icon: BookMarked,
+          separatorBefore: true,
+          title: "Open run to harvest",
+          onSelect: () => handlers.open(run),
+        },
+        denied,
+      ),
+    );
   }
 
   actions.push({

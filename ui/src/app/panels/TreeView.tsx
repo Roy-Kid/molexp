@@ -125,6 +125,7 @@ const TreeRow = ({
                 <ContextMenuItem
                   disabled={action.disabled}
                   title={action.title}
+                  // title= is the hover tip for disabled items (e.g. role denial)
                   className={
                     action.destructive ? "text-destructive focus:text-destructive" : undefined
                   }
@@ -136,6 +137,9 @@ const TreeRow = ({
                 >
                   {ActionIcon && <ActionIcon className="mr-2 h-3.5 w-3.5" />}
                   <span className="truncate">{action.label}</span>
+                  {action.disabled && action.title ? (
+                    <span className="sr-only">{action.title}</span>
+                  ) : null}
                 </ContextMenuItem>
               </Fragment>
             );

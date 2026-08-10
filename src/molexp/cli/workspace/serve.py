@@ -16,9 +16,10 @@ A root may be:
 MolExp project/run indexes require a full workspace layout; plain folders
 still serve file-tree / content routes with empty index views.
 
-``--dev`` additionally spawns the checkout's ``ui/`` Rsbuild server
-(``npm run dev``), proxies ``/api`` to this process, and tears the UI down on
-Ctrl+C. Open the printed dev-UI URL (not the API port) for HMR.
+``--dev`` additionally spawns the checkout's ``ui/`` leaf script
+``npm run dev:api`` (Rsbuild HMR against this process's API — not the MSW mock
+``npm run dev`` / root ``npm run dev:ui``), and tears the UI down on Ctrl+C.
+Open the printed dev-UI URL (not the API port) for HMR.
 """
 
 from __future__ import annotations
@@ -211,10 +212,11 @@ def _find_ui_dir() -> Path | None:
 
 
 def _start_ui_dev_server(*, api_port: int, ui_port: int, ui_dir: Path) -> subprocess.Popen[bytes]:
-    """Spawn ``npm run dev`` in *ui_dir*, proxying ``/api`` to *api_port*.
+    """Spawn the ``ui`` leaf ``npm run dev:api`` in *ui_dir*, proxying ``/api``.
 
     Uses a new process group (POSIX) so Ctrl+C on the parent can SIGTERM the
-    whole npm/rsbuild tree without leaving orphan node processes.
+    whole npm/rsbuild tree without leaving orphan node processes. Repo-root
+    equivalent: ``npm run dev:api`` (not ``dev:ui``, which is the MSW mock).
     """
     npm = shutil.which("npm")
     if npm is None:
@@ -227,10 +229,11 @@ def _start_ui_dev_server(*, api_port: int, ui_port: int, ui_dir: Path) -> subpro
     # ``--port`` is a real rsbuild CLI flag. The API proxy target must NOT be
     # passed as ``--api-port`` (rsbuild's CAC rejects unknown options) — set
     # ``MOLEXP_API_PORT`` instead (read by ui/rsbuild.config.ts).
+    # Leaf ``dev:api`` = real proxy; leaf ``dev`` / root ``dev:ui`` = MSW mock.
     cmd = [
         npm,
         "run",
-        "dev",
+        "dev:api",
         "--",
         f"--port={ui_port}",
     ]
@@ -293,9 +296,11 @@ def serve(
         typer.Option(
             "--dev",
             help=(
-                "Also start the checkout UI dev server (npm run dev) with /api "
-                "proxied to this process. Open the printed UI URL for HMR — "
-                "not the API port (which still serves the bundled dist if present)."
+                "Also start the checkout UI against this API (ui leaf: "
+                "npm run dev:api; repo root: npm run dev:api) with /api proxied "
+                "to this process. Open the printed UI URL for HMR — not the API "
+                "port (which still serves the bundled dist if present). "
+                "For offline MSW mock UI use root npm run dev:ui instead."
             ),
         ),
     ] = False,
@@ -306,17 +311,46 @@ def serve(
             help="Rsbuild port when using --dev (default: 5173).",
         ),
     ] = _DEFAULT_UI_PORT,
+    auth: Annotated[
+        bool,
+        typer.Option(
+            "--auth",
+            help=(
+                "Require login for the HTTP API + UI (filesystem users under "
+                "~/.molexp/auth/). Also on when auth.enabled is true in "
+                "~/.molexp/config.json. Non-loopback --host refuses to start "
+                "without auth."
+            ),
+        ),
+    ] = False,
+    user: Annotated[
+        str | None,
+        typer.Option(
+            "--user",
+            "-u",
+            help=(
+                "When --auth is on, require this username to already exist "
+                "(default check skipped unless set). Bootstrap with "
+                "`molexp auth login -u admin`."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Start the MolExp server (API + bundled web UI).
 
-    With ``--dev``, also starts ``ui/``'s ``npm run dev`` (HMR). Requires a
-    source checkout with ``ui/package.json`` and ``npm`` on PATH.
+    With ``--dev``, also starts the ``ui`` leaf ``npm run dev:api`` (HMR
+    against this API; root equivalent ``npm run dev:api``). Requires a source
+    checkout with ``ui/package.json`` and ``npm`` on PATH. Offline mock UI is
+    ``npm run dev:ui``, not this path.
     """
+    from molexp.cli.workspace._serve_auth import configure_serve_auth
     from molexp.server.dependencies import (
         set_active_workspace_descriptor,
         set_served_workspaces,
         set_workspace_path_override,
     )
+
+    configure_serve_auth(host=host, auth_flag=auth, require_user=user)
 
     specs: list[str] = list(workspaces) if workspaces else [str(Path.cwd())]
     used_keys: set[str] = set()
@@ -368,8 +402,7 @@ def serve(
         if webapp is None:
             rprint(f"[cyan]->[/cyan] API at http://{host}:{port}/api  (no bundled UI)")
             rprint(
-                "[dim]  Build the frontend (`cd ui && npm run build`), "
-                "or use --dev for the HMR UI:[/dim]"
+                "[dim]  Build the frontend (`npm run build:ui`), or use --dev for the HMR UI:[/dim]"
             )
             rprint(f"[dim]  molexp serve --dev -ws … --port {port}[/dim]")
         else:

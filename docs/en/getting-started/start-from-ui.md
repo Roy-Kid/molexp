@@ -43,14 +43,30 @@ Node.js required. If `./lab` does not exist or has no `workspace.json`,
 > ```
 >
 > Open the printed **Dev UI** URL (default <http://localhost:5173>), not
-> the API port. `npm run dev` proxies `/api` to the API. Requires Node
-> and a one-time `cd ui && npm install`. Override the UI port with
+> the API port. `--dev` starts the UI against this API (`npm run dev:api`);
+> offline mock UI is `npm run dev:ui` (MSW). Requires Node and a one-time
+> `npm install` at the repo root. Override the UI port with
 > `--ui-port`, or the ui path with `MOLEXP_UI_DIR`. See
 > [Server Lifecycle](../guide/server-lifecycle.md).
 
 You can serve several workspaces at once by repeating `-ws`;
 the UI shows each one in the left panel and you switch by clicking into
 its tree.
+
+### Optional: require login
+
+Loopback serves stay open by default. To protect the UI and API with
+filesystem users (under `~/.molexp/auth/`):
+
+```bash
+molexp auth login -u admin          # first user becomes admin
+molexp serve -ws ./lab --auth
+```
+
+The browser shows a sign-in page (default username `admin`). Admins can
+manage accounts under **Settings → Users**. Non-loopback binds
+(`--host 0.0.0.0`) refuse to start without auth. Details:
+[Server Lifecycle](../guide/server-lifecycle.md#http-auth-optional).
 
 ## 2. Find your way around
 
@@ -71,7 +87,7 @@ The activity bar on the left switches the panel between six views:
   [Agent concept](../concept/agent.md) for the loop model behind them.
 
 A command palette and a **Settings** page (remote workspaces, compute
-targets) round out the shell.
+targets, and Users when auth is on) round out the shell.
 
 ## 3. Create a project
 

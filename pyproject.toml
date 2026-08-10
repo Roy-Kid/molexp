@@ -19,6 +19,7 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "pathspec>=0.12.0",
+    "argon2-cffi>=23.1.0",
     "molcrafts-mollog>=1.0.0",
     "molcrafts-molcfg>=1.2.0",
     "molcrafts-molq>=0.2.0",
@@ -47,10 +48,10 @@ dev = [
     "pytest-mock>=3.10",
     "httpx>=0.24",
     "psutil>=5.9.0",
-    # Match .pre-commit-config.yaml ruff-pre-commit rev (v0.15.12) so
-    # META.build.check / bare `ruff` on PATH agrees with the commit hooks.
-    "ruff==0.15.12",
-    "ty==0.0.60",
+    # Match .pre-commit-config.yaml ruff-pre-commit rev so META.build.check /
+    # bare `ruff` on PATH agrees with the commit hooks. Keep these at latest.
+    "ruff==0.16.2",
+    "ty==0.0.69",
     "tox>=4.23",
     # Build binding only. molrs is molpy's dependency, not molexp's API — no
     # molexp module may `import molrs` (Frame/Block come from molpy). It is
@@ -199,8 +200,8 @@ description = "CI lint"
 skip_install = true
 base_python = ["python3.14"]
 deps = [
-  "ruff==0.15.12",
-  "ty==0.0.60",
+  "ruff==0.16.2",
+  "ty==0.0.69",
 ]
 commands = [
   ["ruff", "check", "."],

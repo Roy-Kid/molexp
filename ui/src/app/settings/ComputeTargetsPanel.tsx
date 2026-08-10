@@ -1,16 +1,18 @@
 /**
- * Settings section for managing the workspace's registered ComputeTargets
- * — the cross-product of transport × scheduler that runs can be submitted to.
+ * Settings section: compute targets.
+ * List/delete via TanStack Query.
  */
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, FlaskConical, Plus, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { TargetCreateRequest } from "@/api/generated/models/TargetCreateRequest";
-import type { TargetResponse } from "@/api/generated/models/TargetResponse";
 import type { TargetTestResponse } from "@/api/generated/models/TargetTestResponse";
 import { TargetsService } from "@/api/generated/services/TargetsService";
+import { usePermissions } from "@/app/auth";
 import { WorkbenchIconAction, WorkbenchTag } from "@/components/workbench";
 import { AddTargetDialog } from "./AddTargetDialog";
+import { settingsKeys } from "./settingsKeys";
 
 type Scheduler = TargetCreateRequest.scheduler;
 
@@ -22,38 +24,36 @@ const schedulerLabel: Record<Scheduler, string> = {
 };
 
 export function ComputeTargetsPanel(): JSX.Element {
-  const [targets, setTargets] = useState<TargetResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
-
+  const { writeDeniedReason } = usePermissions();
+  const queryClient = useQueryClient();
   const [busyTarget, setBusyTarget] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TargetTestResponse | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setListError(null);
-    try {
+  const listQuery = useQuery({
+    queryKey: settingsKeys.computeTargets(),
+    queryFn: async () => {
       const res = await TargetsService.listTargetsEndpointApiTargetsGet();
-      setTargets(res.targets);
-    } catch (err) {
-      setListError(err instanceof Error ? err.message : "Failed to list targets");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return res.targets;
+    },
+  });
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const targets = listQuery.data ?? [];
+  const invalidate = async (): Promise<void> => {
+    await queryClient.invalidateQueries({ queryKey: settingsKeys.computeTargets() });
+  };
 
-  const handleDelete = async (name: string) => {
+  const deleteMutation = useMutation({
+    mutationFn: (name: string) => TargetsService.deleteTargetEndpointApiTargetsNameDelete(name),
+    onSuccess: invalidate,
+  });
+
+  const handleDelete = async (name: string): Promise<void> => {
     setBusyTarget(name);
     setActionError(null);
     setTestResult(null);
     try {
-      await TargetsService.deleteTargetEndpointApiTargetsNameDelete(name);
-      await refresh();
+      await deleteMutation.mutateAsync(name);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to delete target");
     } finally {
@@ -61,7 +61,7 @@ export function ComputeTargetsPanel(): JSX.Element {
     }
   };
 
-  const handleTest = async (name: string) => {
+  const handleTest = async (name: string): Promise<void> => {
     setBusyTarget(name);
     setActionError(null);
     setTestResult(null);
@@ -75,30 +75,38 @@ export function ComputeTargetsPanel(): JSX.Element {
     }
   };
 
+  const listError =
+    listQuery.error instanceof Error
+      ? listQuery.error.message
+      : listQuery.isError
+        ? "Failed to list targets"
+        : null;
+
   return (
-    <section className="space-y-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-2xl space-y-1">
-          <p className="font-mono text-micro uppercase tracking-wider text-accent">Execution</p>
-          <h3 className="text-title font-semibold text-foreground">Compute targets</h3>
-          <p className="text-body text-muted-foreground">
-            Dispatch runs to this machine, an SSH host, or a batch scheduler. {targets.length}{" "}
-            {targets.length === 1 ? "target is" : "targets are"} registered.
-          </p>
-        </div>
-        <AddTargetDialog
-          trigger={
-            <WorkbenchIconAction label="Add compute target">
-              <Plus className="size-3.5" />
-            </WorkbenchIconAction>
-          }
-          onCreated={() => void refresh()}
-        />
-      </header>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-body text-muted-foreground">
+          {targets.length} {targets.length === 1 ? "target is" : "targets are"} registered.
+        </p>
+        {writeDeniedReason ? (
+          <WorkbenchIconAction label="Add compute target" deniedReason={writeDeniedReason}>
+            <Plus className="size-3.5" />
+          </WorkbenchIconAction>
+        ) : (
+          <AddTargetDialog
+            trigger={
+              <WorkbenchIconAction label="Add compute target">
+                <Plus className="size-3.5" />
+              </WorkbenchIconAction>
+            }
+            onCreated={() => void invalidate()}
+          />
+        )}
+      </div>
 
       <div className="space-y-3">
         {listError && <p className="text-body-lg text-status-failed-foreground">{listError}</p>}
-        {loading && targets.length === 0 ? (
+        {listQuery.isLoading && targets.length === 0 ? (
           <p className="text-body-lg text-muted-foreground">Loading…</p>
         ) : targets.length === 0 ? (
           <p className="bg-surface/60 px-4 py-8 text-center text-body text-muted-foreground">
@@ -128,7 +136,8 @@ export function ComputeTargetsPanel(): JSX.Element {
                   <WorkbenchIconAction
                     label={`Test ${t.name}`}
                     disabled={busyTarget === t.name}
-                    onClick={() => handleTest(t.name)}
+                    deniedReason={writeDeniedReason}
+                    onClick={() => void handleTest(t.name)}
                   >
                     <FlaskConical className="size-4" />
                   </WorkbenchIconAction>
@@ -136,7 +145,8 @@ export function ComputeTargetsPanel(): JSX.Element {
                     label={`Remove ${t.name}`}
                     kind="ghost"
                     disabled={busyTarget === t.name}
-                    onClick={() => handleDelete(t.name)}
+                    deniedReason={writeDeniedReason}
+                    onClick={() => void handleDelete(t.name)}
                   >
                     <Trash2 className="h-4 w-4" />
                   </WorkbenchIconAction>
@@ -185,6 +195,6 @@ export function ComputeTargetsPanel(): JSX.Element {
           </div>
         )}
       </div>
-    </section>
+    </div>
   );
 }

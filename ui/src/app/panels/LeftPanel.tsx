@@ -29,6 +29,7 @@ import type { ComponentType, ReactNode, SVGProps } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApiError } from "@/api/generated";
+import { usePermissions } from "@/app/auth";
 import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
 import { CreateProjectDialog } from "@/app/components/CreateProjectDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
@@ -107,12 +108,14 @@ interface ViewOption {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
-// Order matters: the primary research flow is Experiments → Runs → Workflows →
+// Order matters: the primary research flow is Projects → Runs → Workflows →
 // Workspaces, with the secondary inventories (Assets, Agent Tasks) trailing.
 // Labels match each route's section name (see entities/breadcrumbTrail.ts) and
 // surface on the icon rail as tooltip + title + aria-label.
+// The projects view's top level is Project (children: Experiment → Run) — never
+// label this rail "Experiments", which names the middle tier.
 const viewOptions: ViewOption[] = [
-  { id: "projects", label: "Experiments", icon: Blocks },
+  { id: "projects", label: "Projects", icon: Blocks },
   { id: "runs", label: "Runs", icon: PlayCircle },
   { id: "activity", label: "Activity", icon: Activity },
   { id: "workflow", label: "Workflows", icon: Workflow },
@@ -123,7 +126,7 @@ const viewOptions: ViewOption[] = [
 ];
 
 const listHeaderByView: Record<LeftPanelView, string> = {
-  projects: "Experiments",
+  projects: "Projects",
   workspace: "Workspace",
   runs: "Runs",
   activity: "Activity",
@@ -204,7 +207,17 @@ interface ProjectTreeActions {
   onExpandExperiment?: (projectId: string, experimentId: string) => void;
   isProjectExpanded?: (projectId: string) => boolean;
   isExperimentExpanded?: (projectId: string, experimentId: string) => boolean;
+  /** Role denial tip for mutating tree actions (null = allowed). */
+  writeDeniedReason?: string | null;
 }
+
+const gateTreeWrite = (
+  action: TreeNodeAction,
+  writeDeniedReason: string | null | undefined,
+): TreeNodeAction => {
+  if (!writeDeniedReason) return action;
+  return { ...action, disabled: true, title: writeDeniedReason };
+};
 
 const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNodeAction[] =>
   buildRunListActions(run, {
@@ -213,6 +226,7 @@ const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNode
     resume: actions.onResumeRun,
     rerun: actions.onRerunRun,
     copyId: (r) => actions.onCopyText(r.id),
+    writeDeniedReason: actions.writeDeniedReason,
   }).map((action) => ({
     id: action.id,
     label: action.label,
@@ -296,46 +310,49 @@ const buildProjectNodes = (
             actions.onSelect({ objectType: "project", objectId: project.id });
           },
         },
-        {
-          id: "new-experiment",
-          label: "New experiment",
-          icon: FlaskConical,
-          onSelect: () => actions.onCreateExperiment(project.id),
-        },
+        gateTreeWrite(
+          {
+            id: "new-experiment",
+            label: "New experiment",
+            icon: FlaskConical,
+            onSelect: () => actions.onCreateExperiment(project.id),
+          },
+          actions.writeDeniedReason,
+        ),
         {
           id: "refresh",
           label: "Refresh",
           icon: RefreshCw,
           onSelect: actions.onRefresh,
         },
-        {
-          id: "delete",
-          label: "Delete project",
-          icon: Ban,
-          destructive: true,
-          separatorBefore: true,
-          onSelect: () => actions.onDeleteProject(project.id),
-        },
+        gateTreeWrite(
+          {
+            id: "delete",
+            label: "Delete project",
+            icon: Ban,
+            destructive: true,
+            separatorBefore: true,
+            onSelect: () => actions.onDeleteProject(project.id),
+          },
+          actions.writeDeniedReason,
+        ),
       ],
       // Always an array so the chevron shows; empty until expand loads experiments.
-      emptyChildLabel: projectExpanded ? EMPTY_COPY.entries.title : "…",
+      emptyChildLabel: projectExpanded ? EMPTY_COPY.entries.title : "Loading…",
       children: project.experiments.map((experiment) => {
-        const expExpanded =
+        const dataLoaded =
           actions.isExperimentExpanded?.(project.id, experiment.id) ?? experiment.runs.length > 0;
-        const runCount = expExpanded
+        const runCount = dataLoaded
           ? experiment.runs.length
           : (experiment.runCount ?? experiment.runs.length);
+        const hasRunCount = dataLoaded || experiment.runCount != null;
         return {
           id: experiment.id,
           label: experiment.name,
           labelClassName: statusTextClass(experiment.status),
           icon: FlaskConical,
           iconClassName: "text-muted-foreground",
-          right: (
-            <CompactCount>
-              {expExpanded || experiment.runCount != null ? countLabel(runCount, "run") : "…"}
-            </CompactCount>
-          ),
+          right: <CompactCount>{hasRunCount ? countLabel(runCount, "run") : "…"}</CompactCount>,
           onSelect: () => {
             actions.onExpandProject?.(project.id);
             actions.onExpandExperiment?.(project.id, experiment.id);
@@ -351,12 +368,15 @@ const buildProjectNodes = (
                 actions.onSelect({ objectType: "experiment", objectId: experiment.id });
               },
             },
-            {
-              id: "new-run",
-              label: "New run",
-              icon: PlayCircle,
-              onSelect: () => actions.onCreateRun(experiment.id),
-            },
+            gateTreeWrite(
+              {
+                id: "new-run",
+                label: "New run",
+                icon: PlayCircle,
+                onSelect: () => actions.onCreateRun(experiment.id),
+              },
+              actions.writeDeniedReason,
+            ),
             {
               id: "open-workflow",
               label: "Open workflow",
@@ -375,16 +395,20 @@ const buildProjectNodes = (
               },
               disabled: !snapshot.workflows.some((item) => item.experimentId === experiment.id),
             },
-            {
-              id: "delete",
-              label: "Delete experiment",
-              icon: Ban,
-              destructive: true,
-              separatorBefore: true,
-              onSelect: () => actions.onDeleteExperiment(experiment),
-            },
+            gateTreeWrite(
+              {
+                id: "delete",
+                label: "Delete experiment",
+                icon: Ban,
+                destructive: true,
+                separatorBefore: true,
+                onSelect: () => actions.onDeleteExperiment(experiment),
+              },
+              actions.writeDeniedReason,
+            ),
           ],
-          emptyChildLabel: expExpanded ? EMPTY_COPY.runs.title : "…",
+          // Tree open + data not loaded yet → "Loading…"; loaded empty → "No runs".
+          emptyChildLabel: dataLoaded ? EMPTY_COPY.runs.title : "Loading…",
           children: experiment.runs.map((run) => ({
             id: run.id,
             label: run.name || run.id,
@@ -447,7 +471,11 @@ const buildWorkspaceGroupedNodes = (
   onActivateWorkspace: (ws: ServedWorkspaceSummary) => void,
 ): TreeNode[] => {
   return snapshot.workspaces.map((ws) => {
-    const wsProjects = snapshot.projects.filter((project) => project.workspaceKey === ws.key);
+    // Projects without a workspaceKey (legacy/single-ws payloads) belong to
+    // the active workspace — never drop them as "no projects".
+    const wsProjects = snapshot.projects.filter(
+      (project) => project.workspaceKey === ws.key || (project.workspaceKey == null && ws.active),
+    );
     const header: TreeNode = {
       id: `ws:${ws.key}`,
       label: ws.label,
@@ -1164,10 +1192,13 @@ export const LeftPanel = ({
     }
   };
 
+  const { writeDeniedReason } = usePermissions();
+
   const projectTreeActions: ProjectTreeActions = {
     onSelect,
     onCreateExperiment: setCreateExperimentProjectId,
     onCreateRun: setCreateRunExperimentId,
+    writeDeniedReason,
     onDeleteProject: (projectId) => {
       void handleDeleteProject(projectId);
     },
@@ -1361,7 +1392,10 @@ export const LeftPanel = ({
 
             {view === "projects" && (
               <div className="flex items-center gap-1">
-                <CreateProjectDialog onProjectCreated={onRefresh} />
+                <CreateProjectDialog
+                  onProjectCreated={onRefresh}
+                  writeDeniedReason={writeDeniedReason}
+                />
               </div>
             )}
 
@@ -1371,6 +1405,7 @@ export const LeftPanel = ({
                   <WorkbenchIconAction
                     label="Open workspace"
                     kind="ghost"
+                    deniedReason={writeDeniedReason}
                     onClick={() => {
                       void handleOpenWorkspace();
                     }}
@@ -1382,6 +1417,7 @@ export const LeftPanel = ({
                     <WorkbenchIconAction
                       label="New file"
                       kind="ghost"
+                      deniedReason={writeDeniedReason}
                       onClick={() => {
                         void handleCreateFile();
                       }}
@@ -1391,6 +1427,7 @@ export const LeftPanel = ({
                     <WorkbenchIconAction
                       label="New folder"
                       kind="ghost"
+                      deniedReason={writeDeniedReason}
                       onClick={() => {
                         void handleCreateDirectory();
                       }}
@@ -1424,6 +1461,7 @@ export const LeftPanel = ({
                 <WorkbenchIconAction
                   label="New agent task"
                   kind="ghost"
+                  deniedReason={writeDeniedReason}
                   onClick={() => onSelect({ objectType: "agent", objectId: "new" })}
                 >
                   <Plus className="h-4 w-4" />

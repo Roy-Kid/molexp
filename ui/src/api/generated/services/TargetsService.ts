@@ -13,13 +13,22 @@ export class TargetsService {
     /**
      * List Targets Endpoint
      * List compute targets — the registered ones plus the built-in ``local``.
+     * @param molexpSession
      * @returns TargetListResponse Successful Response
      * @throws ApiError
      */
-    public static listTargetsEndpointApiTargetsGet(): CancelablePromise<TargetListResponse> {
+    public static listTargetsEndpointApiTargetsGet(
+        molexpSession?: (string | null),
+    ): CancelablePromise<TargetListResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/targets',
+            cookies: {
+                'molexp_session': molexpSession,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**
@@ -28,15 +37,20 @@ export class TargetsService {
      *
      * Mirrors ``molexp target add NAME --scratch ... [--host ...] [--scheduler ...]``.
      * @param requestBody
+     * @param molexpSession
      * @returns TargetResponse Successful Response
      * @throws ApiError
      */
     public static createTargetEndpointApiTargetsPost(
         requestBody: TargetCreateRequest,
+        molexpSession?: (string | null),
     ): CancelablePromise<TargetResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/targets',
+            cookies: {
+                'molexp_session': molexpSession,
+            },
             body: requestBody,
             mediaType: 'application/json',
             errors: {
@@ -48,17 +62,22 @@ export class TargetsService {
      * Delete Target Endpoint
      * Remove the named compute target from the workspace registry.
      * @param name
+     * @param molexpSession
      * @returns void
      * @throws ApiError
      */
     public static deleteTargetEndpointApiTargetsNameDelete(
         name: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<void> {
         return __request(OpenAPI, {
             method: 'DELETE',
             url: '/api/targets/{name}',
             path: {
                 'name': name,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
@@ -73,17 +92,22 @@ export class TargetsService {
      * Returns ``ok=False`` with the failing step's detail rather than raising,
      * so the UI can render the failure inline.
      * @param name
+     * @param molexpSession
      * @returns TargetTestResponse Successful Response
      * @throws ApiError
      */
     public static testTargetEndpointApiTargetsNameTestPost(
         name: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<TargetTestResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/targets/{name}/test',
             path: {
                 'name': name,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,

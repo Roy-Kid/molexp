@@ -9,11 +9,13 @@ export class AgentService {
     /**
      * Agent Disabled
      * @param path
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathGet(
+    public static agentDisabledApiAgentPathDelete(
         path: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'DELETE',
@@ -21,6 +23,9 @@ export class AgentService {
             path: {
                 'path': path,
             },
+            cookies: {
+                'molexp_session': molexpSession,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -29,11 +34,13 @@ export class AgentService {
     /**
      * Agent Disabled
      * @param path
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathGet1(
+    public static agentDisabledApiAgentPathDelete1(
         path: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -41,6 +48,9 @@ export class AgentService {
             path: {
                 'path': path,
             },
+            cookies: {
+                'molexp_session': molexpSession,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -49,11 +59,13 @@ export class AgentService {
     /**
      * Agent Disabled
      * @param path
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathGet2(
+    public static agentDisabledApiAgentPathDelete2(
         path: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'PATCH',
@@ -61,6 +73,9 @@ export class AgentService {
             path: {
                 'path': path,
             },
+            cookies: {
+                'molexp_session': molexpSession,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -69,11 +84,13 @@ export class AgentService {
     /**
      * Agent Disabled
      * @param path
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathGet3(
+    public static agentDisabledApiAgentPathDelete3(
         path: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -81,6 +98,9 @@ export class AgentService {
             path: {
                 'path': path,
             },
+            cookies: {
+                'molexp_session': molexpSession,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -89,17 +109,22 @@ export class AgentService {
     /**
      * Agent Disabled
      * @param path
+     * @param molexpSession
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiAgentPathGet4(
+    public static agentDisabledApiAgentPathDelete4(
         path: string,
+        molexpSession?: (string | null),
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'PUT',
             url: '/api/agent/{path}',
             path: {
                 'path': path,
+            },
+            cookies: {
+                'molexp_session': molexpSession,
             },
             errors: {
                 422: `Validation Error`,
