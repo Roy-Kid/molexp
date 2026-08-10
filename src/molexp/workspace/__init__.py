@@ -153,6 +153,7 @@ from .workspace_context import (
     WorkspaceRef,
     assemble_workspace_context,
 )
+from .wp import WorkspacePaths, cp, ls, mkdir, mv, rm
 from .zotero_concepts import ZoteroItem, read_zotero_items
 
 __all__ = [
@@ -251,6 +252,7 @@ __all__ = [
     "WorkspaceEventLog",
     "WorkspaceEventType",
     "WorkspaceMetadata",
+    "WorkspacePaths",
     "WorkspaceRef",
     "ZoteroItem",
     "# Assets",
@@ -289,12 +291,16 @@ __all__ = [
     "atomic_write_text",
     "builtin_local_target",
     "cancel_run",
+    "cp",
     "effective_targets",
     "emit_workspace_event",
     "get_target",
     "harvest_run",
     "has_target",
     "list_targets",
+    "ls",
+    "mkdir",
+    "mv",
     "parse_target",
     "pid_alive",
     "plan_execution_prune",
@@ -304,6 +310,7 @@ __all__ = [
     "remove_target",
     "resolve_compute_target",
     "resolve_target",
+    "rm",
     "summarize_entity",
     "target_run_dir",
     "target_to_transport",

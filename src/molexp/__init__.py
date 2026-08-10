@@ -57,6 +57,7 @@ __all__ = [
     "entry",
     "execute_run",
     "get_logger",
+    "wp",
 ]
 
 #: Workflow-layer attributes re-exported lazily at the top level. Resolving
@@ -81,6 +82,11 @@ def __getattr__(name: str):  # noqa: ANN202
         import importlib
 
         return importlib.import_module(f"molexp.{name}")
+    if name == "wp":
+        # Path toolkit: me.wp.mv(ws, src, dst) / me.wp.ls(ws, …)
+        import importlib
+
+        return importlib.import_module("molexp.workspace.wp")
     if name in _LAZY_WORKFLOW_ATTRS:
         import importlib
 

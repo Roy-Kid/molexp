@@ -120,3 +120,29 @@ class TestValidateWorkspace:
         with pytest.raises(Exception):  # noqa: B017 — pydantic frozen guard
             report.root = "elsewhere"
         assert "conforms" in report.summary() or "warning" in report.summary()
+
+    def test_report_to_dict_is_agent_tool_shaped(self, tmp_path: Path) -> None:
+        # MCP validate_workspace / molexp validate --json share this wire shape.
+        report = _workspace(tmp_path).validate()
+        payload = report.to_dict()
+        assert payload["ok"] is True
+        assert payload["error_count"] == 0
+        assert payload["warning_count"] >= 1  # never-executed run → run.ops
+        assert "summary" in payload
+        assert payload.get("next_actions")
+        assert all(
+            set(v) >= {"path", "rule", "detail", "severity", "hint"} for v in payload["violations"]
+        )
+        # Hints are non-empty so an agent can act without re-reading the law.
+        assert all(v["hint"] for v in payload["violations"])
+
+    def test_error_carries_rule_specific_hint(self, tmp_path: Path) -> None:
+        ws = _workspace(tmp_path)
+        (Path(ws.resolve()) / "leftover").mkdir()
+        report = ws.validate()
+        stray = next(v for v in report.errors if v.rule == "layout.stray")
+        assert stray.hint
+        assert "projects" in stray.hint or "meta.yaml" in stray.hint
+        assert "layout.stray" in report.issues_by_rule()
+        assert report.error_count >= 1
+        assert report.ok is False

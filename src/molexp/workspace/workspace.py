@@ -13,6 +13,7 @@ children from disk or create + materialize new ones.
 from __future__ import annotations
 
 from pathlib import Path as _LocalPath
+from typing import TYPE_CHECKING
 
 from molexp.knowledge.types import concept_type
 from molexp.path import Path
@@ -35,6 +36,9 @@ from .models import FolderMetadata, WorkspaceMetadata
 from .project import Project
 from .utils import slugify
 from .validate import ValidationReport, validate_workspace
+
+if TYPE_CHECKING:
+    from .wp import WorkspacePaths
 
 # CLI-level root override: set by ``molexp run`` before executing the user
 # script so a script's ``me.Workspace(...)`` resolves against the CLI instead
@@ -219,6 +223,19 @@ class Workspace(Folder):
         :func:`~molexp.workspace.validate.validate_workspace`.
         """
         return validate_workspace(self.resolve(), fs=self._fs)
+
+    # ── Path toolkit (layout fixes) ─────────────────────────────────────
+
+    @property
+    def wp(self) -> WorkspacePaths:
+        """Path ops for layout fixes: ``ws.wp.mv`` / ``ls`` / ``rm`` / ``mkdir``.
+
+        Scoped to this workspace's root and FileSystem (local or remote).
+        Free-function form: ``molexp.wp.mv(ws, src, dst)``.
+        """
+        from .wp import WorkspacePaths
+
+        return WorkspacePaths(self)
 
     # ── System folder accessors (singletons via lowercase property) ──────
 

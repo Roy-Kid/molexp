@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from .fs_local import LocalFileSystem
 
@@ -67,9 +67,95 @@ _CHILD_OF: dict[str, str] = {
     "experiment": "run",
 }
 
+#: Stable rule id → agent-facing remediation. Keep ids stable — MCP tools
+#: and agent loops filter / dispatch on them.
+_RULE_HINTS: dict[str, str] = {
+    "workspace.missing": (
+        "Create the directory, then call materialize_workspace / "
+        "Workspace(...).materialize() so workspace.json + meta.yaml exist."
+    ),
+    "workspace.entity": (
+        "Not a workspace root. materialize_workspace(path=…) or "
+        "Workspace(root).materialize(); do not nest a second workspace under "
+        "an existing one — use add_project instead."
+    ),
+    "workspace.index": (
+        "Regenerate the project children index: re-open via Workspace and "
+        "list/add projects so project.json is rewritten from disk."
+    ),
+    "project.entity": (
+        "Missing project.json. Prefer add_project(name=…) (create-or-get) so "
+        "the entity file is written; hand-written dirs need project.json + meta.yaml."
+    ),
+    "project.slug": (
+        "Rename the directory to a kebab-case slug (e.g. mace-r2san); ids are "
+        "slug(name) with no prefix."
+    ),
+    "project.index": (
+        "Regenerate experiment.json under the project by listing/adding "
+        "experiments through the Folder API."
+    ),
+    "experiment.entity": (
+        "Missing experiment.json. Use add_experiment(project_id, name) or "
+        "write experiment.json + meta.yaml under experiments/<slug>/."
+    ),
+    "experiment.slug": ("Rename the experiment directory to a kebab-case slug (no prefix)."),
+    "experiment.index": (
+        "Regenerate run.json under the experiment by listing/adding runs "
+        "through the Folder API (disk is authoritative)."
+    ),
+    "run.entity": (
+        "Missing run.json. Scaffold with create_run / experiment.add_run(params=…); "
+        "do not leave a bare run-*/ directory without the entity file."
+    ),
+    "run.prefix": (
+        "Rename the directory so it is always under runs/run-<run_id> "
+        "(the run- prefix is mandatory)."
+    ),
+    "run.ops": (
+        "No _ops/run.json yet — normal for a run that never executed. "
+        "Ignore, or execute the run so the hot-state sidecar is created."
+    ),
+    "concept.marker": (
+        "Write meta.yaml with a registered concept type "
+        "(e.g. type: workspace.project | workspace.experiment | workspace.run)."
+    ),
+    "layout.stray": (
+        "Move with ws.wp.mv(src, dst) / me.wp.mv(ws, src, dst) under the "
+        "four-tier tree (e.g. projects/<id>/assets/…), or add meta.yaml to "
+        "make it an OKF Concept, or ws.wp.rm(path, recursive=True) if disposable."
+    ),
+    "index.stale": (
+        "Children index disagrees with disk (disk wins). Rebuild the index by "
+        "re-scanning entity dirs / re-adding children; never treat the index as truth."
+    ),
+    "index.unreadable": (
+        "Fix or delete the corrupt children-index JSON so it can be rebuilt "
+        "from the authoritative entity directories."
+    ),
+    "index.malformed": (
+        "Children index must be a JSON object mapping id → entry; rewrite or "
+        "delete it and let the Folder API regenerate it."
+    ),
+}
+
+
+def _hint_for(rule: str) -> str:
+    """Look up a remediation hint; fall back to a generic agent instruction."""
+    if rule in _RULE_HINTS:
+        return _RULE_HINTS[rule]
+    return (
+        f"Inspect path against workspace_layout / the layout law; fix so rule "
+        f"{rule!r} no longer fires, then re-run validate."
+    )
+
 
 class Violation(BaseModel):
-    """One conformance finding, anchored at a workspace-relative path."""
+    """One conformance finding, anchored at a workspace-relative path.
+
+    Designed for agent loops and MCP tools: ``rule`` is a stable filter key,
+    ``hint`` is the remediation the agent should attempt next.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -77,10 +163,16 @@ class Violation(BaseModel):
     rule: str
     detail: str
     severity: Severity = "error"
+    hint: str = ""
 
 
 class ValidationReport(BaseModel):
-    """The outcome of :func:`validate_workspace`."""
+    """Structured outcome of :func:`validate_workspace`.
+
+    Serializes cleanly for MCP / agent tools via :meth:`model_dump` /
+    :meth:`to_dict`. ``ok`` is True when there are no ``error`` severity
+    findings; warnings (e.g. missing ``_ops``) never fail the tree.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -95,16 +187,67 @@ class ValidationReport(BaseModel):
     def warnings(self) -> tuple[Violation, ...]:
         return tuple(v for v in self.violations if v.severity == "warning")
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def ok(self) -> bool:
         """True when nothing violates the layout law (warnings are allowed)."""
         return not self.errors
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def error_count(self) -> int:
+        return len(self.errors)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def warning_count(self) -> int:
+        return len(self.warnings)
 
     def summary(self) -> str:
         """One line fit for a CLI or a log."""
         if self.ok and not self.warnings:
             return f"{self.root}: conforms"
         return f"{self.root}: {len(self.errors)} error(s), {len(self.warnings)} warning(s)"
+
+    def issues_by_rule(self) -> dict[str, list[Violation]]:
+        """Group violations by stable ``rule`` id (agent dispatch helper)."""
+        grouped: dict[str, list[Violation]] = {}
+        for v in self.violations:
+            grouped.setdefault(v.rule, []).append(v)
+        return grouped
+
+    def next_actions(self) -> list[str]:
+        """Deduplicated remediation hints, errors first — agent to-do list."""
+        seen: set[str] = set()
+        actions: list[str] = []
+        for bucket in (self.errors, self.warnings):
+            for v in bucket:
+                key = v.hint or v.rule
+                if key in seen:
+                    continue
+                seen.add(key)
+                actions.append(v.hint or _hint_for(v.rule))
+        return actions
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-ready report for MCP tools and agent loops.
+
+        Shape::
+
+            {
+                "ok": bool,
+                "root": str,
+                "summary": str,
+                "error_count": int,
+                "warning_count": int,
+                "violations": [{"path", "rule", "detail", "severity", "hint"}, ...],
+                "next_actions": [str, ...],
+            }
+        """
+        payload = self.model_dump(mode="json")
+        payload["summary"] = self.summary()
+        payload["next_actions"] = self.next_actions()
+        return payload
 
 
 class _Checker:
@@ -123,7 +266,13 @@ class _Checker:
 
     def _add(self, path: str, rule: str, detail: str, severity: Severity = "error") -> None:
         self._found.append(
-            Violation(path=self._rel(path) or ".", rule=rule, detail=detail, severity=severity)
+            Violation(
+                path=self._rel(path) or ".",
+                rule=rule,
+                detail=detail,
+                severity=severity,
+                hint=_hint_for(rule),
+            )
         )
 
     def _subdirs(self, path: str) -> list[str]:
