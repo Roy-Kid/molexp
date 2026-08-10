@@ -11,10 +11,14 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "types": ["node", "vscode", "react", "react-dom"],
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["../web/src/*"]
+      "@/*": ["./../web/src/*"]
     }
   },
-  "include": ["src", "webview"]
+  "include": [
+    "src",
+    "webview",
+    "../web/src/types/jsx.d.ts",
+    "../web/src/env.d.ts"
+  ]
 }
