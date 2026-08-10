@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 """Dump the molexp API OpenAPI schema to repo-root ``openapi.json``.
 
-The UI's ``npm run generate:api`` consumes ``openapi.json`` (an untracked,
-generated artifact). This script regenerates it deterministically so the
-schema → TypeScript codegen pipeline is reproducible and CI-checkable.
+Repo-root ``npm run generate:api`` (ui leaf: ``generate:api``) consumes
+``openapi.json`` (an untracked, generated artifact). This script regenerates it
+deterministically so the schema → TypeScript codegen pipeline is reproducible
+and CI-checkable.
 
 Deterministic + boot-free: it constructs the FastAPI app in-process and calls
 ``app.openapi()`` (no uvicorn, no network), writing sorted-key JSON so two runs

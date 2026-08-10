@@ -4,30 +4,33 @@ Single-page application for Molexp that mirrors the Workspace and Workflow split
 
 ## Development
 
-Install dependencies (repo root or `ui/`):
+Install once from the **repo root** (npm workspaces):
 
 ```bash
 npm install
 ```
 
-| Script | Backend | Notes |
-|--------|---------|--------|
-| `npm run dev` | Real API (`/api` proxy) | Needs `molexp serve` (or equivalent) on the API port |
-| `npm run dev:page` | **MSW mock** | No Python server; opens the seeded Protein Folding showcase |
+| Root script | Leaf (`cd ui`) | Backend | Notes |
+|-------------|----------------|---------|--------|
+| `npm run dev:ui` | `npm run dev` | **MSW mock** | Default UI work; opens the seeded Protein Folding showcase |
+| `npm run dev:api` | `npm run dev:api` | Real API (`/api` proxy) | Needs `molexp serve` (or equivalent) on the API port; also what `molexp serve --dev` starts |
 
 ```bash
-# Real backend (UI only; start the API separately)
-npm run dev
+# Mock showcase (no Python server)
+npm run dev:ui
 
-# Mock showcase (recommended for UI work without a server)
-npm run dev:page
+# Real backend (start the API separately, or use molexp serve --dev)
+npm run dev:api
 ```
 
-Build / preview:
+Build / check / preview (repo root):
 
 ```bash
-npm run build
-npm run preview
+npm run build:ui
+npm run typecheck:ui
+npm run test:ui
+npm run lint
+npm run preview:ui
 ```
 
 ## API Client Generation
@@ -38,16 +41,11 @@ Auto-generated client from the backend OpenAPI spec (`src/api/generated` — do 
    ```bash
    python scripts/dump_openapi.py
    ```
-2. Regenerate:
+2. Regenerate (repo root):
    ```bash
    npm run generate:api
    ```
 
 ## Mock layer
 
-`dev:page` enables MSW. See [`mocks/README.md`](mocks/README.md) for architecture, seeding, and handler overrides.
-
-
-## Registry System
-
-New editors or viewers are added by implementing a renderer and registering it in `ui/src/app/renderers/registerRenderers.ts`. The layout is fixed; registrations only affect which panels render for a selection.
+`dev` / `dev:ui` enables MSW. See [`mocks/README.md`](mocks/README.md) for architecture, seeding, and handler overrides.

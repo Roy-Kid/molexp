@@ -4,19 +4,36 @@
   "description": "Workflow and agent platform for research experiment management",
   "private": true,
   "workspaces": [
-    "ui"
+    "ui",
+    "vsc-ext"
   ],
   "scripts": {
-    "dev": "npm run dev -w molexp-ui",
-    "dev:page": "npm run dev:page -w molexp-ui --",
-    "build": "npm run build -w molexp-ui",
-    "build:ui": "npm run build -w molexp-ui",
-    "typecheck": "npm run typecheck -w molexp-ui",
-    "test:ui": "npm run test -w molexp-ui",
-    "lint": "npm run lint -w molexp-ui",
-    "generate:api": "npm run generate:api -w molexp-ui"
+    "dev:ui": "npm run dev -w molexp-ui --",
+    "dev:api": "npm run dev:api -w molexp-ui --",
+    "dev:vsc-ext": "npm run dev -w molexp-workflow-preview --",
+
+    "build:ui": "npm run build -w molexp-ui --",
+    "build:vsc-ext": "npm run build -w molexp-workflow-preview --",
+    "build:all": "npm run build:ui && npm run build:vsc-ext",
+
+    "preview:ui": "npm run preview -w molexp-ui --",
+
+    "typecheck:ui": "npm run typecheck -w molexp-ui --",
+    "typecheck:vsc-ext": "npm run typecheck -w molexp-workflow-preview --",
+    "typecheck": "npm run typecheck:ui && npm run typecheck:vsc-ext",
+
+    "test:ui": "npm run test -w molexp-ui --",
+    "test:watch": "npm run test:watch -w molexp-ui --",
+    "test": "npm run test:ui",
+
+    "lint": "npm run lint -w molexp-ui --",
+    "lint:fix": "npm run lint:fix -w molexp-ui --",
+    "format": "npm run format -w molexp-ui --",
+
+    "generate:api": "npm run generate:api -w molexp-ui --"
   },
   "devDependencies": {
+    "@rsbuild/core": "^2.1.10",
     "shadcn": "^4.5.0"
   },
   "packageManager": "npm@11.11.0+sha512.f36811c4aae1fde639527368ae44c571d050006a608d67a191f195a801a52637a312d259186254aa3a3799b05335b7390539cf28656d18f0591a1125ba35f973"

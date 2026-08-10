@@ -41,5 +41,5 @@ type HashablePayload = Any
 # freely. Uses PEP 695 ``type`` syntax — required for recursion without
 # forward strings.
 
-type JSONValue = str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
+type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValue] | None
 type JSONMapping = Mapping[str, JSONValue]

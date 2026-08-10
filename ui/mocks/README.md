@@ -46,17 +46,17 @@ ui/mocks/
 
 ## Development Usage
 
-| Script | Mode |
-|--------|------|
-| `npm run dev` | Real API proxy (no MSW) |
-| `npm run dev:page` | MSW mock + open seeded Protein Folding project |
+| Root script | Leaf (`cd ui`) | Mode |
+|-------------|----------------|------|
+| `npm run dev:ui` | `npm run dev` | MSW mock + open seeded Protein Folding project |
+| `npm run dev:api` | `npm run dev:api` | Real API proxy (no MSW) |
 
 ```bash
-# From repo root or ui/
-npm run dev:page
+# From repo root
+npm run dev:ui
 ```
 
-Console logs are prefixed with `[MSW]`. To hit a real backend, use `npm run dev` instead (and start the API separately).
+Console logs are prefixed with `[MSW]`. To hit a real backend, use `npm run dev:api` (or `molexp serve --dev`) instead.
 
 ## Test Usage
 

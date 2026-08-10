@@ -75,7 +75,7 @@ export default defineConfig(({ command }) => {
       proxy: useMock
         ? {}
         : {
-            // API target for `npm run dev` / `molexp serve --dev`.
+            // API target for `npm run dev:api` / `molexp serve --dev`.
             // Prefer MOLEXP_API_PORT (set by the Python CLI); do not pass
             // --api-port on the rsbuild argv — CAC rejects unknown options.
             '/api': {

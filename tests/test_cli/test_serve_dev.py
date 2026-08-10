@@ -51,7 +51,7 @@ class TestStartUiDevServer:
         args, kwargs = popen.call_args
         cmd = args[0]
         assert cmd[0] == "/usr/bin/npm"
-        assert cmd[1:4] == ["run", "dev", "--"]
+        assert cmd[1:4] == ["run", "dev:api", "--"]
         assert "--port=5173" in cmd
         # API port must go through env (rsbuild rejects unknown CLI flags).
         assert all(not str(a).startswith("--api-port") for a in cmd)
