@@ -1,10 +1,10 @@
 /**
- * molvis-style Settings shell: left category nav + scrollable sections.
+ * Settings shell: left category nav + scrollable sections.
  *
- * Extractable to a shared package later (no product domain imports).
+ * Domain-free block — shared via molcrafts-ui registry.
  */
 
-import type { ReactNode } from "react";
+import type { JSX, ReactNode } from "react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";

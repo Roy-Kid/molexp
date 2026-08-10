@@ -1,11 +1,10 @@
 /**
- * Settings section primitives — ported from molvis page SettingsSection.
+ * Settings section primitives (SettingsSection + SettingsRow).
  *
- * Kept under molexp `components/settings` so a future `@molcrafts/ui` (or
- * shared shadcn-style package) can lift this file without domain imports.
+ * Domain-free block — shared via molcrafts-ui registry.
  */
 
-import type { ReactNode } from "react";
+import type { JSX, ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 

@@ -1,33 +1,16 @@
-/* MolExp workbench-local design tokens.
+/* MolExp product stylesheet.
  *
- * Independent of MolVis. Products share the MolCrafts visual constitution
- * (type scale, spacing, radius, status vocabulary, motion) — never this
- * palette, never a shared Tailwind preset, never cross-repo components.
+ * Constitution (type scale, radius, control geometry, motion, status roles):
+ *   ./constitution-theme.css + ./constitution-base.css
+ *   source of truth: molcrafts-ui (npm run sync:products)
+ * This file owns the molexp brand palette, product @theme color mapping,
+ * workbench geometry extras, and domain motion/chrome.
  */
 @import "tailwindcss";
+@import "./constitution-theme.css";
+@import "./constitution-base.css";
 
 @theme inline {
-  /* Typography */
-  --font-sans:
-    "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono:
-    "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-
-  --text-micro: 0.6875rem;
-  --text-micro--line-height: 1.4;
-  --text-label: 0.75rem;
-  --text-label--line-height: 1.4;
-  --text-body: 0.8125rem;
-  --text-body--line-height: 1.4;
-  --text-body-lg: 0.875rem;
-  --text-body-lg--line-height: 1.5;
-  --text-title: 1rem;
-  --text-title--line-height: 1.4;
-  --text-heading: 1.25rem;
-  --text-heading--line-height: 1.4;
-  --text-display: 1.5rem;
-  --text-display--line-height: 1.4;
-
   /* Workbench surfaces */
   --color-background: var(--molexp-background);
   --color-surface: var(--molexp-surface);
@@ -112,29 +95,9 @@
   --color-diff-unchanged-foreground: var(--molexp-diff-unchanged-foreground);
   --color-diff-unchanged-soft: var(--molexp-diff-unchanged-soft);
 
-  /* Radius — constitution: control 6 / panel 8 / overlay 10 */
-  --radius-control: 0.375rem;
-  --radius-panel: 0.5rem;
-  --radius-overlay: 0.625rem;
-  --radius-checkbox: 0.1875rem;
-  --radius-sm: var(--radius-control);
-  --radius-md: var(--radius-control);
-  --radius-lg: var(--radius-panel);
-  --radius-xl: var(--radius-overlay);
   --shadow-overlay: var(--molexp-shadow-overlay);
 
-  /* Named geometry (4px grid) */
-  --spacing-control-compact: 1.75rem; /* 28px */
-  --spacing-control: 2rem; /* 32px */
-  --spacing-control-comfortable: 2.25rem; /* 36px */
-  --spacing-toolbar-compact: 2.5rem; /* 40px */
-  --spacing-toolbar: 2.75rem; /* 44px */
-  --spacing-statusbar: 1.75rem; /* 28px */
-  --spacing-touch-target: 2.75rem; /* 44px */
-  --spacing-menu: 8rem;
-
-  /* Named workbench geometry. Feature code should use these names (or the
-   * ordinary 4px Tailwind scale) instead of introducing one-off pixel values. */
+  /* Product workbench geometry (constitution owns control/toolbar/dialog-sm…). */
   --spacing-field-label: 7.5rem;
   --spacing-inspector: 19rem;
   --spacing-panel-sm: 12rem;
@@ -210,23 +173,8 @@
     --molexp-interactive-foreground: var(--molexp-foreground);
     --molexp-on-fill: oklch(0.985 0.003 255);
 
-    /* Constitution status ramp */
-    --status-draft: oklch(0.65 0.01 255);
-    --status-ready: oklch(0.58 0.02 255);
-    --status-queued: oklch(0.62 0.04 250);
-    --status-running: oklch(0.62 0.15 250);
-    --status-completed: oklch(0.6 0.13 150);
-    --status-failed: oklch(0.58 0.19 25);
-    --status-failed-hover: oklch(0.54 0.19 25);
-    --status-cancelled: oklch(0.6 0.008 255);
-    --status-cached: oklch(0.6 0.06 300);
-    --status-warning: oklch(0.72 0.14 85);
-
-    --status-ready-foreground: oklch(0.4 0.02 255);
-    --status-running-foreground: oklch(0.45 0.14 250);
-    --status-completed-foreground: oklch(0.42 0.11 150);
-    --status-failed-foreground: oklch(0.52 0.18 25);
-    --status-warning-foreground: oklch(0.43 0.11 85);
+    /* Soft status washes on product surface (base roles from constitution). */
+    --constitution-surface: var(--molexp-surface);
     --status-running-soft: color-mix(
       in oklab,
       var(--status-running) 14%,
@@ -280,14 +228,7 @@
 
     --molexp-shadow-overlay: 0 0.75rem 2rem oklch(0.12 0.01 255 / 18%);
 
-    --motion-fast: 120ms;
-    --motion-base: 150ms;
-    --motion-slow: 180ms;
-    --motion-ease: cubic-bezier(0.2, 0, 0, 1);
-    --motion-progress-spin: 850ms;
-    --motion-progress-pulse: 1200ms;
-    --default-transition-duration: var(--motion-base);
-    --default-transition-timing-function: var(--motion-ease);
+    /* motion-* from constitution-base.css */
     --border-width-ui: 1px;
     --space-unit: 0.25rem;
     --icon-micro: 0.875rem;
