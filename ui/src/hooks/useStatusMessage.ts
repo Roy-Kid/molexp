@@ -60,9 +60,13 @@ export function useStatusMessage(): {
       setPulse((n) => n + 1);
       clearTimer();
 
-      // Transient tips: success / info (without active progress) auto-clear.
-      // Warnings and errors persist until dismissed or replaced.
-      if ((nextType === "info" || nextType === "success") && nextProgress === undefined) {
+      // Transient tips: success / info without an active progress value auto-clear.
+      // `progress === 0` means "loading started" (counting) — keep it until
+      // replaced. Warnings/errors persist until dismissed or replaced.
+      if (
+        (nextType === "info" || nextType === "success") &&
+        nextProgress === undefined
+      ) {
         statusResetTimer.current = window.setTimeout(() => {
           setText("");
           setType("info");

@@ -1,7 +1,11 @@
 /**
  * Live sync indicator for the workbench status bar.
- * Idle is neutral, active refresh uses running blue, and each completed poll
- * gets one short neutral acknowledgement pulse.
+ *
+ * * Idle — muted but still visible (foreground/60), soft ambient pulse so the
+ *   lamp is never "missing" at the bottom of the shell.
+ * * Running — running-blue + spin pulse while a refresh / remote index is live.
+ * * Click — triggers manual workspace refresh (same as toolbar refresh).
+ * * Each completed poll increments *beat* → one short acknowledgement flash.
  */
 
 import { HeartPulse } from "lucide-react";
@@ -21,22 +25,24 @@ export interface WorkbenchHeartbeatProps {
   disabled?: boolean;
 }
 
-const PULSE_MS = 180;
+const PULSE_MS = 280;
 
 export const WorkbenchHeartbeat = ({
   beat,
   className,
-  label = "Live sync",
+  label = "Live sync — click to refresh workspace",
   running = false,
   onClick,
   disabled = false,
 }: WorkbenchHeartbeatProps): JSX.Element => {
   // Class-toggle (not only remount) so the CSS animation reliably restarts.
   const [pulsing, setPulsing] = useState(false);
+  // Local beat so a click still flashes even when the parent beat is unchanged.
+  const [localBeat, setLocalBeat] = useState(0);
 
   useEffect(() => {
     // Skip the initial mount beat so the icon doesn't flash before first poll.
-    if (beat === 0) return;
+    if (beat === 0 && localBeat === 0) return;
     // Drop the class for one frame, then re-add so CSS keyframes always restart.
     setPulsing(false);
     const id = window.requestAnimationFrame(() => {
@@ -47,18 +53,22 @@ export const WorkbenchHeartbeat = ({
       window.cancelAnimationFrame(id);
       window.clearTimeout(clear);
     };
-  }, [beat]);
+  }, [beat, localBeat]);
 
   const lamp = (
     <span
       className={cn(
-        "inline-flex h-4 w-4 flex-none items-center justify-center text-muted-foreground",
+        // Idle: readable (not near-invisible muted). Running: status blue.
+        "inline-flex h-4 w-4 flex-none items-center justify-center text-foreground/55",
         running && "text-status-running-foreground",
+        // Ambient idle pulse so the lamp is always "alive"; stronger on ack.
+        !running && "mol-heartbeat-idle",
         pulsing && "mol-heartbeat-pulse",
+        running && "mol-motion-progress-pulse",
         className,
       )}
     >
-      <HeartPulse className="h-3.5 w-3.5" aria-hidden strokeWidth={1.5} />
+      <HeartPulse className="h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />
     </span>
   );
 
@@ -76,10 +86,16 @@ export const WorkbenchHeartbeat = ({
       variant="ghost"
       size="icon-sm"
       className={cn(
-        "text-muted-foreground transition-colors hover:bg-interactive hover:text-foreground",
-        "disabled:pointer-events-none disabled:opacity-50",
+        "text-foreground/55 transition-colors hover:bg-interactive hover:text-foreground",
+        running && "text-status-running-foreground",
+        // Keep clickable during soft sync so the user can re-trigger refresh;
+        // only hard-disable when parent explicitly blocks (e.g. no handler).
+        "disabled:pointer-events-none disabled:opacity-40",
       )}
-      onClick={onClick}
+      onClick={() => {
+        setLocalBeat((n) => n + 1);
+        onClick();
+      }}
       disabled={disabled}
       aria-label={label}
       title={label}

@@ -51,6 +51,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "INDEX_FILE_NAMES",
     "CachedRemoteFileSystem",
+    "IndexProgress",
     "PrefetchWarning",
     "prefetch_workspace_indices",
 ]
@@ -107,6 +108,36 @@ class PrefetchWarning:
 
     path: str
     reason: str
+
+
+@dataclass
+class IndexProgress:
+    """Live remote-index progress for the status bar.
+
+    *counting* — recursive total is still being computed.
+    *fetching* — ``done/total`` advance as files are force-fetched.
+    *done* / *error* — terminal.
+    """
+
+    phase: str = "idle"  # idle | counting | fetching | done | error
+    total: int = 0
+    done: int = 0
+    message: str = ""
+
+    @property
+    def percent(self) -> float | None:
+        if self.total <= 0:
+            return None
+        return min(100.0, 100.0 * self.done / self.total)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "phase": self.phase,
+            "total": self.total,
+            "done": self.done,
+            "percent": self.percent,
+            "message": self.message,
+        }
 
 
 class CachedRemoteFileSystem:
@@ -166,6 +197,7 @@ class CachedRemoteFileSystem:
         self._lock = threading.RLock()
         self._index_thread: threading.Thread | None = None
         self._indexing = False
+        self._progress = IndexProgress()
         # Per-thread: active refresh bypasses pin and re-fetches from remote.
         # UI threads keep serving the pinned mirror while a refresh runs.
         self._tls = threading.local()
@@ -215,6 +247,39 @@ class CachedRemoteFileSystem:
     def indexing(self) -> bool:
         """True while a background :meth:`schedule_index` walk is in flight."""
         return self._indexing
+
+    @property
+    def progress(self) -> IndexProgress:
+        """Snapshot of the live index walk (safe to read from any thread)."""
+        with self._lock:
+            p = self._progress
+            return IndexProgress(
+                phase=p.phase,
+                total=p.total,
+                done=p.done,
+                message=p.message,
+            )
+
+    def _set_progress(
+        self,
+        *,
+        phase: str | None = None,
+        total: int | None = None,
+        done: int | None = None,
+        message: str | None = None,
+        inc_done: int = 0,
+    ) -> None:
+        with self._lock:
+            if phase is not None:
+                self._progress.phase = phase
+            if total is not None:
+                self._progress.total = max(0, total)
+            if done is not None:
+                self._progress.done = max(0, done)
+            if inc_done:
+                self._progress.done = max(0, self._progress.done + inc_done)
+            if message is not None:
+                self._progress.message = message
 
     def cached_paths(self) -> list[str]:
         """Snapshot of cached file/dir/missing paths — handy in tests."""
@@ -277,30 +342,130 @@ class CachedRemoteFileSystem:
         finally:
             self._tls.force_fetch = prev
 
+    def count_remote_files(self, root: str) -> int:
+        """Recursive file count under *root* (remote ``find -type f | wc -l``).
+
+        Falls back to a BFS listdir walk when the transport has no ``run``.
+        """
+        inner = self._inner
+        transport = getattr(inner, "_t", None)
+        if transport is not None and hasattr(transport, "run"):
+            # Single RTT: total file count as the progress denominator.
+            import shlex
+
+            try:
+                cmd = f"find {shlex.quote(root)} -type f 2>/dev/null | wc -l"
+                result = transport.run(["bash", "-lc", cmd])
+                # molq Transport.run return shapes vary — accept str/bytes/obj.
+                out = getattr(result, "stdout", None)
+                if out is None:
+                    out = result if isinstance(result, (str, bytes, int)) else ""
+                if isinstance(out, bytes):
+                    out = out.decode("utf-8", errors="replace")
+                text = str(out).strip().splitlines()
+                if text:
+                    return max(0, int(text[-1].strip()))
+            except Exception:
+                logger.debug(
+                    "remote find|wc failed for %s; falling back to BFS", root, exc_info=True
+                )
+
+        # BFS fallback (local FS / broken transport.run).
+        total = 0
+        stack = [root]
+        while stack:
+            cur = stack.pop()
+            try:
+                if not self._inner.is_dir(cur):
+                    if self._inner.is_file(cur):
+                        total += 1
+                    continue
+                for name in self._inner.listdir(cur):
+                    if name.startswith("."):
+                        continue
+                    child = self._inner.join(cur, name)
+                    try:
+                        if self._inner.is_dir(child):
+                            stack.append(child)
+                        elif self._inner.is_file(child):
+                            total += 1
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        return total
+
     def index(self, workspace: Workspace) -> list[PrefetchWarning]:
         """Actively refresh navigation metadata from remote (blocking).
 
         Always force-fetches (does not trust pin). Outside-in parallel walk
         via :func:`prefetch_workspace_indices`. Sets :attr:`indexed`.
+
+        Progress for the status bar:
+
+        1. *counting* — recursive total file count under the root
+        2. *fetching* — ``done/total`` as entity metadata is force-fetched
+        3. *done*
         """
         self._remote_root = str(workspace.root)
         if not self._connected:
             self.connect(str(workspace.root))
-        with self.force_fetch():
-            warnings = prefetch_workspace_indices(workspace)
-        # Prefetch uses batched(); flush guarantees the sidecar is on disk.
-        self.flush()
-        if not self._sidecar.exists():
-            self._write_sidecar()
-        self._indexed = True
-        self._indexing = False
-        return warnings
+        root = str(workspace.root)
+        self._set_progress(phase="counting", total=0, done=0, message="Counting remote files…")
+        try:
+            total = self.count_remote_files(root)
+        except Exception as exc:
+            logger.warning("count_remote_files failed: %s", exc)
+            total = 0
+        self._set_progress(
+            phase="fetching",
+            total=max(total, 1),
+            done=0,
+            message=f"Syncing remote tree (0/{max(total, 1)})…",
+        )
+        try:
+            with self.force_fetch():
+                warnings = prefetch_workspace_indices(
+                    workspace,
+                    on_file=self._on_index_file,
+                )
+            # Prefetch uses batched(); flush guarantees the sidecar is on disk.
+            self.flush()
+            if not self._sidecar.exists():
+                self._write_sidecar()
+            self._indexed = True
+            self._indexing = False
+            # Snap to 100% so a total that over-counted still completes.
+            with self._lock:
+                tot = max(self._progress.total, self._progress.done, 1)
+                self._progress.total = tot
+                self._progress.done = tot
+            self._set_progress(phase="done", message="Remote index ready")
+            return warnings
+        except Exception as exc:
+            self._indexing = False
+            self._set_progress(phase="error", message=f"Index failed: {exc}")
+            raise
+
+    def _on_index_file(self, _path: str) -> None:
+        """Progress tick for each file force-fetched during index."""
+        with self._lock:
+            self._progress.done += 1
+            done = self._progress.done
+            total = max(self._progress.total, done)
+            # If we discover more entity files than the find total predicted
+            # (e.g. race / find missed), grow the denominator.
+            if done > self._progress.total:
+                self._progress.total = done
+                total = done
+            self._progress.message = f"Syncing remote tree ({done}/{total})…"
 
     def schedule_refresh(self, workspace: Workspace) -> None:
         """Run :meth:`index` on a daemon thread (non-blocking active refresh).
 
-        Idempotent while a walk is already in flight. Failures are logged;
-        the operator can retry via ``POST /api/workspace/cache/refresh``.
+        Always starts a new force-fetch when idle — linking a remote must
+        re-pull even if a previous pin exists. Idempotent while a walk is
+        already in flight.
         """
         with self._lock:
             if self._indexing:
@@ -320,6 +485,7 @@ class CachedRemoteFileSystem:
                         root,
                     )
                     self._indexing = False
+                    self._set_progress(phase="error", message="Remote index failed")
 
             self._index_thread = threading.Thread(
                 target=_run,
@@ -340,29 +506,22 @@ class CachedRemoteFileSystem:
     ) -> list[PrefetchWarning]:
         """Open path for ``molexp serve`` / API.
 
-        * **Always** serves from the local pin immediately when present
-          (no TTL auto-expiry; no silent revalidation on read).
-        * **On open** (``refresh_on_open=True``, default): fire **one**
-          active refresh — async outside-in parallel walk that force-
-          fetches from remote and updates the pin.  Not age-based; only
-          this open trigger (or the user Refresh button) re-pulls.
-        * **Cold** (no index yet): probe SSH, then same async/blocking
-          refresh so the tree fills in.
+        * **On open / link** (``refresh_on_open=True``): always force-fetch
+          from remote (even when a pin exists). Default is **async** so the
+          UI can poll :attr:`progress` for a file-count progress bar;
+          pass ``block_index=True`` to wait for the walk (CLI / tests).
+        * **Cold**: probe SSH first, then the same refresh path.
         """
         self._remote_root = str(workspace.root)
-        if self._indexed:
-            # Warm: UI can read local pin now; optionally kick one active refresh.
-            if refresh_on_open:
-                if block_index:
-                    return self.index(workspace)
-                self.schedule_refresh(workspace)
+        if not refresh_on_open:
+            # Pure pin serve — no probe, no walk (tests / warm passive reopen).
             return []
-        # Cold — must connect before any remote walk.
-        self.connect(str(workspace.root))
+        if not self._connected:
+            self.connect(str(workspace.root))
         if block_index:
             return self.index(workspace)
-        if refresh_on_open:
-            self.schedule_refresh(workspace)
+        # Async force-refresh — UI polls GET /api/workspace/cache/status.
+        self.schedule_refresh(workspace)
         return []
 
     def connect_and_index(self, workspace: Workspace) -> list[PrefetchWarning]:
@@ -896,6 +1055,7 @@ def prefetch_workspace_indices(
     workspace: Workspace,
     *,
     max_workers: int | None = None,
+    on_file: Callable[[str], None] | None = None,
 ) -> list[PrefetchWarning]:
     """Outside-in parallel walk of entity metadata through ``workspace._fs``.
 
@@ -913,6 +1073,9 @@ def prefetch_workspace_indices(
     or *max_workers*).  When the FS is a :class:`CachedRemoteFileSystem`,
     call under :meth:`~CachedRemoteFileSystem.force_fetch` so an **active**
     refresh re-pulls remote bytes instead of replaying the pin.
+
+    *on_file* is invoked once per successfully force-fetched file path
+    (progress bar ticks).
 
     Missing or unreadable nodes become :class:`PrefetchWarning` entries;
     the walk continues so one bad project does not blank the tree.
@@ -940,9 +1103,9 @@ def prefetch_workspace_indices(
     # bare prefetch still benefits from parallel structure on any FS.
     with batch:
         # ── L0: workspace root (serial — tiny) ──────────────────────────
-        _safe_read(fs, fs.join(root, "workspace.json"), state)
+        _safe_read(fs, fs.join(root, "workspace.json"), state, on_file=on_file)
         projects_dir = fs.join(root, "projects")
-        _safe_read(fs, fs.join(root, "project.json"), state, warn_on_missing=False)
+        _safe_read(fs, fs.join(root, "project.json"), state, warn_on_missing=False, on_file=on_file)
         try:
             project_names = list(fs.listdir(projects_dir))
         except FileNotFoundError:
@@ -954,7 +1117,7 @@ def prefetch_workspace_indices(
         # ── L1: project.json in parallel ────────────────────────────────
         def _load_project(name: str) -> str | None:
             meta = fs.join(projects_dir, name, "project.json")
-            return name if _safe_read(fs, meta, state) is not None else None
+            return name if _safe_read(fs, meta, state, on_file=on_file) is not None else None
 
         healthy_projects = [
             n
@@ -971,7 +1134,13 @@ def prefetch_workspace_indices(
         def _list_experiments(project_name: str) -> list[tuple[str, str]]:
             project_dir = fs.join(projects_dir, project_name)
             experiments_dir = fs.join(project_dir, "experiments")
-            _safe_read(fs, fs.join(project_dir, "experiment.json"), state, warn_on_missing=False)
+            _safe_read(
+                fs,
+                fs.join(project_dir, "experiment.json"),
+                state,
+                warn_on_missing=False,
+                on_file=on_file,
+            )
             try:
                 names = fs.listdir(experiments_dir)
             except FileNotFoundError:
@@ -994,7 +1163,7 @@ def prefetch_workspace_indices(
         def _load_experiment(pair: tuple[str, str]) -> tuple[str, str] | None:
             project_name, exp_name = pair
             meta = fs.join(projects_dir, project_name, "experiments", exp_name, "experiment.json")
-            return pair if _safe_read(fs, meta, state) is not None else None
+            return pair if _safe_read(fs, meta, state, on_file=on_file) is not None else None
 
         healthy_exps = [
             p
@@ -1012,7 +1181,13 @@ def prefetch_workspace_indices(
             project_name, exp_name = pair
             experiment_dir = fs.join(projects_dir, project_name, "experiments", exp_name)
             runs_dir = fs.join(experiment_dir, "runs")
-            _safe_read(fs, fs.join(experiment_dir, "run.json"), state, warn_on_missing=False)
+            _safe_read(
+                fs,
+                fs.join(experiment_dir, "run.json"),
+                state,
+                warn_on_missing=False,
+                on_file=on_file,
+            )
             try:
                 names = fs.listdir(runs_dir)
             except FileNotFoundError:
@@ -1040,7 +1215,7 @@ def prefetch_workspace_indices(
                 run_name,
                 "run.json",
             )
-            _safe_read(fs, meta, state)
+            _safe_read(fs, meta, state, on_file=on_file)
 
         _parallel_map(_load_run, run_triples, max_workers=workers, force_fetch_fs=force_fs)
 
@@ -1053,9 +1228,10 @@ def _safe_read(
     state: _PrefetchState,
     *,
     warn_on_missing: bool = True,
+    on_file: Callable[[str], None] | None = None,
 ) -> str | None:
     try:
-        return fs.read_text(path)
+        text = fs.read_text(path)
     except FileNotFoundError as exc:
         if warn_on_missing:
             state.add_warning(path, f"not found: {exc}")
@@ -1063,6 +1239,10 @@ def _safe_read(
     except Exception as exc:
         state.add_warning(path, str(exc))
         return None
+    if on_file is not None:
+        with contextlib.suppress(Exception):
+            on_file(path)
+    return text
 
 
 def _read_container_children(

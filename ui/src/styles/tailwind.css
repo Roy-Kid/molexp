@@ -410,14 +410,14 @@
   }
 }
 
-/* Dense work surfaces use a restrained instrumentation grid: it adds
-   spatial rhythm without turning each section into a bordered card. */
+/*
+ * Entity overviews are solid work surfaces — not graph paper.
+ * (An earlier instrumentation grid read as unfinished SaaS canvas when empty.)
+ * Workflow canvas keeps its own surface tokens; do not reintroduce a page grid here.
+ */
 .molexp-dashboard {
-  background-image:
-    linear-gradient(to right, color-mix(in oklab, var(--molexp-border) 45%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklab, var(--molexp-border) 45%, transparent) 1px, transparent 1px),
-    radial-gradient(circle at 18% -10%, color-mix(in oklab, var(--molexp-accent) 9%, transparent), transparent 34rem);
-  background-size: 24px 24px, 24px 24px, 100% 100%;
+  background-color: var(--color-background);
+  background-image: none;
 }
 
 /*
@@ -736,24 +736,58 @@
   }
 }
 
-/* One-shot neutral acknowledgement for sync completion. Running state is
-   labelled and coloured separately by the component. */
+/* One-shot acknowledgement flash after a completed poll / click. */
 @keyframes molexp-heartbeat-pulse {
   0% {
     opacity: 0.45;
+    transform: scale(1);
   }
-  50% {
+  40% {
     opacity: 1;
+    transform: scale(1.12);
   }
   100% {
-    opacity: 0.65;
+    opacity: 0.7;
+    transform: scale(1);
+  }
+}
+
+/* Soft ambient pulse so the idle lamp is never "missing" on a quiet status bar. */
+@keyframes molexp-heartbeat-idle {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.85;
   }
 }
 
 .mol-heartbeat-pulse {
   display: inline-flex;
-  animation: molexp-heartbeat-pulse var(--motion-slow) var(--motion-ease) both;
+  animation: molexp-heartbeat-pulse 280ms var(--motion-ease) both;
+  will-change: opacity, transform;
+}
+
+.mol-heartbeat-idle {
+  display: inline-flex;
+  animation: molexp-heartbeat-idle 2.4s var(--motion-ease) infinite;
   will-change: opacity;
+}
+
+/* Indeterminate status-bar track (counting / generic load). */
+@keyframes mol-status-progress-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.mol-status-progress-indeterminate {
+  animation: mol-status-progress-indeterminate 1.1s linear infinite;
+  will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -788,5 +822,13 @@
   .mol-heartbeat-pulse {
     animation: none !important;
     opacity: 1;
+  }
+
+  .mol-heartbeat-idle {
+    animation: molexp-heartbeat-idle 3.6s ease-in-out infinite !important;
+  }
+
+  .mol-status-progress-indeterminate {
+    animation: mol-status-progress-indeterminate 1.6s linear infinite !important;
   }
 }

@@ -45,5 +45,7 @@ export function subscribeStatus(listener: StatusListener): () => void {
 /** Format optional progress as a compact suffix, e.g. ` 42%`. */
 export function formatProgressSuffix(progress?: number): string {
   if (progress === undefined || !Number.isFinite(progress)) return "";
-  return ` ${Math.round(Math.max(0, Math.min(100, progress)))}%`;
+  // Status strip already draws a bar + fraction; keep the line free of a
+  // second percentage so "Syncing remote tree (12/153)…" stays readable.
+  return "";
 }

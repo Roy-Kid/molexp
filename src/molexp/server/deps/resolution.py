@@ -21,14 +21,13 @@ from molexp.workspace import Workspace
 
 
 def _ensure_remote_ready(workspace: Workspace) -> None:
-    """Prepare a remote workspace for serve.
+    """Prepare a remote workspace for serve / API open.
 
-    * Serve from the local pin immediately when present (no age-based
-      revalidation on read).
-    * On **this process's first open** of the root: fire **one** active
-      async refresh (outside-in parallel force-fetch).  Further opens in
-      the same process hit the in-memory workspace cache and do not
-      re-trigger.  User Refresh is the other active path.
+    On **every link** (this process's first open of the root): connect
+    and **force-refresh** the local pin. The refresh is **async** so the
+    UI can poll ``GET /api/workspace/cache/status`` for a file-count
+    progress bar (count total → fetch). Further requests reuse the
+    in-memory Workspace; ``POST /api/workspace/cache/refresh`` re-pulls.
 
     Local workspaces are a no-op.
     """
@@ -37,8 +36,7 @@ def _ensure_remote_ready(workspace: Workspace) -> None:
     fs = getattr(workspace, "_fs", None)
     if not isinstance(fs, CachedRemoteFileSystem):
         return
-    # prepare once per process (caller caches the Workspace). Open refresh
-    # is async; UI reads pin while the walk runs.
+    # Async force-refresh on link — progress is polled by the status strip.
     fs.prepare(workspace, block_index=False, refresh_on_open=True)
 
 
