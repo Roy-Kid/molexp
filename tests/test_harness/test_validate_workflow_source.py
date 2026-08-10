@@ -149,6 +149,48 @@ class TestWorkflowSourceValidator:
         assert report.passed is True
         assert report.violations == []
 
+    def test_rejects_argparse_cli(self) -> None:
+        from molexp.harness.validators.workflow_source import WorkflowSourceValidator
+
+        source = (
+            "import argparse\n"
+            "from molexp.workflow import WorkflowCompiler\n\n"
+            "def build_workflow() -> WorkflowCompiler:\n"
+            "    return WorkflowCompiler(name='x')\n"
+        )
+        report = WorkflowSourceValidator.validate(source)
+        assert report.passed is False
+        assert any(v.code == "argparse_cli" for v in report.violations)
+
+    def test_rejects_sys_path_insert(self) -> None:
+        from molexp.harness.validators.workflow_source import WorkflowSourceValidator
+
+        source = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "sys.path.insert(0, str(Path('/tmp/pkg/src')))\n"
+            "from molexp.workflow import WorkflowCompiler\n\n"
+            "def build_workflow() -> WorkflowCompiler:\n"
+            "    return WorkflowCompiler(name='x')\n"
+        )
+        report = WorkflowSourceValidator.validate(source)
+        assert report.passed is False
+        assert any(v.code == "sys_path_insert" for v in report.violations)
+
+    def test_rejects_execute_run_in_entry(self) -> None:
+        from molexp.harness.validators.workflow_source import WorkflowSourceValidator
+
+        source = (
+            "from molexp.workflow import WorkflowCompiler, execute_run\n\n"
+            "def build_workflow() -> WorkflowCompiler:\n"
+            "    return WorkflowCompiler(name='x')\n\n"
+            "def main():\n"
+            "    execute_run(build_workflow().compile(), None)  # noqa: intentional\n"
+        )
+        report = WorkflowSourceValidator.validate(source)
+        assert report.passed is False
+        assert any(v.code == "execute_run_in_entry" for v in report.violations)
+
 
 class TestValidateWorkflowSource:
     """Stage — compile-gate a WorkflowSource artifact, always persisting a report."""

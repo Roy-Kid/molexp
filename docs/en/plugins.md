@@ -11,42 +11,43 @@ run or written beside it. Do not treat ``_ops`` / ``run.json`` as MolRec
 Latest molrec L4 (see molrec ``docs/spec/storage.md``):
 
 ```text
-molrec (spec)
-  └── one Zarr V3 root
-        ├── group attributes  → meta / status / method / closed metrics summary
-        ├── array groups      → frame / system / trajectory / observables
-        └── metrics/metrics.jsonl   → append-only text buffer only
-                      ↑
-         molnex / molpy / molrs write packages + buffer
+molrec (spec)  — scientific package record (Zarr root; not host metrics)
                       ↓
               molexp Run (host storage only)
                       ↓
-              UI plugins match buffer / tags / classic files:
-                molplot ← metrics JSONL (+ VL artifacts)
+   host metrics / plot filenames (plugin activation by suffix only):
+     *.mlp.jsonl       live WAL
+     *.mlp.zarr/       dense series SoT (Zarr V3)
+     *.mlp.index.json  host series cache only (never activates plugins)
+     *.mlp.vl.json     Vega-Lite plot artifact
+                      ↓
+              UI plugins (filename match only):
+                molplot ← *.mlp.jsonl / *.mlp.zarr / *.mlp.vl.json
                 molvis  ← classic trajectories (MolRec Zarr reader: future)
                 molq    ← scheduler chrome only
 ```
 
 - **Core** Run UI lists products under **Outputs** and routes previews.
-- **Plugins** activate only when files/tags match — never hard-wired as core tabs.
-- **Charts are molplot only** — training curves from ``metrics/metrics.jsonl``
-  (MolRec JSONL buffer; same layout as molexp ``ctx.metrics`` and molnex
-  writers). There is no separate metrics product package.
-- Live metrics use the **JSONL text buffer**, never Zarr chunk append.
-- ``metrics/index.json`` under a run is a **host-derived series cache**
-  (rebuildable listing aid). It is **not** molrec L4; the buffer is SoT.
+- **Plugins** activate only when filenames match — never hard-wired as core tabs.
+- **Charts are molplot only** — training curves from densified ``*.mlp.zarr/``
+  (same layout as molexp ``ctx.metrics`` and molnex writers). There is no
+  separate metrics product package.
+- Live append uses the **JSONL WAL** (``*.mlp.jsonl``); closed curves densify
+  into **Zarr arrays** under ``*.mlp.zarr/`` (never per-step Zarr chunk append).
+- ``*.mlp.index.json`` is a **host-derived series cache** (rebuildable listing
+  aid). It is **not** molrec L4 and does **not** activate plugins.
 - Builtin agent ``run_land`` tags MolRec roots via Zarr ``meta`` attributes
   (``record_schema_version`` / ``format_name=molrec``) when present; training
-  writers own the buffer stream.
+  writers own the WAL → densify path.
 
-### Ingest foreign logs into the host metrics buffer
+### Ingest foreign logs into the host metrics surface
 
 Scientific packages may leave **LAMMPS logs**, **TensorBoard event dirs**, or
 **CSV** tables beside a run. :mod:`molexp.plugins.metrics_ingest` classifies
-them by content and **appends** into the run-local host buffer
-(``metrics/metrics.jsonl`` + rebuildable ``metrics/index.json``). Source files
-are never deleted or rewritten. A molexp Run remains a **host** — ingest does
-not write MolRec ``meta`` / ``status``.
+them by content and **normalizes** into the run-local metrics surface
+(JSONL WAL → densify to ``metrics.mlp.zarr/`` + rebuildable ``metrics.mlp.index.json``).
+Source files are never deleted or rewritten. A molexp Run remains a **host** —
+ingest does not write MolRec ``meta`` / ``status``.
 
 ```bash
 # CLI (same core as the API)
@@ -186,7 +187,7 @@ def bundle_dir() -> Path:
 
 The bundle directory must contain a ``manifest.json`` at its root. The
 schema (validated by the browser loader against
-``UiBundleManifest`` in ``ui/src/plugins/types.ts``):
+``UiBundleManifest`` in ``apps/web/src/plugins/types.ts``):
 
 ```json
 {

@@ -16,9 +16,9 @@ A root may be:
 MolExp project/run indexes require a full workspace layout; plain folders
 still serve file-tree / content routes with empty index views.
 
-``--dev`` additionally spawns the checkout's ``ui/`` leaf script
+``--dev`` additionally spawns the checkout's ``apps/web`` leaf script
 ``npm run dev:api`` (Rsbuild HMR against this process's API — not the MSW mock
-``npm run dev`` / root ``npm run dev:ui``), and tears the UI down on Ctrl+C.
+``npm run dev`` / root ``npm run dev:web``), and tears the UI down on Ctrl+C.
 Open the printed dev-UI URL (not the API port) for HMR.
 """
 
@@ -174,17 +174,17 @@ def _resolve_served(spec: str | Path, used_keys: set[str]) -> ServedWorkspace:
     )
 
 
-def _find_ui_dir() -> Path | None:
-    """Locate the checkout ``ui/`` directory (source tree only).
+def _find_web_dir() -> Path | None:
+    """Locate the checkout ``apps/web`` directory (source tree only).
 
     Resolution order:
 
-    1. ``MOLEXP_UI_DIR`` env (explicit override for non-standard layouts)
+    1. ``MOLEXP_WEB_DIR`` env (explicit override for non-standard layouts)
     2. Walk parents of this module and of the installed ``molexp`` package
-       looking for ``ui/package.json`` (editable install from a checkout)
+       looking for ``apps/web/package.json`` (editable install from a checkout)
     3. ``None`` when only a wheel is installed (no frontend sources)
     """
-    env = os.environ.get("MOLEXP_UI_DIR", "").strip()
+    env = os.environ.get("MOLEXP_WEB_DIR", "").strip()
     if env:
         candidate = Path(env).expanduser().resolve()
         if (candidate / "package.json").is_file():
@@ -205,18 +205,20 @@ def _find_ui_dir() -> Path | None:
             if parent in seen:
                 continue
             seen.add(parent)
-            ui = parent / "ui"
-            if (ui / "package.json").is_file():
-                return ui
+            web = parent / "apps" / "web"
+            if (web / "package.json").is_file():
+                return web
     return None
 
 
-def _start_ui_dev_server(*, api_port: int, ui_port: int, ui_dir: Path) -> subprocess.Popen[bytes]:
-    """Spawn the ``ui`` leaf ``npm run dev:api`` in *ui_dir*, proxying ``/api``.
+def _start_web_dev_server(
+    *, api_port: int, web_port: int, web_dir: Path
+) -> subprocess.Popen[bytes]:
+    """Spawn the ``apps/web`` leaf ``npm run dev:api`` in *web_dir*, proxying ``/api``.
 
     Uses a new process group (POSIX) so Ctrl+C on the parent can SIGTERM the
     whole npm/rsbuild tree without leaving orphan node processes. Repo-root
-    equivalent: ``npm run dev:api`` (not ``dev:ui``, which is the MSW mock).
+    equivalent: ``npm run dev:api`` (not ``dev:web``, which is the MSW mock).
     """
     npm = shutil.which("npm")
     if npm is None:
@@ -228,31 +230,31 @@ def _start_ui_dev_server(*, api_port: int, ui_port: int, ui_dir: Path) -> subpro
 
     # ``--port`` is a real rsbuild CLI flag. The API proxy target must NOT be
     # passed as ``--api-port`` (rsbuild's CAC rejects unknown options) — set
-    # ``MOLEXP_API_PORT`` instead (read by ui/rsbuild.config.ts).
-    # Leaf ``dev:api`` = real proxy; leaf ``dev`` / root ``dev:ui`` = MSW mock.
+    # ``MOLEXP_API_PORT`` instead (read by apps/web/rsbuild.config.ts).
+    # Leaf ``dev:api`` = real proxy; leaf ``dev`` / root ``dev:web`` = MSW mock.
     cmd = [
         npm,
         "run",
         "dev:api",
         "--",
-        f"--port={ui_port}",
+        f"--port={web_port}",
     ]
     env = os.environ.copy()
     env["MOLEXP_API_PORT"] = str(api_port)
-    rprint(f"[dim]Starting UI dev server in {ui_dir}[/dim]")
+    rprint(f"[dim]Starting web dev server in {web_dir}[/dim]")
     rprint(f"[dim]  MOLEXP_API_PORT={api_port} {' '.join(cmd)}[/dim]")
 
     # start_new_session=True → new process group; killpg on shutdown.
     return subprocess.Popen(
         cmd,
-        cwd=ui_dir,
+        cwd=web_dir,
         env=env,
         start_new_session=True,
     )
 
 
-def _stop_ui_dev_server(proc: subprocess.Popen[bytes] | None, *, timeout: float = 5.0) -> None:
-    """Terminate the UI process group started by :func:`_start_ui_dev_server`."""
+def _stop_web_dev_server(proc: subprocess.Popen[bytes] | None, *, timeout: float = 5.0) -> None:
+    """Terminate the web process group started by :func:`_start_web_dev_server`."""
     if proc is None or proc.poll() is not None:
         return
     try:
@@ -296,11 +298,11 @@ def serve(
         typer.Option(
             "--dev",
             help=(
-                "Also start the checkout UI against this API (ui leaf: "
+                "Also start the checkout web UI against this API (apps/web leaf: "
                 "npm run dev:api; repo root: npm run dev:api) with /api proxied "
                 "to this process. Open the printed UI URL for HMR — not the API "
                 "port (which still serves the bundled dist if present). "
-                "For offline MSW mock UI use root npm run dev:ui instead."
+                "For offline MSW mock UI use root npm run dev:web instead."
             ),
         ),
     ] = False,
@@ -338,10 +340,10 @@ def serve(
 ) -> None:
     """Start the MolExp server (API + bundled web UI).
 
-    With ``--dev``, also starts the ``ui`` leaf ``npm run dev:api`` (HMR
+    With ``--dev``, also starts the ``apps/web`` leaf ``npm run dev:api`` (HMR
     against this API; root equivalent ``npm run dev:api``). Requires a source
-    checkout with ``ui/package.json`` and ``npm`` on PATH. Offline mock UI is
-    ``npm run dev:ui``, not this path.
+    checkout with ``apps/web/package.json`` and ``npm`` on PATH. Offline mock
+    UI is ``npm run dev:web``, not this path.
     """
     from molexp.cli.workspace._serve_auth import configure_serve_auth
     from molexp.server.dependencies import (
@@ -378,17 +380,18 @@ def serve(
 
     from molexp.server.app import _find_bundled_webapp, create_app
 
-    ui_proc: subprocess.Popen[bytes] | None = None
+    web_proc: subprocess.Popen[bytes] | None = None
     if dev:
-        ui_dir = _find_ui_dir()
-        if ui_dir is None:
+        web_dir = _find_web_dir()
+        if web_dir is None:
             rprint(
                 "[red]Error:[/red] --dev needs the molexp source tree "
-                "(ui/package.json not found). Install from a checkout with "
-                "`pip install -e .`, or set MOLEXP_UI_DIR to the ui/ path."
+                "(apps/web/package.json not found). Install from a checkout "
+                "with `pip install -e .`, or set MOLEXP_WEB_DIR to the "
+                "apps/web path."
             )
             raise typer.Exit(1)
-        ui_proc = _start_ui_dev_server(api_port=port, ui_port=ui_port, ui_dir=ui_dir)
+        web_proc = _start_web_dev_server(api_port=port, web_port=ui_port, web_dir=web_dir)
         rprint(f"[cyan]->[/cyan] [bold]Dev UI[/bold]  http://localhost:{ui_port}")
         rprint(f"[cyan]->[/cyan] [dim]API[/dim]     http://{host}:{port}/api")
         webapp = _find_bundled_webapp()
@@ -402,7 +405,7 @@ def serve(
         if webapp is None:
             rprint(f"[cyan]->[/cyan] API at http://{host}:{port}/api  (no bundled UI)")
             rprint(
-                "[dim]  Build the frontend (`npm run build:ui`), or use --dev for the HMR UI:[/dim]"
+                "[dim]  Build the frontend (`npm run build:web`), or use --dev for the HMR UI:[/dim]"
             )
             rprint(f"[dim]  molexp serve --dev -ws … --port {port}[/dim]")
         else:
@@ -422,17 +425,17 @@ def serve(
         timeout_keep_alive=5,
     )
     server = uvicorn.Server(config)
-    _install_sse_wakeup_on_exit(server, ui_proc=ui_proc)
+    _install_sse_wakeup_on_exit(server, web_proc=web_proc)
     try:
         server.run()
     finally:
-        _stop_ui_dev_server(ui_proc)
+        _stop_web_dev_server(web_proc)
 
 
 def _install_sse_wakeup_on_exit(
     server: uvicorn.Server,
     *,
-    ui_proc: subprocess.Popen[bytes] | None = None,
+    web_proc: subprocess.Popen[bytes] | None = None,
 ) -> None:
     """Wrap uvicorn's exit handler so SSE long-polls stop on the first Ctrl+C."""
     original = server.handle_exit
@@ -446,7 +449,7 @@ def _install_sse_wakeup_on_exit(
             close_approval_subscribers()
         except Exception:  # never block signal handling on a soft failure
             pass
-        _stop_ui_dev_server(ui_proc)
+        _stop_web_dev_server(web_proc)
         original(sig, frame)
 
     # Deliberate monkeypatch of a bound method — the signature above matches

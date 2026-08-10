@@ -285,6 +285,7 @@ def list_workspace_files(
     floor for ``node_modules`` / ``.git`` / venvs) are omitted so git-managed
     workspaces do not dump dependency trees into the UI.
     """
+    from molexp.workspace.fs_tree import list_tree_children, tree_to_workspace_file_dicts
     from molexp.workspace.gitignore import load_gitignore_matcher
 
     fs = workspace._fs
@@ -300,8 +301,30 @@ def list_workspace_files(
     if isinstance(fs, CachedRemoteFileSystem) and max_depth > 4:
         effective_depth = 4
 
-    # gitignore matcher is path-string based; pass the logical root.
-    ignore = load_gitignore_matcher(Path(str(workspace.root)), fs=fs)
+    # gitignore matcher is path-string based against the workspace root.
+    gitignore = load_gitignore_matcher(Path(str(workspace.root)), fs=fs)
+    root_norm = root.rstrip("/") or "/"
+    req_norm = requested.rstrip("/") or "/"
+
+    def _ws_rel(abs_path: str) -> str | None:
+        node = abs_path.rstrip("/") or "/"
+        if node == root_norm:
+            return ""
+        prefix = root_norm + "/"
+        if not node.startswith(prefix):
+            return None
+        return node[len(prefix) :]
+
+    # list_tree_children rel paths are relative to *requested*; map to
+    # workspace-relative paths for the gitignore cascade.
+    req_ws_rel = _ws_rel(req_norm) or ""
+
+    def ignore_fn(rel: str, is_dir: bool) -> bool:
+        if req_ws_rel and rel:
+            full = f"{req_ws_rel}/{rel}"
+        else:
+            full = req_ws_rel or rel
+        return gitignore.is_ignored(full, is_dir=is_dir)
 
     include_set = {part.strip() for part in (include or "").split(",") if part.strip()}
     # Catalog enrichment is local-path keyed; skip on non-local FS for now
@@ -328,92 +351,21 @@ def list_workspace_files(
                 "hasPreviewSidecar": resolve_sidecar(abs_path) is not None,
             }
 
-    root_norm = root.rstrip("/") or "/"
+    # Single tree walk — same implementation as GET …/runs/{id}/files.
+    nodes = list_tree_children(fs, requested, max_depth=effective_depth, ignore=ignore_fn)
+    children = tree_to_workspace_file_dicts(nodes)
+    if asset_index_by_abs:
 
-    def _rel_for(node_path: str) -> str | None:
-        node = node_path.rstrip("/") or "/"
-        if node == root_norm:
-            return ""
-        prefix = root_norm + "/"
-        if not node.startswith(prefix):
-            return None
-        return node[len(prefix) :]
-
-    def build_node(
-        node_path: str, depth: int, *, _visited: set[str] | None = None
-    ) -> dict[str, Any]:
-        visited = _visited if _visited is not None else set()
-        try:
-            real = fs.resolve(node_path)
-        except OSError:
-            real = node_path
-        if real in visited:
-            return {
-                "id": node_path,
-                "name": fs.basename(node_path) or node_path,
-                "path": node_path,
-                "type": "folder",
-                "size": None,
-                "modified": None,
-                "children": [],
-            }
-        visited.add(real)
-
-        try:
-            st = fs.stat(node_path)
-            is_file = st.is_file
-        except OSError:
-            return {
-                "id": node_path,
-                "name": fs.basename(node_path) or node_path,
-                "path": node_path,
-                "type": "folder",
-                "size": None,
-                "modified": None,
-                "children": [],
-            }
-
-        node: dict[str, Any] = {
-            "id": node_path,
-            "name": fs.basename(node_path) or node_path,
-            "path": node_path,
-            "type": "file" if is_file else "folder",
-            "size": st.size if is_file else None,
-            "modified": st.mtime,
-        }
-        if asset_index_by_abs:
-            enrich = asset_index_by_abs.get(real)
+        def _enrich(node: dict[str, Any]) -> None:
+            enrich = asset_index_by_abs.get(node.get("path") or "")
             if enrich is not None:
                 node.update(enrich)
-        if not is_file and depth < effective_depth:
-            children: list[dict[str, Any]] = []
-            try:
-                names = fs.listdir(node_path)
-            except OSError:
-                names = []
-            # One remote RTT per child via build_node→stat only — do NOT
-            # pre-probe is_file (that doubled SSH traffic and hung depth-8
-            # walks over run trees). Sort by name; type comes from stat.
-            for name in sorted(names):
-                child = fs.join(node_path, name)
-                rel = _rel_for(child)
-                if rel is None:
-                    continue
-                # Cheap is_dir guess for ignore (avoid extra SSH): dotted names
-                # that are not hidden dirs are treated as files.
-                looks_like_file = "." in name and not name.startswith(".")
-                if ignore.is_ignored(rel, is_dir=not looks_like_file):
-                    continue
-                children.append(build_node(child, depth + 1, _visited=visited))
-            # Dirs first, then files (stable by name within each group).
-            children.sort(key=lambda c: (c.get("type") == "file", c.get("name") or ""))
-            node["children"] = children
-        else:
-            node["children"] = []
-        return node
+            for child in node.get("children") or []:
+                _enrich(child)
 
-    root_node = build_node(requested, 0)
-    return {"path": requested, "children": root_node.get("children", [])}
+        for child in children:
+            _enrich(child)
+    return {"path": requested, "children": children}
 
 
 @router.get("/file", response_model=FileContentResponse)

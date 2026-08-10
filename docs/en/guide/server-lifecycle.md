@@ -110,16 +110,16 @@ molexp serve --dev -ws ./lab --port 8000
 # optional: --ui-port 5173
 ```
 
-- Spawns the `ui` leaf script
+- Spawns the `apps/web` leaf script
   `MOLEXP_API_PORT=<api-port> npm run dev:api -- --port=<ui-port>`
   (repo root: `npm run dev:api`) so `/api` on the UI origin proxies to
-  this process. Offline mock UI is `npm run dev:ui` (MSW), not this path.
+  this process. Offline mock UI is `npm run dev:web` (MSW), not this path.
 - Prints **Dev UI** `http://localhost:<ui-port>` — open that for live
   reload. The API port still serves the bundled `dist` if present; that
   is the production package, not HMR.
 - Ctrl+C stops both processes (UI process group is SIGTERM'd).
-- Needs `npm` on PATH and `ui/package.json`. Set `MOLEXP_UI_DIR` if the
-  ui tree is not next to the package sources.
+- Needs `npm` on PATH and `apps/web/package.json`. Set `MOLEXP_WEB_DIR` if the
+  web app tree is not next to the package sources.
 
 For Python-only auto-reload of the API (no UI), invoke uvicorn directly:
 
@@ -206,7 +206,7 @@ if webapp.is_dir() and (webapp / "index.html").exists():
     mount(app, webapp)
 ```
 
-This works for editable installs, wheels, and packaged releases. The bundle is populated by `npm run build:ui` before `python -m build --wheel`. If it is empty (typical dev), the server runs API-only with a `/` fallback advertising `/api/docs` and `/api/health`.
+This works for editable installs, wheels, and packaged releases. The bundle is populated by `npm run build:web` before `python -m build --wheel`. If it is empty (typical dev), the server runs API-only with a `/` fallback advertising `/api/docs` and `/api/health`.
 
 ## Troubleshooting
 

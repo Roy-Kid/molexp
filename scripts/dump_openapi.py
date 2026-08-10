@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Dump the molexp API OpenAPI schema to repo-root ``openapi.json``.
 
-Repo-root ``npm run generate:api`` (ui leaf: ``generate:api``) consumes
+Repo-root ``npm run generate:api`` (apps/web leaf: ``generate:api``) consumes
 ``openapi.json`` (an untracked, generated artifact). This script regenerates it
 deterministically so the schema → TypeScript codegen pipeline is reproducible
 and CI-checkable.

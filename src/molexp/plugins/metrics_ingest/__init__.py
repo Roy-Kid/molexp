@@ -4,17 +4,17 @@ A molexp **Run is a host**, not a MolRec record. Nothing here writes molrec
 ``meta`` / ``status`` sections. Scientific packages follow the external
 molrec spec; molexp does not ship a molrec module.
 
-What these tools produce is the run-local metrics buffer
-``metrics/metrics.jsonl`` (plus the derived host series cache
-``metrics/index.json``) — the surface ``GET …/runs/{id}/metrics`` and the UI
-already read.
+What these tools produce is the run-local metrics surface: a JSONL **WAL**
+(``metrics.mlp.jsonl``), densified on flush into a Zarr V3 **SoT**
+(``metrics.mlp.zarr/``), plus the host series cache ``metrics.mlp.index.json``.
+That is what ``GET …/runs/{id}/metrics`` and the UI read.
 
 Public surface::
 
     from molexp.plugins.metrics_ingest import LogFormat, detect_log_formats, ingest_run
 
     hits = detect_log_formats(run_dir)  # classify source logs, by content
-    result = ingest_run(run_dir)  # append to metrics/metrics.jsonl
+    result = ingest_run(run_dir)  # append to metrics.mlp.jsonl
 
 Detection never guesses: a file it cannot confirm is ``UNKNOWN`` and is left
 alone. Ingestion is additive — source artifacts are never deleted, rewritten,

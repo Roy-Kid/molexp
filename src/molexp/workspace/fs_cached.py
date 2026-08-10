@@ -884,6 +884,15 @@ class CachedRemoteFileSystem:
     def _invalidate_dir(self, dir_key: str) -> None:
         self._dir_index.pop(dir_key, None)
 
+    def mirror_path(self, path: PathArg) -> Path:
+        """Local mirror path for *path* (may not exist yet).
+
+        Public so metrics densify / zarr readers can open a pathlib store after
+        :meth:`read_bytes` has populated the mirror — one materialize path for
+        remote workspaces.
+        """
+        return self._mirror_for(self.resolve(path))
+
     def _mirror_for(self, abs_path: str) -> Path:
         # Strip any leading slashes so we stay inside files/.
         relative = os.fspath(abs_path).lstrip("/")

@@ -22,11 +22,15 @@ class TestCodegenPrompt:
         assert contract["workflow"]["dataflow"]["mode"] == "by_parameter_name"
         assert "molrs" in contract["domain"]["forbid_imports"]
         assert contract["domain"]["frame"] == "molpy.Frame"
+        assert contract["workspace_primitives"]["drive_via"] == "molexp_run"
+        assert "argparse_cli" in contract["entry_script"]["forbid"]
+        assert "sys_path_insert" in contract["entry_script"]["forbid"]
         rendered = render_contract_yaml()
         assert (
             "molexp.codegen_contract" in rendered or contract["kind"] == "molexp.codegen_contract"
         )
         assert "RegisterMetric" in rendered
+        assert "molexp_run" in rendered
 
     def test_assemble_codegen_prompt_is_parseable_yaml_document(self) -> None:
         task = SimpleNamespace(

@@ -59,7 +59,7 @@ def lammps_run(tmp_path: Path) -> Path:
 
 
 def _read_lines(run_dir: Path) -> list[dict[str, Any]]:
-    stream = run_dir / "metrics" / "metrics.jsonl"
+    stream = run_dir / "metrics.mlp.jsonl"
     return [json.loads(line) for line in stream.read_text().splitlines() if line.strip()]
 
 
@@ -75,8 +75,9 @@ class TestIngestRunWritesOnlyTheBuffer:
         result = ingest_run(lammps_run)
 
         assert result.ingested == {LogFormat.LAMMPS_LOG: 2}
-        assert (lammps_run / "metrics" / "metrics.jsonl").is_file()
-        assert (lammps_run / "metrics" / "index.json").is_file()
+        assert (lammps_run / "metrics.mlp.jsonl").is_file()
+        assert (lammps_run / "metrics.mlp.index.json").is_file()
+        assert (lammps_run / "metrics.mlp.zarr" / "zarr.json").is_file()
 
     def test_never_writes_molrec_sections(
         self, lammps_run: Path, monkeypatch: pytest.MonkeyPatch
@@ -124,7 +125,7 @@ class TestIngestRunSkips:
         assert result.did_ingest is False
         assert len(result.skipped) == 1
         assert "no molpy here" in result.skipped[0].reason
-        assert not (lammps_run / "metrics").exists()
+        assert not (lammps_run / "metrics.mlp.jsonl").exists()
 
     def test_skips_csv_without_a_mapping(self, tmp_path: Path) -> None:
         (tmp_path / "curve.csv").write_text("step,loss\n1,0.5\n")
@@ -157,7 +158,7 @@ class TestIngestRunSkips:
 
         assert result.did_ingest is False
         assert result.skipped == []
-        assert not (tmp_path / "metrics").exists()
+        assert not (tmp_path / "metrics.mlp.jsonl").exists()
 
 
 class TestLammpsMapping:

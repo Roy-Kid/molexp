@@ -43,10 +43,10 @@ Node.js required. If `./lab` does not exist or has no `workspace.json`,
 > ```
 >
 > Open the printed **Dev UI** URL (default <http://localhost:5173>), not
-> the API port. `--dev` starts the UI against this API (`npm run dev:api`);
-> offline mock UI is `npm run dev:ui` (MSW). Requires Node and a one-time
+> the API port. `--dev` starts the web UI against this API (`npm run dev:api`);
+> offline mock UI is `npm run dev:web` (MSW). Requires Node and a one-time
 > `npm install` at the repo root. Override the UI port with
-> `--ui-port`, or the ui path with `MOLEXP_UI_DIR`. See
+> `--ui-port`, or the web app path with `MOLEXP_WEB_DIR`. See
 > [Server Lifecycle](../guide/server-lifecycle.md).
 
 You can serve several workspaces at once by repeating `-ws`;

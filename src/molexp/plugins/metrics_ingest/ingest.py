@@ -4,14 +4,14 @@ A molexp **Run is a host**, not a MolRec record: ``run.json`` / ``_ops/run.json`
 are not molrec ``meta`` / ``status``, and nothing here writes those sections.
 Scientific packages follow the external molrec spec; molexp does not re-host it.
 
-What this module produces is the run-local **metrics buffer**
-(``metrics/metrics.jsonl``, plus the derived host series cache
-``metrics/index.json``), which is exactly the surface
-``GET …/runs/{id}/metrics`` and the UI already read.
+What this module produces is the run-local **metrics surface**: JSONL WAL
+(``metrics.mlp.jsonl``), dense Zarr SoT (``metrics.mlp.zarr/`` after flush),
+and host series cache (``metrics.mlp.index.json``). Foreign dialects (CSV, LAMMPS,
+TensorBoard, event JSONL) are equal sources; they densify into the same Zarr.
 
 **Additive.** Source artifacts are never deleted, rewritten, moved, or
-truncated — the buffer is written beside them, so an unwanted ingest is undone
-by removing ``metrics/``.
+truncated — metrics are written beside them, so an unwanted ingest is undone
+by removing ``*.mlp.jsonl`` / ``*.mlp.zarr``.
 
 **Never fails the caller.** A converter that cannot run (missing optional
 dependency, unreadable file, unmapped CSV) is recorded as a skip with its
@@ -97,9 +97,9 @@ def ingest_run(
 ) -> IngestResult:
     """Turn a run's foreign logs into its host metrics buffer.
 
-    Writes only ``metrics/metrics.jsonl`` and the derived ``metrics/index.json``
-    host series cache — no ``meta`` / ``status`` sections, because a Run is a
-    host, not a record.
+    Writes the metrics WAL, densifies into ``metrics.mlp.zarr/`` on flush, and
+    rebuilds ``metrics.mlp.index.json`` — no ``meta`` / ``status`` sections,
+    because a Run is a host, not a record.
 
     Args:
         run_dir: The run root. The buffer is written under it.

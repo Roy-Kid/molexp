@@ -14,10 +14,10 @@ will never be rewritten.
 
 | | |
 |---|---|
-| Frontend root | `ui/` |
+| Frontend root | `apps/web/` |
 | Archetype | `workbench` |
 | Default theme | light, with a real dark theme |
-| Token layer | `ui/src/styles/tailwind.css` |
+| Token layer | `apps/web/src/styles/tailwind.css` |
 | Last ladder stage applied | `motion` on `2026-07-27` (ladder complete); token/density hygiene on `2026-07-31`; **`info` experiment** on `2026-08-09` (entity overviews) |
 
 ## Accent
@@ -47,7 +47,7 @@ Legacy shadcn aliases (`primary`, `success`, `destructive`, `info`,
 Scientific chart series palettes (including ΔF groups) use oklch
 categorical colors — not brand/status tokens.
 
-Stage 2 conformance is enforced across `ui/src/`: feature code contains no
+Stage 2 conformance is enforced across `apps/web/src/`: feature code contains no
 raw Tailwind palette utilities, arbitrary font sizes, off-scale
 margin/padding/gap values, multi-pixel borders, or unnamed shadows. Overlay
 scrims and the single overlay elevation are local semantic tokens. Version and
@@ -79,9 +79,14 @@ Declared frame in `AppShell` (every route renders into it):
   single-panel work-surface layout.
 - Runs reuses the declared `AppShell` inspector; it does not create a second
   fixed-width inspector inside the work surface.
-- Heartbeat sits at the left of the status line and click triggers the active
+- Heartbeat sits at the left of the status line; **click opens a connection-
+  status popover** (active workspace label/path, link state, remote index). It
+  does **not** trigger refresh — ContextBar and the left-panel list headers own
   refresh. Idle is neutral, an active refresh shows `Syncing…` in running blue,
   and completion gets one neutral 180ms acknowledgement.
+- Active served workspace identity is always visible: ContextBar chip next to
+  MolExp, and a mono subtitle under the Projects list header (even for a single
+  remote mount such as `Arrhenius:/home/…`).
 - Mobile: nav + the same stateful inspector become edge drawers; the status bar
   stays full-width.
 
@@ -99,7 +104,7 @@ Declared frame in `AppShell` (every route renders into it):
 | `WorkbenchOperationState` | Skeleton / live region | loading·empty·error·disabled·running·success |
 | Plan agent set | rail / deliverables / review | PlanOrchestrator UI |
 
-Live under `ui/src/components/workbench/`. Feature chrome uses
+Live under `apps/web/src/components/workbench/`. Feature chrome uses
 `WorkbenchAction*` and `WorkbenchTag`; base `Button variant=` and `Badge`
 remain implementation details of base or product/entity wrappers.
 
@@ -201,7 +206,7 @@ npm run generate:api   # root; includes patch-generated-api.mjs for JSONValue
 ```
 
 `PlanDetailResponse` tracks PlanOrchestrator fields from the live FastAPI
-schema. Do not hand-edit `ui/src/api/generated/`.
+schema. Do not hand-edit `apps/web/src/api/generated/`.
 
 ## Base primitives installed
 
@@ -221,7 +226,7 @@ plus workbench needs `tree`, `markdown`, `toast`, `thinking-block`,
 | Layout topology | Nav / work surface / inspector (+ plan rail) | IDE-shaped scientific workbench |
 | Information density | High, persistently visible chrome | Edit · configure · run is the dominant task |
 | Panel behavior | Fixed resizable side panels; mobile edge drawers | State survives layout changes |
-| Product component set | Local to `ui/` | Never import MolVis page components |
+| Product component set | Local to `apps/web/` | Never import MolVis page components |
 
 ## Known debt
 
@@ -241,7 +246,7 @@ headers are now opaque (`bg-background`).
 |---|---|---|
 | Two-line Jobs-table rows (~52px) sit above the 28–32px single-line target by design | density | 🟢 |
 | Dashboard-panel drag/remove chrome is hover-only (HTML5 DnD, no touch path) | states | 🟡 |
-| `ui/src/app/renderers/agent/inlineStructure.tsx` tail was reconstructed after the casing cleanup deleted the only copy (macOS case-insensitive FS); review the render block | — | 🟡 |
+| `apps/web/src/app/renderers/agent/inlineStructure.tsx` tail was reconstructed after the casing cleanup deleted the only copy (macOS case-insensitive FS); review the render block | — | 🟡 |
 
 New feature chrome should use the workbench product components rather than
 importing base action or tag primitives directly.

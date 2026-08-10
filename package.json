@@ -4,33 +4,32 @@
   "description": "Workflow and agent platform for research experiment management",
   "private": true,
   "workspaces": [
-    "ui",
-    "vsc-ext"
+    "apps/*"
   ],
   "scripts": {
-    "dev:ui": "npm run dev -w molexp-ui --",
-    "dev:api": "npm run dev:api -w molexp-ui --",
+    "dev:web": "npm run dev -w molexp-web --",
+    "dev:api": "npm run dev:api -w molexp-web --",
     "dev:vsc-ext": "npm run dev -w molexp-workflow-preview --",
 
-    "build:ui": "npm run build -w molexp-ui --",
+    "build:web": "npm run build -w molexp-web --",
     "build:vsc-ext": "npm run build -w molexp-workflow-preview --",
-    "build:all": "npm run build:ui && npm run build:vsc-ext",
+    "build:all": "npm run build:web && npm run build:vsc-ext",
 
-    "preview:ui": "npm run preview -w molexp-ui --",
+    "preview:web": "npm run preview -w molexp-web --",
 
-    "typecheck:ui": "npm run typecheck -w molexp-ui --",
+    "typecheck:web": "npm run typecheck -w molexp-web --",
     "typecheck:vsc-ext": "npm run typecheck -w molexp-workflow-preview --",
-    "typecheck": "npm run typecheck:ui && npm run typecheck:vsc-ext",
+    "typecheck": "npm run typecheck:web && npm run typecheck:vsc-ext",
 
-    "test:ui": "npm run test -w molexp-ui --",
-    "test:watch": "npm run test:watch -w molexp-ui --",
-    "test": "npm run test:ui",
+    "test:web": "npm run test -w molexp-web --",
+    "test:watch": "npm run test:watch -w molexp-web --",
+    "test": "npm run test:web",
 
-    "lint": "npm run lint -w molexp-ui --",
-    "lint:fix": "npm run lint:fix -w molexp-ui --",
-    "format": "npm run format -w molexp-ui --",
+    "lint": "npm run lint -w molexp-web --",
+    "lint:fix": "npm run lint:fix -w molexp-web --",
+    "format": "npm run format -w molexp-web --",
 
-    "generate:api": "npm run generate:api -w molexp-ui --"
+    "generate:api": "npm run generate:api -w molexp-web --"
   },
   "devDependencies": {
     "@rsbuild/core": "^2.1.10",

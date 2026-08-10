@@ -63,7 +63,7 @@ new and is never itself canonical.
 
 Today three places independently re-assemble overlapping context:
 `server/routes/workspace.py` (`GET /info|/runs|/files`), the UI
-`WorkspaceSnapshot` (`ui/src/app/state/useWorkspaceState.ts`, polled every 3 s),
+`WorkspaceSnapshot` (`apps/web/src/app/state/useWorkspaceState.ts`, polled every 3 s),
 and ad-hoc prompt assembly inside the plan/agent runtimes. **This spec unifies
 them behind one assembler** so all three become consumers of the same shape.
 
@@ -167,7 +167,7 @@ project.
 > Decide this before P0.3; do not copy the store.
 
 `workspace.selection.changed` is **ephemeral** — it stays a UI/session signal
-(reuse the existing `ui/src/app/state/workspaceSwitchEvents.ts` CustomEvent bus
+(reuse the existing `apps/web/src/app/state/workspaceSwitchEvents.ts` CustomEvent bus
 pattern) and is **never** persisted or given provenance.
 
 ### 2.2 Event catalogue

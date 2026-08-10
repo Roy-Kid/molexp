@@ -68,8 +68,13 @@ class TestIsTensorboardDir:
 
 class TestHasMetricsBuffer:
     def test_accepts_a_run_with_a_buffer(self, tmp_path: Path) -> None:
-        (tmp_path / "metrics").mkdir()
-        (tmp_path / "metrics" / "metrics.jsonl").write_text("")
+        (tmp_path / "metrics.mlp.jsonl").write_text("")
+        assert has_metrics_buffer(tmp_path) is True
+
+    def test_has_metrics_buffer_true_for_dense_zarr(self, tmp_path: Path) -> None:
+        zarr_dir = tmp_path / "metrics.mlp.zarr"
+        zarr_dir.mkdir(parents=True)
+        (zarr_dir / "zarr.json").write_text("{}")
         assert has_metrics_buffer(tmp_path) is True
 
     def test_rejects_a_plain_run_directory(self, tmp_path: Path) -> None:
@@ -77,9 +82,9 @@ class TestHasMetricsBuffer:
         assert has_metrics_buffer(tmp_path) is False
 
     def test_is_not_a_record_package_check(self, tmp_path: Path) -> None:
-        """A bare ``meta/`` is not a metrics buffer.
+        """A bare ``meta/`` is not a metrics surface.
 
-        This detector only answers "is there a host metrics JSONL?".
+        This detector only answers "is there host metrics (WAL or Zarr)?".
         """
         (tmp_path / "meta").mkdir()
         assert has_metrics_buffer(tmp_path) is False

@@ -20,7 +20,7 @@ mol_project:
   ci:
     config: .github/workflows/ci.yml
   dev:
-    command: "npm run dev:ui"
+    command: "npm run dev:web"
     url: "http://localhost:5173"
     ready_pattern: "Local:"
     url_pattern: "Local:\\s+(https?://\\S+)"
@@ -35,20 +35,20 @@ molexp is an agent-assisted scientific-workflow platform for FAIR research — P
 
 ## Where things live
 
-- Python source: `src/molexp/` · TS source: `ui/src/`
-- Tests mirror source: `tests/` ↔ `src/molexp/`, `ui/src/` for the UI
+- Python source: `src/molexp/` · TS source: `apps/web/src/` (VS Code ext: `apps/vsc-ext/`)
+- Tests mirror source: `tests/` ↔ `src/molexp/`, `apps/web/src/` for the web UI
 - Public docs: `docs/` · in-flight specs: `.claude/specs/` (gitignored)
 - **Detailed module map: `.claude/notes/architecture.md`** — keep that file as the index; CLAUDE.md only carries invariants
 
 ## Hard invariants (do not change casually)
 
-- **MolRec layering:** a molexp **Run is a host**, not a MolRec record (`run.json` / `_ops/run.json` ≠ molrec `meta` / `status`). Scientific packages follow the **external molrec spec** (Zarr root + optional `metrics/metrics.jsonl` buffer) — molexp does not ship a molrec module or re-host the contract. `metrics/index.json` under a run is a **host series cache only**. Charts: molplot only (JSONL buffer).
+- **MolRec layering:** a molexp **Run is a host**, not a MolRec record (`run.json` / `_ops/run.json` ≠ molrec `meta` / `status`). Scientific packages follow the **external molrec spec** (Zarr root). Host metrics for molplot are filename-gated only: `*.mlp.jsonl` (WAL), `*.mlp.zarr/` (dense SoT), optional `*.mlp.index.json` (host series cache, never activates plugins), `*.mlp.vl.json` (Vega-Lite plots). molexp does not ship a molrec module. Charts: molplot only.
 - **Layer DAG** (enforced by `tests/test_<layer>/test_import_guard.py`): `services → harness + agent + workflow + workspace`, `harness → agent + workflow + workspace`, `agent + workflow → workspace`. Two **sibling** layers (agent, workflow) above workspace; harness sits **above** all three; **`molexp.services`** (application services shared by CLI and server: `plan_runtime` / `curate_runtime` / `operator_config` / `agent_task_store` / `agent_context` / `approval_notify`) sits above harness and below CLI/server — CLI and server import services, never each other. The single sanctioned `harness → agent` import target is `molexp.agent.router` (the SDK-free Protocol module). Any other arrow is an architectural defect.
 - **Workflow public API**: decorator and OOP styles on the same `WorkflowCompiler`; task bodies may be plain `def` **or** `async def` (sync bodies run via `asyncio.to_thread`, never blocking same-level parallelism). `WorkflowCompiler` / `TaskContext` / `WorkflowRuntime` / `execute_run` / `aexecute_run` are re-exported lazily at the top level (`molexp.WorkflowCompiler`, …) — `import molexp` must stay light (no `pydantic_graph` in `sys.modules`; the dependency itself was removed).
 - **Interface naming contracts (frozen — reject new spellings).** `params` is the one kwarg spelling across the hierarchy (`add_experiment(params=…)` / `add_run(params=…)` / `run(wf, params=…)`; `parameters=` survives only as a DeprecationWarning alias on `add_run`). `cancel` is the canonical stop verb (see verb law); the operator config key is `agent.model` (`~/.molexp/config.json`, bridged into `molexp.config` by `services/operator_config.py` — CLI and server share one loader). `write_reference_meta` is the canonical Concept-meta writer spelling (`write_ref_meta` survives only as a DeprecationWarning alias).
 - **`Workspace → Project → Experiment → Run` is a `Folder` family.** Generic CRUD (`add_folder / get_folder / has_folder / list_folders / remove_folder`) + typed semantic sugar per subclass (`add_project / add_experiment / add_run / …`). Index filenames auto-derived as `cls.__name__` snake_case + `.json`. `add_*` is idempotent on slugified name.
 - **Agent public surface**: `AgentRunner`, `AgentLoop`, `AgentRunResult`, `AgentRuntime`, `AgentSession`. Loops are plain `async def run(*, runtime, sink, user_input) -> None`; events flow through the injected `AsyncIteratorEventSink`. Two loops ship — `ChatLoop` (one round-trip) and `InteractiveLoop` (emergent tool loop); pipeline orchestration moved to harness. ("Loop" is the agent-layer LLM-conversation concept; "Mode" is reserved for `molexp.harness.Mode` orchestration.)
-- **OpenAPI surface** under `src/molexp/server/routes/`; the UI regenerates against it (repo root: `npm run generate:api`). Don't hand-edit `ui/src/api/generated/`.
+- **OpenAPI surface** under `src/molexp/server/routes/`; the web UI regenerates against it (repo root: `npm run generate:api`). Don't hand-edit `apps/web/src/api/generated/`.
 - **Private subpackages** — never import from outside their owning layer: `workflow/_engine/` (the self-owned execution engine), `agent/_pydanticai/`, `agent/mcp/`.
 
 ## Architecture
@@ -160,7 +160,7 @@ Agent-layer mounts (`Agent` / `AgentSession`) are OKF `workspace.Folder` subclas
 `pip install` / `python -m build` **never** invokes npm. The UI is built ahead of time:
 
 ```
-ui/src/  →  npm run build:ui  →  src/molexp/dist/  →  hatchling  →  wheel
+apps/web/src/  →  npm run build:web  →  src/molexp/dist/  →  setuptools  →  wheel
 ```
 
 `src/molexp/dist/` is gitignored (except `.gitkeep`); `create_app()` locates assets via `importlib.resources.files("molexp") / "dist"` and falls back to API-only if empty. Dev mode: backend on `:8000`, frontend on `:5173`.

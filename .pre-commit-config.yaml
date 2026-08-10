@@ -2,7 +2,7 @@
 # CI parity with .github/workflows/ci.yml (UV_NO_SOURCES=1 for path-free installs).
 
 default_install_hook_types: [pre-commit, pre-push]
-exclude: '^ui/src/api/generated/'
+exclude: '^apps/web/src/api/generated/'
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -49,16 +49,16 @@ repos:
         always_run: true
         stages: [pre-push]
 
-      # Mirrors the ci.yml `ui` job command for command. That job is
-      # `continue-on-error` because the UI depends on @molcrafts/molplot and
-      # molvis through `file:../../` paths a CI clone does not have — so this
-      # hook is currently the ONLY place UI regressions are actually caught.
+      # Mirrors the ci.yml `web` job command for command. That job is
+      # `continue-on-error` because the web app depends on @molcrafts/molplot and
+      # molvis through `file:` paths a CI clone does not have — so this
+      # hook is currently the ONLY place web regressions are actually caught.
       # Make the CI job blocking (and drop this note) once those packages are
       # published.
-      - id: ui-checks
-        name: "CI ui (biome lint + tsc + vitest)"
-        entry: bash -c 'npm run lint && npm run typecheck && npm run test:ui'
+      - id: web-checks
+        name: "CI web (biome lint + tsc + rstest)"
+        entry: bash -c 'npm run lint && npm run typecheck && npm run test:web'
         language: system
         pass_filenames: false
-        files: '^ui/'
+        files: '^apps/web/'
         stages: [pre-push]
