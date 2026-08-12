@@ -422,6 +422,45 @@ class Run(Folder):
     def save(self) -> None:
         _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)
 
+    @classmethod
+    def load(cls, run_dir: PathArg) -> Run:
+        """Load a :class:`Run` from its on-disk directory.
+
+        Layout contract (single implementation used by train scripts)::
+
+            <workspace>/projects/<project>/experiments/<exp>/runs/run-<id>/
+
+        Args:
+            run_dir: Path to the ``run-<id>`` directory (contains ``run.json``).
+
+        Returns:
+            Reconstructed :class:`Run` bound to its parent experiment.
+
+        Raises:
+            FileNotFoundError: Missing workspace / project / experiment / run.json.
+            RunNotFoundError: Parent chain incomplete.
+        """
+        from .workspace import Workspace
+
+        run_path = Path(str(run_dir)).resolve()
+        # <ws>/projects/<proj>/experiments/<exp>/runs/run-<id>
+        # parents: [0]=runs, [1]=exp, [2]=experiments, [3]=proj, [4]=projects, [5]=ws
+        workspace_root = run_path.parents[5]
+        project_id = run_path.parents[3].name
+        experiment_id = run_path.parents[1].name
+        run_name = run_path.name
+        run_id = run_name.removeprefix("run-") if run_name.startswith("run-") else run_name
+
+        workspace = Workspace.load(workspace_root)
+        project = workspace.project(project_id)
+        experiment = project.experiment(experiment_id)
+        # Prefer loading via experiment so cache/indices stay consistent.
+        if experiment.has_run(run_id):
+            return experiment.get_run(run_id)
+        # Fallback: reconstruct from run.json (NFS race / partial index).
+        meta = _load_metadata(RunMetadata, run_path / "run.json")
+        return _reconstruct(cls, {"experiment": experiment, "metadata": meta})
+
     # ── Execution ───────────────────────────────────────────────────────
 
     def start(

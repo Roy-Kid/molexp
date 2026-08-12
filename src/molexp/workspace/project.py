@@ -29,6 +29,7 @@ from .base import (
     _save_metadata,
 )
 from .errors import (
+    ExperimentNotFoundError,
     ProjectExistsError,
     ProjectNotFoundError,
 )
@@ -40,6 +41,8 @@ from .folder import (
     _validate_target_registered,
 )
 from .fs import PathArg
+from .knowledge_item import KnowledgeItem, KnowledgeKind, SourceRef
+from .knowledge_write import write_knowledge_item
 from .models import FolderMetadata, ProjectMetadata
 from .utils import slugify
 
@@ -226,7 +229,7 @@ class Project(Folder):
         """Import a ``DataAsset`` into the project library."""
         return self.data_assets.import_asset(name, src, action, meta)
 
-    # ── Experiment CRUD: typed semantic sugar over generic Folder CRUD ─────
+    # ── Experiment CRUD: add / get / set / del / list ─────────────────────
 
     def add_experiment(
         self,
@@ -243,19 +246,11 @@ class Project(Folder):
         tags: list[str] | None = None,
         default_target: str | None = None,
     ) -> Experiment:
-        """Mount an experiment under this project (idempotent on slug).
+        """Add an experiment (idempotent on slug: re-add returns same node).
 
-        One-line wrapper over generic ``add_folder``. The slugified
-        ``name`` doubles as the experiment id when no explicit ``id=``
-        is given — matching the legacy ``Project.Experiment``
-        factory semantics so ``add_experiment("counter")`` twice returns
-        the same instance.
-
-        The signature is spelled out explicitly (mirroring the
-        :class:`~molexp.workspace.models.ExperimentMetadata` fields the
-        :class:`Experiment` constructor accepts) so a typo such as
-        ``prams=`` raises ``TypeError`` instead of flowing silently.
-        ``params`` is the canonical spelling for the parameter dict.
+        Writes disk scaffold. To **change** fields of an existing experiment,
+        use :meth:`set_experiment` (second ``add_experiment`` does not merge
+        new params into an existing record).
         """
         resolved_id = id if id is not None else slugify(name)
         _validate_target_registered(self.workspace, default_target)
@@ -275,25 +270,179 @@ class Project(Folder):
         )
         return self.add_folder(child)
 
-    def experiment(self, name: str, **kwargs: Any) -> Experiment:  # noqa: ANN401
-        """Fluent create-or-get alias for :meth:`add_experiment` (idempotent)."""
-        return self.add_experiment(name, **kwargs)
+    def experiment(self, name: str) -> Experiment:
+        """Get an existing experiment by name (must exist).
+
+        Raises:
+            ExperimentNotFoundError: No experiment with that slug.
+        """
+        return self.get_folder(name, cls=Experiment)
 
     def get_experiment(self, name: str) -> Experiment:
-        return self.get_folder(name, cls=Experiment)
+        """Alias of :meth:`experiment`."""
+        return self.experiment(name)
+
+    def set_experiment(
+        self,
+        name: str,
+        *,
+        params: dict[str, JSONValue] | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+        n_replicas: int | None = None,
+        seeds: list[int] | None = None,
+        workflow_source: str | None = None,
+        workflow_type: str | None = None,
+        default_target: str | None = None,
+    ) -> Experiment:
+        """Update fields of an existing experiment and write to disk.
+
+        Raises:
+            ExperimentNotFoundError: Experiment missing.
+        """
+        exp = self.experiment(name)
+        updates: dict[str, Any] = {}
+        if params is not None:
+            updates["parameter_space"] = dict(params)
+        if description is not None:
+            updates["description"] = description
+        if tags is not None:
+            updates["tags"] = list(tags)
+        if n_replicas is not None:
+            updates["n_replicas"] = n_replicas
+        if seeds is not None:
+            updates["seeds"] = list(seeds)
+        if workflow_source is not None:
+            updates["workflow_source"] = workflow_source
+        if workflow_type is not None:
+            updates["workflow_type"] = workflow_type
+        if default_target is not None:
+            _validate_target_registered(self.workspace, default_target)
+            updates["default_target"] = default_target
+        if updates:
+            exp._entity_metadata = exp.metadata.model_copy(update=updates)
+            exp.save()
+        return exp
+
+    def del_experiment(self, name: str) -> None:
+        """Delete an experiment directory and its runs."""
+        self.remove_folder(name, cls=Experiment)
 
     def has_experiment(self, name: str) -> bool:
         return self.has_folder(name, cls=Experiment)
 
     def remove_experiment(self, name: str) -> None:
-        self.remove_folder(name, cls=Experiment)
+        """Alias of :meth:`del_experiment`."""
+        self.del_experiment(name)
 
-    def list_experiments(self) -> list[Experiment]:
-        """List all experiments in this project via the typed CRUD view."""
+    def experiments(self) -> list[Experiment]:
+        """List all experiments under this project."""
         return self.list_folders(cls=Experiment)
 
+    def list_experiments(self) -> list[Experiment]:
+        """Alias of :meth:`experiments`."""
+        return self.experiments()
+
+    # ── Knowledge CRUD (same shape as experiments) ───────────────────────
+
+    def add_knowledge(
+        self,
+        name: str,
+        *,
+        kind: KnowledgeKind = "ProtocolNote",
+        body: str = "",
+        sources: list[SourceRef | Folder | str] | None = None,
+        created_by: str = "user",
+        title: str = "",
+    ) -> KnowledgeItem:
+        """Add a sourced knowledge item under this project."""
+        refs = _normalize_sources(sources, default_host=self)
+        return write_knowledge_item(
+            self,
+            name=name,
+            kind=kind,
+            sources=refs,
+            created_by=created_by,
+            body=body,
+            title=title or name,
+        )
+
+    def knowledge(self, name: str) -> KnowledgeItem:
+        """Get an existing knowledge item by name (must exist)."""
+        return self.get_folder(name, cls=KnowledgeItem)
+
+    def set_knowledge(
+        self,
+        name: str,
+        *,
+        kind: KnowledgeKind | None = None,
+        body: str | None = None,
+        sources: list[SourceRef | Folder | str] | None = None,
+        created_by: str | None = None,
+        title: str = "",
+    ) -> KnowledgeItem:
+        """Update an existing knowledge item (rewrites meta/body)."""
+        item = self.knowledge(name)
+        meta = item.read_knowledge_meta()
+        new_kind = kind if kind is not None else meta.kind
+        new_sources = (
+            _normalize_sources(sources, default_host=self) if sources is not None else list(meta.sources)
+        )
+        new_by = created_by if created_by is not None else meta.created_by
+        new_body = body if body is not None else item.body()
+        return write_knowledge_item(
+            self,
+            name=name,
+            kind=new_kind,
+            sources=new_sources,
+            created_by=new_by,
+            body=new_body,
+            title=title or name,
+        )
+
+    def del_knowledge(self, name: str) -> None:
+        """Delete a knowledge item directory."""
+        self.remove_folder(name, cls=KnowledgeItem)
+
+    def knowledges(self) -> list[KnowledgeItem]:
+        """List knowledge items mounted directly under this project."""
+        return self.list_folders(cls=KnowledgeItem)
+
     def children(self, kind: str | None = None) -> list[Folder]:
-        """List entity children (currently only :class:`Experiment`)."""
+        """List entity children (experiments by default filter)."""
         if kind is not None and kind != WORKSPACE_EXPERIMENT_KIND:
             return []
-        return list(self.list_experiments())
+        return list(self.experiments())
+
+
+def _normalize_sources(
+    sources: list[SourceRef | Folder | str] | None,
+    *,
+    default_host: Folder,
+) -> list[SourceRef]:
+    """Accept SourceRef, Folder, or free strings (dataset: / DOI: / path)."""
+    if not sources:
+        # Sourced knowledge requires ≥1 SourceRef — default to the host itself.
+        return [SourceRef(kind="experiment" if isinstance(default_host, Experiment) else "file", ref=getattr(default_host, "id", default_host.name))]
+    out: list[SourceRef] = []
+    for s in sources:
+        if isinstance(s, SourceRef):
+            out.append(s)
+        elif isinstance(s, Folder):
+            kind = "experiment"
+            if s.__class__.__name__ == "Run":
+                kind = "run"
+            elif s.__class__.__name__ == "Project":
+                kind = "file"
+            elif s.__class__.__name__ == "Experiment":
+                kind = "experiment"
+            out.append(SourceRef(kind=kind, ref=getattr(s, "id", s.name)))  # type: ignore[arg-type]
+        else:
+            text = str(s)
+            if text.startswith("dataset:") or text.startswith("model:") or text.startswith("plugin:"):
+                out.append(SourceRef(kind="file", ref=text))
+            elif text.upper().startswith("DOI:") or text.startswith("10."):
+                out.append(SourceRef(kind="reference", ref=text))
+            else:
+                out.append(SourceRef(kind="file", ref=text))
+    return out

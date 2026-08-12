@@ -91,6 +91,13 @@ def write_knowledge_item(
     """
     newly_created = not host.has_folder(name, cls=KnowledgeItem)
     item = host.add_folder(KnowledgeItem(name=name))
+    # Upgrade legacy Note / wrong-typed concept dirs that occupy the same
+    # slug: add_folder reconstructs from disk ``type``, which may be
+    # ``note.note`` from an older Bundle.create_note. Force the OKF
+    # knowledge.item kind so write_knowledge_meta stamps the correct type.
+    if getattr(item, "_kind", None) != KNOWLEDGE_ITEM_KIND:
+        item._kind = KNOWLEDGE_ITEM_KIND
+        newly_created = True
     item.write_knowledge_meta(
         KnowledgeMeta(
             kind=kind,

@@ -387,15 +387,13 @@ class Experiment(Folder):
         target: str | None = None,
         workflow_snapshot: dict[str, JSONValue] | None = None,
     ) -> Run:
-        """Mount a run under this experiment (idempotent on id).
+        """Add a run under this experiment (idempotent on id).
 
-        One-line wrapper over generic ``add_folder``. ``params`` is the
-        canonical spelling (matching :meth:`Project.add_experiment` and
-        :meth:`Experiment.run`) and may be passed positionally; an
-        explicit ``id=`` overrides auto-generation.
+        ``params`` may be positional; ``id=`` sets the run slug. Re-adding the
+        same id returns the existing run. To change params of an existing run,
+        use :meth:`set_run`.
 
-        ``parameters=`` is a deprecated alias kept for backward
-        compatibility; passing both raises ``TypeError``.
+        ``parameters=`` is a deprecated alias; passing both raises ``TypeError``.
         """
         if parameters is not None:
             if params is not None:
@@ -440,22 +438,10 @@ class Experiment(Folder):
         target: str | None = None,
         workflow_snapshot: dict[str, JSONValue] | None = None,
     ) -> list[Run]:
-        """Materialize a ``ParamSpace`` into one content-addressed sibling Run per cell.
+        """Add one content-addressed run per cell of a ``ParamSpace``.
 
-        Expands *space* (``GridSpace`` / ``UniformSpace`` / any ``ParamSpace``)
-        and mounts one Run per parameter cell, deriving each run's id from its
-        parameters via :func:`~molexp.workspace.utils.derive_run_id`. Because
-        the id is content-addressed and ``add_run`` is idempotent on id,
-        re-materializing the same space is a no-op: identical cells return the
-        existing Runs with no duplicates and no ``RunExistsError``.
-
-        Args:
-            space: The parameter space to expand (one Run per cell).
-            target: Optional compute target applied to every materialized Run.
-            workflow_snapshot: Optional workflow snapshot applied to every Run.
-
-        Returns:
-            One :class:`Run` per cell, in the space's iteration order.
+        Idempotent on derived id: re-seeding the same space returns existing
+        runs with no duplicates.
         """
         from .utils import derive_run_id
 
@@ -472,45 +458,57 @@ class Experiment(Folder):
             )
         return runs
 
-    def run(
+    def define(
         self,
         workflow: object,
         *,
         params: ParamSpace | Mapping[str, JSONValue] | None = None,
     ) -> Experiment:
-        """Declare that this experiment runs *workflow* over the *params* sweep.
+        """Define that this experiment executes *workflow* over *params*.
 
-        ``params`` is the sweep and it is **inputs**: a plain ``{axis: [values]}``
-        grid mapping (expanded as a Cartesian product) or any
-        :class:`~molexp.workspace.ParamSpace`. It is materialized into one
-        content-addressed :class:`Run` per cell (idempotent — re-declaring the same
-        sweep adds no duplicates); each Run's parameters bind by name to the
-        workflow's root-task parameters at run time (the scratch dir is
-        ``ctx.workdir``, never an input). ``None`` ⇒ a single parameter-free run.
+        Seeds one content-addressed :class:`Run` per param cell (idempotent)
+        and binds *workflow* through the workflow executor seam. Prefer this
+        over the deprecated :meth:`run` when the first argument is a workflow.
 
-        The workflow is associated + persisted (IR + source snapshot + entrypoint)
-        and the workspace registered through the cross-layer
-        :class:`WorkflowExecutor` seam (workspace never imports the workflow
-        layer). Under ``molexp run`` this declaration is what the CLI discovers; the
-        CLI then drives the actual per-Run execution (with resume / rerun / status).
-
-        Returns ``self`` so the experiment can be inspected (``.list_runs()`` …).
+        Returns:
+            ``self`` for chaining (``.list_runs()`` …).
         """
         from .param import GridSpace, ParamSpace
 
-        # Grid axis values are lists; the public ``params`` type stays loose
-        # (``JSONValue``) for ergonomics, so narrow at this internal boundary.
         space = (
             params if isinstance(params, ParamSpace) else GridSpace(dict(params or {}))  # ty: ignore[invalid-argument-type]
         )
         self.add_runs(space)
         if _workflow_executor is None:
             raise RuntimeError(
-                "Experiment.run needs the workflow layer; `import molexp` "
+                "Experiment.define needs the workflow layer; `import molexp` "
                 "(not just `molexp.workspace`) registers the executor."
             )
         _workflow_executor(self, workflow)
         return self
+
+    def run(
+        self,
+        id_or_workflow: str | object,
+        /,
+        *,
+        params: ParamSpace | Mapping[str, JSONValue] | None = None,
+    ) -> Run | Experiment:
+        """Get a run by id, or (deprecated) define a workflow.
+
+        * **str** → :meth:`get_run` (must exist).
+        * **workflow object** → :meth:`define` (deprecated spelling; prefer
+          ``define(workflow, params=...)``).
+        """
+        if isinstance(id_or_workflow, str):
+            return self.get_run(id_or_workflow)
+        warnings.warn(
+            "Experiment.run(workflow, ...) is deprecated; use "
+            "Experiment.define(workflow, params=...)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.define(id_or_workflow, params=params)
 
     def sweep(
         self,
@@ -581,13 +579,115 @@ class Experiment(Folder):
         return RunSet(self.list_runs())
 
     def get_run(self, run_id: str) -> Run:
+        """Get an existing run by id (must exist)."""
         return self.get_folder(run_id, cls=Run)
+
+    def set_run(
+        self,
+        run_id: str,
+        *,
+        params: dict[str, JSONValue] | None = None,
+        target: str | None = None,
+        workflow_snapshot: dict[str, JSONValue] | None = None,
+    ) -> Run:
+        """Update fields of an existing run and write to disk.
+
+        Raises:
+            RunNotFoundError: Run missing.
+        """
+        run = self.get_run(run_id)
+        updates: dict[str, object] = {}
+        if params is not None:
+            updates["parameters"] = dict(params)
+        if target is not None:
+            _validate_target_registered(self.workspace, target)
+            updates["target"] = target
+        if workflow_snapshot is not None:
+            updates["workflow_snapshot"] = workflow_snapshot
+        if updates:
+            run._update_metadata(**updates)
+        return run
+
+    def del_run(self, run_id: str) -> None:
+        """Delete a run directory."""
+        self.remove_folder(run_id, cls=Run)
 
     def has_run(self, run_id: str) -> bool:
         return self.has_folder(run_id, cls=Run)
 
     def remove_run(self, run_id: str) -> None:
-        self.remove_folder(run_id, cls=Run)
+        """Alias of :meth:`del_run`."""
+        self.del_run(run_id)
+
+    def add_knowledge(
+        self,
+        name: str,
+        *,
+        kind: str = "Finding",
+        body: str = "",
+        sources: list | None = None,
+        created_by: str = "user",
+        title: str = "",
+    ):
+        """Add a sourced knowledge item under this experiment."""
+        from .knowledge_item import KnowledgeKind
+        from .knowledge_write import write_knowledge_item
+        from .project import _normalize_sources
+
+        refs = _normalize_sources(sources, default_host=self)
+        return write_knowledge_item(
+            self,
+            name=name,
+            kind=kind,  # type: ignore[arg-type]
+            sources=refs,
+            created_by=created_by,
+            body=body,
+            title=title or name,
+            cite=[(self, "derived_from")],
+        )
+
+    def knowledge(self, name: str):
+        """Get a knowledge item under this experiment."""
+        from .knowledge_item import KnowledgeItem
+
+        return self.get_folder(name, cls=KnowledgeItem)
+
+    def set_knowledge(self, name: str, **kwargs):
+        """Update knowledge under this experiment."""
+        from .knowledge_write import write_knowledge_item
+        from .project import _normalize_sources
+
+        item = self.knowledge(name)
+        meta = item.read_knowledge_meta()
+        kind = kwargs.get("kind", meta.kind)
+        sources = kwargs.get("sources")
+        refs = (
+            _normalize_sources(sources, default_host=self)
+            if sources is not None
+            else list(meta.sources)
+        )
+        body = kwargs.get("body", item.body())
+        created_by = kwargs.get("created_by", meta.created_by)
+        title = kwargs.get("title", name)
+        return write_knowledge_item(
+            self,
+            name=name,
+            kind=kind,
+            sources=refs,
+            created_by=created_by,
+            body=body,
+            title=title,
+        )
+
+    def del_knowledge(self, name: str) -> None:
+        from .knowledge_item import KnowledgeItem
+
+        self.remove_folder(name, cls=KnowledgeItem)
+
+    def knowledges(self) -> list:
+        from .knowledge_item import KnowledgeItem
+
+        return self.list_folders(cls=KnowledgeItem)
 
     # ── Internal helpers ────────────────────────────────────────────────
 

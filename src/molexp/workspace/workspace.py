@@ -241,7 +241,13 @@ class Workspace(Folder):
     # ── Persistence ─────────────────────────────────────────────────────
 
     def materialize(self) -> None:
-        """Create filesystem structure and persist metadata (non-recursive)."""
+        """Write workspace scaffold to disk.
+
+        .. deprecated::
+            Prefer :meth:`Workspace.create` for new labs, or rely on
+            :meth:`add_project` (which writes the root when needed). Kept for
+            compatibility; will warn in a future release.
+        """
         root_str = self.resolve()
         self._fs.mkdir(root_str, parents=True, exist_ok=True)
         meta_path = self._fs.join(root_str, "workspace.json")
@@ -249,11 +255,48 @@ class Workspace(Folder):
         self.write_meta()  # OKF marker for the root, additive
 
     def save(self) -> None:
-        """Persist current metadata to disk."""
+        """Persist current metadata to disk.
+
+        .. deprecated::
+            Prefer :meth:`set_project` for field updates; workspace-level
+            metadata changes will gain an explicit setter. Kept for compatibility.
+        """
         meta_path = self._fs.join(self.resolve(), "workspace.json")
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
 
     # ── Alternative constructors ─────────────────────────────────────────
+
+    @classmethod
+    def create(
+        cls,
+        root: PathArg,
+        name: str | None = None,
+        *,
+        fs: FileSystem | None = None,
+        exist_ok: bool = False,
+    ) -> Workspace:
+        """Create a new workspace directory and write its metadata.
+
+        Args:
+            root: Filesystem path for the lab root.
+            name: Display name (defaults from path basename).
+            fs: Optional filesystem backend.
+            exist_ok: If False (default) and ``workspace.json`` already exists,
+                raise :class:`FileExistsError`. If True, return :meth:`load`.
+
+        Returns:
+            The new (or existing, when *exist_ok*) workspace.
+        """
+        _fs = fs or LocalFileSystem()
+        root_str = str(root)
+        meta_path = _fs.join(root_str, "workspace.json")
+        if _fs.exists(meta_path):
+            if not exist_ok:
+                raise FileExistsError(f"workspace already exists at {root_str}")
+            return cls.load(root, fs=fs)
+        ws = cls(root, name=name, fs=fs)
+        ws.materialize()
+        return ws
 
     @classmethod
     def load(cls, root: PathArg, *, fs: FileSystem | None = None) -> Workspace:
@@ -272,36 +315,77 @@ class Workspace(Folder):
             raise FileNotFoundError(f"Workspace metadata not found at {metadata_path}")
         return cls(root, fs=fs)
 
-    # ── Project CRUD: typed semantic sugar over generic Folder CRUD ────────
+    # ── Project CRUD (add / get / set / del / list) ────────────────────────
 
     def add_project(self, name: str) -> Project:
-        """Mount a project under this workspace (idempotent on slug)."""
+        """Add a project under this workspace (idempotent on slug: same node).
+
+        Writes disk scaffold. Re-adding the same slug returns the existing
+        project (does not error). To update fields, use :meth:`set_project`.
+        """
         self._ensure_materialized()
         child = self._construct_child(Project, name, fs=self._fs)
         return self.add_folder(child)
 
     def project(self, name: str) -> Project:
-        """Fluent create-or-get alias for :meth:`add_project` (idempotent)."""
-        return self.add_project(name)
+        """Get an existing project by name (must exist).
+
+        Raises:
+            ProjectNotFoundError: No project with that slug.
+        """
+        return self.get_folder(name, cls=Project)
 
     def get_project(self, name: str) -> Project:
-        """Strict getter — raise :class:`ProjectNotFoundError` if absent."""
-        return self.get_folder(name, cls=Project)
+        """Alias of :meth:`project` (strict getter)."""
+        return self.project(name)
+
+    def set_project(
+        self,
+        name: str,
+        *,
+        description: str | None = None,
+        owner: str | None = None,
+        tags: list[str] | None = None,
+        config: dict | None = None,
+    ) -> Project:
+        """Update fields of an existing project and write to disk.
+
+        Raises:
+            ProjectNotFoundError: Project missing.
+        """
+        proj = self.project(name)
+        updates: dict = {}
+        if description is not None:
+            updates["description"] = description
+        if owner is not None:
+            updates["owner"] = owner
+        if tags is not None:
+            updates["tags"] = list(tags)
+        if config is not None:
+            updates["config"] = dict(config)
+        if updates:
+            proj._entity_metadata = proj.metadata.model_copy(update=updates)
+            proj.save()
+        return proj
+
+    def del_project(self, name: str) -> None:
+        """Delete a project directory and its children."""
+        self.remove_folder(name, cls=Project)
 
     def has_project(self, name: str) -> bool:
         return self.has_folder(name, cls=Project)
 
-    # ``list_projects`` is defined below as the legacy method; semantics
-    # match the generic ``list_folders(cls=Project)`` view, so we keep
-    # the legacy implementation for now to avoid behavioral drift.
-
     def remove_project(self, name: str) -> None:
-        """Delete the project directory + drop child indices."""
-        self.remove_folder(name, cls=Project)
+        """Alias of :meth:`del_project`."""
+        self.del_project(name)
+
+    def projects(self) -> list[Project]:
+        """List all projects under this workspace."""
+        return self.list_folders(cls=Project)
 
     def list_projects(self) -> list[Project]:
-        """List all projects in this workspace via the typed CRUD view."""
-        return self.list_folders(cls=Project)
+        """Alias of :meth:`projects`."""
+        return self.projects()
 
     def children(self, kind: str | None = None) -> list[Folder]:
         """List entity children (currently only :class:`Project`)."""

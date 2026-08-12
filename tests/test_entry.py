@@ -115,10 +115,10 @@ class TestWorkspaceRootInference:
 
 
 class TestFluentExperimentChain:
-    """``Workspace().project().experiment().run(workflow, params=...)``.
+    """``add_project → add_experiment → define(workflow, params=...)``.
 
     Importing :mod:`molexp.entry` registers the cross-layer ``WorkflowExecutor``
-    seam, so ``Experiment.run`` works without workspace importing workflow.
+    seam, so ``Experiment.define`` works without workspace importing workflow.
     """
 
     @staticmethod
@@ -134,9 +134,9 @@ class TestFluentExperimentChain:
     def test_chain_seeds_one_run_per_grid_cell(self, tmp_path):
         exp = (
             Workspace(tmp_path / "ws", name="electrolyte")
-            .project("matrix")
-            .experiment("series")
-            .run(self._workflow(), params={"a": [1, 2], "b": [3, 4, 5]})
+            .add_project("matrix")
+            .add_experiment("series")
+            .define(self._workflow(), params={"a": [1, 2], "b": [3, 4, 5]})
         )
         # param_space is inputs → one content-addressed Run per cell (2 x 3).
         assert len(exp.list_runs()) == 6
@@ -149,7 +149,10 @@ class TestFluentExperimentChain:
         from molexp.workflow import default_binding_registry
 
         exp = (
-            Workspace(tmp_path / "ws", name="ws").project("p").experiment("e").run(self._workflow())
+            Workspace(tmp_path / "ws", name="ws")
+            .add_project("p")
+            .add_experiment("e")
+            .define(self._workflow())
         )
         # Workflow bound (the CLI resolves it via the registry)…
         assert default_binding_registry.for_experiment(exp) is not None
@@ -157,17 +160,28 @@ class TestFluentExperimentChain:
         assert any(w is exp.project.workspace for w in _registry)
 
     def test_execute_is_idempotent(self, tmp_path):
-        exp = Workspace(tmp_path / "ws", name="ws").project("p").experiment("e")
-        exp.run(self._workflow(), params={"a": [1, 2]})
-        exp.run(self._workflow(), params={"a": [1, 2]})
+        exp = Workspace(tmp_path / "ws", name="ws").add_project("p").add_experiment("e")
+        exp.define(self._workflow(), params={"a": [1, 2]})
+        exp.define(self._workflow(), params={"a": [1, 2]})
         # Re-declaring the same sweep does not duplicate runs.
         assert len(exp.list_runs()) == 2
+
+    def test_deprecated_run_workflow_still_works(self, tmp_path):
+        exp = Workspace(tmp_path / "ws", name="ws").add_project("p").add_experiment("e")
+        with pytest.warns(DeprecationWarning, match="define"):
+            exp.run(self._workflow(), params={"a": [1, 2]})
+        assert len(exp.list_runs()) == 2
+
+    def test_run_by_id_gets_existing(self, tmp_path):
+        exp = Workspace(tmp_path / "ws", name="ws").add_project("p").add_experiment("e")
+        r = exp.add_run(params={"x": 1}, id="r1")
+        assert exp.run("r1").id == r.id
 
     def test_execute_without_registered_executor_fails_fast(self, tmp_path, monkeypatch):
         # The seam is required; without it execute() must not silently no-op.
         import molexp.workspace.experiment as exp_mod
 
         monkeypatch.setattr(exp_mod, "_workflow_executor", None)
-        exp = Workspace(tmp_path / "ws", name="ws").project("p").experiment("e")
+        exp = Workspace(tmp_path / "ws", name="ws").add_project("p").add_experiment("e")
         with pytest.raises(RuntimeError, match="workflow layer"):
-            exp.run(self._workflow())
+            exp.define(self._workflow())
