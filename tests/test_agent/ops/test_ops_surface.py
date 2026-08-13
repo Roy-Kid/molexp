@@ -112,7 +112,7 @@ class TestBuildOpsTools:
         run_dir = tmp_path / "projects" / "p1" / "experiments" / "e1" / "runs" / f"run-{run_id}"
         assert (run_dir / "artifacts" / "plot.png").is_file()
         assert (run_dir / "source" / "analysis.py").is_file()
-        assert not (run_dir / "metrics" / "metrics.jsonl").exists()
+        assert not (run_dir / "metrics.mlp.jsonl").exists()
         assert "rg_mean" in land
 
 

@@ -418,6 +418,7 @@ class Run(Folder):
         d = self.run_dir
         self._fs.mkdir(d, parents=True, exist_ok=True)
         _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)
+        self.write_meta()
 
     def save(self) -> None:
         _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)

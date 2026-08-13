@@ -5,6 +5,8 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import Mock, patch
 
+import pytest
+
 
 def load_backend() -> ModuleType:
     path = Path(__file__).resolve().parents[1] / "setup.py"
@@ -16,9 +18,9 @@ def load_backend() -> ModuleType:
     return module
 
 
-def test_build_ui_config_setting_triggers_npm_build_once() -> None:
+def test_build_web_config_setting_triggers_npm_build_once() -> None:
     backend = load_backend()
-    backend._UI_BUILT = False
+    backend._WEB_BUILT = False
     runner = Mock()
     cleaner = Mock()
 
@@ -27,22 +29,22 @@ def test_build_ui_config_setting_triggers_npm_build_once() -> None:
         patch.object(backend, "_clean_build_dir", cleaner),
         patch.object(backend._setuptools_build_meta, "build_wheel", return_value="x.whl"),
     ):
-        result = backend.build_wheel("/tmp/wheel", {"build-ui": "true"})
-        result_again = backend.build_wheel("/tmp/wheel", {"build-ui": "true"})
+        result = backend.build_wheel("/tmp/wheel", {"build-web": "true"})
+        result_again = backend.build_wheel("/tmp/wheel", {"build-web": "true"})
 
     assert result == "x.whl"
     assert result_again == "x.whl"
     assert cleaner.call_count == 2
     runner.assert_called_once_with(
-        ["npm", "run", "build:ui"],
+        ["npm", "run", "build:web"],
         cwd=backend._ROOT,
         check=True,
     )
 
 
-def test_build_ui_config_setting_defaults_to_python_only() -> None:
+def test_build_web_config_setting_defaults_to_python_only() -> None:
     backend = load_backend()
-    backend._UI_BUILT = False
+    backend._WEB_BUILT = False
     runner = Mock()
     cleaner = Mock()
 
@@ -51,8 +53,16 @@ def test_build_ui_config_setting_defaults_to_python_only() -> None:
         patch.object(backend, "_clean_build_dir", cleaner),
         patch.object(backend._setuptools_build_meta, "build_wheel", return_value="x.whl"),
     ):
-        result = backend.build_wheel("/tmp/wheel", {"build-ui": "false"})
+        result = backend.build_wheel("/tmp/wheel", {"build-web": "false"})
 
     assert result == "x.whl"
     cleaner.assert_called_once_with()
     runner.assert_not_called()
+
+
+def test_build_ui_flag_is_rejected() -> None:
+    """Old -C build-ui=true must fail loud, not silently skip the web build."""
+    backend = load_backend()
+    backend._WEB_BUILT = False
+    with pytest.raises(SystemExit, match="build-web=true"):
+        backend.build_wheel("/tmp/wheel", {"build-ui": "true"})

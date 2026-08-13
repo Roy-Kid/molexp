@@ -552,10 +552,11 @@ def run_ingest_metrics(
     run_id: Annotated[str, typer.Argument(help="Run ID")],
     target_spec: TargetOption = ".",
 ) -> None:
-    """Ingest foreign logs into the run host metrics buffer (additive).
+    """Ingest foreign logs into the run host metrics surface (additive).
 
-    A molexp Run is a host, not a MolRec record — only ``metrics/metrics.jsonl``
-    (+ host ``metrics/index.json`` cache) is written. Source logs are untouched.
+    A molexp Run is a host, not a MolRec record — writes ``*.mlp.jsonl``,
+    densifies to ``*.mlp.zarr/``, and rebuilds ``*.mlp.index.json``.
+    Source logs are untouched.
     """
     ws = _open_ws(target_spec)
     from molexp.plugins.metrics_ingest import detect_log_formats, ingest_run

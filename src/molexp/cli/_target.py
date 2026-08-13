@@ -99,16 +99,34 @@ def open_workspace(
 
     Raises:
         FileNotFoundError: when *require_existing* and no workspace marker.
-        typer.Exit: when the target string cannot be resolved.
+        typer.Exit: when the target string cannot be resolved, or a remote
+            host needs an interactive 2FA login first.
     """
     from molexp.workspace import Workspace
+    from molexp.workspace.target import RemoteTarget
 
     target, transport, fs = resolve_workspace_target(target_str)
     root = target.path
     root_str = str(root)
+
     if require_existing:
         marker = fs.join(root_str, "workspace.json")
-        if not fs.exists(marker):
+        try:
+            present = fs.exists(marker)
+        except Exception as exc:
+            # Surface auth-ish transport errors with a connect hint.
+            from molexp.cli._common import rprint
+
+            rprint(f"[red]Error:[/red] cannot reach remote workspace: {exc}")
+            if isinstance(target, RemoteTarget):
+                host = target.host or str(target)
+                rprint(
+                    f"[dim]If the host needs a verification code (2FA), run: "
+                    f"[bold]molexp connect -ws {target_str}[/bold] "
+                    f"(or plain [bold]ssh {host}[/bold]), then retry.[/dim]"
+                )
+            raise typer.Exit(1) from exc
+        if not present:
             raise FileNotFoundError(
                 f"No workspace found at {root} — run molexp init {root} to create one"
             )

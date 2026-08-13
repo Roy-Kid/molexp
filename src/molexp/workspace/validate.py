@@ -2,7 +2,7 @@
 
 Read-only. The layout law lives in one place — the ``Folder`` family and the
 on-disk contract it derives (container subdir, the mandatory ``run-`` prefix,
-entity vs children-index filenames, the per-concept ``meta.yaml`` marker).
+entity vs children-index filenames, the per-concept ``meta.json`` marker).
 This module is that law expressed as a checker, so a tree assembled by hand,
 by an adoption tool, or by an older molexp can be held to the same standard
 the writers obey.
@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from .fs_local import LocalFileSystem
 
@@ -40,11 +40,13 @@ Severity = Literal["error", "warning"]
 
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
-META_YAML = "meta.yaml"
+META_JSON = "meta.json"
+_LEGACY_META_YAML = "meta.yaml"
+META_YAML = META_JSON  # back-compat alias
 RUN_DIR_PREFIX = "run-"
 
 #: Structural container subdirs per level — directories that hold children or
-#: payload rather than being Concepts themselves, so they carry no meta.yaml.
+#: payload rather than being Concepts themselves, so they carry no meta.json.
 _CONTAINERS: dict[str, frozenset[str]] = {
     "workspace": frozenset({"projects", "assets", "cache"}),
     "project": frozenset({"experiments", "assets", "cache"}),
@@ -54,9 +56,22 @@ _CONTAINERS: dict[str, frozenset[str]] = {
     ),
 }
 
-#: level -> (entity filename, container subdir, children-index filename)
+#: level -> entity filename (singular — lives on the concept's own directory)
 _ENTITY_FILE: dict[str, str] = {
     "workspace": "workspace.json",
+    "project": "project.json",
+    "experiment": "experiment.json",
+    "run": "run.json",
+}
+#: level -> children-index filename on the PARENT (plural of the child kind).
+#: Disambiguates from the singular entity file on each child dir.
+_INDEX_FILE: dict[str, str] = {
+    "project": "projects.json",
+    "experiment": "experiments.json",
+    "run": "runs.json",
+}
+#: Pre-plural singular index basenames (one-release read/warn only).
+_LEGACY_INDEX_FILE: dict[str, str] = {
     "project": "project.json",
     "experiment": "experiment.json",
     "run": "run.json",
@@ -67,9 +82,101 @@ _CHILD_OF: dict[str, str] = {
     "experiment": "run",
 }
 
+#: Stable rule id → agent-facing remediation. Keep ids stable — MCP tools
+#: and agent loops filter / dispatch on them.
+_RULE_HINTS: dict[str, str] = {
+    "workspace.missing": (
+        "Create the directory, then call materialize_workspace / "
+        "Workspace(...).materialize() so workspace.json + meta.json exist."
+    ),
+    "workspace.entity": (
+        "Not a workspace root. materialize_workspace(path=…) or "
+        "Workspace(root).materialize(); do not nest a second workspace under "
+        "an existing one — use add_project instead."
+    ),
+    "workspace.index": (
+        "Regenerate the project children index: re-open via Workspace and "
+        "list/add projects so projects.json is rewritten from disk."
+    ),
+    "project.entity": (
+        "Missing project.json. Prefer add_project(name=…) (create-or-get) so "
+        "the entity file is written; hand-written dirs need project.json + meta.json."
+    ),
+    "project.slug": (
+        "Rename the directory to a kebab-case slug (e.g. mace-r2san); ids are "
+        "slug(name) with no prefix."
+    ),
+    "project.index": (
+        "Regenerate experiments.json under the project by listing/adding "
+        "experiments through the Folder API."
+    ),
+    "experiment.entity": (
+        "Missing experiment.json. Use add_experiment(project_id, name) or "
+        "write experiment.json + meta.json under experiments/<slug>/."
+    ),
+    "experiment.slug": ("Rename the experiment directory to a kebab-case slug (no prefix)."),
+    "experiment.index": (
+        "Regenerate runs.json under the experiment by listing/adding runs "
+        "through the Folder API (disk is authoritative)."
+    ),
+    "index.legacy_name": (
+        "Children index must be plural (projects.json / experiments.json / "
+        "runs.json), not the singular entity basename. Call "
+        "parent.sync_folders(cls=…) to rewrite the plural form and drop the "
+        "legacy singular file."
+    ),
+    "run.entity": (
+        "Missing run.json. Scaffold with create_run / experiment.add_run(params=…); "
+        "do not leave a bare run-*/ directory without the entity file."
+    ),
+    "run.prefix": (
+        "Rename the directory so it is always under runs/run-<run_id> "
+        "(the run- prefix is mandatory)."
+    ),
+    "run.ops": (
+        "No _ops/run.json yet — normal for a run that never executed. "
+        "Ignore, or execute the run so the hot-state sidecar is created."
+    ),
+    "concept.marker": (
+        "Write meta.json with a registered concept type "
+        "(e.g. type: workspace.project | workspace.experiment | workspace.run)."
+    ),
+    "layout.stray": (
+        "Move with ws.wp.mv(src, dst) / me.wp.mv(ws, src, dst) under the "
+        "four-tier tree (e.g. projects/<id>/assets/…), or add meta.json to "
+        "make it an OKF Concept, or ws.wp.rm(path, recursive=True) if disposable."
+    ),
+    "index.stale": (
+        "Children index disagrees with disk (disk wins). Rebuild the index by "
+        "re-scanning entity dirs / re-adding children; never treat the index as truth."
+    ),
+    "index.unreadable": (
+        "Fix or delete the corrupt children-index JSON so it can be rebuilt "
+        "from the authoritative entity directories."
+    ),
+    "index.malformed": (
+        "Children index must be a JSON object mapping id → entry; rewrite or "
+        "delete it and let the Folder API regenerate it."
+    ),
+}
+
+
+def _hint_for(rule: str) -> str:
+    """Look up a remediation hint; fall back to a generic agent instruction."""
+    if rule in _RULE_HINTS:
+        return _RULE_HINTS[rule]
+    return (
+        f"Inspect path against workspace_layout / the layout law; fix so rule "
+        f"{rule!r} no longer fires, then re-run validate."
+    )
+
 
 class Violation(BaseModel):
-    """One conformance finding, anchored at a workspace-relative path."""
+    """One conformance finding, anchored at a workspace-relative path.
+
+    Designed for agent loops and MCP tools: ``rule`` is a stable filter key,
+    ``hint`` is the remediation the agent should attempt next.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -77,10 +184,16 @@ class Violation(BaseModel):
     rule: str
     detail: str
     severity: Severity = "error"
+    hint: str = ""
 
 
 class ValidationReport(BaseModel):
-    """The outcome of :func:`validate_workspace`."""
+    """Structured outcome of :func:`validate_workspace`.
+
+    Serializes cleanly for MCP / agent tools via :meth:`model_dump` /
+    :meth:`to_dict`. ``ok`` is True when there are no ``error`` severity
+    findings; warnings (e.g. missing ``_ops``) never fail the tree.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -95,16 +208,67 @@ class ValidationReport(BaseModel):
     def warnings(self) -> tuple[Violation, ...]:
         return tuple(v for v in self.violations if v.severity == "warning")
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def ok(self) -> bool:
         """True when nothing violates the layout law (warnings are allowed)."""
         return not self.errors
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def error_count(self) -> int:
+        return len(self.errors)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def warning_count(self) -> int:
+        return len(self.warnings)
 
     def summary(self) -> str:
         """One line fit for a CLI or a log."""
         if self.ok and not self.warnings:
             return f"{self.root}: conforms"
         return f"{self.root}: {len(self.errors)} error(s), {len(self.warnings)} warning(s)"
+
+    def issues_by_rule(self) -> dict[str, list[Violation]]:
+        """Group violations by stable ``rule`` id (agent dispatch helper)."""
+        grouped: dict[str, list[Violation]] = {}
+        for v in self.violations:
+            grouped.setdefault(v.rule, []).append(v)
+        return grouped
+
+    def next_actions(self) -> list[str]:
+        """Deduplicated remediation hints, errors first — agent to-do list."""
+        seen: set[str] = set()
+        actions: list[str] = []
+        for bucket in (self.errors, self.warnings):
+            for v in bucket:
+                key = v.hint or v.rule
+                if key in seen:
+                    continue
+                seen.add(key)
+                actions.append(v.hint or _hint_for(v.rule))
+        return actions
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-ready report for MCP tools and agent loops.
+
+        Shape::
+
+            {
+                "ok": bool,
+                "root": str,
+                "summary": str,
+                "error_count": int,
+                "warning_count": int,
+                "violations": [{"path", "rule", "detail", "severity", "hint"}, ...],
+                "next_actions": [str, ...],
+            }
+        """
+        payload = self.model_dump(mode="json")
+        payload["summary"] = self.summary()
+        payload["next_actions"] = self.next_actions()
+        return payload
 
 
 class _Checker:
@@ -123,7 +287,13 @@ class _Checker:
 
     def _add(self, path: str, rule: str, detail: str, severity: Severity = "error") -> None:
         self._found.append(
-            Violation(path=self._rel(path) or ".", rule=rule, detail=detail, severity=severity)
+            Violation(
+                path=self._rel(path) or ".",
+                rule=rule,
+                detail=detail,
+                severity=severity,
+                hint=_hint_for(rule),
+            )
         )
 
     def _subdirs(self, path: str) -> list[str]:
@@ -148,36 +318,60 @@ class _Checker:
 
     # -- per-level checks ------------------------------------------------
 
+    def _has_concept_marker(self, path: str) -> bool:
+        return self._fs.is_file(self._fs.join(path, META_JSON)) or self._fs.is_file(
+            self._fs.join(path, _LEGACY_META_YAML)
+        )
+
     def _check_concept(self, path: str, level: str) -> None:
         """Entity file + OKF marker for one concept directory."""
         entity = _ENTITY_FILE[level]
         if not self._fs.is_file(self._fs.join(path, entity)):
             self._add(path, f"{level}.entity", f"missing {entity}")
-        if not self._fs.is_file(self._fs.join(path, META_YAML)):
-            self._add(path, "concept.marker", f"missing {META_YAML} concept marker")
+        if not self._has_concept_marker(path):
+            self._add(path, "concept.marker", f"missing {META_JSON} concept marker")
 
     def _check_strays(self, path: str, level: str) -> None:
-        """Every child dir is a known container or a Concept (has meta.yaml)."""
+        """Every child dir is a known container or a Concept (has meta.json)."""
         allowed = _CONTAINERS[level]
         for name in self._subdirs(path):
             if name in allowed:
                 continue
             child = self._fs.join(path, name)
-            if self._fs.is_file(self._fs.join(child, META_YAML)):
+            if self._has_concept_marker(child):
                 continue  # a Concept may mount at any Folder
             self._add(
                 child,
                 "layout.stray",
-                f"{name!r} is neither a container {sorted(allowed)} nor a Concept (no {META_YAML})",
+                f"{name!r} is neither a container {sorted(allowed)} nor a Concept (no {META_JSON})",
             )
 
     def _check_index(self, path: str, level: str, child_dirs: list[str]) -> None:
         """The derived children index must match the entity dirs on disk."""
         child_level = _CHILD_OF[level]
-        index_name = _ENTITY_FILE[child_level]
+        index_name = _INDEX_FILE[child_level]
         index_path = self._fs.join(path, index_name)
+        legacy_name = _LEGACY_INDEX_FILE[child_level]
+        legacy_path = self._fs.join(path, legacy_name)
 
         on_disk = {d[len(RUN_DIR_PREFIX) :] if child_level == "run" else d for d in child_dirs}
+
+        # Prefer the plural (canonical) index; fall back to legacy singular
+        # for the stale check but always flag the wrong basename.
+        if self._fs.is_file(legacy_path) and not self._fs.is_file(index_path):
+            self._add(
+                legacy_path,
+                "index.legacy_name",
+                f"children index uses singular {legacy_name!r}; rename to {index_name!r}",
+            )
+            index_path = legacy_path
+        elif self._fs.is_file(legacy_path) and self._fs.is_file(index_path):
+            self._add(
+                legacy_path,
+                "index.legacy_name",
+                f"legacy singular {legacy_name!r} still present alongside {index_name!r}; remove it",
+            )
+
         if not self._fs.is_file(index_path):
             if on_disk:
                 self._add(

@@ -40,7 +40,7 @@ def _bundle(root: Path) -> Bundle:
 
 
 def _meta_head(meta: Mapping[str, object]) -> list[str]:
-    """Render the identity lines of a Concept's ``meta.yaml`` head."""
+    """Render the identity lines of a Concept's ``meta.json`` head."""
     rows = [f"type: {meta.get('type', 'unknown')}"]
     for field in ("kind", "status", "created_by"):
         if meta.get(field):

@@ -176,7 +176,11 @@ def _seed_workspace(fs: _ScriptedFS, root: str) -> None:
 
     # Beta exists but its experiment.json read raises a transport error.
     fs.files[f"{root}/projects/beta/project.json"] = b'{"id":"beta","name":"beta"}'
-    fs.errors[f"{root}/projects/beta/experiment.json"] = ConnectionError("ssh dropped")
+    # Entity experiment.json under experiments/<id>/ — not the children index.
+    fs.errors[f"{root}/projects/beta/experiments/broken/experiment.json"] = ConnectionError(
+        "ssh dropped"
+    )
+    fs.files[f"{root}/projects/beta/experiments/broken/experiment.json"] = b'{"id":"broken"}'
 
 
 @pytest.fixture
@@ -199,7 +203,7 @@ class TestPrefetchWorkspaceIndices:
         warnings = prefetch_workspace_indices(ws)
 
         bad_paths = [w.path for w in warnings]
-        assert "/scratch/me/workspace/projects/beta/experiment.json" in bad_paths
+        assert "/scratch/me/workspace/projects/beta/experiments/broken/experiment.json" in bad_paths
         assert any("ssh dropped" in w.reason for w in warnings), warnings
 
         # Alpha's run.json was read despite beta failing.
@@ -219,8 +223,8 @@ class TestPrefetchWorkspaceIndices:
         fs = _ScriptedFS()
         root = "/scratch/me/workspace"
         fs.files[f"{root}/workspace.json"] = b"{}"
-        # No project.json (children-index of projects) — but the directory has
-        # one child whose own project.json exists.
+        # No projects.json children-index — but the directory has
+        # one child whose own project.json entity exists.
         fs.files[f"{root}/projects/gamma/project.json"] = b'{"id":"gamma"}'
         fs.dirs.add(f"{root}/projects")
         fs.dirs.add(f"{root}/projects/gamma")
@@ -235,18 +239,14 @@ class TestPrefetchWorkspaceIndices:
         assert any("projects/gamma/project.json" in k for k in cached_paths)
 
     @pytest.mark.unit
-    def test_prefetch_reconstructs_tree_and_no_plural_index_files(self, tmp_path: Path):
-        """Full tree is prefetchable from entity ``*.json`` with no plural index.
+    def test_prefetch_reconstructs_tree_with_plural_indexes(self, tmp_path: Path):
+        """Full tree uses plural children indexes + singular entities.
 
-        workspace-slim-02: the entity ``*.json`` is the sole truth source and
-        the catalog is the derived index.  After a real workspace materializes
-        a project → experiment → run and runs one execution, there must be *no*
-        bare-``pathlib`` plural container-index files (``projects.json`` /
-        ``experiments.json`` / ``runs.json`` / ``executions.json``) anywhere
-        under the root — and the navigation prefetch must still reconstruct the
-        full ``workspace → project → experiment → run`` tree over a cached
-        remote FS, sourcing names via ``self._fs`` (``listdir`` + per-child
-        entity metadata) rather than the deleted ``runs.json`` chain.
+        Entity ``*.json`` is the sole truth source; plural children indexes
+        (``projects.json`` / ``experiments.json`` / ``runs.json``) are derived
+        on the parent. Singular basenames must never be used as the parent
+        index. Prefetch still reconstructs the navigation tree over a cached
+        remote FS.
         """
         root = tmp_path / "ws"
         ws = Workspace(root=root, name="ws")
@@ -256,9 +256,16 @@ class TestPrefetchWorkspaceIndices:
         with run.start():
             pass
 
-        plural = {"projects.json", "experiments.json", "runs.json", "executions.json"}
-        stray = sorted(str(p) for p in root.rglob("*.json") if p.name in plural)
-        assert stray == [], f"plural container-index files must not exist: {stray}"
+        # Plural indexes on parents (derived).
+        assert (root / "projects.json").is_file()
+        assert (root / "projects" / "alpha" / "experiments.json").is_file()
+        assert (root / "projects" / "alpha" / "experiments" / "counter" / "runs.json").is_file()
+        # No executions.json (never an index level).
+        assert not list(root.rglob("executions.json"))
+        # Singular is entity-only — not at parent as an index.
+        assert not (root / "project.json").exists()
+        assert not (root / "projects" / "alpha" / "experiment.json").exists()
+        assert not (root / "projects" / "alpha" / "experiments" / "counter" / "run.json").exists()
 
         # Observe the prefetch through a fresh cached remote FS over the same disk.
         cached = CachedRemoteFileSystem(

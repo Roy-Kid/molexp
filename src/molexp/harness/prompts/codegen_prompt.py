@@ -70,12 +70,12 @@ def wiring_dict_from_bound(bound: object, *, slugs: dict[str, str]) -> dict[str,
     """Inter-task dataflow map (molexp engine semantics — not from molmcp)."""
     tasks = list(getattr(bound, "tasks", ()) or ())
     edges = list(getattr(bound, "edges", ()) or ())
-    by_id = {t.id: t for t in tasks}
+    by_id: dict[Any, Any] = {t.id: t for t in tasks}
     edge_list: list[dict[str, Any]] = []
     for e in edges:
         src = getattr(e, "source_task_id", None)
         tgt = getattr(e, "target_task_id", None)
-        if src not in by_id or tgt not in by_id:
+        if src is None or tgt is None or src not in by_id or tgt not in by_id:
             continue
         src_outs = _mappingish(getattr(by_id[src], "outputs", None) or {})
         tgt_ins = _mappingish(getattr(by_id[tgt], "inputs", None) or {})

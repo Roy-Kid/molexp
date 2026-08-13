@@ -14,11 +14,11 @@ will never be rewritten.
 
 | | |
 |---|---|
-| Frontend root | `ui/` |
+| Frontend root | `apps/web/` |
 | Archetype | `workbench` |
 | Default theme | light, with a real dark theme |
-| Token layer | `ui/src/styles/tailwind.css` |
-| Last ladder stage applied | `motion` on `2026-07-27` (ladder complete); token/density hygiene on `2026-07-31` |
+| Token layer | `apps/web/src/styles/tailwind.css` |
+| Last ladder stage applied | `motion` on `2026-07-27` (ladder complete); token/density hygiene on `2026-07-31`; **`info` experiment** on `2026-08-09` (entity overviews) |
 
 ## Accent
 
@@ -47,7 +47,7 @@ Legacy shadcn aliases (`primary`, `success`, `destructive`, `info`,
 Scientific chart series palettes (including ΔF groups) use oklch
 categorical colors — not brand/status tokens.
 
-Stage 2 conformance is enforced across `ui/src/`: feature code contains no
+Stage 2 conformance is enforced across `apps/web/src/`: feature code contains no
 raw Tailwind palette utilities, arbitrary font sizes, off-scale
 margin/padding/gap values, multi-pixel borders, or unnamed shadows. Overlay
 scrims and the single overlay elevation are local semantic tokens. Version and
@@ -79,9 +79,14 @@ Declared frame in `AppShell` (every route renders into it):
   single-panel work-surface layout.
 - Runs reuses the declared `AppShell` inspector; it does not create a second
   fixed-width inspector inside the work surface.
-- Heartbeat sits at the left of the status line and click triggers the active
+- Heartbeat sits at the left of the status line; **click opens a connection-
+  status popover** (active workspace label/path, link state, remote index). It
+  does **not** trigger refresh — ContextBar and the left-panel list headers own
   refresh. Idle is neutral, an active refresh shows `Syncing…` in running blue,
   and completion gets one neutral 180ms acknowledgement.
+- Active served workspace identity is always visible: ContextBar chip next to
+  MolExp, and a mono subtitle under the Projects list header (even for a single
+  remote mount such as `Arrhenius:/home/…`).
 - Mobile: nav + the same stateful inspector become edge drawers; the status bar
   stays full-width.
 
@@ -99,7 +104,7 @@ Declared frame in `AppShell` (every route renders into it):
 | `WorkbenchOperationState` | Skeleton / live region | loading·empty·error·disabled·running·success |
 | Plan agent set | rail / deliverables / review | PlanOrchestrator UI |
 
-Live under `ui/src/components/workbench/`. Feature chrome uses
+Live under `apps/web/src/components/workbench/`. Feature chrome uses
 `WorkbenchAction*` and `WorkbenchTag`; base `Button variant=` and `Badge`
 remain implementation details of base or product/entity wrappers.
 
@@ -197,11 +202,11 @@ Regenerate with:
 
 ```bash
 .venv/bin/python scripts/dump_openapi.py
-cd ui && npm run generate:api   # includes patch-generated-api.mjs for JSONValue
+npm run generate:api   # root; includes patch-generated-api.mjs for JSONValue
 ```
 
 `PlanDetailResponse` tracks PlanOrchestrator fields from the live FastAPI
-schema. Do not hand-edit `ui/src/api/generated/`.
+schema. Do not hand-edit `apps/web/src/api/generated/`.
 
 ## Base primitives installed
 
@@ -221,7 +226,7 @@ plus workbench needs `tree`, `markdown`, `toast`, `thinking-block`,
 | Layout topology | Nav / work surface / inspector (+ plan rail) | IDE-shaped scientific workbench |
 | Information density | High, persistently visible chrome | Edit · configure · run is the dominant task |
 | Panel behavior | Fixed resizable side panels; mobile edge drawers | State survives layout changes |
-| Product component set | Local to `ui/` | Never import MolVis page components |
+| Product component set | Local to `apps/web/` | Never import MolVis page components |
 
 ## Known debt
 
@@ -241,9 +246,100 @@ headers are now opaque (`bg-background`).
 |---|---|---|
 | Two-line Jobs-table rows (~52px) sit above the 28–32px single-line target by design | density | 🟢 |
 | Dashboard-panel drag/remove chrome is hover-only (HTML5 DnD, no touch path) | states | 🟡 |
-| `ui/src/app/renderers/agent/inlineStructure.tsx` tail was reconstructed after the casing cleanup deleted the only copy (macOS case-insensitive FS); review the render block | — | 🟡 |
+| `apps/web/src/app/renderers/agent/inlineStructure.tsx` tail was reconstructed after the casing cleanup deleted the only copy (macOS case-insensitive FS); review the render block | — | 🟡 |
 
 New feature chrome should use the workbench product components rather than
 importing base action or tag primitives directly.
 
 <!-- mol:ui:end -->
+
+## Hierarchy nav & information design (2026-08-09)
+
+Canonical content rules for entity surfaces live in the mol plugin:
+
+`skills/ui/references/information-design.md`
+
+(loaded by `/mol:ui` stage `info` and by the `web-design` agent). This
+section records **MolExp-only** field homes and nav labels; do not fork
+the shared constitution here.
+
+### Navigator label
+
+- Left-rail view `projects` is labeled **Projects** (not Experiments). The tree
+  top level is Project → Experiment → Run; calling the rail "Experiments"
+  misnamed the middle tier as the section root.
+
+### Overview = dashboard, not inventory
+
+Overview tabs are **posture dashboards**, never a second inventory of the
+children that live on Experiments / Runs / Assets tabs.
+
+- Shell: `OverviewSurface` → `DashboardCanvas` (padded, max-width) —
+  air, not edge-to-edge lists.
+- Project: status donut + aggregate metrics.
+- Experiment: richer posture (status, duration, latest run, tasks) +
+  parameter **shadcn Table** + embedded **`WorkflowGraphViewer`** (same
+  component as the Workflow tab — not a text stub).
+- No “Needs attention” / action queues / mini entity lists on Overview.
+- Inventories: Experiments, Runs, Assets tabs own full-height `DataTable`.
+- Run overview: padded canvas + shadcn tables for params / results.
+
+### Entity tabs (MolVis-aligned)
+
+`EntityTabBar` matches MolVis `PanelTabStrip` **topology**: full-width band,
+equal flex columns, line underline + accent text for active. Labels are
+**text only** (no glyph strip) — MolExp is a workbench of named surfaces.
+
+Inventory tabs (Experiments / Runs / Assets / Executions / …) use
+`InventoryCanvas` (same air as Overview) + shadcn / `DataTable` — not card
+lists. Backend-specific run tabs (e.g. **Molq**) register via
+`registerEntityTabContribution` with optional `matches`; never hard-code
+“Scheduler” in core viewers.
+
+### Fact ownership (MolExp chrome)
+
+| Fact | Home | Not on center overview |
+|---|---|---|
+| Tree position / name | Left nav + breadcrumb | Identity card |
+| Lineage (project / experiment / workflow / plan) | Right inspector `RelatedPanel` → **Lineage** (`LINEAGE_RELATIONS`) | Parent crumbs, Related cards |
+| Scalar ids, config_hash, paths | Inspector **Details** (config may appear once truncated+copyable on Run MetaStrip) | Full identity wall |
+| Child status rollup | One `StatusInline` | Parallel StatCard grid of the same counts |
+| Live sync / toasts | Bottom status bar | Center toast stack |
+
+### Hierarchy priority (primary inventory)
+
+| Level | Primary fold content | Pattern notes |
+|---|---|---|
+| **Project** | Experiments table: name, run count, status distribution, workflow task count, updated | Portfolio `StatusInline`; counts in MetaStrip only if decision-bearing |
+| **Experiment** | Runs list/table: status, **varying** param preview, result preview, duration | Fixed params once (strip / constants), never repeated every row; full Runs tab for complete inventory |
+| **Run** | Error banner (if any) + Parameters \| Results property grids | MetaStrip for started/finished/duration/backend/attempts/assets; lineage only in inspector |
+
+### Scientific layers
+
+- **Varying parameters** → Experiment run columns (keys that differ across the set).
+- **Fixed parameters** → once above the table or inspector.
+- **Status** → row glyph + StatusInline; never brand accent as status.
+- **Results** → short mono preview on experiment list; full grid on Run.
+- **Artifacts** → count in MetaStrip; list on Assets / bottom Artifacts.
+
+### Agent procedure (before new overview UI)
+
+1. Name level (Project / Experiment / Run).
+2. Name page job (overview | detail tab | inspector | bottom).
+3. List ≤3 user questions.
+4. Assign every field to a chrome home (table above); demote the rest.
+5. Pick one primary structure (table / MetaStrip / property list) — never default to Card.
+6. Compose with the overview skeleton; audit for fact echo and vanity KPIs.
+
+`/mol:ui info` is the stage that restructures content against this contract
+without inventing a new visual language. Visual stages remain tokens →
+components → de-card → states → motion.
+
+### Info experiment applied (2026-08-09)
+
+| Surface | Change |
+|---|---|
+| Project overview | Dropped MetaStrip `id` + experiments count (table is inventory); kept state/updated/runs/success/assets |
+| Experiment overview | Dropped identity id, KPI `runs` count, Parameters wall, mini Workflow graph; fixed params as one constants strip; run rows prefer **varying** keys; workflow via strip trailing + Workflow tab |
+| Run overview | Hide zero-noise MetaStrip fields (default profile, single attempt, zero assets) |
+| Data | `varyingAxes` / `fixedAxes` on `ExperimentWorkbenchData` |

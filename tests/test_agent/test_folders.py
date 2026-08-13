@@ -1,8 +1,8 @@
 """Agent-layer Concept types — :mod:`molexp.agent.folders` (Agent + AgentSession).
 
 Rehomed onto :class:`molexp.workspace.Folder` (wsokf-06): both agent Concepts
-register with the shared concept-type registry and make their rich ``meta.yaml``
-the identity authority. This pins registry resolution, the typed ``meta.yaml``
+register with the shared concept-type registry and make their rich ``meta.json``
+the identity authority. This pins registry resolution, the typed ``meta.json``
 round-trip, the session CRUD sugar (disk is truth), and the flat binary
 ``messages.jsonl`` persistence contract.
 """
@@ -32,8 +32,8 @@ class TestAgent:
             description="a reviewer",
         )
         agent.materialize()
-        raw = (tmp_path / "lab" / "reviewer" / "meta.yaml").read_text()
-        assert "type: agent.agent" in raw
+        raw = (tmp_path / "lab" / "reviewer" / "meta.json").read_text()
+        assert '"type": "agent.agent"' in raw or '"type":"agent.agent"' in raw
         assert "be terse" in raw
 
         reloaded = Agent(name="reviewer", root_path=tmp_path / "lab")

@@ -75,13 +75,26 @@ def info(target_spec: TargetOption = ".") -> None:
 
 
 @app.command()
-def validate(target_spec: TargetOption = ".", strict: bool = False) -> None:
+def validate(
+    target_spec: TargetOption = ".",
+    strict: bool = False,
+    json_out: bool = typer.Option(
+        False,
+        "--json",
+        help="Print the full ValidationReport as JSON (MCP/agent wire shape).",
+    ),
+) -> None:
     """Check the workspace against the layout + OKF laws.
 
     Read-only. Exits non-zero when the tree violates the layout law, so it
     drops straight into a pre-commit hook or CI step. ``--strict`` also fails
     on warnings (lazily-created state that is absent but legal).
+
+    ``--json`` emits the same report dict MCP ``validate_workspace`` returns —
+    ``violations[]`` with stable ``rule`` + ``hint``, plus ``next_actions``.
     """
+    import json
+
     try:
         target, _transport, _fs, ws = open_workspace(target_spec)
     except FileNotFoundError as exc:
@@ -92,14 +105,26 @@ def validate(target_spec: TargetOption = ".", strict: bool = False) -> None:
         raise typer.Exit(1) from exc
 
     report = ws.validate()
+
+    if json_out:
+        # Machine report for agents / molmcp — no rich markup.
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+        if report.errors or (strict and report.warnings):
+            raise typer.Exit(1)
+        return
+
     rprint(f"[bold]Workspace:[/bold] {target}")
 
     # Rule ids are printed bare: rich would eat a bracketed ``[run.ops]`` as
     # console markup and silently drop it.
     for v in report.errors:
         rprint(f"  [red]error[/red]   {v.rule} — {v.path}: {v.detail}")
+        if v.hint:
+            rprint(f"           [dim]hint:[/dim] {v.hint}")
     for v in report.warnings:
         rprint(f"  [yellow]warning[/yellow] {v.rule} — {v.path}: {v.detail}")
+        if v.hint:
+            rprint(f"           [dim]hint:[/dim] {v.hint}")
 
     if report.ok and not report.warnings:
         rprint("\n[green]conforms[/green] — no violations")

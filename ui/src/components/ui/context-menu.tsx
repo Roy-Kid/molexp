@@ -1,5 +1,5 @@
 import { Check, Circle } from "lucide-react";
-import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
+import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -25,7 +25,8 @@ const ContextMenuSubTrigger = React.forwardRef<
   <ContextMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
-      "flex cursor-default select-none items-center rounded-control px-2 py-1 text-body-lg outline-none focus:bg-interactive data-[state=open]:bg-interactive",
+      "flex cursor-default select-none items-center gap-2 rounded-control px-2 py-1.5 text-body outline-none focus:bg-interactive data-[state=open]:bg-interactive",
+      "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
       inset && "pl-8",
       className,
     )}
@@ -57,7 +58,7 @@ const ContextMenuContent = React.forwardRef<
     <ContextMenuPrimitive.Content
       ref={ref}
       className={cn(
-        "mol-motion-popup z-50 min-w-40 overflow-hidden rounded-overlay border border-border bg-popover p-1 text-popover-foreground shadow-overlay",
+        "mol-motion-popup z-50 min-w-menu overflow-hidden rounded-overlay border border-border bg-popover p-1 text-popover-foreground shadow-overlay",
         className,
       )}
       {...props}
@@ -75,7 +76,12 @@ const ContextMenuItem = React.forwardRef<
   <ContextMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-control px-2 py-1 text-body-lg outline-none transition-colors duration-(--motion-fast) ease-standard focus:bg-interactive focus:text-interactive-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-default select-none items-center gap-2 rounded-control px-2 py-1.5 text-body outline-none",
+      "transition-colors duration-(--motion-fast) ease-standard",
+      "focus:bg-interactive focus:text-interactive-foreground",
+      "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
+      "data-[highlighted]:[&_svg]:text-foreground",
       inset && "pl-8",
       className,
     )}
@@ -91,7 +97,10 @@ const ContextMenuCheckboxItem = React.forwardRef<
   <ContextMenuPrimitive.CheckboxItem
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-control py-1 pl-8 pr-2 text-body-lg outline-none transition-colors duration-(--motion-fast) ease-standard focus:bg-interactive focus:text-interactive-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-default select-none items-center gap-2 rounded-control py-1.5 pl-8 pr-2 text-body outline-none",
+      "transition-colors duration-(--motion-fast) ease-standard",
+      "focus:bg-interactive focus:text-interactive-foreground",
+      "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
     )}
     checked={checked}
@@ -114,7 +123,10 @@ const ContextMenuRadioItem = React.forwardRef<
   <ContextMenuPrimitive.RadioItem
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-control py-1 pl-8 pr-2 text-body-lg outline-none transition-colors duration-(--motion-fast) ease-standard focus:bg-interactive focus:text-interactive-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-default select-none items-center gap-2 rounded-control py-1.5 pl-8 pr-2 text-body outline-none",
+      "transition-colors duration-(--motion-fast) ease-standard",
+      "focus:bg-interactive focus:text-interactive-foreground",
+      "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
     )}
     {...props}
@@ -137,7 +149,11 @@ const ContextMenuLabel = React.forwardRef<
 >(({ className, inset, ...props }, ref) => (
   <ContextMenuPrimitive.Label
     ref={ref}
-    className={cn("px-2 py-1 text-body-lg font-semibold", inset && "pl-8", className)}
+    className={cn(
+      "px-2 py-1.5 text-label font-medium text-muted-foreground",
+      inset && "pl-8",
+      className,
+    )}
     {...props}
   />
 ));
@@ -157,7 +173,7 @@ ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName;
 
 const ContextMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
   <span
-    className={cn("ml-auto text-label tracking-widest text-muted-foreground", className)}
+    className={cn("ml-auto text-micro tracking-widest text-muted-foreground", className)}
     {...props}
   />
 );

@@ -30,7 +30,7 @@ __all__ = [
 ]
 
 
-_subscribers: set[asyncio.Queue[None | object]] = set()
+_subscribers: set[asyncio.Queue[object | None]] = set()
 _CLOSED = object()
 _closed = False
 
@@ -62,7 +62,7 @@ async def subscribe_approvals_changed() -> AsyncIterator[None]:
     """Yield once per approval change until disconnect or server shutdown."""
     if _closed:
         return
-    queue: asyncio.Queue[None | object] = asyncio.Queue(maxsize=1)
+    queue: asyncio.Queue[object | None] = asyncio.Queue(maxsize=1)
     _subscribers.add(queue)
     try:
         while not _closed:

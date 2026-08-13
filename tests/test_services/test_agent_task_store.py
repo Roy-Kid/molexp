@@ -41,8 +41,11 @@ class TestAgentTaskMetadata:
             pending_plan_draft="revise it",
         )
         write_agent_task_metadata(tmp_path, task)
-        path = tmp_path / AGENT_HOME_NAME / TASKS_SUBDIR / "task-abc" / "metadata.json"
+        path = tmp_path / AGENT_HOME_NAME / TASKS_SUBDIR / "task-abc" / "task.json"
         assert path.is_file()
+        assert not (
+            tmp_path / AGENT_HOME_NAME / TASKS_SUBDIR / "task-abc" / "metadata.json"
+        ).exists()
 
         loaded = read_agent_task_metadata(tmp_path, "task-abc")
         assert loaded is not None

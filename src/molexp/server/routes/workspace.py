@@ -6,13 +6,14 @@ import io
 import mimetypes
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from molexp._typing import JSONValue
+from molexp.services.auth import AuthError, AuthUser, get_auth_service, is_auth_enabled
 from molexp.workspace import ContextFocus, Workspace, assemble_workspace_context
 from molexp.workspace.events import WorkspaceEvent, WorkspaceEventType, read_workspace_events
 from molexp.workspace.fs_cached import CachedRemoteFileSystem, prefetch_workspace_indices
@@ -20,11 +21,13 @@ from molexp.workspace.fs_local import LocalFileSystem
 
 from ..dependencies import (
     get_remote_fs_factory,
+    get_served_workspaces,
     get_workspace,
     get_workspace_target_registry,
     set_active_workspace_descriptor,
     set_workspace_path_override,
 )
+from ..deps.auth import get_optional_user
 from ..preview import resolve_sidecar
 from ..schemas import (
     FileContentResponse,
@@ -282,6 +285,7 @@ def list_workspace_files(
     floor for ``node_modules`` / ``.git`` / venvs) are omitted so git-managed
     workspaces do not dump dependency trees into the UI.
     """
+    from molexp.workspace.fs_tree import list_tree_children, tree_to_workspace_file_dicts
     from molexp.workspace.gitignore import load_gitignore_matcher
 
     fs = workspace._fs
@@ -290,6 +294,12 @@ def list_workspace_files(
     if not fs.exists(requested):
         raise HTTPException(status_code=404, detail="Path not found")
 
+    # Remote pin-until-refresh can freeze a directory listing as empty after a
+    # race / early list. Explicit files API calls are expand/refresh — drop the
+    # pin for *this* path so the walk re-listdir from SSH (children still pin).
+    if isinstance(fs, CachedRemoteFileSystem):
+        fs.invalidate_dir_listing(requested)
+
     # Remote trees pay one SSH RTT per node. A deep walk over hundreds of run
     # dirs (trajectory.pt etc.) freezes the UI bootstrap. Cap remote depth
     # server-side; clients expand path-by-path for deeper levels.
@@ -297,8 +307,30 @@ def list_workspace_files(
     if isinstance(fs, CachedRemoteFileSystem) and max_depth > 4:
         effective_depth = 4
 
-    # gitignore matcher is path-string based; pass the logical root.
-    ignore = load_gitignore_matcher(Path(str(workspace.root)), fs=fs)
+    # gitignore matcher is path-string based against the workspace root.
+    gitignore = load_gitignore_matcher(Path(str(workspace.root)), fs=fs)
+    root_norm = root.rstrip("/") or "/"
+    req_norm = requested.rstrip("/") or "/"
+
+    def _ws_rel(abs_path: str) -> str | None:
+        node = abs_path.rstrip("/") or "/"
+        if node == root_norm:
+            return ""
+        prefix = root_norm + "/"
+        if not node.startswith(prefix):
+            return None
+        return node[len(prefix) :]
+
+    # list_tree_children rel paths are relative to *requested*; map to
+    # workspace-relative paths for the gitignore cascade.
+    req_ws_rel = _ws_rel(req_norm) or ""
+
+    def ignore_fn(rel: str, is_dir: bool) -> bool:
+        if req_ws_rel and rel:
+            full = f"{req_ws_rel}/{rel}"
+        else:
+            full = req_ws_rel or rel
+        return gitignore.is_ignored(full, is_dir=is_dir)
 
     include_set = {part.strip() for part in (include or "").split(",") if part.strip()}
     # Catalog enrichment is local-path keyed; skip on non-local FS for now
@@ -325,92 +357,21 @@ def list_workspace_files(
                 "hasPreviewSidecar": resolve_sidecar(abs_path) is not None,
             }
 
-    root_norm = root.rstrip("/") or "/"
+    # Single tree walk — same implementation as GET …/runs/{id}/files.
+    nodes = list_tree_children(fs, requested, max_depth=effective_depth, ignore=ignore_fn)
+    children = tree_to_workspace_file_dicts(nodes)
+    if asset_index_by_abs:
 
-    def _rel_for(node_path: str) -> str | None:
-        node = node_path.rstrip("/") or "/"
-        if node == root_norm:
-            return ""
-        prefix = root_norm + "/"
-        if not node.startswith(prefix):
-            return None
-        return node[len(prefix) :]
-
-    def build_node(
-        node_path: str, depth: int, *, _visited: set[str] | None = None
-    ) -> dict[str, Any]:
-        visited = _visited if _visited is not None else set()
-        try:
-            real = fs.resolve(node_path)
-        except OSError:
-            real = node_path
-        if real in visited:
-            return {
-                "id": node_path,
-                "name": fs.basename(node_path) or node_path,
-                "path": node_path,
-                "type": "folder",
-                "size": None,
-                "modified": None,
-                "children": [],
-            }
-        visited.add(real)
-
-        try:
-            st = fs.stat(node_path)
-            is_file = st.is_file
-        except OSError:
-            return {
-                "id": node_path,
-                "name": fs.basename(node_path) or node_path,
-                "path": node_path,
-                "type": "folder",
-                "size": None,
-                "modified": None,
-                "children": [],
-            }
-
-        node: dict[str, Any] = {
-            "id": node_path,
-            "name": fs.basename(node_path) or node_path,
-            "path": node_path,
-            "type": "file" if is_file else "folder",
-            "size": st.size if is_file else None,
-            "modified": st.mtime,
-        }
-        if asset_index_by_abs:
-            enrich = asset_index_by_abs.get(real)
+        def _enrich(node: dict[str, Any]) -> None:
+            enrich = asset_index_by_abs.get(node.get("path") or "")
             if enrich is not None:
                 node.update(enrich)
-        if not is_file and depth < effective_depth:
-            children: list[dict[str, Any]] = []
-            try:
-                names = fs.listdir(node_path)
-            except OSError:
-                names = []
-            # One remote RTT per child via build_node→stat only — do NOT
-            # pre-probe is_file (that doubled SSH traffic and hung depth-8
-            # walks over run trees). Sort by name; type comes from stat.
-            for name in sorted(names):
-                child = fs.join(node_path, name)
-                rel = _rel_for(child)
-                if rel is None:
-                    continue
-                # Cheap is_dir guess for ignore (avoid extra SSH): dotted names
-                # that are not hidden dirs are treated as files.
-                looks_like_file = "." in name and not name.startswith(".")
-                if ignore.is_ignored(rel, is_dir=not looks_like_file):
-                    continue
-                children.append(build_node(child, depth + 1, _visited=visited))
-            # Dirs first, then files (stable by name within each group).
-            children.sort(key=lambda c: (c.get("type") == "file", c.get("name") or ""))
-            node["children"] = children
-        else:
-            node["children"] = []
-        return node
+            for child in node.get("children") or []:
+                _enrich(child)
 
-    root_node = build_node(requested, 0)
-    return {"path": requested, "children": root_node.get("children", [])}
+        for child in children:
+            _enrich(child)
+    return {"path": requested, "children": children}
 
 
 @router.get("/file", response_model=FileContentResponse)
@@ -464,10 +425,56 @@ def read_workspace_file_blob(
     return StreamingResponse(io.BytesIO(data), media_type=media_type)
 
 
+def _assert_open_workspace_allowed(
+    request: WorkspaceOpenRequest,
+    user: AuthUser | None,
+) -> None:
+    """When auth is on, require a session and allowlist for served keys."""
+    if not is_auth_enabled():
+        return
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    # Map open target → served key when possible.
+    key: str | None = None
+    if isinstance(request, WorkspaceOpenLocalRequest):
+        path = str(Path(request.path).expanduser().resolve())
+        for sw in get_served_workspaces():
+            if not sw.is_remote and sw.path is not None and Path(sw.path).resolve() == Path(path):
+                key = sw.key
+                break
+        # Opening an arbitrary local path outside the served set is admin-only
+        # when auth is on (otherwise any operator could escape allowlist).
+        if key is None and user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins can open paths outside the served workspace set",
+            )
+    else:
+        name = getattr(request, "name", None)
+        if isinstance(name, str):
+            for sw in get_served_workspaces():
+                aliases = {sw.key, sw.target_name}
+                if sw.remote_target is not None:
+                    aliases.add(sw.remote_target.name)
+                aliases.discard(None)
+                if name in aliases:
+                    key = sw.key
+                    break
+    if key is not None:
+        try:
+            get_auth_service().assert_workspace_access(user, key)
+        except AuthError as exc:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.message) from exc
+
+
 @router.post("/open", response_model=WorkspaceInfoResponse)
 def open_workspace(
     request: WorkspaceOpenRequest,
     registry=Depends(get_workspace_target_registry),  # noqa: ANN001
+    user: Annotated[AuthUser | None, Depends(get_optional_user)] = None,
 ) -> WorkspaceInfoResponse:
     """Set the active workspace — local path or registered remote descriptor.
 
@@ -477,6 +484,7 @@ def open_workspace(
     *before* the cache is reset, so the new workspace starts from a
     clean subscriber slate.
     """
+    _assert_open_workspace_allowed(request, user)
     if isinstance(request, WorkspaceOpenLocalRequest):
         path = Path(request.path).expanduser().resolve()
         created = False
@@ -498,32 +506,33 @@ def open_workspace(
             assetCount=len(workspace.assets.list()),
         )
 
-    # Remote branch
-    try:
-        target = registry.get(request.name)
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"workspace target {request.name!r} not found",
-        ) from exc
+    # Remote branch — CLI ``-ws host:path`` injects an inline ServedWorkspace
+    # target (not the on-disk registry). Prefer that resolver so open accepts
+    # the served key *or* target_name the UI may send.
+    from molexp.server.deps.served import resolve_served_remote_target
 
     from ..workspace_targets import target_to_filesystem_for_workspace_target
+
+    try:
+        target = resolve_served_remote_target(request.name)
+    except KeyError:
+        try:
+            target = registry.get(request.name)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"workspace target {request.name!r} not found",
+            ) from exc
 
     fs = target_to_filesystem_for_workspace_target(target)
     set_active_workspace_descriptor(target.name)
     workspace = Workspace(target.root_path, fs=fs)
-    # Pin-until-refresh: warm → local only; cold → SSH + async index walk.
-    # Explicit refresh is POST /api/workspace/cache/refresh (blocking index).
+    # Linking a remote always force-refreshes (async). UI polls
+    # GET /api/workspace/cache/status for the file-count progress bar.
     if isinstance(fs, CachedRemoteFileSystem):
-        warnings = fs.prepare(workspace, block_index=False)
-        # Cold open may still be indexing in the background — don't block the
-        # response on a full tree walk (that was the slow path).
-        if fs.indexed:
-            project_count = len(workspace.list_projects())
-            asset_count = len(workspace.assets.list())
-        else:
-            project_count = 0
-            asset_count = 0
+        warnings = fs.prepare(workspace, block_index=False, refresh_on_open=True)
+        project_count = len(workspace.list_projects()) if fs.indexed else 0
+        asset_count = len(workspace.assets.list()) if fs.indexed else 0
         return WorkspaceInfoResponse(
             root=str(workspace.root),
             projectCount=project_count,
@@ -743,6 +752,21 @@ class CacheControlResponse(BaseModel):
     )
 
 
+class CacheStatusResponse(BaseModel):
+    """Live remote-index progress for the MolVis-style status bar."""
+
+    cached: bool = Field(..., description="False when the active workspace is local")
+    connected: bool | None = None
+    indexed: bool | None = None
+    ready: bool | None = None
+    indexing: bool | None = None
+    phase: str = "idle"
+    total: int = 0
+    done: int = 0
+    percent: float | None = None
+    message: str = ""
+
+
 def _require_cached_fs(workspace) -> CachedRemoteFileSystem:  # noqa: ANN001
     fs = getattr(workspace, "_fs", None)
     if not isinstance(fs, CachedRemoteFileSystem):
@@ -751,6 +775,31 @@ def _require_cached_fs(workspace) -> CachedRemoteFileSystem:  # noqa: ANN001
             detail="Active workspace has no cache (local workspaces are not cached).",
         )
     return fs
+
+
+@router.get("/cache/status", response_model=CacheStatusResponse)
+def workspace_cache_status(workspace=Depends(get_workspace)) -> CacheStatusResponse:  # noqa: ANN001
+    """Poll remote-index progress (file-count total → fetch done).
+
+    Local workspaces return ``cached=false`` with idle progress. The UI
+    status strip polls this while ``phase`` is ``counting`` / ``fetching``.
+    """
+    fs = getattr(workspace, "_fs", None)
+    if not isinstance(fs, CachedRemoteFileSystem):
+        return CacheStatusResponse(cached=False, phase="idle", message="")
+    progress = fs.progress
+    return CacheStatusResponse(
+        cached=True,
+        connected=fs.connected,
+        indexed=fs.indexed,
+        ready=fs.ready,
+        indexing=fs.indexing,
+        phase=progress.phase,
+        total=progress.total,
+        done=progress.done,
+        percent=progress.percent,
+        message=progress.message,
+    )
 
 
 @router.post("/cache/invalidate", response_model=CacheControlResponse)

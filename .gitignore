@@ -96,7 +96,7 @@ __pypackages__/
 # C extensions
 # Celery stuff
 # Claude Code workflow scratch — in-flight specs, runtime artifacts, worktrees
-# Compiled frontend bundle (populated by `npm run build` in ui/)
+# Compiled frontend bundle (populated by `npm run build:web` from apps/web/)
 # Cython debug symbols
 # Distribution / packaging
 # Django stuff:

@@ -3,22 +3,21 @@
 Rehomed onto :class:`molexp.workspace.Folder` (the OKF rewrite, wsokf-06): an
 ``Agent`` is a workspace Concept (``kind = "agent.agent"``) whose
 ``AgentSession`` children (``kind = "agent.session"``) are **flat** child
-Concepts — one dir per session, ``meta.yaml`` for structured identity,
+Concepts — one dir per session, ``meta.json`` for structured identity,
 ``messages.jsonl`` for the pydantic-ai history. Both register with the shared
 concept-type registry (``molexp.knowledge.types.concept_type`` — the *only*
 knowledge edge), so ``workspace.folder.concept_from_dir`` / ``list_folders`` /
 ``get_folder`` rebuild the right subclass. All I/O routes through the Folder's
 injectable filesystem (``self._fs``), so a session works against any backend.
 
-Unlike the base workspace ``Folder`` (whose ``meta.yaml`` is an additive
-``{type, id}`` marker alongside an authoritative ``metadata.json``), the agent
-Concepts have **no** separate entity json — their settled identity
-(system_prompt/model/tier for Agent; goal_summary/status/timestamps for
-AgentSession) *is* the OKF structured identity, so ``meta.yaml`` is the full,
-rich authority. ``Agent`` / ``AgentSession`` therefore override
-``write_meta`` / ``materialize`` / ``from_disk`` to make the typed
+Like every workspace Concept, agent dirs use **``meta.json`` as the sole
+concept identity file** (no ``metadata.json``). Agent Concepts put their full
+settled identity in that file (system_prompt/model/tier for Agent;
+goal_summary/status/timestamps for AgentSession) — there is no separate entity
+JSON. ``Agent`` / ``AgentSession`` therefore override ``write_meta`` /
+``materialize`` / ``from_disk`` to make the typed
 :class:`~molexp.agent.folders_metadata.AgentMeta` /
-:class:`~molexp.agent.folders_metadata.AgentSessionMeta` the meta.yaml payload.
+:class:`~molexp.agent.folders_metadata.AgentSessionMeta` the meta.json payload.
 
 The *runtime* ``AgentSession`` (in :mod:`molexp.agent.session`) is a distinct
 in-memory class; this one is its on-disk persistent counterpart.
@@ -26,7 +25,7 @@ in-memory class; this one is its on-disk persistent counterpart.
 
 from __future__ import annotations
 
-import yaml
+import json
 
 from molexp._typing import JSONValue
 from molexp.agent.folders_metadata import AgentMeta, AgentSessionMeta, SessionStatusStr
@@ -44,7 +43,8 @@ MESSAGES_FILENAME = "messages.jsonl"
 # can tell a linear continuation (reuse the blob) from a branch/resume
 # (discard it and reseed from the entry tree).
 MESSAGES_LEAF_FILENAME = "messages.leaf"
-META_YAML_FILENAME = "meta.yaml"
+META_JSON_FILENAME = "meta.json"
+META_YAML_FILENAME = META_JSON_FILENAME  # back-compat alias
 
 
 def _folder_metadata(slug: str, kind: str) -> FolderMetadata:
@@ -56,7 +56,7 @@ def _folder_metadata(slug: str, kind: str) -> FolderMetadata:
 class AgentSession(Folder):
     """One conversation under an :class:`Agent` — ``kind = "agent.session"``.
 
-    Holds ``meta.yaml`` (:class:`AgentSessionMeta`, the rich identity authority)
+    Holds ``meta.json`` (:class:`AgentSessionMeta`, the rich identity authority)
     + ``messages.jsonl`` (the pydantic-ai history, written via
     :meth:`write_messages` through ``self._fs``).
     """
@@ -78,45 +78,43 @@ class AgentSession(Folder):
             id=self._name, goal_summary=goal_summary, status=status
         )
 
-    # ── meta.yaml authority (rich AgentSessionMeta, not the additive marker) ─
+    # ── meta.json authority (rich AgentSessionMeta, not the additive marker) ─
 
     def write_meta(self) -> str:
-        """Write the rich :class:`AgentSessionMeta` as this session's meta.yaml."""
-        fpath = self._fs.join(self.path(), META_YAML_FILENAME)
-        self._fs.atomic_write_text(
-            fpath, yaml.safe_dump(self._session_meta.model_dump(mode="json"), sort_keys=False)
-        )
+        """Write the rich :class:`AgentSessionMeta` as this session's meta.json."""
+        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
+        self._fs.atomic_write_json(fpath, self._session_meta.model_dump(mode="json"))
         return fpath
 
     def read_meta(self) -> dict[str, JSONValue]:
-        """Read the raw meta.yaml dict, or ``{}`` if absent."""
-        fpath = self._fs.join(self.resolve(), META_YAML_FILENAME)
+        """Read the raw meta.json dict, or ``{}`` if absent."""
+        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
         if not self._fs.exists(fpath):
             return {}
-        loaded = yaml.safe_load(self._fs.read_text(fpath)) or {}
+        loaded = json.loads(self._fs.read_text(fpath))
         return loaded if isinstance(loaded, dict) else {}
 
     def read_session_meta(self) -> AgentSessionMeta:
-        """Load this session's typed ``meta.yaml`` from disk (disk is truth)."""
+        """Load this session's typed ``meta.json`` from disk (disk is truth)."""
         return AgentSessionMeta.model_validate(self.read_meta())
 
     def write_session_meta(self, meta: AgentSessionMeta) -> None:
-        """Persist this session's typed ``meta.yaml`` (disk is the source)."""
+        """Persist this session's typed ``meta.json`` (disk is the source)."""
         self._session_meta = meta
         self.write_meta()
 
     def materialize(self) -> None:
-        """Write the session's ``meta.yaml`` (creating the dir lazily)."""
+        """Write the session's ``meta.json`` (creating the dir lazily)."""
         self.write_meta()
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> AgentSession:
-        """Reconstruct an :class:`AgentSession` from its ``meta.yaml`` (disk is truth)."""
+        """Reconstruct an :class:`AgentSession` from its ``meta.json`` (disk is truth)."""
         fs = parent._fs
-        meta_path = fs.join(child_dir, META_YAML_FILENAME)
+        meta_path = fs.join(child_dir, META_JSON_FILENAME)
         slug = fs.basename(child_dir)
         meta = (
-            AgentSessionMeta.model_validate(yaml.safe_load(fs.read_text(meta_path)) or {})
+            AgentSessionMeta.model_validate(json.loads(fs.read_text(meta_path)))
             if fs.exists(meta_path)
             else AgentSessionMeta(id=slug)
         )
@@ -185,45 +183,43 @@ class Agent(Folder):
             description=description,
         )
 
-    # ── meta.yaml authority (rich AgentMeta, not the additive marker) ──────
+    # ── meta.json authority (rich AgentMeta, not the additive marker) ──────
 
     def write_meta(self) -> str:
-        """Write the rich :class:`AgentMeta` as this agent's meta.yaml."""
-        fpath = self._fs.join(self.path(), META_YAML_FILENAME)
-        self._fs.atomic_write_text(
-            fpath, yaml.safe_dump(self._agent_meta.model_dump(mode="json"), sort_keys=False)
-        )
+        """Write the rich :class:`AgentMeta` as this agent's meta.json."""
+        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
+        self._fs.atomic_write_json(fpath, self._agent_meta.model_dump(mode="json"))
         return fpath
 
     def read_meta(self) -> dict[str, JSONValue]:
-        """Read the raw meta.yaml dict, or ``{}`` if absent."""
-        fpath = self._fs.join(self.resolve(), META_YAML_FILENAME)
+        """Read the raw meta.json dict, or ``{}`` if absent."""
+        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
         if not self._fs.exists(fpath):
             return {}
-        loaded = yaml.safe_load(self._fs.read_text(fpath)) or {}
+        loaded = json.loads(self._fs.read_text(fpath))
         return loaded if isinstance(loaded, dict) else {}
 
     def read_agent_meta(self) -> AgentMeta:
-        """Load this agent's typed ``meta.yaml`` from disk (disk is truth)."""
+        """Load this agent's typed ``meta.json`` from disk (disk is truth)."""
         return AgentMeta.model_validate(self.read_meta())
 
     def write_agent_meta(self, meta: AgentMeta) -> None:
-        """Persist this agent's typed ``meta.yaml`` (disk is the source)."""
+        """Persist this agent's typed ``meta.json`` (disk is the source)."""
         self._agent_meta = meta
         self.write_meta()
 
     def materialize(self) -> None:
-        """Write the agent's ``meta.yaml`` (creating the dir lazily)."""
+        """Write the agent's ``meta.json`` (creating the dir lazily)."""
         self.write_meta()
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Agent:
-        """Reconstruct an :class:`Agent` from its ``meta.yaml`` (disk is truth)."""
+        """Reconstruct an :class:`Agent` from its ``meta.json`` (disk is truth)."""
         fs = parent._fs
-        meta_path = fs.join(child_dir, META_YAML_FILENAME)
+        meta_path = fs.join(child_dir, META_JSON_FILENAME)
         slug = fs.basename(child_dir)
         meta = (
-            AgentMeta.model_validate(yaml.safe_load(fs.read_text(meta_path)) or {})
+            AgentMeta.model_validate(json.loads(fs.read_text(meta_path)))
             if fs.exists(meta_path)
             else AgentMeta(id=slug)
         )

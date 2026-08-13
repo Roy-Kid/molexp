@@ -3,7 +3,7 @@
 Public UI checks (run from repo root):
 
 ```bash
-cd ui && npm run test -- ReviewSurface ApprovalsInbox
+npm run test:web -- ReviewSurface ApprovalsInbox
 ```
 
 Expected:
@@ -15,5 +15,5 @@ Expected:
 Also:
 
 ```bash
-cd ui && npm run typecheck
+npm run typecheck:web
 ```

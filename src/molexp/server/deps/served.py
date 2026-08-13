@@ -61,6 +61,40 @@ def get_served_workspaces() -> list[ServedWorkspace]:
     return list(_served_workspaces)
 
 
+def _used_keys() -> set[str]:
+    return {sw.key for sw in _served_workspaces}
+
+
+def add_served_workspace(workspace: ServedWorkspace) -> ServedWorkspace:
+    """Append *workspace* to the live served set (VS Code "Add Folder").
+
+    Dedupes by absolute local path or remote label. Returns the existing
+    entry when already served.
+    """
+    global _served_workspaces
+    for sw in _served_workspaces:
+        if (
+            not workspace.is_remote
+            and not sw.is_remote
+            and sw.path
+            and workspace.path
+            and Path(sw.path).resolve() == Path(workspace.path).resolve()
+        ):
+            return sw
+        if workspace.is_remote and sw.is_remote and sw.label == workspace.label:
+            return sw
+    _served_workspaces = [*_served_workspaces, workspace]
+    return workspace
+
+
+def remove_served_workspace(key: str) -> bool:
+    """Drop a served workspace by key. Returns False if not found."""
+    global _served_workspaces
+    before = len(_served_workspaces)
+    _served_workspaces = [sw for sw in _served_workspaces if sw.key != key]
+    return len(_served_workspaces) < before
+
+
 def _served_by_key(key: str) -> ServedWorkspace | None:
     """Look up a served workspace by its stable key (``None`` if absent)."""
     for sw in _served_workspaces:
@@ -73,8 +107,9 @@ def resolve_served_remote_target(identifier: str) -> WorkspaceTarget:
     """Resolve a remote :class:`WorkspaceTarget` by active-workspace id.
 
     Prefers an inline descriptor on the served set (CLI ``-ws user@host:/path``)
-    so serve need not write the on-disk registry. Falls back to the process
-    :class:`WorkspaceTargetRegistry`.
+    so serve need not write the on-disk registry. Accepts the served ``key``,
+    ``target_name``, or the target's own ``name`` (UI activate may send any of
+    these). Falls back to the process :class:`WorkspaceTargetRegistry`.
 
     Raises:
         KeyError: no served inline match and the registry has no such name.
@@ -82,11 +117,11 @@ def resolve_served_remote_target(identifier: str) -> WorkspaceTarget:
     from molexp.server.workspace_targets import WorkspaceTarget as _WT
 
     for sw in _served_workspaces:
-        if (
-            sw.is_remote
-            and (sw.target_name or sw.key) == identifier
-            and sw.remote_target is not None
-        ):
+        if not sw.is_remote or sw.remote_target is None:
+            continue
+        aliases = {sw.key, sw.target_name, sw.remote_target.name}
+        aliases.discard(None)
+        if identifier in aliases:
             return sw.remote_target
     from molexp.server.deps.targets import get_workspace_target_registry
 
@@ -102,8 +137,13 @@ def active_served_key() -> str | None:
     """
     kind, identifier = _active_workspace_key()
     for sw in _served_workspaces:
-        if sw.is_remote and kind == "remote" and (sw.target_name or sw.key) == identifier:
-            return sw.key
+        if sw.is_remote and kind == "remote":
+            aliases = {sw.key, sw.target_name}
+            if sw.remote_target is not None:
+                aliases.add(sw.remote_target.name)
+            aliases.discard(None)
+            if identifier in aliases:
+                return sw.key
         if (
             not sw.is_remote
             and kind == "local"

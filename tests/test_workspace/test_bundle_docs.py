@@ -37,7 +37,7 @@ class RecordingFileSystem(LocalFileSystem):
     """A ``LocalFileSystem`` that logs every write entry point before delegating.
 
     Overriding the atomic writers + ``open`` lets a test prove a ``Note``'s body
-    and ``meta.yaml`` were written through the *atomic* writers, and that NO
+    and ``meta.json`` were written through the *atomic* writers, and that NO
     write-mode bare ``open()`` was used for any file.
     """
 
@@ -105,7 +105,7 @@ class TestBundleDocs:
 
         assert note.body() == "hello world"
         assert any(p.endswith("design-doc/index.md") for p in rec.atomic_text_writes)
-        assert any(p.endswith("design-doc/meta.yaml") for p in rec.atomic_text_writes)
+        assert any(p.endswith("design-doc/meta.json") for p in rec.atomic_json_writes)
 
     def test_rename_note_preserves_body_and_resolves_at_new_identity(
         self, bundle_root: Path

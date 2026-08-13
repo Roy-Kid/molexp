@@ -1,8 +1,8 @@
 """Setuptools entry point and PEP 517 wrapper for MolExp.
 
-Passing ``-C build-ui=true`` to a PEP 517 frontend builds the React UI before
-setuptools packages ``src/molexp/dist`` as package data. Without that config
-setting this stays a plain Python install and does not require Node.js.
+Passing ``-C build-web=true`` to a PEP 517 frontend builds the React web app
+before setuptools packages ``src/molexp/dist`` as package data. Without that
+config setting this stays a plain Python install and does not require Node.js.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ ConfigValue = str | Sequence[str]
 ConfigSettings = Mapping[str, ConfigValue] | None
 
 _ROOT = Path(__file__).resolve().parent
-_UI_BUILT = False
+_WEB_BUILT = False
 
 
 def _as_list(value: ConfigValue) -> list[str]:
@@ -35,12 +35,21 @@ def _config_enabled(config_settings: ConfigSettings, key: str) -> bool:
     return any(value.strip().lower() in {"1", "true", "yes", "on"} for value in values)
 
 
-def _maybe_build_ui(config_settings: ConfigSettings) -> None:
-    global _UI_BUILT
-    if _UI_BUILT or not _config_enabled(config_settings, "build-ui"):
+def _maybe_build_web(config_settings: ConfigSettings) -> None:
+    global _WEB_BUILT
+    if _WEB_BUILT:
         return
-    subprocess.run(["npm", "run", "build:ui"], cwd=_ROOT, check=True)
-    _UI_BUILT = True
+    # Old flag name — fail loud so muscle memory / scripts do not silently
+    # produce a Python-only install that looks "successful".
+    if _config_enabled(config_settings, "build-ui"):
+        raise SystemExit(
+            "setup.py: -C build-ui=true was renamed to -C build-web=true "
+            "(apps/web monorepo). Re-run with: uv pip install -e . -C build-web=true"
+        )
+    if not _config_enabled(config_settings, "build-web"):
+        return
+    subprocess.run(["npm", "run", "build:web"], cwd=_ROOT, check=True)
+    _WEB_BUILT = True
 
 
 def _clean_build_dir() -> None:
@@ -74,7 +83,7 @@ def build_wheel(
     config_settings: ConfigSettings = None,
     metadata_directory: str | None = None,
 ) -> str:
-    _maybe_build_ui(config_settings)
+    _maybe_build_web(config_settings)
     _clean_build_dir()
     return _setuptools_build_meta.build_wheel(
         wheel_directory,
@@ -87,7 +96,7 @@ def build_sdist(
     sdist_directory: str,
     config_settings: ConfigSettings = None,
 ) -> str:
-    _maybe_build_ui(config_settings)
+    _maybe_build_web(config_settings)
     _clean_build_dir()
     return _setuptools_build_meta.build_sdist(sdist_directory, config_settings)
 
@@ -97,7 +106,7 @@ def build_editable(
     config_settings: ConfigSettings = None,
     metadata_directory: str | None = None,
 ) -> str:
-    _maybe_build_ui(config_settings)
+    _maybe_build_web(config_settings)
     _clean_build_dir()
     return _setuptools_build_meta.build_editable(
         wheel_directory,

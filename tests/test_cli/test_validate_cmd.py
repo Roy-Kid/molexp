@@ -44,3 +44,18 @@ def test_strict_promotes_warnings_to_failure(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["validate", "-ws", str(tmp_path), "--strict"])
     assert result.exit_code == 1, result.output
     assert "run.ops" in result.output
+
+
+def test_validate_json_emits_full_report(tmp_path: Path) -> None:
+    import json
+
+    _workspace(tmp_path)
+    (tmp_path / "stray-dir").mkdir()
+    result = CliRunner().invoke(app, ["validate", "-ws", str(tmp_path), "--json"])
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["ok"] is False
+    assert payload["error_count"] >= 1
+    assert any(v["rule"] == "layout.stray" for v in payload["violations"])
+    assert all("hint" in v and v["hint"] for v in payload["violations"])
+    assert payload["next_actions"]

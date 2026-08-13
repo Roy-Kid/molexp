@@ -153,6 +153,7 @@ from .workspace_context import (
     WorkspaceRef,
     assemble_workspace_context,
 )
+from .wp import WorkspacePaths, cp, ls, mkdir, mv, rm
 from .zotero_concepts import ZoteroItem, read_zotero_items
 
 __all__ = [
@@ -251,6 +252,7 @@ __all__ = [
     "WorkspaceEventLog",
     "WorkspaceEventType",
     "WorkspaceMetadata",
+    "WorkspacePaths",
     "WorkspaceRef",
     "ZoteroItem",
     "# Assets",
@@ -266,7 +268,7 @@ __all__ = [
     "# OKF KnowledgeItem Concept (integration P0.4) — typed, source-linked",
     "# OKF Note Concept (wsokf-05) — a directory whose path is its identity",
     "# OKF Note backlink (knowledge-docs-01) — a derived reverse-edge row",
-    "# OKF Note document meta.yaml payload (knowledge-docs-05) — tags + status",
+    "# OKF Note document meta.json payload (knowledge-docs-05) — tags + status",
     "# OKF Reference Concept (wsokf-05) — a directory whose path is its",
     "# OKF bundle façade (wsokf-04) — distinct from the per-scope Library",
     "# OKF document-embed entity summary (knowledge-docs-05) — read-only UI card",
@@ -279,7 +281,7 @@ __all__ = [
     "# WorkspaceContext read-model + assembler (integration P0.2)",
     "# Workspace error hierarchy",
     "# Workspace event spine (integration P0.3) — append-only cross-object timeline",
-    "# identity. Its typed meta.yaml payload is ReferenceMeta.",
+    "# identity. Its typed meta.json payload is ReferenceMeta.",
     "# layer's session storage.",
     "# markdown reports / generated source previews / log snapshots.",
     "add_target",
@@ -289,12 +291,16 @@ __all__ = [
     "atomic_write_text",
     "builtin_local_target",
     "cancel_run",
+    "cp",
     "effective_targets",
     "emit_workspace_event",
     "get_target",
     "harvest_run",
     "has_target",
     "list_targets",
+    "ls",
+    "mkdir",
+    "mv",
     "parse_target",
     "pid_alive",
     "plan_execution_prune",
@@ -304,6 +310,7 @@ __all__ = [
     "remove_target",
     "resolve_compute_target",
     "resolve_target",
+    "rm",
     "summarize_entity",
     "target_run_dir",
     "target_to_transport",

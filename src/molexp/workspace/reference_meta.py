@@ -1,7 +1,7 @@
 """``ReferenceMeta`` — structured bib fields for an OKF Reference Concept (wsokf-05).
 
 A :class:`molexp.workspace.concepts.ReferenceConcept` stores its bibliographic
-record in ``meta.yaml`` via this :class:`ConceptMeta` subtype; the narrative
+record in ``meta.json`` via this :class:`ConceptMeta` subtype; the narrative
 citation text lives in its ``index.md``. PDFs are *pointed at* (``pdf_path`` /
 ``pdf_asset_id``), never copied.
 
@@ -17,7 +17,7 @@ from .concept_meta import ConceptMeta
 
 
 class ReferenceMeta(ConceptMeta):
-    """Bibliographic ``meta.yaml`` payload of a Reference Concept.
+    """Bibliographic ``meta.json`` payload of a Reference Concept.
 
     Inherits :class:`ConceptMeta` (frozen, ``extra="allow"``, ``from_yaml`` /
     ``to_yaml``); ``type`` defaults to ``"reference"``.

@@ -98,8 +98,10 @@ def is_tensorboard_dir(path: Path) -> bool:
 
 
 def has_metrics_buffer(run_dir: Path) -> bool:
-    """True when *run_dir* already carries a host metrics JSONL buffer."""
-    return (Path(run_dir) / "metrics" / "metrics.jsonl").is_file()
+    """True when *run_dir* already carries metrics (WAL and/or dense Zarr)."""
+    from molexp.workspace.metrics import has_metrics
+
+    return has_metrics(run_dir)
 
 
 def _iter_files(run_dir: Path, *, max_depth: int) -> Iterator[Path]:

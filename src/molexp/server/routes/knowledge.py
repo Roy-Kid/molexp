@@ -127,7 +127,7 @@ class DocMoveRequest(BaseModel):
 
 
 class DocMetaUpdate(BaseModel):
-    """Partial update of a note's ``meta.yaml`` tags/status.
+    """Partial update of a note's ``meta.json`` tags/status.
 
     Each field is independently optional; ``None`` means "leave untouched", which
     maps onto ``Note.set_tags`` / ``Note.set_status`` each preserving the sibling
@@ -143,9 +143,8 @@ class BacklinksResponse(BaseModel):
 
 
 def _bundle(workspace: Workspace) -> Bundle:
-    from molexp.workspace import Bundle
-
-    return Bundle(workspace.root)
+    """Bundle on the workspace's own filesystem (remote pin cache / local)."""
+    return workspace.as_bundle()
 
 
 def _require_writable(request: Request) -> None:
@@ -221,7 +220,7 @@ def _resolve_edge_entity(
 ) -> Folder | Asset | None:
     """Resolve a typed out-edge *target* path back to its live entity, or ``None``.
 
-    A Concept dir (``meta.yaml`` present) resolves to its typed ``Folder`` via
+    A Concept dir (``meta.json`` present) resolves to its typed ``Folder`` via
     the bundle; an asset record dir (``<scope>/assets/<asset_id>/``) resolves to
     its :class:`~molexp.workspace.assets.base.Asset` via the manifest scanner.
     """

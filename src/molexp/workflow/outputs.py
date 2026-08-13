@@ -8,8 +8,8 @@ the engine — which still holds the ``run_context`` — does the promotion:
 * :class:`RegisterArtifact` copies the file into ``<run_dir>/artifacts/<name>``
   and registers it in the asset catalog, so the UI (file tree, molvis preview,
   lineage) discovers it.
-* :class:`RegisterMetric` appends a scalar to the run's ``metrics.jsonl``, so the
-  Metrics view plots it.
+* :class:`RegisterMetric` appends a scalar to the run's metrics WAL (densified
+  to Zarr on flush), so the Metrics view plots it.
 
 The marker is replaced in the recorded output by a plain value — the artifact's
 on-disk run path / the metric's number — so a downstream task that binds the

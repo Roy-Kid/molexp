@@ -736,13 +736,14 @@ class PydanticAIRouter:
                 async for node in run:
                     step += 1
                     if Agent.is_model_request_node(node):
-                        async with node.stream(run.ctx) as request_stream:
+                        # cast: pydantic-ai GraphAgentDeps variance vs ty
+                        async with node.stream(cast(Any, run.ctx)) as request_stream:
                             async for event in request_stream:
                                 request_chunk = _request_stream_chunk(event)
                                 if request_chunk is not None:
                                     yield request_chunk
                     elif Agent.is_call_tools_node(node):
-                        async with node.stream(run.ctx) as tools_stream:
+                        async with node.stream(cast(Any, run.ctx)) as tools_stream:
                             async for event in tools_stream:
                                 tool_chunk = _tool_chunk(event)
                                 if tool_chunk is None:
@@ -785,12 +786,17 @@ class PydanticAIRouter:
                                     yield tool_chunk
                                     continue
                                 yield tool_chunk
-                final_text = str(run.result.output or "") if run.result.output is not None else ""
+                result = run.result
+                if result is None:
+                    final_text = ""
+                else:
+                    out = getattr(result, "output", None)
+                    final_text = str(out or "") if out is not None else ""
                 # Full conversation (prior history + this turn) for lossless
                 # AgentSession persistence (agent-record-export-04).
-                messages_json = run.result.all_messages_json() if run.result is not None else None
+                messages_json = result.all_messages_json() if result is not None else None
                 self._record_usage(
-                    run_result=run.result,
+                    run_result=result,
                     node_id="agent",
                     tier=tier,
                     schema_name="",

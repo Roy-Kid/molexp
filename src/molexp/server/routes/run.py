@@ -37,6 +37,8 @@ from molexp.workspace import (
 )
 from molexp.workspace import resolve_compute_target as resolve_target
 from molexp.workspace.events import read_workspace_events
+from molexp.workspace.fs_cached import CachedRemoteFileSystem
+from molexp.workspace.fs_tree import list_tree_children, tree_to_run_file_dicts
 from molexp.workspace.metrics import read_run_metrics
 from molexp.workspace.targets import get_target
 
@@ -173,6 +175,17 @@ def _dispatch_to_molq(target, run, execution_id: str | None = None) -> None:  # 
     handler(None, run, run.experiment, run.experiment.project, execution_id=execution_id)
 
 
+def _invalidate_run_nav_cache(workspace, run_or_exp_path: str) -> None:  # noqa: ANN001
+    """Drop pinned remote dir listings for *run_or_exp_path* so new files appear.
+
+    Secondary fix for pin-until-refresh caches that hide newly-landed
+    ``*.mlp.jsonl`` / run dirs until an explicit refresh.
+    """
+    fs = getattr(workspace, "_fs", None)
+    if isinstance(fs, CachedRemoteFileSystem):
+        fs.invalidate(run_or_exp_path)
+
+
 @router.get("", response_model=list[RunResponse])
 def list_runs(
     project_id: str,
@@ -182,6 +195,9 @@ def list_runs(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, "")
+    # Fresh listdir for remote pin caches (new runs on the host).
+    runs_dir = workspace._fs.join(str(experiment.experiment_dir), "runs")
+    _invalidate_run_nav_cache(workspace, runs_dir)
     return [RunResponse.from_model(r) for r in experiment.list_runs()]
 
 
@@ -305,7 +321,7 @@ def get_run_metrics(
     limit: int = Query(default=5000, ge=1, le=50000),
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunMetricsResponse:
-    """Return run-local metrics from ``metrics/metrics.jsonl``."""
+    """Return run-local metrics (dense Zarr SoT, else JSONL WAL)."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
@@ -315,6 +331,7 @@ def get_run_metrics(
 
     result = read_run_metrics(
         run.run_dir,
+        fs=workspace._fs,
         metric_type=metric_type,
         key=key,
         since_line=since_line,
@@ -339,7 +356,11 @@ def get_run_file_text(
     path: str = Query(..., description="Relative path under run_dir"),
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunFileTextResponse:
-    """Return the raw text content of a file under the run directory."""
+    """Return the raw text content of a file under the run directory.
+
+    Routes through ``workspace._fs`` — same path as workspace file reads —
+    so remote workspaces resolve correctly.
+    """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
@@ -347,20 +368,24 @@ def get_run_file_text(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    run_dir = Path(run.run_dir)
-    target = (run_dir / path).resolve()
-    try:
-        target.relative_to(run_dir.resolve())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="path escapes run directory") from exc
-    if not target.is_file():
+    fs = workspace._fs
+    run_dir = str(run.run_dir)
+    rel = path.lstrip("/")
+    if ".." in Path(rel).parts:
+        raise HTTPException(status_code=400, detail="path escapes run directory")
+    target = fs.join(run_dir, rel) if rel else run_dir
+    # Containment: target must stay under run_dir.
+    run_norm = run_dir.rstrip("/")
+    if target != run_norm and not target.startswith(run_norm + "/"):
+        raise HTTPException(status_code=400, detail="path escapes run directory")
+    if not fs.exists(target) or not fs.is_file(target):
         raise HTTPException(status_code=404, detail=f"file not found: {path}")
 
     try:
-        content = target.read_text(encoding="utf-8")
+        content = fs.read_text(target, encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise HTTPException(status_code=415, detail="file is not text-decodable as UTF-8") from exc
-    return RunFileTextResponse(path=path, content=content, size=target.stat().st_size)
+    return RunFileTextResponse(path=path, content=content, size=fs.getsize(target))
 
 
 @router.get("/{run_id}/lammps-log", response_model=LammpsLogResponse)
@@ -477,9 +502,10 @@ def get_run_files(
 ) -> RunFilesResponse:
     """Return the on-disk file tree for a run, enriched with catalog metadata.
 
-    Files registered in the asset catalog (artifacts, logs, checkpoints,
-    error traces) carry ``assetId``, ``assetKind``, and ``taskId`` so the
-    UI can render lineage chips inline.
+    Uses the **same** :func:`~molexp.workspace.fs_tree.list_tree_children` walk
+    as workspace file listing (via ``workspace._fs``) so remote workspaces
+    activate plugins the same way as local ones. Catalog enrichment is
+    best-effort for local asset scans only.
     """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -488,49 +514,55 @@ def get_run_files(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    run_dir = Path(run.run_dir)
+    fs = workspace._fs
+    run_dir = str(run.run_dir)
+    # Drop pinned listings so newly-written ``*.mlp.jsonl`` / artifacts show up.
+    _invalidate_run_nav_cache(workspace, run_dir)
+
     from molexp.workspace.assets import AssetScope, scan
+    from molexp.workspace.fs_local import LocalFileSystem
 
-    run_scope = AssetScope(kind="run", ids=(project_id, experiment_id, run_id))
-    scoped_assets = scan.scan_assets(workspace.root, scope=run_scope)
     asset_index: dict[str, tuple[str, str, str | None]] = {}
-    for a in scoped_assets:
-        rel = str(a.path)
-        asset_index[rel] = (
-            a.asset_id,
-            a.kind,  # type: ignore[attr-defined]
-            a.producer.task_id if a.producer else None,
-        )
+    if isinstance(fs, LocalFileSystem):
+        run_scope = AssetScope(kind="run", ids=(project_id, experiment_id, run_id))
+        for a in scan.scan_assets(workspace.root, scope=run_scope):
+            rel = str(a.path)
+            asset_index[rel] = (
+                a.asset_id,
+                a.kind,  # type: ignore[attr-defined]
+                a.producer.task_id if a.producer else None,
+            )
 
-    def build(node_path: Path) -> RunFileNode:
-        rel = node_path.relative_to(run_dir).as_posix() if node_path != run_dir else ""
-        is_file = node_path.is_file()
+    tree = list_tree_children(fs, run_dir, max_depth=8)
+    raw_nodes = tree_to_run_file_dicts(tree)
+
+    def enrich(node: dict) -> RunFileNode:
+        rel = node.get("relPath") or ""
         info = asset_index.get(rel)
-        node = RunFileNode(
-            name=node_path.name or run_dir.name,
+        children_raw = node.get("children") or []
+        return RunFileNode(
+            name=node.get("name") or "",
             relPath=rel,
-            type="file" if is_file else "folder",
-            size=node_path.stat().st_size if is_file else None,
-            modified=node_path.stat().st_mtime,
+            type=node.get("type") or "file",
+            size=node.get("size"),
+            modified=node.get("modified"),
             assetId=info[0] if info else None,
             assetKind=info[1] if info else None,
             taskId=info[2] if info else None,
+            children=[enrich(c) for c in children_raw],
         )
-        if not is_file and node_path.exists():
-            children: list[RunFileNode] = []
-            for child in sorted(node_path.iterdir(), key=lambda p: (p.is_file(), p.name)):
-                children.append(build(child))
-            node.children = children
-        return node
 
-    nodes: list[RunFileNode] = []
-    if run_dir.exists():
-        for child in sorted(run_dir.iterdir(), key=lambda p: (p.is_file(), p.name)):
-            nodes.append(build(child))
+    nodes = [enrich(n) for n in raw_nodes]
+    try:
+        run_dir_rel = str(Path(run_dir).relative_to(Path(str(workspace.root))))
+    except ValueError:
+        # Remote roots: strip workspace root prefix via string ops.
+        root = str(workspace.root).rstrip("/")
+        run_dir_rel = run_dir[len(root) + 1 :] if run_dir.startswith(root + "/") else run_dir
 
     return RunFilesResponse(
         runId=run_id,
-        runDir=str(run_dir.relative_to(Path(workspace.root))),
+        runDir=run_dir_rel,
         nodes=nodes,
     )
 
@@ -927,7 +959,7 @@ def ingest_run_metrics(
     run_id: str,
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> dict[str, object]:
-    """Ingest foreign logs into the run host metrics JSONL buffer (additive).
+    """Ingest foreign logs into the run host metrics surface (additive).
 
     Shares :func:`molexp.plugins.metrics_ingest.ingest_run` with the CLI.
     Skips are returned; the route does not fail the whole call when one

@@ -279,10 +279,12 @@ class ServerManager:
         Returns:
             Process PID
         """
-        ui_dir = Path(__file__).parent.parent.parent / "ui"
-
-        if not ui_dir.exists():
-            raise RuntimeError(f"UI directory not found: {ui_dir}")
+        repo_root = Path(__file__).resolve().parents[3]
+        web_dir = repo_root / "apps" / "web"
+        if not (web_dir / "package.json").is_file():
+            raise RuntimeError(
+                f"Web app not found under {repo_root} (expected apps/web/package.json)"
+            )
 
         cmd = ["npm", "run", "dev"]
 
@@ -292,13 +294,13 @@ class ServerManager:
                 # When kill_on_exit is True, keep it in the same process group
                 process = subprocess.Popen(
                     cmd,
-                    cwd=ui_dir,
+                    cwd=web_dir,
                     stdout=log,
                     stderr=subprocess.STDOUT,
                     start_new_session=(not kill_on_exit),
                 )
             return process.pid
-        process = subprocess.Popen(cmd, cwd=ui_dir)
+        process = subprocess.Popen(cmd, cwd=web_dir)
         return process.pid
 
     def _create_sample_data(self) -> None:

@@ -1,8 +1,8 @@
-"""Agent-layer ``meta.yaml`` models — agent-owned, OKF-shaped.
+"""Agent-layer ``meta.json`` models — agent-owned, OKF-shaped.
 
 After the OKF rehome onto ``molexp.workspace.Folder`` (wsokf-06), ``Agent`` /
 ``AgentSession`` are workspace Concepts whose settled, human-meaningful identity
-*is* their ``meta.yaml`` payload. These models are agent-owned frozen pydantic
+*is* their ``meta.json`` payload. These models are agent-owned frozen pydantic
 models in the OKF Concept-meta shape — a required ``type`` discriminator (the
 string the shared concept-type registry resolves on) plus ``extra="allow"`` so
 forward fields survive a round-trip. The pydantic-ai ``ModelMessage`` history
@@ -23,7 +23,7 @@ SessionStatusStr = Literal["pending", "running", "paused", "succeeded", "failed"
 
 
 class AgentMeta(BaseModel):
-    """``meta.yaml`` payload for an :class:`~molexp.agent.folders.Agent` Concept.
+    """``meta.json`` payload for an :class:`~molexp.agent.folders.Agent` Concept.
 
     Attributes:
         type: The concept-type discriminator (``"agent.agent"``) the shared
@@ -46,7 +46,7 @@ class AgentMeta(BaseModel):
 
 
 class AgentSessionMeta(BaseModel):
-    """``meta.yaml`` payload for an :class:`~molexp.agent.folders.AgentSession`.
+    """``meta.json`` payload for an :class:`~molexp.agent.folders.AgentSession`.
 
     Attributes:
         type: The concept-type discriminator (``"agent.session"``) the shared

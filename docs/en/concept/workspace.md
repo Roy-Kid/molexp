@@ -33,17 +33,17 @@ Profiles (`molcfg.yaml`) live at the boundary between workflow execution and wor
 ```
 workspace_root/
 ├── workspace.json          ← entity metadata
-├── project.json            ← children index (projects)
-├── meta.yaml               ← OKF concept marker
+├── projects.json           ← children index (projects; plural)
+├── meta.json               ← sole concept identity (type; path = id)
 ├── index.md                ← knowledge graph narrative
 └── projects/<project_id>/
-    ├── project.json        ← entity metadata
-    ├── experiment.json     ← children index (experiments)
+    ├── project.json        ← entity metadata (singular)
+    ├── experiments.json    ← children index (experiments; plural)
     └── experiments/<exp_id>/
-        ├── experiment.json ← entity metadata
-        ├── run.json        ← children index (runs)
+        ├── experiment.json ← entity metadata (singular)
+        ├── runs.json       ← children index (runs; plural)
         └── runs/run-<id>/
-            ├── run.json    ← identity and provenance
+            ├── run.json    ← identity and provenance (singular)
             ├── _ops/run.json ← hot state (status, ownership)
             ├── assets.json ← run-scoped asset manifest
             └── executions/<exec_id>/

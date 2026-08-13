@@ -1,6 +1,6 @@
 """``KnowledgeItem`` — a typed, source-linked OKF Concept.
 
-A ``KnowledgeItem`` is a Note-shaped Concept whose ``meta.yaml`` carries a typed
+A ``KnowledgeItem`` is a Note-shaped Concept whose ``meta.json`` carries a typed
 head (:class:`KnowledgeMeta`: a :data:`KnowledgeKind` plus a **required,
 non-empty** list of :class:`SourceRef`) and whose human narrative lives in
 ``index.md``.
@@ -10,7 +10,7 @@ is enforced at :class:`KnowledgeMeta` construction: a sourceless meta **fails
 loudly** (``ValidationError``). So no execution-derived knowledge can be created
 unsourced (integration.md §5.2, coordination invariant #4).
 
-**Sources vs edges.** ``meta.yaml`` (``KnowledgeMeta.sources``) is the
+**Sources vs edges.** ``meta.json`` (``KnowledgeMeta.sources``) is the
 *authoritative* typed record of every source (any :data:`SourceKind`, incl.
 content-hash / file references that have no in-tree home). Where a source *is* an
 in-tree Folder (a ``Run`` / ``Experiment`` / Concept), :meth:`KnowledgeItem.cite`
@@ -31,7 +31,7 @@ from molexp.knowledge.types import concept_type
 
 from .concept_meta import ConceptMeta
 from .edges import EdgeRole
-from .folder import META_YAML_FILENAME, Folder, append_link
+from .folder import META_JSON_FILENAME, Folder, append_link
 from .fs import FileSystem, PathArg
 
 KNOWLEDGE_ITEM_KIND = "knowledge.item"
@@ -100,7 +100,7 @@ class SourceRef(BaseModel, frozen=True):
 
 
 class KnowledgeMeta(ConceptMeta):
-    """The typed ``meta.yaml`` head of a :class:`KnowledgeItem`.
+    """The typed ``meta.json`` head of a :class:`KnowledgeItem`.
 
     Extends :class:`ConceptMeta` (frozen, ``extra="allow"``). ``sources`` is
     **required and non-empty** — the single chokepoint that makes a sourceless
@@ -154,27 +154,30 @@ class KnowledgeItem(Folder):
         """Set the human narrative (its ``index.md``)."""
         self.write_index(text)
 
-    # ── typed head (meta.yaml) ────────────────────────────────────────────
+    # ── typed head (meta.json) ────────────────────────────────────────────
 
     def read_knowledge_meta(self) -> KnowledgeMeta:
-        """Load this item's typed :class:`KnowledgeMeta` from ``meta.yaml``.
+        """Load this item's typed :class:`KnowledgeMeta` from ``meta.json``.
 
         Raises loudly (``ValidationError``) if the on-disk head is not a valid
         KnowledgeMeta — e.g. missing ``kind`` or an empty ``sources`` list.
         """
-        fpath = self._fs.join(self.resolve(), META_YAML_FILENAME)
-        return cast("KnowledgeMeta", KnowledgeMeta.from_yaml(self._fs.read_text(fpath)))
+        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
+        if not self._fs.exists(fpath):
+            legacy = self._fs.join(self.resolve(), "meta.json")
+            return cast("KnowledgeMeta", KnowledgeMeta.from_yaml(self._fs.read_text(legacy)))
+        return cast("KnowledgeMeta", KnowledgeMeta.from_json(self._fs.read_text(fpath)))
 
     def write_knowledge_meta(self, meta: KnowledgeMeta) -> None:
-        """Atomically write this item's typed ``meta.yaml``.
+        """Atomically write this item's typed ``meta.json``.
 
         The on-disk ``type`` / ``id`` are stamped to this Concept's ``kind`` /
         ``name`` (mirroring ``ReferenceConcept.write_reference_meta``) so
         :func:`concept_from_dir` rebuilds a :class:`KnowledgeItem`.
         """
         meta = meta.model_copy(update={"type": self._kind, "id": self._name})
-        fpath = self._fs.join(self.path(), META_YAML_FILENAME)
-        self._fs.atomic_write_text(fpath, meta.to_yaml())
+        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
+        self._fs.atomic_write_text(fpath, meta.to_json())
 
     # ── typed provenance edge (reuse P0.1) ────────────────────────────────
 
@@ -184,7 +187,7 @@ class KnowledgeItem(Folder):
         A thin delegator over :func:`~molexp.workspace.folder.append_link` (the
         single markdown-edge writer). Use for in-tree sources (a ``Run`` /
         ``Experiment`` / Concept); content-hash / file sources have no Folder to
-        point at and live only in ``meta.yaml``.
+        point at and live only in ``meta.json``.
 
         Args:
             source: The in-tree Folder this item derives from / cites.

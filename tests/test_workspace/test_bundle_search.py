@@ -39,14 +39,13 @@ def _root(tmp_path: Path) -> Path:
 def _note(bundle_root: Path, name: str, index_md: str, *, under: str | None = None) -> Note:
     """Materialize a ``Note`` Concept with *index_md* as its body.
 
-    *under* is a bundle-relative plain organizational dir (no ``meta.yaml``),
+    *under* is a bundle-relative plain organizational dir (no ``meta.json``),
     created on demand — the ``scope`` filter's subtree host.
     """
     host = bundle_root if under is None else bundle_root / under
     host.mkdir(parents=True, exist_ok=True)
     note = Note(name=name, root_path=str(host))
-    note.materialize()  # metadata.json — Folder.from_disk reads it
-    note.write_meta()  # meta.yaml — the OKF Concept marker
+    note.materialize()  # meta.json concept identity
     note.write_index(index_md)
     return note
 
@@ -120,9 +119,19 @@ class TestSearch:
         folder = Folder(name="untitled-doc", kind="bundle.concept", root_path=str(root))
         folder.materialize()
         folder.write_meta()
-        # tags live in meta.yaml (idiom of test_bundle_index.test_filter_by_tag)
-        (Path(folder.resolve()) / "meta.yaml").write_text(
-            "type: bundle.concept\nid: untitled-doc\ntags:\n- zwitterion\n"
+        # tags live in meta.json (idiom of test_bundle_index.test_filter_by_tag)
+        import json
+
+        (Path(folder.resolve()) / "meta.json").write_text(
+            json.dumps(
+                {
+                    "type": "bundle.concept",
+                    "id": "untitled-doc",
+                    "tags": ["zwitterion"],
+                },
+                indent=2,
+            )
+            + "\n"
         )
         (Path(folder.resolve()) / "index.md").write_text("nothing relevant here\n")
 

@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v6
       - name: Install (no path sources — CI clone has no sibling mollog)
         env:
@@ -23,24 +23,21 @@ jobs:
       - name: Ruff + ty
         env:
           UV_NO_SOURCES: "1"
+        # Mirrors mol_project.build.check and the pre-commit ruff/ty hooks.
         run: |
-          uv run ruff format --check .
-          uv run ruff check .
+          uv run ruff format --check src/ tests/
+          uv run ruff check src/ tests/
           uv run ty check src/
 
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Both ends of the supported range. Testing only the top lets syntax
-        # the floor cannot parse (PEP 758 `except A, B:`) land unnoticed.
-        python-version: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          # Keep in lockstep with requires-python (>=3.12) and the pre-push
+          # ci-test hook (single interpreter in .venv-ci).
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v6
       - name: Install
         env:
@@ -49,9 +46,10 @@ jobs:
       - name: pytest
         env:
           UV_NO_SOURCES: "1"
+        # Same command as .pre-commit-config.yaml `ci-test` (pre-push).
         run: uv run pytest tests/ -q --cov=src/molexp --cov-report=xml
 
-  ui:
+  web:
     runs-on: ubuntu-latest
     # Advisory: workspace depends on unpublished @molcrafts/molplot pin.
     continue-on-error: true
@@ -60,7 +58,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
       - name: npm install
+        # package-lock.json is gitignored (latest-range policy); install
+        # resolves caret ranges from apps/web/package.json on every run.
         run: npm install
-      - name: UI lint + typecheck + test
-        run: npm run lint && npm run typecheck && npm run test:ui
+      - name: Web lint + typecheck + test
+        # Same command as .pre-commit-config.yaml `web-checks` (pre-push).
+        run: npm run lint && npm run typecheck:web && npm run test:web

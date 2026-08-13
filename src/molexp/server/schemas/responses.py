@@ -117,8 +117,10 @@ class ExperimentResponse(BaseModel):
     def from_model(
         cls, experiment: Experiment, runs: list[Run] | None = None
     ) -> ExperimentResponse:
-        run_list = []
-        if runs:
+        # Always expose runCount so the nav shows "2 runs" before expand.
+        # Full run rows are only included when *runs* is passed (detail GET).
+        if runs is not None:
+            run_objs = runs
             run_list = [
                 RunSummary(
                     id=r.id,
@@ -128,8 +130,12 @@ class ExperimentResponse(BaseModel):
                     parameters=r.parameters,
                     results=_read_context_results(r),
                 )
-                for r in runs
+                for r in run_objs
             ]
+            run_count = len(run_objs)
+        else:
+            run_list = []
+            run_count = len(experiment.list_runs())
         return cls(
             id=experiment.id,
             projectId=experiment.project.id,
@@ -142,7 +148,7 @@ class ExperimentResponse(BaseModel):
             parameterSpace=experiment.metadata.parameter_space,
             defaultTarget=experiment.metadata.default_target,
             created=experiment.created_at.isoformat(),
-            runCount=len(runs) if runs else None,
+            runCount=run_count,
             runs=run_list,
         )
 
@@ -562,6 +568,10 @@ class HealthResponse(BaseModel):
     status: str
     workspace_available: bool
     capabilities: dict[str, bool] = Field(default_factory=dict)
+    auth_required: bool = Field(
+        default=False,
+        description="True when the server process has auth enabled (UI should gate on login).",
+    )
 
 
 # ── Run logs / execution ─────────────────────────────────────────────────────

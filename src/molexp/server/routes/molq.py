@@ -29,7 +29,7 @@ _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 @router.get("/targets", response_model=MolqTargetListResponse)
 def list_targets() -> MolqTargetListResponse:
-    """List configured molq targets (one per profile in ``~/.molq/config.toml``)."""
+    """List configured molq targets (one per profile in ``~/.molq/config.yaml``)."""
     try:
         targets = dashboard.list_targets()
     except FileNotFoundError as exc:

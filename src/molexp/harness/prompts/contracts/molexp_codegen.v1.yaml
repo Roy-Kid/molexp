@@ -65,3 +65,23 @@ workspace_primitives:
   hierarchy: [Workspace, Project, Experiment, Run]
   run_verbs: [run, resume, rerun, cancel]
   identity: config_hash_is_run_identity
+  # Drive FAIR experiments from the CLI — do not re-implement a mini runner.
+  drive_via: molexp_run
+  declare_with: "Workspace(...).project(...).experiment(...).run(wf.compile(), params=...)"
+
+# Anti-patterns rejected by WorkflowSourceValidator (and by reviewers).
+# Science packages are installed imports; sibling modules resolve via molexp run
+# (script dir is on sys.path automatically). Never hand-roll the driver.
+entry_script:
+  prefer:
+    - "module-level Workspace → Project → Experiment → run(compiled, params=...)"
+    - "task params + molcfg profiles + `molexp run --override KEY=VAL`"
+    - "RegisterArtifact / RegisterMetric from task returns (pure TaskContext)"
+    - "re-execute with `molexp run --rerun [--fresh]` (content-addressed run ids)"
+  forbid:
+    - argparse_cli  # molexp run owns the CLI
+    - sys_path_insert  # install packages; molexp run adds script dir only
+    - hardcoded_source_trees  # no /nobackup/.../pkg/src path hacks
+    - timestamp_run_ids  # fights content-addressed identity; use --rerun
+    - driver_side_run_start  # no second run.start() after execute for metrics
+    - execute_run_in_entry  # FAIR entry = molexp run; execute_run is library-only

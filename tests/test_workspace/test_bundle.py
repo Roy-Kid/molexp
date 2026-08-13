@@ -26,10 +26,9 @@ CONCEPT_KIND = "bundle.concept"
 
 
 def _concept(name: str, root_path: Path) -> Folder:
-    """Materialize a generic Concept dir (metadata.json + meta.yaml) on disk."""
+    """Materialize a generic Concept dir (``meta.json`` only) on disk."""
     folder = Folder(name=name, kind=CONCEPT_KIND, root_path=str(root_path))
-    folder.materialize()  # metadata.json — base Folder.from_disk reads it
-    folder.write_meta()  # meta.yaml — the OKF Concept marker
+    folder.materialize()
     return folder
 
 
@@ -37,13 +36,13 @@ def _concept(name: str, root_path: Path) -> Folder:
 def bundle(tmp_path: Path) -> Path:
     """Build an OKF bundle on disk and return its root.
 
-    Layout (Concept dirs hold ``meta.yaml``)::
+    Layout (Concept dirs hold ``meta.json``)::
 
         <root>/alpha/            (concept)
         <root>/alpha/beta/       (concept, nested)
         <root>/delta/            (concept)
         <root>/delta/_ops/       (sidecar — never a concept)
-        <root>/delta/_ops/nested_fake/meta.yaml   (planted; must be skipped)
+        <root>/delta/_ops/nested_fake/meta.json   (planted; must be skipped)
         <root>/group/            (plain org dir — NOT a concept)
         <root>/group/gamma/      (concept, under a non-concept dir)
         <root>/loose.txt         (loose file — never a concept)
@@ -55,12 +54,14 @@ def bundle(tmp_path: Path) -> Path:
     _concept("beta", root / "alpha")
     _concept("delta", root)
 
-    # _ops sidecar with a planted meta.yaml that must never resurrect a concept.
+    # _ops sidecar with a planted meta.json that must never resurrect a concept.
     ops_fake = root / "delta" / "_ops" / "nested_fake"
     ops_fake.mkdir(parents=True)
-    (ops_fake / "meta.yaml").write_text("type: bundle.concept\nid: nested_fake\n")
+    (ops_fake / "meta.json").write_text(
+        '{\n  "type": "bundle.concept",\n  "id": "nested_fake"\n}\n'
+    )
 
-    # plain organizational dir (no meta.yaml) with a concept nested beneath it.
+    # plain organizational dir (no meta.json) with a concept nested beneath it.
     (root / "group").mkdir()
     _concept("gamma", root / "group")
 
@@ -76,7 +77,7 @@ class TestWalk:
 
     def test_skips_ops_sidecars_and_non_concept_dirs(self, bundle: Path) -> None:
         rels = {Bundle(bundle).rel_path(f) for f in Bundle(bundle).walk()}
-        # the _ops sidecar and a meta.yaml planted under it never surface …
+        # the _ops sidecar and a meta.json planted under it never surface …
         assert not any(r.startswith("delta/_ops") for r in rels)
         assert "delta/_ops/nested_fake" not in rels
         # … a non-concept organizational dir is not itself a concept …
@@ -93,11 +94,11 @@ class TestWalk:
 
         junk = root / "node_modules" / "pkg"
         junk.mkdir(parents=True)
-        (junk / "meta.yaml").write_text("type: bundle.concept\nid: pkg\n")
+        (junk / "meta.json").write_text('{\n  "type": "bundle.concept",\n  "id": "pkg"\n}\n')
 
         git_fake = root / ".git" / "objects"
         git_fake.mkdir(parents=True)
-        (git_fake / "meta.yaml").write_text("type: bundle.concept\nid: gitobj\n")
+        (git_fake / "meta.json").write_text('{\n  "type": "bundle.concept",\n  "id": "gitobj"\n}\n')
 
         rels = {Bundle(root).rel_path(f) for f in Bundle(root).walk()}
         assert rels == {"alpha"}
@@ -137,7 +138,7 @@ class TestWalk:
         assert rels == ["alpha"]
 
     def test_survives_marker_only_concept_dirs(self, tmp_path: Path) -> None:
-        """A Concept dir carrying only its OKF meta.yaml marker (registered class
+        """A Concept dir carrying only its OKF meta.json marker (registered class
         not imported this process — e.g. an agent session mounted at a run) must
         reconstruct as a base Folder rather than break the walk."""
         b = Bundle(tmp_path)
@@ -145,8 +146,12 @@ class TestWalk:
 
         stray = tmp_path / "some-agent" / "some-session"
         stray.mkdir(parents=True)
-        (stray / "meta.yaml").write_text("type: agent.session\nid: some-session\n")
-        (stray.parent / "meta.yaml").write_text("type: agent.agent\nid: some-agent\n")
+        (stray / "meta.json").write_text(
+            '{\n  "type": "agent.session",\n  "id": "some-session"\n}\n'
+        )
+        (stray.parent / "meta.json").write_text(
+            '{\n  "type": "agent.agent",\n  "id": "some-agent"\n}\n'
+        )
 
         names = [c.name for c in b.walk()]
         assert "findings" in names
@@ -166,17 +171,18 @@ class TestGet:
         with pytest.raises(ConceptNotFoundError):
             b.get("does/not/exist")  # path absent
         with pytest.raises(ConceptNotFoundError):
-            b.get("group")  # exists on disk but has no meta.yaml → not a Concept
+            b.get("group")  # exists on disk but has no meta.json → not a Concept
 
 
 class TestPut:
     def test_materializes_concept_preserving_type(self, bundle: Path) -> None:
         b = Bundle(bundle)
+        # Unmounted concept: dir may exist without meta until put/materialize.
         epsilon = Folder(name="epsilon", kind=CONCEPT_KIND, root_path=str(bundle))
-        epsilon.materialize()
-        assert not (Path(epsilon.resolve()) / "meta.yaml").is_file()
+        Path(epsilon.path()).mkdir(parents=True, exist_ok=True)
+        assert not (Path(epsilon.resolve()) / "meta.json").is_file()
         b.put(epsilon)
-        assert (Path(epsilon.resolve()) / "meta.yaml").is_file()
+        assert (Path(epsilon.resolve()) / "meta.json").is_file()
         assert b.get("epsilon").read_meta()["type"] == CONCEPT_KIND
 
     def test_is_idempotent(self, bundle: Path) -> None:
@@ -201,7 +207,7 @@ class TestLink:
         index_text = src.read_index()
         assert "delta" in index_text
         assert "](" in index_text  # a real markdown link was written
-        meta_text = (Path(src.resolve()) / "meta.yaml").read_text(encoding="utf-8")
+        meta_text = (Path(src.resolve()) / "meta.json").read_text(encoding="utf-8")
         assert "delta" not in meta_text  # not smuggled into structured metadata
         # … and Folder.out_edges() resolves it back to dst.
         edges = {Path(p) for p in b.get("alpha").out_edges()}

@@ -1,7 +1,7 @@
-"""``NoteMeta`` -- structured ``meta.yaml`` payload for an OKF Note Concept.
+"""``NoteMeta`` -- structured ``meta.json`` payload for an OKF Note Concept.
 
 A :class:`molexp.workspace.concepts.Note` stores lightweight document metadata
-in ``meta.yaml`` via this :class:`ConceptMeta` subtype, while its narrative body
+in ``meta.json`` via this :class:`ConceptMeta` subtype, while its narrative body
 lives in ``index.md`` and its knowledge-graph edges are markdown links. ``tags``
 is inherited from :class:`ConceptMeta` (default empty = untagged); ``status`` is
 added here (default ``"active"``).
@@ -21,7 +21,7 @@ NOTE_TYPE = "note.note"
 
 
 class NoteMeta(ConceptMeta):
-    """Document ``meta.yaml`` payload of a Note Concept.
+    """Document ``meta.json`` payload of a Note Concept.
 
     Inherits :class:`ConceptMeta` (frozen, ``extra="allow"``, ``from_yaml`` /
     ``to_yaml``, inherited ``tags``); ``type`` defaults to ``"note.note"``.

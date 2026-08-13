@@ -1,10 +1,10 @@
 """OKF capabilities on ``workspace.Folder`` (wsokf-01/02/03).
 
 Every Folder gains a narrative ``index.md`` whose markdown links are the
-knowledge graph (``out_edges`` / ``links``) and a ``meta.yaml`` concept marker
-(``type`` → registry) — both additive alongside the authoritative
-``metadata.json``. A ``Run`` additionally carries the hot-state ``_ops/run.json``
-sidecar (``RunOpsState`` via ``read_ops`` / ``write_ops`` / ``update_ops``).
+knowledge graph (``out_edges`` / ``links``) and a sole concept identity file
+``meta.json`` (``type`` → registry; path basename = id). Domain entities keep
+class-named JSON (``project.json`` / ``run.json`` / …). A ``Run`` additionally
+carries the hot-state ``_ops/run.json`` sidecar.
 """
 
 from __future__ import annotations
@@ -45,14 +45,16 @@ class TestFolderOKF:
         assert any("example.com" in e for e in scan.external)
         assert any("nope" in o for o in scan.other)
 
-    def test_meta_yaml_marks_concept_type_and_id(self, tmp_path: Path) -> None:
+    def test_meta_yaml_marks_concept_type_path_is_id(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab")
         ws.materialize()
         proj = ws.add_project("alpha")
         assert ws.read_meta()["type"] == "workspace.root"
         pmeta = proj.read_meta()
         assert pmeta["type"] == "workspace.project"
-        assert pmeta["id"] == "alpha"
+        # Path basename is identity — id is not required on the marker.
+        assert "id" not in pmeta or pmeta.get("id") in (None, "alpha")
+        assert not (Path(proj.resolve()) / "metadata.json").exists()
 
 
 class TestRunOpsSidecar:

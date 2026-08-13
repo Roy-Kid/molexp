@@ -3,14 +3,18 @@
 Layout (under the product agent home)::
 
     <workspace>/agent/
-        _tasks/<task_id>/metadata.json   # this module
+        _tasks/<task_id>/task.json       # this module (canonical)
         _tasks/<task_id>/events.json     # optional transcript
         <session_id>/                    # AgentSession (runner)
         .scratch/                        # LocalExecutionEnv
+
+Legacy ``metadata.json`` under a task dir is still read once, then rewritten
+as ``task.json`` on the next write (greenfield prefer new name).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -22,8 +26,11 @@ from typing import Any, Literal
 # Co-located with InteractiveLoop.name ("agent") — single product agent home.
 AGENT_HOME_NAME = "agent"
 TASKS_SUBDIR = "_tasks"
-METADATA_FILE = "metadata.json"
+TASK_FILE = "task.json"
+_LEGACY_TASK_FILE = "metadata.json"
 EVENTS_FILE = "events.json"
+# Back-compat alias for importers that still name the constant METADATA_FILE.
+METADATA_FILE = TASK_FILE
 
 
 #: The two agent-task modes. Persisted values outside this vocabulary are
@@ -175,11 +182,22 @@ def list_agent_task_metadata(workspace_root: str | Path) -> list[PersistedAgentT
     for entry in entries:
         if not entry.is_dir():
             continue
-        task = _read_meta_file(entry / METADATA_FILE, entry.name)
+        task = _read_task_file(entry, entry.name)
         if task is not None:
             rows.append(task)
     rows.sort(key=lambda r: r.updated_at or r.created_at, reverse=True)
     return rows
+
+
+def _read_task_file(task_dir: Path, task_id: str) -> PersistedAgentTask | None:
+    """Read ``task.json``, falling back to legacy ``metadata.json``."""
+    primary = task_dir / TASK_FILE
+    if primary.is_file():
+        return _read_meta_file(primary, task_id)
+    legacy = task_dir / _LEGACY_TASK_FILE
+    if legacy.is_file():
+        return _read_meta_file(legacy, task_id)
+    return None
 
 
 def read_agent_task_metadata(
@@ -187,7 +205,7 @@ def read_agent_task_metadata(
     task_id: str,
 ) -> PersistedAgentTask | None:
     try:
-        return _read_meta_file(_task_dir(workspace_root, task_id) / METADATA_FILE, task_id)
+        return _read_task_file(_task_dir(workspace_root, task_id), task_id)
     except ValueError:
         return None
 
@@ -216,10 +234,15 @@ def write_agent_task_metadata(
         "experiment_id": task.experiment_id,
         "run_id": task.run_id,
     }
-    path = target_dir / METADATA_FILE
+    path = target_dir / TASK_FILE
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
     os.replace(tmp, path)  # noqa: PTH105
+    # Drop legacy name after successful write so dual files do not linger.
+    legacy = target_dir / _LEGACY_TASK_FILE
+    if legacy.is_file():
+        with contextlib.suppress(OSError):
+            legacy.unlink()
 
 
 def write_agent_task_events(

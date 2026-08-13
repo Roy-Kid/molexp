@@ -112,15 +112,17 @@ def molq_config(tmp_path, monkeypatch):
     monkeypatch.setenv("MOLCRAFTS_HOME", str(tmp_path))
     config_dir = tmp_path / "molq" / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.toml"
+    # molq ≥0.8 reads YAML only (TOML is rejected with ConfigError).
+    config_path = config_dir / "config.yaml"
     jobs_dir = tmp_path / "jobs"
     jobs_dir.mkdir()
     config_path.write_text(
         f"""
-[profiles.demo]
-scheduler = "local"
-cluster_name = "demo-local"
-jobs_dir = "{jobs_dir}"
+profiles:
+  demo:
+    scheduler: local
+    cluster_name: demo-local
+    jobs_dir: "{jobs_dir}"
 """.strip()
     )
     dashboard._reset_submitor_cache()
@@ -174,7 +176,7 @@ class TestListTargets:
         assert targets[0].active_jobs == 2
 
     def test_empty_config_returns_empty_list(self, tmp_path):
-        empty = tmp_path / "empty.toml"
+        empty = tmp_path / "empty.yaml"
         empty.write_text("")
         dashboard._reset_submitor_cache()
 

@@ -5,13 +5,13 @@ In OKF a Concept is a **directory** whose path is its identity:
 - A :class:`Note` is a Folder whose body is its ``index.md`` and whose citations
   are markdown links (resolved by :meth:`Folder.out_edges`).
 - A :class:`ReferenceConcept` is a Folder whose structured bib record lives in
-  ``meta.yaml`` (:class:`ReferenceMeta`) and whose human citation text lives in
+  ``meta.json`` (:class:`ReferenceMeta`) and whose human citation text lives in
   ``index.md``. PDFs are *pointed at* via ``ReferenceMeta.pdf_path`` /
   ``pdf_asset_id`` — never copied.
 
 Both register via ``@concept_type(...)`` (the open registry shared with the
 ``molexp.knowledge`` peer layer), so :func:`molexp.workspace.folder.concept_from_dir`
-rebuilds the right subclass from a directory's ``meta.yaml`` ``type``.
+rebuilds the right subclass from a directory's ``meta.json`` ``type``.
 
 The constructors match the workspace :class:`Folder` keyword contract
 (``parent`` / ``name`` / ``kind`` / ``root_path`` / ``fs``) and default their
@@ -32,7 +32,7 @@ from typing import ClassVar, cast
 from molexp.knowledge.types import concept_type
 
 from .edges import DEFAULT_EDGE_ROLE, EdgeRole
-from .folder import META_YAML_FILENAME, Folder, append_link
+from .folder import META_JSON_FILENAME, Folder, append_link
 from .fs import FileSystem, PathArg
 from .note_meta import NOTE_TYPE, NoteMeta
 from .reference_meta import ReferenceMeta
@@ -91,22 +91,26 @@ class Note(Folder):
         """
         append_link(self, ref, text=text, role=role)
 
-    # -- typed meta.yaml (tags / status) -- knowledge-docs-05 ------------------
+    # -- typed meta.json (tags / status) -- knowledge-docs-05 ------------------
 
     def read_note_meta(self) -> NoteMeta:
-        """Load this note's typed document ``meta.yaml`` as a :class:`NoteMeta`.
+        """Load this note's typed document ``meta.json`` as a :class:`NoteMeta`.
 
-        A legacy bare marker (only ``{type, id}``) -- or an absent ``meta.yaml``
+        A legacy bare marker (only ``{type, id}``) -- or an absent ``meta.json``
         -- reads back with the additive defaults (``tags == []`` /
         ``status == "active"``), so no migration is needed.
         """
-        fpath = self._fs.join(self.resolve(), META_YAML_FILENAME)
+        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
         if not self._fs.exists(fpath):
+            # legacy meta.json
+            legacy = self._fs.join(self.resolve(), "meta.json")
+            if self._fs.exists(legacy):
+                return cast("NoteMeta", NoteMeta.from_yaml(self._fs.read_text(legacy)))
             return NoteMeta(type=self._kind, id=self._name)
-        return cast("NoteMeta", NoteMeta.from_yaml(self._fs.read_text(fpath)))
+        return cast("NoteMeta", NoteMeta.from_json(self._fs.read_text(fpath)))
 
     def write_note_meta(self, meta: NoteMeta) -> None:
-        """Atomically write this note's typed document ``meta.yaml``.
+        """Atomically write this note's typed document ``meta.json``.
 
         The on-disk ``type`` is stamped to this Concept's ``kind`` (``note.note``)
         and ``id`` to its name, mirroring
@@ -115,8 +119,8 @@ class Note(Folder):
         on *meta* are preserved verbatim (``ConceptMeta`` is ``extra="allow"``).
         """
         meta = meta.model_copy(update={"type": self._kind, "id": self._name})
-        fpath = self._fs.join(self.path(), META_YAML_FILENAME)
-        self._fs.atomic_write_text(fpath, meta.to_yaml())
+        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
+        self._fs.atomic_write_text(fpath, meta.to_json())
 
     def tags(self) -> list[str]:
         """Return this note's categorical tags (``[]`` when untagged)."""
@@ -141,7 +145,7 @@ class Note(Folder):
 class ReferenceConcept(Folder):
     """A reference Concept — a bibliographic record (one Concept per ref).
 
-    Structured bib fields live in ``meta.yaml`` (:class:`ReferenceMeta`); the
+    Structured bib fields live in ``meta.json`` (:class:`ReferenceMeta`); the
     human-readable citation text lives in ``index.md``. PDFs are pointed at via
     ``ReferenceMeta.pdf_path`` / ``pdf_asset_id`` — never copied.
 
@@ -163,12 +167,15 @@ class ReferenceConcept(Folder):
         super().__init__(parent=parent, name=name, kind=kind, root_path=root_path, fs=fs)
 
     def read_ref_meta(self) -> ReferenceMeta:
-        """Load this reference's typed bib ``meta.yaml`` as a :class:`ReferenceMeta`."""
-        fpath = self._fs.join(self.resolve(), META_YAML_FILENAME)
-        return cast("ReferenceMeta", ReferenceMeta.from_yaml(self._fs.read_text(fpath)))
+        """Load this reference's typed bib ``meta.json`` as a :class:`ReferenceMeta`."""
+        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
+        if not self._fs.exists(fpath):
+            legacy = self._fs.join(self.resolve(), "meta.json")
+            return cast("ReferenceMeta", ReferenceMeta.from_yaml(self._fs.read_text(legacy)))
+        return cast("ReferenceMeta", ReferenceMeta.from_json(self._fs.read_text(fpath)))
 
     def write_reference_meta(self, meta: ReferenceMeta) -> None:
-        """Atomically write this reference's typed bib ``meta.yaml``.
+        """Atomically write this reference's typed bib ``meta.json``.
 
         The on-disk ``type`` is stamped to this Concept's ``kind``
         (``reference.reference``) — the registered concept type — so
@@ -177,8 +184,8 @@ class ReferenceConcept(Folder):
         ``"reference"`` for the OKF bib payload).
         """
         meta = meta.model_copy(update={"type": self._kind, "id": self._name})
-        fpath = self._fs.join(self.path(), META_YAML_FILENAME)
-        self._fs.atomic_write_text(fpath, meta.to_yaml())
+        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
+        self._fs.atomic_write_text(fpath, meta.to_json())
 
     def write_ref_meta(self, meta: ReferenceMeta) -> None:
         """Deprecated alias for :meth:`write_reference_meta`.

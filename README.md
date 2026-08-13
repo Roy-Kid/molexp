@@ -51,7 +51,8 @@ What that unlocks is a research workflow you can trust and revisit: experiments 
 | `molexp.cli`        | `molexp` command-line entry point — workspace init/info, run/execute, project / experiment / run / asset / target / session subcommands |
 | `molexp.plugins`    | On-demand capability registry — `submit_molq` scheduler bridge (SLURM / PBS / LSF) and `gh` GitHub client; core stays dependency-light |
 | `molexp.git`        | Thin async wrappers over the `git` binary — `ensure_clone` / `fetch` / `push` and `GitWorktreeManager` for per-experiment working dirs |
-| `ui/`               | React 19 + Rsbuild three-panel web client — navigation tree, entity viewers, inspector; compiled ahead of time and bundled into the wheel |
+| `apps/web/`         | React 19 + Rsbuild three-panel web client — navigation tree, entity viewers, inspector; compiled ahead of time and bundled into the wheel |
+| `apps/vsc-ext/`     | VS Code workflow-preview extension — reuses the web workflow canvas components |
 
 ## Install
 
@@ -59,7 +60,7 @@ What that unlocks is a research workflow you can trust and revisit: experiments 
 pip install molexp
 ```
 
-Requires Python >= 3.14. Core depends on `pydantic`, `typer`, `rich`, `fastapi`, `uvicorn`, and the MolCrafts libraries `mollog`, `molcfg`, `molq`, and `molpy` (the workflow engine is self-owned — `pydantic-graph` is no longer a dependency). Optional extras: `molexp[agent]` adds the PydanticAI LLM layer; `molexp[tensorboard]` adds the TensorBoard scalar reader; `molexp[all]` bundles both, and `molexp[dev]` pulls everything for development.
+Requires Python >= 3.12. Core depends on `pydantic`, `typer`, `rich`, `fastapi`, `uvicorn`, and the MolCrafts libraries `mollog`, `molcfg`, `molq`, and `molpy` (the workflow engine is self-owned — `pydantic-graph` is no longer a dependency). Optional extras: `molexp[agent]` adds the PydanticAI LLM layer; `molexp[tensorboard]` adds the TensorBoard scalar reader; `molexp[all]` bundles both, and `molexp[dev]` pulls everything for development.
 
 ## Quick start
 

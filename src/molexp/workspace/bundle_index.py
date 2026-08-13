@@ -5,7 +5,7 @@ rolls each Concept's identity (path / type / id / tags / title / out-edges) into
 a :class:`BundleIndex`, then writes two **derived** siblings at the bundle root:
 ``index.json`` (machine-readable) and ``INDEX.md`` (human/agent-readable, same
 spirit as ``.claude/specs/INDEX.md``). Both are rebuilt on demand from the
-authoritative ``meta.yaml`` + ``index.md`` graph — never a source of truth (the
+authoritative ``meta.json`` + ``index.md`` graph — never a source of truth (the
 workspace "one source of truth" law).
 
 ``BundleIndex`` is an index *of every Concept in a directory subtree*.
@@ -44,10 +44,10 @@ class ConceptIndexEntry(BaseModel, frozen=True):
 
     Attributes:
         path: Bundle-relative POSIX path — the Concept's identity.
-        type: The Concept's ``meta.yaml`` type.
-        id: Optional stable id from ``meta.yaml``.
+        type: The Concept's ``meta.json`` type.
+        id: Optional stable id from ``meta.json``.
         title: The ``index.md`` H1 if present, else the Concept name.
-        tags: Categorical labels from ``meta.yaml``.
+        tags: Categorical labels from ``meta.json``.
         links: Out-edges (in-tree Concept targets) as bundle-relative paths.
     """
 

@@ -144,7 +144,7 @@ class JsonlSessionStorage:
 
     @property
     def directory(self) -> Path:
-        """On-disk session directory (next to ``messages.jsonl`` / meta.yaml)."""
+        """On-disk session directory (next to ``messages.jsonl`` / meta.json)."""
         return self._dir
 
     # ── lazy load ───────────────────────────────────────────────────────────

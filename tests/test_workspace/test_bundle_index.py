@@ -1,6 +1,6 @@
 """Tests for the derived bundle index + its index-level search filters.
 
-``Bundle.build_index()`` rolls the whole Concept tree (``meta.yaml`` +
+``Bundle.build_index()`` rolls the whole Concept tree (``meta.json`` +
 markdown-link graph) into a :class:`BundleIndex` and writes two *derived*
 siblings at the bundle root — ``index.json`` (machine) + ``INDEX.md``
 (human/agent). Neither file is a source of truth; both are rebuilt on demand.
@@ -99,9 +99,15 @@ class TestSearchFilters:
         root = tmp_path / "bundle"
         root.mkdir()
         tagged = _concept("tagged", root)
-        # tags live in meta.yaml; write_meta() only stores type+id, so add tags directly
-        (Path(tagged.resolve()) / "meta.yaml").write_text(
-            "type: bundle.concept\nid: tagged\ntags:\n- important\n"
+        # tags live in meta.json; write_meta() only stores type + lifecycle.
+        import json
+
+        (Path(tagged.resolve()) / "meta.json").write_text(
+            json.dumps(
+                {"type": "bundle.concept", "id": "tagged", "tags": ["important"]},
+                indent=2,
+            )
+            + "\n"
         )
         _concept("plain", root)
         b = Bundle(root)

@@ -9,7 +9,7 @@ version = "0.0.2"
 description = "Agent-assisted scientific-workflow platform for FAIR research"
 authors = [{name = "molcrafts"}]
 license = {text = "BSD-3-Clause"}
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 
 dependencies = [
     "pydantic>=2.10",
@@ -19,12 +19,14 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "pathspec>=0.12.0",
+    "argon2-cffi>=23.1.0",
     "molcrafts-mollog>=1.0.0",
     "molcrafts-molcfg>=1.2.0",
     "molcrafts-molq>=0.2.0",
     # molpy is a hard dependency (Frame/Block and the io readers); molrs is
     # reached ONLY through molpy — never import molrs directly.
     "molcrafts-molpy>=0.11.2",
+    "zarr>=3",
 ]
 
 [project.optional-dependencies]
@@ -47,10 +49,10 @@ dev = [
     "pytest-mock>=3.10",
     "httpx>=0.24",
     "psutil>=5.9.0",
-    # Match .pre-commit-config.yaml ruff-pre-commit rev (v0.15.12) so
-    # META.build.check / bare `ruff` on PATH agrees with the commit hooks.
-    "ruff==0.15.12",
-    "ty==0.0.60",
+    # Match .pre-commit-config.yaml ruff-pre-commit rev so META.build.check /
+    # bare `ruff` on PATH agrees with the commit hooks. Keep these at latest.
+    "ruff==0.16.2",
+    "ty==0.0.69",
     "tox>=4.23",
     # Build binding only. molrs is molpy's dependency, not molexp's API — no
     # molexp module may `import molrs` (Frame/Block come from molpy). It is
@@ -91,7 +93,7 @@ line-length = 100
 target-version = "py312"
 extend-exclude = [
     "src/molexp/dist",
-    "ui",
+    "apps",
     "build",
     "dist",
     "site",
@@ -103,7 +105,7 @@ extend-exclude = [
 # Strict ruleset for the molexp Python codebase.
 #   E, W, F, I  — pycodestyle / pyflakes / isort baseline
 #   B           — flake8-bugbear
-#   UP          — pyupgrade (modern py314 syntax)
+#   UP          — pyupgrade (modern py312+ syntax)
 #   SIM         — flake8-simplify
 #   RUF         — ruff-specific rules
 #   ANN         — flake8-annotations (drives ANN401: ban `Any`)
@@ -159,7 +161,7 @@ python = "./.venv"
 include = ["src", "tests", "examples"]
 exclude = [
     "src/molexp/dist",
-    "ui",
+    "apps",
     "build",
     "dist",
     "site",
@@ -197,10 +199,10 @@ env_list = ["lint", "py"]
 [tool.tox.env.lint]
 description = "CI lint"
 skip_install = true
-base_python = ["python3.14"]
+base_python = ["python3.12"]
 deps = [
-  "ruff==0.15.12",
-  "ty==0.0.60",
+  "ruff==0.16.2",
+  "ty==0.0.69",
 ]
 commands = [
   ["ruff", "check", "."],
@@ -208,7 +210,7 @@ commands = [
 
 [tool.tox.env.py]
 description = "CI test (non-editable package when package=wheel)"
-base_python = ["python3.14"]
+base_python = ["python3.12"]
 pass_env = [
   "HOME",
   "PATH",

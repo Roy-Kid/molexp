@@ -1,7 +1,7 @@
 """``Bundle`` — the OKF bundle façade over the ``workspace.Folder`` tree.
 
 A *bundle* is a directory subtree whose Concept dirs (dirs that directly hold
-``meta.yaml``) form a knowledge graph via ``index.md`` markdown links. A
+``meta.json``) form a knowledge graph via ``index.md`` markdown links. A
 :class:`Bundle` wraps a *bundle root* and exposes the whole subtree — at any
 depth — as one management entry point: :meth:`walk` (depth-first Concept
 enumeration), :meth:`get` (path-as-identity resolution), :meth:`put`
@@ -31,6 +31,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, NamedTuple
 
 from molexp.ids import slugify
+from molexp.path import Path as MolPath
 
 from .bundle_index import (
     INDEX_JSON_FILENAME,
@@ -45,7 +46,7 @@ from .edges import DEFAULT_EDGE_ROLE, EdgeRole
 from .errors import ConceptNotFoundError
 from .folder import (
     INDEX_FILENAME,
-    META_YAML_FILENAME,
+    META_JSON_FILENAME,
     OPS_DIR,
     Folder,
     append_link,
@@ -55,6 +56,8 @@ from .fs import FileSystem, PathArg
 from .fs_local import LocalFileSystem
 from .reference_meta import ReferenceMeta
 from .zotero_concepts import read_zotero_items
+
+_LEGACY_META_YAML = "meta.yaml"
 
 if TYPE_CHECKING:
     from .assets.base import Asset
@@ -97,9 +100,13 @@ def _utcnow() -> datetime:
 
 
 def _is_concept_dir(path: PathArg, fs: FileSystem) -> bool:
-    """Return ``True`` iff *path* is a dir that directly holds ``meta.yaml``."""
+    """Return ``True`` iff *path* is a dir that holds a concept marker."""
     try:
-        return fs.is_dir(path) and fs.exists(fs.join(path, META_YAML_FILENAME))
+        if not fs.is_dir(path):
+            return False
+        return fs.exists(fs.join(path, META_JSON_FILENAME)) or fs.exists(
+            fs.join(path, _LEGACY_META_YAML)
+        )
     except OSError:
         # Broken / cycle symlinks or path-too-long entries are not concepts.
         return False
@@ -214,7 +221,7 @@ class Bundle:
         """Reconstruct the closest enclosing Concept dir, or ``None`` if none.
 
         Walks up from *child_dir* (still inside the bundle root); the first
-        ancestor holding ``meta.yaml`` is reconstructed (recursively, so the
+        ancestor holding ``meta.json`` is reconstructed (recursively, so the
         whole typed chain is built) and returned.
         """
         root = str(self._root)
@@ -256,7 +263,8 @@ class Bundle:
         parent._parent = None
         parent._name = self._fs.basename(directory)
         parent._kind = "bundle.parent"
-        parent._root_path = _StdPath(self._fs.dirname(directory))
+        # Folder._root_path is molexp.path.Path (not pathlib.Path).
+        parent._root_path = MolPath(self._fs.dirname(directory))  # type: ignore[assignment]
         parent._fs = self._fs
         parent._children_cache = {}
         return parent
@@ -274,7 +282,7 @@ class Bundle:
     def walk(self) -> Iterator[Folder]:
         """Yield every Concept under the root, depth-first (preorder).
 
-        A dir is yielded iff it holds ``meta.yaml``. The ``_ops/`` sidecar (and
+        A dir is yielded iff it holds ``meta.json``. The ``_ops/`` sidecar (and
         everything beneath it) is skipped; paths matching the workspace
         ``.gitignore`` cascade (plus a safety-floor denylist for
         ``node_modules`` / ``.git`` / venvs) are skipped entirely; symlink
@@ -323,7 +331,15 @@ class Bundle:
             if ignore.is_ignored(rel_s, is_dir=True):
                 continue
             if _is_concept_dir(entry, self._fs):
-                yield self._folder_for(entry)
+                try:
+                    yield self._folder_for(entry)
+                except Exception as exc:
+                    # A broken entity reconstruction (e.g. remote pin missing
+                    # workflow.json) must not abort the whole knowledge walk —
+                    # nested Notes/References still need to be discovered.
+                    import logging
+
+                    logging.getLogger(__name__).debug("bundle.walk skip concept %s: %s", entry, exc)
             yield from self._walk_dir(entry, _visited=visited)
 
     def get(self, rel_path: PathArg) -> Folder:
@@ -345,13 +361,13 @@ class Bundle:
         return self._folder_for(target)
 
     def put(self, concept: Folder) -> Folder:
-        """Idempotently materialize *concept* (write ``meta.yaml`` if absent).
+        """Idempotently materialize *concept* (write ``meta.json`` if absent).
 
         Args:
             concept: The Concept to materialize.
 
         Returns:
-            The same *concept* (now backed by a ``meta.yaml`` on disk).
+            The same *concept* (now backed by a ``meta.json`` on disk).
         """
         if not _is_concept_dir(concept.resolve(), self._fs):
             concept.write_meta()
@@ -370,7 +386,7 @@ class Bundle:
         Appends a real markdown link (relative to *src*) to ``src/index.md`` so
         :meth:`Folder.out_edges` resolves it back to *dst* and
         :meth:`Folder.typed_out_edges` recovers *role*. The graph lives in
-        markdown, never in ``meta.yaml``. A thin delegator over the single
+        markdown, never in ``meta.json``. A thin delegator over the single
         :func:`~molexp.workspace.folder.append_link` writer.
 
         Args:
@@ -602,7 +618,7 @@ class Bundle:
         (default: a ``references/`` group at the bundle root); its PDF is
         *pointed at* via ``ReferenceMeta.pdf_path`` — no bytes are copied.
         Idempotent on ``source_key``: re-importing an item updates its
-        ``meta.yaml`` in place (the slugified Zotero key is the dir name)
+        ``meta.json`` in place (the slugified Zotero key is the dir name)
         rather than duplicating it. Records the link in ``sources.json``.
 
         Args:
@@ -705,7 +721,7 @@ class Bundle:
         Walks every Concept, rolls its identity into a :class:`BundleIndex`, and
         atomically writes ``index.json`` (machine) + ``INDEX.md`` (human/agent)
         at the bundle root. Always a fresh, full rebuild — never authoritative
-        (``meta.yaml`` + ``index.md`` remain the source of truth).
+        (``meta.json`` + ``index.md`` remain the source of truth).
 
         Args:
             now: Build timestamp; defaults to aware-UTC ``datetime.now``.

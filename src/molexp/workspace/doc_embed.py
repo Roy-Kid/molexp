@@ -184,7 +184,7 @@ def summarize_entity(
     """Project *target* to an :class:`EntitySummary` (a pure read; writes nothing).
 
     - A ``Folder`` (``Run`` / ``Experiment`` / ``ReferenceConcept``): ``id`` is
-      the folder name, ``kind`` is its ``meta.yaml`` type (falling back to the
+      the folder name, ``kind`` is its ``meta.json`` type (falling back to the
       folder's kind), and ``title`` is the ``index.md`` H1 -- with a
       ``ReferenceConcept``'s ``ReferenceMeta.title`` preferred -- else the name.
     - An ``Asset``: ``id`` is the ``asset_id``, ``kind`` is the asset kind, and

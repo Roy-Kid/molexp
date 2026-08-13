@@ -34,6 +34,7 @@ from .exceptions import (
     ExperimentNotFoundError,
     MolExpError,
     ProjectNotFoundError,
+    RemoteWorkspaceUnreachableError,
     RunNotFoundError,
 )
 
@@ -48,6 +49,38 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(MolExpError)
     async def molexp_error_handler(request: Request, exc: MolExpError) -> JSONResponse:  # noqa: ARG001
         """Handle MolExpError exceptions with consistent JSON responses."""
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=exc.to_dict(),
+        )
+
+    @app.exception_handler(ConnectionError)
+    async def connection_error_handler(
+        request: Request,  # noqa: ARG001
+        exc: ConnectionError,  # noqa: ARG001
+    ) -> JSONResponse:
+        """SSH/transport soft-fail — never 500 / traceback noise.
+
+        Remote 2FA hosts raise ConnectionError on BatchMode probe before
+        login; map to the same envelope as RemoteWorkspaceUnreachableError.
+        """
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "REMOTE_WORKSPACE_UNREACHABLE",
+                    "message": "needs_auth",
+                    "details": {"reason": "needs_auth"},
+                }
+            },
+        )
+
+    @app.exception_handler(RemoteWorkspaceUnreachableError)
+    async def remote_unreachable_handler(
+        request: Request,  # noqa: ARG001
+        exc: RemoteWorkspaceUnreachableError,
+    ) -> JSONResponse:
+        """Explicit remote-unreachable path (same envelope as ConnectionError)."""
         return JSONResponse(
             status_code=exc.status_code,
             content=exc.to_dict(),

@@ -84,8 +84,8 @@ class RunExistsError(_WorkspaceConflictError):
 class ConceptNotFoundError(_WorkspaceLookupError):
     """Raised by ``Bundle.get(rel_path)`` when no Concept lives at that path.
 
-    A *Concept* is a directory that directly holds ``meta.yaml`` (the OKF
-    marker). A path that does not exist, or that exists but lacks ``meta.yaml``,
+    A *Concept* is a directory that directly holds ``meta.json`` (the OKF
+    marker). A path that does not exist, or that exists but lacks ``meta.json``,
     is not a Concept and raises this error. The bundle-relative path is carried
     in the message so callers need not re-resolve it.
     """

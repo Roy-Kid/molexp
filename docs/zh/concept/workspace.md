@@ -34,7 +34,7 @@
 workspace_root/
 ├── workspace.json          ← 实体元数据
 ├── project.json            ← 子级索引（项目列表）
-├── meta.yaml               ← OKF 概念标记
+├── meta.json               ← OKF 概念标记
 ├── index.md                ← 知识图谱叙述
 └── projects/<project_id>/
     ├── project.json        ← 实体元数据
