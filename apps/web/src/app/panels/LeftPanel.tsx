@@ -327,9 +327,7 @@ const buildProjectNodes = (
           label: "Copy Path",
           icon: Copy,
           onSelect: () =>
-            actions.onCopyText(
-              formatQualifiedPath(`projects/${project.id}`, actions.pathContext),
-            ),
+            actions.onCopyText(formatQualifiedPath(`projects/${project.id}`, actions.pathContext)),
         },
         {
           id: "refresh",
@@ -1402,9 +1400,7 @@ export const LeftPanel = ({
         dataEpoch={dataEpoch}
         emptyTitle={searchQuery ? EMPTY_COPY.projectsFilter.title : EMPTY_COPY.entries.title}
         emptyDescription={
-          searchQuery
-            ? undefined
-            : "Right-click empty space to add a folder to the workspace."
+          searchQuery ? undefined : "Right-click empty space to add a folder to the workspace."
         }
         onExpand={(nodeId) => {
           // Project ids live at the top level of the snapshot.
@@ -1596,9 +1592,7 @@ export const LeftPanel = ({
         title={listHeader}
         actions={headerActions[view]}
         blankMenu={
-          view === "projects" ? (
-            <TreeMenuItems actions={projectsBackgroundActions} />
-          ) : undefined
+          view === "projects" ? <TreeMenuItems actions={projectsBackgroundActions} /> : undefined
         }
       >
         {treeByView[view]}

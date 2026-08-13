@@ -143,7 +143,9 @@ export const AppShell = ({
   // Auto-open the OTP dialog when the active remote workspace is unreachable.
   const [connectOpen, setConnectOpen] = useState(false);
   useEffect(() => {
+    const key = activeWorkspace?.key;
     if (
+      key &&
       activeWorkspace?.isRemote &&
       (activeWorkspace.unreachable || activeWorkspace.needsAuth)
     ) {

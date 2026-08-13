@@ -186,6 +186,7 @@ const TreeRow = ({
 
   return (
     // data-tree-row: panel blank-area menu skips rows that own a context menu.
+    // biome-ignore lint/a11y/noStaticElementInteractions: isolates contextmenu, not a click target
     <div
       data-tree-row=""
       onContextMenu={

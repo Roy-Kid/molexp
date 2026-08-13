@@ -7,11 +7,7 @@
  * (and optional `toolbar` for search/filter rows).
  */
 import type { ComponentType, JSX, ReactNode, SVGProps } from "react";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WorkbenchToggleAction } from "@/components/workbench";
@@ -129,9 +125,7 @@ export const LeftExplorer = ({
           <h2 className="min-w-0 truncate text-label font-semibold uppercase tracking-wide text-muted-foreground">
             {title}
           </h2>
-          {actions ? (
-            <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
-          ) : null}
+          {actions ? <div className="flex shrink-0 items-center gap-0.5">{actions}</div> : null}
         </div>
         {toolbar ? <div className="mt-2 space-y-1.5">{toolbar}</div> : null}
       </header>

@@ -27,11 +27,10 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useStatusMessage } from "@/hooks/useStatusMessage";
 import { reportStatus, type StatusReportType } from "@/lib/status-report";
-import { shortWorkspaceLabel } from "@/lib/workspace-path";
 import { cn } from "@/lib/utils";
-
-import { WorkbenchHeartbeat } from "./WorkbenchHeartbeat";
+import { shortWorkspaceLabel } from "@/lib/workspace-path";
 import { WorkbenchIconAction } from "./WorkbenchAction";
+import { WorkbenchHeartbeat } from "./WorkbenchHeartbeat";
 
 export interface WorkbenchStatusStripProps {
   className?: string;
@@ -415,9 +414,7 @@ export const WorkbenchStatusStrip = ({
                   className="truncate font-mono text-micro text-foreground"
                   title={activeWorkspace?.label}
                 >
-                  {activeWorkspace
-                    ? shortWorkspaceLabel(activeWorkspace.label)
-                    : "No workspace"}
+                  {activeWorkspace ? shortWorkspaceLabel(activeWorkspace.label) : "No workspace"}
                 </p>
                 <p className={cn("font-mono text-micro", connection.tone)}>{connection.label}</p>
               </div>

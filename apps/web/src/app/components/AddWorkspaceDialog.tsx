@@ -3,14 +3,9 @@
  * Accepts a local absolute path, remote `Host:/abs`, or `@registry-name`.
  */
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useId, useState, type JSX } from "react";
+import { type JSX, useCallback, useEffect, useId, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -163,12 +158,14 @@ export const AddWorkspaceDialog = ({
             }}
           />
           {busy ? (
-            <Loader2 className="mr-3 h-4 w-4 flex-none animate-spin text-muted-foreground" />
+            <Loader2 className="mol-motion-progress-spin mr-3 h-4 w-4 flex-none text-muted-foreground" />
           ) : null}
         </form>
 
         {hint ? (
-          <p className="border-t border-border/60 px-3 py-1.5 text-micro text-destructive">{hint}</p>
+          <p className="border-t border-border/60 px-3 py-1.5 text-micro text-destructive">
+            {hint}
+          </p>
         ) : (
           <p className="border-t border-border/40 px-3 py-1.5 text-micro text-muted-foreground">
             Enter ↵ · Esc cancel · remote: Host:/path or @name

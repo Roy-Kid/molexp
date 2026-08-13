@@ -138,6 +138,8 @@ export const GlobalCommandPalette = ({
       setQuery("");
       setActiveIndex(0);
     }
+    // Re-run when mode flips so goto/command each start with a clean query.
+    void mode;
   }, [open, mode]);
 
   const onQueryChange = (value: string): void => {

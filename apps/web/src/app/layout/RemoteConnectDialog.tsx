@@ -2,18 +2,13 @@
  * VS Code quick-input style: top-centered, one line of chrome, enter to submit.
  */
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useId, useState, type JSX } from "react";
-import type { ServedWorkspaceSummary } from "@/app/types";
+import { type JSX, useCallback, useEffect, useId, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import type { ServedWorkspaceSummary } from "@/app/types";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { shortWorkspaceLabel } from "@/lib/workspace-path";
 import { cn } from "@/lib/utils";
+import { shortWorkspaceLabel } from "@/lib/workspace-path";
 
 export interface RemoteConnectDialogProps {
   workspace: ServedWorkspaceSummary | null;
@@ -41,9 +36,12 @@ export const RemoteConnectDialog = ({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
-  const inputRef = useCallback((node: HTMLInputElement | null) => {
-    if (node && open) node.focus();
-  }, [open]);
+  const inputRef = useCallback(
+    (node: HTMLInputElement | null) => {
+      if (node && open) node.focus();
+    },
+    [open],
+  );
 
   useEffect(() => {
     if (open) {
@@ -51,6 +49,8 @@ export const RemoteConnectDialog = ({
       setHint(null);
       setBusy(false);
     }
+    // Clear the OTP field when the target workspace changes.
+    void workspace?.key;
   }, [open, workspace?.key]);
 
   const submit = useCallback(async () => {
@@ -128,7 +128,7 @@ export const RemoteConnectDialog = ({
           />
           {busy ? (
             <Loader2
-              className="pointer-events-none absolute right-3 h-3.5 w-3.5 animate-spin text-muted-foreground"
+              className="mol-motion-progress-spin pointer-events-none absolute right-3 h-3.5 w-3.5 text-muted-foreground"
               aria-hidden
             />
           ) : null}
