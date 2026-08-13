@@ -9,7 +9,7 @@ Design invariants:
 
 - **Pure projection.** :func:`assemble_workspace_context` is a read — it stores nothing
   new and the model is never itself canonical (authoritative state stays in the entity
-  ``*.json`` / ``_ops/run.json`` / ``assets.json`` / OKF ``meta.yaml``).
+  ``*.json`` / ``_ops/run.json`` / ``assets.json`` / OKF ``meta.json``).
 - **Layer-legal.** This module imports only ``workspace`` + stdlib/pydantic — never
   ``workflow`` / ``agent`` / ``harness`` (enforced by the workspace import-guard). Workflow
   *availability* is read workspace-only from the externalized ``workflow.json``.
@@ -32,7 +32,6 @@ from pydantic import BaseModel
 from molexp._typing import JSONValue
 
 from .assets.scan import scan_assets
-from .bundle import Bundle
 from .bundle_index import extract_title
 from .concepts import Note, ReferenceConcept
 from .knowledge_item import KnowledgeItem
@@ -278,7 +277,8 @@ def assemble_workspace_context(
             )
 
     knowledge: list[KnowledgeRef] = []
-    bundle = Bundle(root)
+    # Same filesystem as the workspace (remote pin / local) — never bare Bundle(root).
+    bundle = workspace.as_bundle()
     for concept in bundle.walk():
         # Knowledge is the free-form Note, the literature ReferenceConcept, and the
         # typed source-attributed KnowledgeItem (P0.4) — the canonical home for

@@ -38,6 +38,7 @@ from .utils import slugify
 from .validate import ValidationReport, validate_workspace
 
 if TYPE_CHECKING:
+    from .bundle import Bundle
     from .wp import WorkspacePaths
 
 # CLI-level root override: set by ``molexp run`` before executing the user
@@ -155,8 +156,8 @@ class Workspace(Folder):
         """Reconstruct a Workspace rooted at *child_dir* (OKF concept rebuild).
 
         A Workspace is its own root and persists ``workspace.json`` (not the
-        base ``metadata.json``), so the generic :meth:`Folder.from_disk` cannot
-        rebuild it. ``concept_from_dir`` reaches here when a ``meta.yaml`` typed
+        base ``meta.json`` alone), so the generic :meth:`Folder.from_disk` cannot
+        rebuild it. ``concept_from_dir`` reaches here when a ``meta.json`` typed
         ``workspace.root`` is found; the constructor reloads ``workspace.json``
         from *child_dir* and ignores the synthetic *parent* (a Workspace has
         none). See the Folder.from_disk hook docs.
@@ -167,6 +168,17 @@ class Workspace(Folder):
         meta_path = self._fs.join(self.resolve(), "workspace.json")
         if not self._fs.exists(meta_path):
             self.materialize()
+
+    def as_bundle(self) -> Bundle:
+        """OKF :class:`~molexp.workspace.bundle.Bundle` on this workspace's FS.
+
+        Critical for remote workspaces: ``Bundle(root)`` alone defaults to a
+        local FS and sees an empty tree. Always use this (or
+        ``Bundle(root, fs=ws._fs)``) so knowledge walks hit the cache/SSH mirror.
+        """
+        from .bundle import Bundle
+
+        return Bundle(self.root, fs=self._fs)
 
     # ── Properties (entity-specific) ─────────────────────────────────────
 
@@ -263,7 +275,7 @@ class Workspace(Folder):
         self._fs.mkdir(root_str, parents=True, exist_ok=True)
         meta_path = self._fs.join(root_str, "workspace.json")
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
-        self.write_meta()  # OKF marker for the root, additive
+        self.write_meta()  # sole concept identity (type); domain lives in workspace.json
 
     def save(self) -> None:
         """Persist current metadata to disk."""

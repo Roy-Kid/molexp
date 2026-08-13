@@ -294,6 +294,12 @@ def list_workspace_files(
     if not fs.exists(requested):
         raise HTTPException(status_code=404, detail="Path not found")
 
+    # Remote pin-until-refresh can freeze a directory listing as empty after a
+    # race / early list. Explicit files API calls are expand/refresh — drop the
+    # pin for *this* path so the walk re-listdir from SSH (children still pin).
+    if isinstance(fs, CachedRemoteFileSystem):
+        fs.invalidate_dir_listing(requested)
+
     # Remote trees pay one SSH RTT per node. A deep walk over hundreds of run
     # dirs (trajectory.pt etc.) freezes the UI bootstrap. Cap remote depth
     # server-side; clients expand path-by-path for deeper levels.

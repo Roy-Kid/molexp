@@ -61,6 +61,40 @@ def get_served_workspaces() -> list[ServedWorkspace]:
     return list(_served_workspaces)
 
 
+def _used_keys() -> set[str]:
+    return {sw.key for sw in _served_workspaces}
+
+
+def add_served_workspace(workspace: ServedWorkspace) -> ServedWorkspace:
+    """Append *workspace* to the live served set (VS Code "Add Folder").
+
+    Dedupes by absolute local path or remote label. Returns the existing
+    entry when already served.
+    """
+    global _served_workspaces
+    for sw in _served_workspaces:
+        if (
+            not workspace.is_remote
+            and not sw.is_remote
+            and sw.path
+            and workspace.path
+            and Path(sw.path).resolve() == Path(workspace.path).resolve()
+        ):
+            return sw
+        if workspace.is_remote and sw.is_remote and sw.label == workspace.label:
+            return sw
+    _served_workspaces = [*_served_workspaces, workspace]
+    return workspace
+
+
+def remove_served_workspace(key: str) -> bool:
+    """Drop a served workspace by key. Returns False if not found."""
+    global _served_workspaces
+    before = len(_served_workspaces)
+    _served_workspaces = [sw for sw in _served_workspaces if sw.key != key]
+    return len(_served_workspaces) < before
+
+
 def _served_by_key(key: str) -> ServedWorkspace | None:
     """Look up a served workspace by its stable key (``None`` if absent)."""
     for sw in _served_workspaces:

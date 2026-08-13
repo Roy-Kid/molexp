@@ -70,12 +70,12 @@ Server + CLI sit on top of **`molexp.services`** (the application-service layer:
 ### Layer charters
 
 **`molexp.knowledge`** — bottom layer; the open **concept-type registry** (single responsibility). Not a storage substrate — the OKF-native storage lives in `molexp.workspace`.
-- Owns: only the generic, open concept-type registry (`@concept_type` / `register_concept_type` / `resolve_concept_type`) used by `workspace` to reconstruct typed `Folder` subclasses from each Concept's `meta.yaml` `type`. Upstream layers register their own Concept types here without `knowledge` importing them; an unknown type resolves to a caller-supplied default. The package is just `types.py` + a slim `__init__.py`.
+- Owns: only the generic, open concept-type registry (`@concept_type` / `register_concept_type` / `resolve_concept_type`) used by `workspace` to reconstruct typed `Folder` subclasses from each Concept's `meta.json` `type`. Upstream layers register their own Concept types here without `knowledge` importing them; an unknown type resolves to a caller-supplied default. The package is just `types.py` + a slim `__init__.py`.
 - **Allowed imports**: stdlib / pydantic only (no pyyaml needed). **MUST NOT** import `workspace` or any upstream layer (`workflow` / `agent` / `harness` / `services` / `server` / `cli` / `plugins`) — enforced by `tests/test_knowledge/test_import_guard.py`, an **AST source scan** (not a `sys.modules` probe: `molexp/__init__.py` eagerly loads `workspace`, so a runtime probe is unsatisfiable).
 
 **`molexp.workspace`** — bottom; pure storage.
 - Owns: `Folder` base + the `Workspace/Project/Experiment/Run` subclasses, typed exceptions (`*NotFoundError` / `*ExistsError`), atomic JSON I/O (`atomic_write_json`), the `Asset` family + per-scope `AssetManifest` (`assets.json`) + the `assets.scan` manifest-scanning query layer (`scan_assets` / `get_asset` / `find_by_content_hash`), `Params` / `ParamSpace` / `GridSpace` / `UniformSpace`, the **unified Target family** (`ComputeTarget` is the persisted base; `LocalTarget` / `RemoteTarget` are its address-view subclasses; `resolve_compute_target` is the single named-target resolution path for CLI and server; `SSHSession` for transport caching), `RunContext`, `RunSet` / `RunSetResult` (sweep container: `experiment.sweep(...)` → `runset.execute()` → `to_records()` / `min_by()`; execution delegates through the `set_run_executor` inversion seam so workspace never imports workflow), zombie reaping (`run_reaper.reap_zombie_run`, called by every CLI **and** server verb entry), run-lifecycle verb cores (`lifecycle_ops.cancel_run`; two-phase `prune.plan_execution_prune` / `apply_execution_prune`), execution→knowledge (`harvest.harvest_run`), the workspace event log (write **and** read: `read_workspace_events`), the OKF Concept surface (`Note` / `ReferenceConcept` + `ReferenceMeta` + `write_reference_meta`, the `Bundle` façade, `ZoteroItem` / `read_zotero_items` — surfaced as `molexp knowledge import-zotero`), and one singleton folder accessed as a lowercase property: `ws.cache` (`CacheFolder` → `as_cache_store()` adapter). **There is no derived SQLite asset index** — asset queries scan the authoritative per-scope `assets.json` manifests (+ directly-registered `assets/<id>/asset.json` records); the former `AssetCatalog` / `catalog/index.sqlite` was removed (`workspace-git-projection-01`).
-- **Notes + literature are OKF Concepts (`Note` / `ReferenceConcept`), reached via the `Bundle` façade** — directories whose path is their identity (bib fields in `meta.yaml` via `ReferenceMeta`; PDFs *pointed at*, never copied). The legacy per-scope `Library` (record-`Reference` / `ReferenceStore` / `NoteAsset` / `LibraryIndex` / `.library` properties / `search_library` agent tool / `/api/library` routes / UI Library page) was removed in wsokf-11; greenfield, no migration.
+- **Notes + literature are OKF Concepts (`Note` / `ReferenceConcept`), reached via the `Bundle` façade** — directories whose path is their identity (bib fields in `meta.json` via `ReferenceMeta`; PDFs *pointed at*, never copied). The legacy per-scope `Library` (record-`Reference` / `ReferenceStore` / `NoteAsset` / `LibraryIndex` / `.library` properties / `search_library` agent tool / `/api/library` routes / UI Library page) was removed in wsokf-11; greenfield, no migration.
 - MUST NOT: import any upstream `molexp` layer (`workflow` / `agent` / `plugins` / `services` / `server` / `cli`). Allowed `molexp.*` imports are only `_typing` / `profile` / `path` and cross-layer primitives (`mollog`, `molcfg`). MUST NOT define workflow- or agent-shaped types (no `WorkflowSnapshotRef`, no `Agent` / `AgentSession` / `PlanFolder`). MUST NOT write to disk in `__init__` — all I/O is lazy.
 - `import molexp.workspace` must never pull `molexp.workflow`, `molexp.agent`, `pydantic_ai`, or `pydantic_graph` into `sys.modules`.
 
@@ -117,22 +117,22 @@ This layout is the **authoritative experiment-directory spec** — the shape any
 ```
 workspace_root/
 ├── workspace.json                # workspace ENTITY metadata
-├── project.json                  # children INDEX of projects (derived; child cls snake_case + ".json")
+├── projects.json                 # children INDEX of projects (derived; plural of child kind)
 ├── workspace.events.sqlite       # run-lifecycle event timeline (default-on, created on first emit; read via read_workspace_events — reading never creates it)
 ├── cache/<key>.json              # singleton CacheFolder — ws.cache
-├── meta.yaml                     # OKF concept marker (type → registry) — every concept dir has one
+├── meta.json                     # OKF concept marker (type → registry) — every concept dir has one
 ├── index.md                      # OKF narrative; its markdown links ARE the knowledge graph (out_edges)
-├── <agent>/                      # Agent (OKF concept, kind=agent.agent): meta.yaml + flat sessions
-│   └── <session>/                #   AgentSession (kind=agent.session): meta.yaml + messages.jsonl (binary)
+├── <agent>/                      # Agent (OKF concept, kind=agent.agent): meta.json + flat sessions
+│   └── <session>/                #   AgentSession (kind=agent.session): meta.json + messages.jsonl (binary)
 └── projects/<project_id>/        # container subdir "projects/", dir name = slug, NO prefix
-    ├── project.json              # project ENTITY metadata
-    ├── experiment.json           # children INDEX of experiments (derived)
+    ├── project.json              # project ENTITY metadata (singular)
+    ├── experiments.json          # children INDEX of experiments (derived; plural)
     └── experiments/<experiment_id>/   # container "experiments/", dir name = slug, NO prefix
-        ├── experiment.json       # experiment ENTITY metadata
-        ├── run.json              # children INDEX of runs (derived)
+        ├── experiment.json       # experiment ENTITY metadata (singular)
+        ├── runs.json             # children INDEX of runs (derived; plural)
         └── runs/run-<run_id>/    # container "runs/", dir name = "run-" + run_id  (← prefix is mandatory)
             ├── run.json          # identity/provenance: params, config_hash, profile, target (NO status/history — those live in _ops/)
-            ├── meta.yaml         # OKF concept marker (type=workspace.run)
+            ├── meta.json         # OKF concept marker (type=workspace.run)
             ├── _ops/run.json     # OKF hot-state sidecar (RunOpsState): status, ownership, heartbeat, executions — the read source
             ├── assets.json       # run-scoped asset manifest
             ├── artifacts/        # final products
@@ -148,12 +148,12 @@ workspace_root/
 **Layout naming law (frozen).** Each `Folder` level obeys four derivations, all driven off the class hierarchy `Workspace → Project → Experiment → Run`:
 - **Container subdir** holding a level's children is the child kind pluralized: `projects/`, `experiments/`, `runs/`.
 - **Directory name** within that container is the slugified id (kebab) for Project/Experiment, with **no prefix** — except a **Run dir is always prefixed `run-`** (`runs/run-<run_id>/`); the `run-` prefix is part of the contract, not cosmetic.
-- **Entity metadata filename** at a level is the level's own class name snake_case + `.json` (`workspace.json` / `project.json` / `experiment.json` / `run.json`) — the single authoritative record for that node.
-- **Children-index filename** in a parent dir is the *child* class name snake_case + `.json` (`Folder._index_filename()`), so `<root>/project.json` indexes projects while `<root>/projects/<id>/project.json` is that project's entity file — same basename, different role, never the same directory.
+- **Entity metadata filename** at a level is the level's own class name snake_case + `.json` (**singular**: `workspace.json` / `project.json` / `experiment.json` / `run.json`) — the single authoritative record for that node.
+- **Children-index filename** in a parent dir is the *plural* of the child kind + `.json` (`Folder._index_filename()` → `projects.json` / `experiments.json` / `runs.json`). Entity is singular on the child dir; index is plural on the parent — never the same basename, never confusable.
 
 Entity `*.json` and per-scope `assets.json` are **authoritative**; every index (the children-index `*.json`, any future derived view) is **derived** and rebuildable — asset queries scan the manifests directly, with no derived asset index. A Run's hot operational state (status / ownership / heartbeat / executions) lives in its `_ops/run.json` sidecar — the read source — not in the `run.json` entity file. Run ids are 8-char hex or a content-addressed `config_hash`; project/experiment ids are slugs of their names (`add_*` is idempotent on the slug).
 
-Agent-layer mounts (`Agent` / `AgentSession`) are OKF `workspace.Folder` subclasses (registered via `@concept_type("agent.agent"/"agent.session")` against `molexp.knowledge.types`); they can attach at any `Folder` (workspace root, Project, Experiment, or Run) through generic `add_folder`, and `concept_from_dir` reconstructs them from their `meta.yaml` `type` via the shared registry.
+Agent-layer mounts (`Agent` / `AgentSession`) are OKF `workspace.Folder` subclasses (registered via `@concept_type("agent.agent"/"agent.session")` against `molexp.knowledge.types`); they can attach at any `Folder` (workspace root, Project, Experiment, or Run) through generic `add_folder`, and `concept_from_dir` reconstructs them from their `meta.json` `type` via the shared registry.
 
 ## Packaging
 

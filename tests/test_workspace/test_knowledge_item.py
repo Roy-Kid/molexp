@@ -81,7 +81,7 @@ class TestKnowledgeItem:
         }
 
     def test_content_hash_source_is_meta_only_no_edge(self, tmp_path: Path) -> None:
-        """ac-004 — a content-hash source is authoritative in meta.yaml but has no out-edge."""
+        """ac-004 — a content-hash source is authoritative in meta.json but has no out-edge."""
         ws = _ws(tmp_path)
         item = ws.add_folder(KnowledgeItem(parent=ws, name="obs-2"))
         item.write_knowledge_meta(

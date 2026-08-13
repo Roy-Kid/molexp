@@ -1,7 +1,7 @@
 """``molexp.knowledge`` — the open concept-type registry.
 
 A single-responsibility bottom layer: the generic, open registry that maps a
-Concept's ``meta.yaml`` ``type`` string to its Python class
+Concept's ``meta.json`` ``type`` string to its Python class
 (``@concept_type`` / ``register_concept_type`` / ``resolve_concept_type``).
 The OKF-native storage substrate lives in ``molexp.workspace``; that layer
 uses this registry to reconstruct typed ``Folder`` subclasses from each

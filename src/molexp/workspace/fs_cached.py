@@ -16,11 +16,12 @@ and reuses mirror bytes only when mtime/size still match.
 
 Index files are not special-cased — they are just paths.  The eager
 prefetch helper :func:`prefetch_workspace_indices` walks the workspace by
-``listdir`` plus the per-entity ``workspace.json`` / ``project.json`` /
-``experiment.json`` / ``run.json`` metadata files through
-:meth:`read_text`, so the navigation tree is populated as a side-effect
-of caching.  The entity ``*.json`` is the sole truth source; there is no
-separate plural container-index chain.
+``listdir`` plus the per-entity singular metadata files
+(``workspace.json`` / ``project.json`` / ``experiment.json`` / ``run.json``)
+and the plural children indexes (``projects.json`` / ``experiments.json`` /
+``runs.json``) through :meth:`read_text`, so the navigation tree is
+populated as a side-effect of caching.  Entity ``*.json`` is the sole
+truth source; plural indexes are derived and rebuildable.
 
 Layer rule: lives in the workspace layer next to ``fs_local.py`` and
 ``fs_remote.py``; reaches only into sibling FS modules and the
@@ -65,19 +66,24 @@ logger = logging.getLogger(__name__)
 
 INDEX_FILE_NAMES: frozenset[str] = frozenset(
     {
+        # Entity files (singular — on the concept's own directory).
         "workspace.json",
         "project.json",
         "experiment.json",
         "run.json",
+        # Children indexes (plural — on the parent).
+        "projects.json",
+        "experiments.json",
+        "runs.json",
     }
 )
 """Files whose basename identifies them as a navigation-index artefact.
 
-In molexp's workspace layout these singular names are an entity's own
-metadata (``<child>/run.json`` etc.); the entity ``*.json`` is the sole
-truth source for the navigation tree.  Their basenames double as the
-``scope="indices"`` invalidation set, so a refresh drops cached
-navigation metadata while sparing log/asset bytes.
+Singular names are an entity's own metadata (``…/runs/run-<id>/run.json``);
+plural names are derived children indexes on the parent
+(``…/experiments.json``, ``…/runs.json``). Both basenames feed the
+``scope="indices"`` invalidation set so a refresh drops cached navigation
+metadata while sparing log/asset bytes.
 """
 
 _SIDECAR_FILENAME = "_index.json"
@@ -317,9 +323,10 @@ class CachedRemoteFileSystem:
         self._ensure_mirror_dirs()
         try:
             reachable = self._inner.exists(root) or self._inner.is_dir(root)
-        except Exception as exc:
+        except Exception:
+            # Soft: no long chain text — server maps this to needs_auth / 503.
             self._connected = False
-            raise ConnectionError(f"remote root unreachable: {root}: {exc}") from exc
+            raise ConnectionError("unreachable") from None
         if not reachable:
             self._connected = False
             raise FileNotFoundError(f"remote root not found: {root}")
@@ -342,21 +349,25 @@ class CachedRemoteFileSystem:
         finally:
             self._tls.force_fetch = prev
 
-    def count_remote_files(self, root: str) -> int:
-        """Recursive file count under *root* (remote ``find -type f | wc -l``).
+    def count_remote_files(self, root: str, *, timeout: float = 8.0) -> int:
+        """Best-effort file count under *root* for progress denominators only.
 
-        Falls back to a BFS listdir walk when the transport has no ``run``.
+        Remote: one ``find | wc -l`` with a hard *timeout* (never a BFS —
+        per-entry SSH RTT can hang for minutes and stuck the UI on
+        "Counting remote files…").  Local / no-transport: lightweight BFS.
+        Returns 0 on any failure (indeterminate progress).
         """
         inner = self._inner
         transport = getattr(inner, "_t", None)
         if transport is not None and hasattr(transport, "run"):
-            # Single RTT: total file count as the progress denominator.
             import shlex
 
             try:
                 cmd = f"find {shlex.quote(root)} -type f 2>/dev/null | wc -l"
-                result = transport.run(["bash", "-lc", cmd])
-                # molq Transport.run return shapes vary — accept str/bytes/obj.
+                result = transport.run(
+                    ["bash", "-lc", cmd],
+                    timeout=timeout,
+                )
                 out = getattr(result, "stdout", None)
                 if out is None:
                     out = result if isinstance(result, (str, bytes, int)) else ""
@@ -365,16 +376,19 @@ class CachedRemoteFileSystem:
                 text = str(out).strip().splitlines()
                 if text:
                     return max(0, int(text[-1].strip()))
-            except Exception:
-                logger.debug(
-                    "remote find|wc failed for %s; falling back to BFS", root, exc_info=True
-                )
+            except Exception as exc:
+                logger.debug("remote find|wc skipped for %s: %s", root, exc)
+            return 0
 
-        # BFS fallback (local FS / broken transport.run).
+        # Local-only BFS (cheap Path ops). Cap depth of work so a huge tree
+        # never blocks prepare.
         total = 0
         stack = [root]
-        while stack:
+        visited = 0
+        max_visits = 50_000
+        while stack and visited < max_visits:
             cur = stack.pop()
+            visited += 1
             try:
                 if not self._inner.is_dir(cur):
                     if self._inner.is_file(cur):
@@ -403,25 +417,30 @@ class CachedRemoteFileSystem:
 
         Progress for the status bar:
 
-        1. *counting* — recursive total file count under the root
-        2. *fetching* — ``done/total`` as entity metadata is force-fetched
-        3. *done*
+        1. *fetching* — entity metadata force-fetched (optional quick count
+           for a denominator; never blocks the walk on a long ``find``)
+        2. *done*
         """
         self._remote_root = str(workspace.root)
         if not self._connected:
             self.connect(str(workspace.root))
         root = str(workspace.root)
-        self._set_progress(phase="counting", total=0, done=0, message="Counting remote files…")
+
+        # Optional quick count for a determinate bar. Hard-capped; on timeout
+        # or miss we stay indeterminate (total grows with on_file ticks).
+        # Never show a long-lived "Counting…" phase — that is what hung the UI.
+        total = 0
         try:
-            total = self.count_remote_files(root)
+            total = self.count_remote_files(root, timeout=5.0)
         except Exception as exc:
-            logger.warning("count_remote_files failed: %s", exc)
+            logger.debug("count_remote_files skipped: %s", exc)
             total = 0
+
         self._set_progress(
             phase="fetching",
-            total=max(total, 1),
+            total=max(total, 0),
             done=0,
-            message=f"Syncing remote tree (0/{max(total, 1)})…",
+            message="Syncing remote tree…",
         )
         try:
             with self.force_fetch():
@@ -444,7 +463,8 @@ class CachedRemoteFileSystem:
             return warnings
         except Exception as exc:
             self._indexing = False
-            self._set_progress(phase="error", message=f"Index failed: {exc}")
+            self._set_progress(phase="idle", message="")
+            logger.debug("remote index failed for %s: %s", root, exc)
             raise
 
     def _on_index_file(self, _path: str) -> None:
@@ -458,7 +478,10 @@ class CachedRemoteFileSystem:
             if done > self._progress.total:
                 self._progress.total = done
                 total = done
-            self._progress.message = f"Syncing remote tree ({done}/{total})…"
+            if total > 0:
+                self._progress.message = f"Syncing remote tree ({done}/{total})…"
+            else:
+                self._progress.message = f"Syncing remote tree ({done})…"
 
     def schedule_refresh(self, workspace: Workspace) -> None:
         """Run :meth:`index` on a daemon thread (non-blocking active refresh).
@@ -479,13 +502,11 @@ class CachedRemoteFileSystem:
             def _run() -> None:
                 try:
                     self.index(workspace)
-                except Exception:
-                    logger.exception(
-                        "background remote index failed for %s — use cache/refresh",
-                        root,
-                    )
+                except Exception as exc:
+                    # Quiet — 2FA / offline is expected until the user connects.
+                    logger.debug("background remote index skipped for %s: %s", root, exc)
                     self._indexing = False
-                    self._set_progress(phase="error", message="Remote index failed")
+                    self._set_progress(phase="idle", message="")
 
             self._index_thread = threading.Thread(
                 target=_run,
@@ -749,6 +770,19 @@ class CachedRemoteFileSystem:
         self._inner.atomic_write_text(key, content, encoding=encoding)
 
     # ── Cache control ───────────────────────────────────────────────────
+
+    def invalidate_dir_listing(self, path: PathArg) -> None:
+        """Drop only the pinned *directory names* for *path* (not file bytes).
+
+        Used by the workspace files API so an expand/list always re-listdir
+        from remote. Pin-until-refresh is fine for file contents; empty dir
+        pins are not — a folder listed before children existed stays "Empty"
+        in the UI until this pin is cleared.
+        """
+        key = self.resolve(path)
+        with self._lock:
+            self._dir_index.pop(key, None)
+            self._persist_sidecar()
 
     def invalidate(
         self,
@@ -1113,7 +1147,12 @@ def prefetch_workspace_indices(
     with batch:
         # ── L0: workspace root (serial — tiny) ──────────────────────────
         _safe_read(fs, fs.join(root, "workspace.json"), state, on_file=on_file)
+        _prefetch_concept_files(fs, root, state, on_file=on_file)
         projects_dir = fs.join(root, "projects")
+        # Children index of projects (plural). Also try legacy singular.
+        _safe_read(
+            fs, fs.join(root, "projects.json"), state, warn_on_missing=False, on_file=on_file
+        )
         _safe_read(fs, fs.join(root, "project.json"), state, warn_on_missing=False, on_file=on_file)
         try:
             project_names = list(fs.listdir(projects_dir))
@@ -1125,8 +1164,16 @@ def prefetch_workspace_indices(
 
         # ── L1: project.json in parallel ────────────────────────────────
         def _load_project(name: str) -> str | None:
-            meta = fs.join(projects_dir, name, "project.json")
-            return name if _safe_read(fs, meta, state, on_file=on_file) is not None else None
+            project_dir = fs.join(projects_dir, name)
+            meta = fs.join(project_dir, "project.json")
+            ok = _safe_read(fs, meta, state, on_file=on_file) is not None
+            if ok:
+                _prefetch_concept_files(fs, project_dir, state, on_file=on_file)
+                # Knowledge Concepts mounted on the project (notes/refs).
+                _prefetch_knowledge_children(
+                    fs, project_dir, state, on_file=on_file, skip={"experiments", "assets", "cache"}
+                )
+            return name if ok else None
 
         healthy_projects = [
             n
@@ -1143,6 +1190,14 @@ def prefetch_workspace_indices(
         def _list_experiments(project_name: str) -> list[tuple[str, str]]:
             project_dir = fs.join(projects_dir, project_name)
             experiments_dir = fs.join(project_dir, "experiments")
+            # Children index of experiments (plural + legacy singular).
+            _safe_read(
+                fs,
+                fs.join(project_dir, "experiments.json"),
+                state,
+                warn_on_missing=False,
+                on_file=on_file,
+            )
             _safe_read(
                 fs,
                 fs.join(project_dir, "experiment.json"),
@@ -1171,8 +1226,19 @@ def prefetch_workspace_indices(
         # ── L2: experiment.json in parallel ─────────────────────────────
         def _load_experiment(pair: tuple[str, str]) -> tuple[str, str] | None:
             project_name, exp_name = pair
-            meta = fs.join(projects_dir, project_name, "experiments", exp_name, "experiment.json")
-            return pair if _safe_read(fs, meta, state, on_file=on_file) is not None else None
+            experiment_dir = fs.join(projects_dir, project_name, "experiments", exp_name)
+            meta = fs.join(experiment_dir, "experiment.json")
+            ok = _safe_read(fs, meta, state, on_file=on_file) is not None
+            if ok:
+                _prefetch_concept_files(fs, experiment_dir, state, on_file=on_file)
+                _prefetch_knowledge_children(
+                    fs,
+                    experiment_dir,
+                    state,
+                    on_file=on_file,
+                    skip={"runs", "assets", "cache"},
+                )
+            return pair if ok else None
 
         healthy_exps = [
             p
@@ -1190,6 +1256,14 @@ def prefetch_workspace_indices(
             project_name, exp_name = pair
             experiment_dir = fs.join(projects_dir, project_name, "experiments", exp_name)
             runs_dir = fs.join(experiment_dir, "runs")
+            # Children index of runs (plural + legacy singular).
+            _safe_read(
+                fs,
+                fs.join(experiment_dir, "runs.json"),
+                state,
+                warn_on_missing=False,
+                on_file=on_file,
+            )
             _safe_read(
                 fs,
                 fs.join(experiment_dir, "run.json"),
@@ -1215,20 +1289,81 @@ def prefetch_workspace_indices(
         # ── L3: run.json in parallel (innermost — usually the bulk) ─────
         def _load_run(triple: tuple[str, str, str]) -> None:
             project_name, exp_name, run_name = triple
-            meta = fs.join(
+            run_dir = fs.join(
                 projects_dir,
                 project_name,
                 "experiments",
                 exp_name,
                 "runs",
                 run_name,
-                "run.json",
             )
-            _safe_read(fs, meta, state, on_file=on_file)
+            meta = fs.join(run_dir, "run.json")
+            if _safe_read(fs, meta, state, on_file=on_file) is not None:
+                _prefetch_concept_files(fs, run_dir, state, on_file=on_file)
 
         _parallel_map(_load_run, run_triples, max_workers=workers, force_fetch_fs=force_fs)
 
     return list(state.warnings)
+
+
+# Container / infrastructure dirs that are never free-form knowledge mounts.
+_KNOWLEDGE_SKIP_DEFAULT = frozenset(
+    {"projects", "experiments", "runs", "assets", "cache", "_ops", "executions", "artifacts"}
+)
+
+
+def _prefetch_concept_files(
+    fs: FileSystem,
+    concept_dir: str,
+    state: _PrefetchState,
+    *,
+    on_file: Callable[[str], None] | None = None,
+) -> None:
+    """Pull concept identity + narrative (``meta.json`` / legacy yaml / ``index.md``)."""
+    for name in ("meta.json", "meta.yaml", "index.md"):
+        _safe_read(
+            fs,
+            fs.join(concept_dir, name),
+            state,
+            warn_on_missing=False,
+            on_file=on_file,
+        )
+
+
+def _prefetch_knowledge_children(
+    fs: FileSystem,
+    parent_dir: str,
+    state: _PrefetchState,
+    *,
+    on_file: Callable[[str], None] | None = None,
+    skip: set[str] | frozenset[str] | None = None,
+) -> None:
+    """Prefetch free-form Concept mounts (notes / references) under *parent_dir*.
+
+    Knowledge lives as sibling dirs with ``meta.json`` (not only under
+    ``experiments/`` / ``runs/``). Without this, a pin-cached remote walk
+    never sees notes and the Knowledge UI stays empty.
+    """
+    skip_names = set(_KNOWLEDGE_SKIP_DEFAULT)
+    if skip:
+        skip_names |= set(skip)
+    try:
+        names = list(fs.listdir(parent_dir))
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        state.add_warning(parent_dir, str(exc))
+        return
+    for name in names:
+        if name in skip_names or name.startswith("."):
+            continue
+        child = fs.join(parent_dir, name)
+        try:
+            if not fs.is_dir(child):
+                continue
+        except Exception:
+            continue
+        _prefetch_concept_files(fs, child, state, on_file=on_file)
 
 
 def _safe_read(

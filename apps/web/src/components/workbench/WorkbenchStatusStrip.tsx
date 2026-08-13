@@ -16,6 +16,7 @@ import {
   HardDrive,
   Info,
   Loader2,
+  RefreshCw,
   Server,
 } from "lucide-react";
 import { type JSX, useEffect, useRef, useState } from "react";
@@ -26,9 +27,11 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useStatusMessage } from "@/hooks/useStatusMessage";
 import { reportStatus, type StatusReportType } from "@/lib/status-report";
+import { shortWorkspaceLabel } from "@/lib/workspace-path";
 import { cn } from "@/lib/utils";
 
 import { WorkbenchHeartbeat } from "./WorkbenchHeartbeat";
+import { WorkbenchIconAction } from "./WorkbenchAction";
 
 export interface WorkbenchStatusStripProps {
   className?: string;
@@ -42,6 +45,11 @@ export interface WorkbenchStatusStripProps {
   onRemoteIndexReady?: () => void;
   /** Active served workspace for the connection-status popover. */
   activeWorkspace?: ServedWorkspaceSummary | null;
+  /**
+   * Reconnect / re-auth (remote OTP) or hard refresh. Icon-only control in
+   * the connection popover — no label text.
+   */
+  onReconnect?: () => void;
 }
 
 interface CacheStatus {
@@ -137,6 +145,7 @@ function ProgressTrack({
 
 function isRemoteIndexing(body: CacheStatus | null): boolean {
   if (!body?.cached) return false;
+  // "counting" kept for back-compat with older servers; current code skips it.
   return body.phase === "counting" || body.phase === "fetching" || body.indexing === true;
 }
 
@@ -162,6 +171,7 @@ export const WorkbenchStatusStrip = ({
   isRefreshing = false,
   onRemoteIndexReady,
   activeWorkspace = null,
+  onReconnect,
 }: WorkbenchStatusStripProps): JSX.Element => {
   const pulse = useSyncPulse();
   const beat = beatProp ?? pulse;
@@ -171,7 +181,9 @@ export const WorkbenchStatusStrip = ({
   const wasIndexing = useRef(false);
   const lastReportedPhase = useRef<string>("");
 
-  // Poll remote index progress. Never stop the loop on a single failure.
+  // Poll remote index progress only when the remote is actually linked.
+  // Unreachable / needs-auth remotes must not hammer /cache/status (that
+  // used to 502 → HPM error spam every 2s).
   useEffect(() => {
     let cancelled = false;
     let timer: number | null = null;
@@ -183,14 +195,18 @@ export const WorkbenchStatusStrip = ({
     };
 
     const tick = async (): Promise<void> => {
+      if (activeWorkspace?.isRemote && activeWorkspace.unreachable) {
+        setCacheStatus(null);
+        schedule(5000);
+        return;
+      }
       try {
         const res = await fetch("/api/workspace/cache/status");
         if (cancelled) return;
         if (!res.ok) {
           setCacheStatus(null);
-          // Poll completed (even failed) — status lamp breathes once.
-          pulseSync();
-          schedule(2000);
+          // Soft: no console — 503 needs_auth is expected pre-login.
+          schedule(activeWorkspace?.isRemote ? 5000 : 2000);
           return;
         }
         const body = (await res.json()) as CacheStatus;
@@ -260,7 +276,7 @@ export const WorkbenchStatusStrip = ({
       cancelled = true;
       if (timer != null) window.clearTimeout(timer);
     };
-  }, [onRemoteIndexReady]);
+  }, [onRemoteIndexReady, activeWorkspace?.isRemote, activeWorkspace?.unreachable]);
 
   // Generic workspace bootstrap / manual refresh — keep the strip busy for the
   // full fetch. progress=0 is sticky in the status bus; the strip maps 0 →
@@ -380,98 +396,43 @@ export const WorkbenchStatusStrip = ({
               running={busy}
             />
           </PopoverTrigger>
-          <PopoverContent side="top" align="start" sideOffset={8} className="w-80 space-y-3 p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-label font-medium text-foreground">Connection</p>
-                <p className={cn("font-mono text-micro", connection.tone)}>{connection.label}</p>
-              </div>
-              <span
+          <PopoverContent side="top" align="start" sideOffset={8} className="w-64 p-2">
+            {/* One row: host · status · reconnect — no Kind/Path/Key essays. */}
+            <div className="flex min-w-0 items-center gap-2">
+              <WorkspaceIcon
                 className={cn(
-                  "inline-flex h-2 w-2 flex-none rounded-full",
+                  "h-3.5 w-3.5 flex-none",
                   unreachable
-                    ? "bg-status-failed"
-                    : busy
-                      ? "bg-status-running-foreground mol-motion-progress-pulse"
-                      : activeWorkspace
-                        ? "bg-status-completed"
-                        : "bg-muted-foreground/40",
+                    ? "text-status-failed-foreground"
+                    : activeWorkspace?.isRemote
+                      ? "text-status-warning-foreground"
+                      : "text-muted-foreground",
                 )}
                 aria-hidden
               />
-            </div>
-
-            {activeWorkspace ? (
-              <div className="space-y-1.5 rounded-control border border-border/70 bg-muted/30 p-2">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <WorkspaceIcon
-                    className={cn(
-                      "h-3.5 w-3.5 flex-none",
-                      unreachable
-                        ? "text-status-failed-foreground"
-                        : activeWorkspace.isRemote
-                          ? "text-status-warning-foreground"
-                          : "text-muted-foreground",
-                    )}
-                    aria-hidden
-                  />
-                  <span className="min-w-0 truncate font-mono text-micro text-foreground">
-                    {activeWorkspace.label}
-                  </span>
-                </div>
-                <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-micro text-muted-foreground">
-                  <dt>Kind</dt>
-                  <dd className="truncate text-foreground/80">
-                    {activeWorkspace.unreachable
-                      ? "unreachable"
-                      : activeWorkspace.isRemote
-                        ? "remote"
-                        : "local"}
-                  </dd>
-                  {activeWorkspace.path && (
-                    <>
-                      <dt>Path</dt>
-                      <dd className="truncate text-foreground/80" title={activeWorkspace.path}>
-                        {activeWorkspace.path}
-                      </dd>
-                    </>
-                  )}
-                  <dt>Key</dt>
-                  <dd className="truncate text-foreground/80" title={activeWorkspace.key}>
-                    {activeWorkspace.key}
-                  </dd>
-                </dl>
-              </div>
-            ) : (
-              <p className="text-micro text-muted-foreground">
-                No served workspace is active. Open one from Settings → Remote workspaces, or point
-                the server at a local path.
-              </p>
-            )}
-
-            {(remoteBusy || cacheStatus?.cached) && (
-              <div className="space-y-1 font-mono text-micro text-muted-foreground">
-                <p className="text-label font-medium text-foreground">Remote index</p>
-                <p>
-                  {cacheStatus?.phase ?? "idle"}
-                  {cacheStatus && cacheStatus.total > 0
-                    ? ` · ${cacheStatus.done}/${cacheStatus.total}`
-                    : ""}
-                  {remotePercent !== undefined ? ` · ${Math.round(remotePercent)}%` : ""}
+              <div className="min-w-0 flex-1">
+                <p
+                  className="truncate font-mono text-micro text-foreground"
+                  title={activeWorkspace?.label}
+                >
+                  {activeWorkspace
+                    ? shortWorkspaceLabel(activeWorkspace.label)
+                    : "No workspace"}
                 </p>
-                {cacheStatus?.message ? (
-                  <p className="truncate text-foreground/70" title={cacheStatus.message}>
-                    {cacheStatus.message}
-                  </p>
-                ) : null}
+                <p className={cn("font-mono text-micro", connection.tone)}>{connection.label}</p>
               </div>
-            )}
-
-            {lineText ? (
-              <p className="border-t border-border/60 pt-2 font-mono text-micro text-muted-foreground">
-                Activity: <span className={activityTextClass(lineType)}>{lineText}</span>
-              </p>
-            ) : null}
+              {onReconnect ? (
+                <WorkbenchIconAction
+                  label={unreachable ? "Reconnect" : "Reload"}
+                  onClick={() => {
+                    setStatusOpen(false);
+                    onReconnect();
+                  }}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                </WorkbenchIconAction>
+              ) : null}
+            </div>
           </PopoverContent>
         </Popover>
       </div>

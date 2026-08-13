@@ -339,6 +339,7 @@ class Experiment(Folder):
         self._fs.mkdir(d, parents=True, exist_ok=True)
         disk_meta = self._persist_workflow_doc()
         _save_metadata(disk_meta, self._fs.join(d, "experiment.json"), fs=self._fs)
+        self.write_meta()
 
     def save(self) -> None:
         """Persist current metadata to disk."""

@@ -81,6 +81,20 @@ export default defineConfig(({ command }) => {
             '/api': {
               target: `http://localhost:${process.env.MOLEXP_API_PORT || '8000'}`,
               changeOrigin: true,
+              // Soft remote (503 needs_auth) is a normal JSON body — do not
+              // log HPM connection errors for closed idle sockets.
+              onError(err, _req, res) {
+                // Only surface real proxy death; ignore ECONNRESET/EPIPE noise.
+                const code = (err as NodeJS.ErrnoException)?.code;
+                if (code === "ECONNRESET" || code === "EPIPE" || code === "ECONNREFUSED") {
+                  if (res && !res.headersSent) {
+                    res.writeHead(503, { "Content-Type": "application/json" });
+                    res.end(JSON.stringify({ error: { code: "BACKEND", message: "offline" } }));
+                  }
+                  return;
+                }
+                console.warn("[proxy]", code || err.message);
+              },
             },
           },
     },

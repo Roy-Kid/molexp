@@ -53,5 +53,5 @@ class TestAgent:
         ops = {op for op, path in fs.calls if "reviewer" in path}
         assert "mkdir" in ops, f"materialize must mkdir via fs; ops were {ops!r}"
         assert "atomic_write_text" in ops, (
-            f"materialize must write meta.yaml via fs; ops were {ops!r}"
+            f"materialize must write meta.json via fs; ops were {ops!r}"
         )

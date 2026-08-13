@@ -166,6 +166,30 @@ def _resolve_served(spec: str | Path, used_keys: set[str]) -> ServedWorkspace:
         ssh_opts=tuple(parsed.ssh_opts) if parsed.ssh_opts else (),
         root_path=root,
     )
+    # Soft preflight for 2FA hosts: if ControlMaster is down, BatchMode
+    # serve calls cannot answer an OTP prompt.  Key-only hosts establish a
+    # master on first op automatically — the check is advisory only.
+    try:
+        from molq.options import SshTransportOptions
+        from molq.transport import SshTransport
+
+        ssh = SshTransport(
+            options=SshTransportOptions(
+                host=parsed.host or host_part,
+                port=parsed.port,
+                identity_file=parsed.identity_file,
+                ssh_opts=tuple(parsed.ssh_opts) if parsed.ssh_opts else (),
+            )
+        )
+        if not ssh.is_master_alive():
+            rprint(
+                f"[dim]Tip:[/dim] no SSH ControlMaster for [bold]{host_part}[/bold]. "
+                f"If this host needs a verification code, run "
+                f"[bold]molexp connect -ws {raw}[/bold] first."
+            )
+    except Exception:
+        pass
+
     return _remote_served(
         name=target_name,
         label=str(parsed),

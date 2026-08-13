@@ -29,7 +29,9 @@ def _ensure_remote_ready(workspace: Workspace) -> None:
     progress bar (count total → fetch). Further requests reuse the
     in-memory Workspace; ``POST /api/workspace/cache/refresh`` re-pulls.
 
-    Local workspaces are a no-op.
+    Local workspaces are a no-op. Connection failures raise
+    :class:`ConnectionError` / transport errors — callers convert to
+    :class:`RemoteWorkspaceUnreachableError` (soft JSON, no stack spam).
     """
     from molexp.workspace.fs_cached import CachedRemoteFileSystem
 
@@ -38,6 +40,65 @@ def _ensure_remote_ready(workspace: Workspace) -> None:
         return
     # Async force-refresh on link — progress is polled by the status strip.
     fs.prepare(workspace, block_index=False, refresh_on_open=True)
+
+
+def _ssh_master_alive_for_target(target: object) -> bool:
+    """True when OpenSSH ControlMaster for *target* is already live.
+
+    Used as a fast preflight so 2FA hosts do not pay a 15s BatchMode
+    timeout (and log ERROR) on every API hit before the user has entered
+    a verification code.
+    """
+    try:
+        from molq.options import SshTransportOptions
+        from molq.transport import SshTransport
+
+        host = getattr(target, "host", None) or ""
+        if not host:
+            return False
+        ssh = SshTransport(
+            options=SshTransportOptions(
+                host=str(host),
+                port=getattr(target, "port", None),
+                identity_file=getattr(target, "identity_file", None),
+                ssh_opts=tuple(getattr(target, "ssh_opts", ()) or ()),
+            )
+        )
+        return bool(ssh.is_master_alive())
+    except Exception:
+        return False
+
+
+def _open_remote_workspace(identifier: str, *, served_key: str | None = None) -> Workspace:
+    """Build + prepare a remote Workspace, or soft-raise unreachable.
+
+    *identifier* is the workspace-target name (serve registry key).
+    """
+    from molexp.server.deps.served import resolve_served_remote_target
+    from molexp.server.exceptions import RemoteWorkspaceUnreachableError
+    from molexp.server.workspace_targets import target_to_filesystem_for_workspace_target
+
+    key = served_key or identifier
+    try:
+        target = resolve_served_remote_target(identifier)
+    except KeyError as exc:
+        raise KeyError(f"workspace target {identifier!r} no longer registered") from exc
+
+    # Fast path: no ControlMaster → needs OTP / login. Do not probe SSH
+    # under BatchMode (hangs, then ConnectionError spam + HPM noise).
+    if not _ssh_master_alive_for_target(target):
+        raise RemoteWorkspaceUnreachableError(key, "needs_auth")
+
+    try:
+        fs = target_to_filesystem_for_workspace_target(target)
+        workspace = Workspace(target.root_path, fs=fs)
+        _ensure_remote_ready(workspace)
+        return workspace
+    except RemoteWorkspaceUnreachableError:
+        raise
+    except Exception as exc:
+        # Never surface raw ConnectionError text to logs as uncaught 500.
+        raise RemoteWorkspaceUnreachableError(key, "unreachable") from exc
 
 
 def _workspace_key_from_request(request: Request | None) -> str | None:
@@ -100,23 +161,8 @@ def get_active_workspace():  # noqa: ANN201
     cache_key = (kind, identifier)
     if cache_key not in _workspace_cache:
         if kind == "remote":
-            from molexp.server.deps.served import resolve_served_remote_target
-            from molexp.server.workspace_targets import (
-                target_to_filesystem_for_workspace_target,
-            )
-
-            try:
-                target = resolve_served_remote_target(identifier)
-            except KeyError as exc:
-                raise KeyError(
-                    f"active workspace target {identifier!r} no longer registered"
-                ) from exc
-            fs = target_to_filesystem_for_workspace_target(target)
-            workspace = Workspace(target.root_path, fs=fs)
-            # First open of a remote root: ensure local mirror exists and
-            # build the navigation index. Missing ``_index.json`` is normal.
-            _ensure_remote_ready(workspace)
-            _workspace_cache[cache_key] = workspace
+            # Soft-fail via RemoteWorkspaceUnreachableError (needs_auth / unreachable).
+            _workspace_cache[cache_key] = _open_remote_workspace(identifier)
         else:
             _workspace_cache[cache_key] = Workspace(Path(identifier))
     return _workspace_cache[cache_key]
@@ -127,7 +173,7 @@ def get_workspace_by_key(key: str):  # noqa: ANN201
 
     Raises:
         UnknownWorkspaceError: ``key`` names no served workspace (404).
-        RemoteWorkspaceUnreachableError: the remote transport failed (502).
+        RemoteWorkspaceUnreachableError: the remote transport failed (soft 503).
     """
     sw = _served_by_key(key)
     if sw is None:
@@ -139,20 +185,7 @@ def get_workspace_by_key(key: str):  # noqa: ANN201
         target_name = sw.target_name or sw.key
         cache_key = ("remote", target_name)
         if cache_key not in _workspace_cache:
-            from molexp.server.deps.served import resolve_served_remote_target
-            from molexp.server.exceptions import RemoteWorkspaceUnreachableError
-            from molexp.server.workspace_targets import (
-                target_to_filesystem_for_workspace_target,
-            )
-
-            try:
-                target = resolve_served_remote_target(target_name)
-                fs = target_to_filesystem_for_workspace_target(target)
-                workspace = Workspace(target.root_path, fs=fs)
-                _ensure_remote_ready(workspace)
-                _workspace_cache[cache_key] = workspace
-            except Exception as exc:  # connection / auth / unknown target
-                raise RemoteWorkspaceUnreachableError(sw.key, str(exc)) from exc
+            _workspace_cache[cache_key] = _open_remote_workspace(target_name, served_key=sw.key)
         return _workspace_cache[cache_key]
 
     assert sw.path is not None  # local always carries a path

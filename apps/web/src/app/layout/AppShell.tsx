@@ -1,9 +1,10 @@
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Breadcrumb } from "@/app/entities/Breadcrumb";
 import { buildTrail } from "@/app/entities/breadcrumbTrail";
 import { GlobalCommandPalette } from "@/app/entities/GlobalCommandPalette";
 import { ContextBar } from "@/app/layout/ContextBar";
+import { RemoteConnectDialog } from "@/app/layout/RemoteConnectDialog";
 import { CenterPanel } from "@/app/panels/CenterPanel";
 import { LeftPanel } from "@/app/panels/LeftPanel";
 import { RightPanel } from "@/app/panels/RightPanel";
@@ -137,6 +138,61 @@ export const AppShell = ({
   const activeWorkspace = useMemo(
     () => snapshot.workspaces.find((w) => w.active) ?? snapshot.workspaces[0] ?? null,
     [snapshot.workspaces],
+  );
+
+  // Auto-open the OTP dialog when the active remote workspace is unreachable.
+  const [connectOpen, setConnectOpen] = useState(false);
+  useEffect(() => {
+    if (
+      activeWorkspace?.isRemote &&
+      (activeWorkspace.unreachable || activeWorkspace.needsAuth)
+    ) {
+      setConnectOpen(true);
+    } else {
+      setConnectOpen(false);
+    }
+  }, [
+    activeWorkspace?.key,
+    activeWorkspace?.isRemote,
+    activeWorkspace?.unreachable,
+    activeWorkspace?.needsAuth,
+  ]);
+
+  /** Heartbeat / palette: re-auth if remote needs it, else hard reload. */
+  const handleReconnect = useCallback(() => {
+    if (activeWorkspace?.isRemote) {
+      setConnectOpen(true);
+      return;
+    }
+    onWorkspaceRefresh();
+  }, [activeWorkspace?.isRemote, onWorkspaceRefresh]);
+
+  const paletteCommands = useMemo(
+    () => [
+      {
+        id: "reload-window",
+        label: "Reload Window",
+        detail: "Refresh workspace data",
+        run: () => onWorkspaceRefresh(),
+      },
+      ...(activeWorkspace?.isRemote
+        ? [
+            {
+              id: "reconnect-remote",
+              label: "Reconnect Remote",
+              detail: "Verification code / SSH session",
+              run: () => setConnectOpen(true),
+            },
+          ]
+        : []),
+      {
+        id: "reload-active",
+        label: "Reload Active View",
+        detail: "Soft refresh",
+        run: () => onActiveRefresh(),
+      },
+    ],
+    [activeWorkspace?.isRemote, onWorkspaceRefresh, onActiveRefresh],
   );
 
   const handleNavSelect = useCallback(
@@ -298,7 +354,7 @@ export const AppShell = ({
 
   return (
     <InspectedTaskContext.Provider value={inspectedTaskContext}>
-      <GlobalCommandPalette snapshot={snapshot} />
+      <GlobalCommandPalette snapshot={snapshot} commands={paletteCommands} />
       <div className="flex h-screen flex-col bg-background text-foreground">
         <ContextBar
           searchQuery={searchQuery}
@@ -315,8 +371,15 @@ export const AppShell = ({
             isRefreshing={isRefreshing}
             onRemoteIndexReady={onWorkspaceRefresh}
             activeWorkspace={activeWorkspace}
+            onReconnect={handleReconnect}
           />
         </main>
+        <RemoteConnectDialog
+          workspace={activeWorkspace}
+          open={connectOpen}
+          onOpenChange={setConnectOpen}
+          onConnected={onWorkspaceRefresh}
+        />
       </div>
     </InspectedTaskContext.Provider>
   );

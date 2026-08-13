@@ -10,6 +10,7 @@ metadata, and delete / move operations.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -27,7 +28,7 @@ from molexp.atomicio import file_lock
 from molexp.knowledge.types import resolve_concept_type
 from molexp.path import Path
 
-from .base import _load_metadata, _reconstruct, _save_metadata
+from .base import _load_metadata, _reconstruct
 from .edges import DEFAULT_EDGE_ROLE, Edge, EdgeRole, encode_label, parse_role, validate_role
 from .errors import FolderMoveCollisionError
 from .fs import FileSystem, PathArg
@@ -47,18 +48,76 @@ WORKSPACE_RUN_KIND = "workspace.run"
 
 _KIND_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*$")
 
-_METADATA_FILENAME = "metadata.json"
+# Legacy filenames — read-only fallbacks; never written.
+_LEGACY_METADATA_FILENAME = "metadata.json"  # pre-unification base Folder entity
+_LEGACY_META_YAML_FILENAME = "meta.yaml"  # pre-JSON concept marker
 _FORBIDDEN_FILE_NAMES = {".", ".."}
 _CAMEL_TO_SNAKE = re.compile(r"(?<!^)(?=[A-Z])")
 
-# ── OKF: narrative index.md + markdown-link knowledge graph ──────────────────
-# The Open Knowledge Format gives every Folder a human-readable narrative
-# (``index.md``) whose markdown links ARE the knowledge graph. This is additive
-# — it sits alongside the authoritative ``metadata.json`` and never replaces it.
+# ── OKF: narrative index.md + JSON concept identity ──────────────────────────
+# One structured format on disk: **JSON**. Every Concept dir carries
+# ``meta.json`` (``type`` → registry; path basename = id). WPER domain records
+# use class-named entity JSON (``project.json`` / ``run.json`` / …). Narrative
+# stays in ``index.md`` (Markdown is not a data format for structured fields).
 INDEX_FILENAME = "index.md"
-META_YAML_FILENAME = "meta.yaml"  # OKF unified concept marker (type → registry)
+META_JSON_FILENAME = "meta.json"  # sole concept identity file (type → registry)
+# Back-compat import alias — callers that still import META_YAML_FILENAME get
+# the canonical *filename constant for the concept marker* (now ``meta.json``).
+META_YAML_FILENAME = META_JSON_FILENAME
 OPS_DIR = "_ops"  # OKF operational sidecar — hot machine state, NOT knowledge
 _MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")  # [label](target) — both captured
+
+
+def _parse_iso_datetime(raw: object, *, default: datetime) -> datetime:
+    if isinstance(raw, datetime):
+        return raw
+    if isinstance(raw, str) and raw:
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return default
+    return default
+
+
+def _folder_metadata_from_marker(
+    child_dir: PathArg,
+    marker: dict[str, object],
+) -> FolderMetadata:
+    """Build in-memory :class:`FolderMetadata` from ``meta.json`` + dir name.
+
+    Path basename is identity — marker ``id`` is ignored when present (legacy).
+    """
+    slug = PurePosixPath(str(child_dir)).name
+    kind = str(marker.get("type") or "").strip() or "concept"
+    now = datetime.now(UTC)
+    created = _parse_iso_datetime(marker.get("created_at"), default=now)
+    updated = _parse_iso_datetime(marker.get("updated_at"), default=created)
+    extra_raw = marker.get("extra")
+    extra: dict[str, JSONValue] = (
+        cast("dict[str, JSONValue]", extra_raw) if isinstance(extra_raw, dict) else {}
+    )
+    return FolderMetadata(
+        id=slug,
+        name=slug,
+        kind=kind,
+        created_at=created,
+        updated_at=updated,
+        extra=extra,
+    )
+
+
+def _load_concept_marker_dict(fs: FileSystem, concept_dir: PathArg) -> dict[str, object] | None:
+    """Load concept identity dict from ``meta.json`` (or legacy ``meta.yaml``)."""
+    primary = fs.join(concept_dir, META_JSON_FILENAME)
+    if fs.exists(primary):
+        with fs.open(primary) as fh:
+            raw: object = json.load(fh)
+        return cast("dict[str, object]", raw) if isinstance(raw, dict) else None
+    legacy_yaml = fs.join(concept_dir, _LEGACY_META_YAML_FILENAME)
+    if fs.exists(legacy_yaml):
+        raw_y = yaml.safe_load(fs.read_text(legacy_yaml)) or {}
+        return cast("dict[str, object]", raw_y) if isinstance(raw_y, dict) else None
+    return None
 
 
 class LinkScan(NamedTuple):
@@ -229,10 +288,46 @@ class Folder:
         return Path(self._fs.join(self._parent.resolve(), self._name))
 
     # ── Index filename ───────────────────────────────────────────────────
+    #
+    # Children-index lives on the PARENT and lists children of *this* class.
+    # It is always the **plural** of the child kind (``experiments.json``,
+    # ``runs.json``, ``projects.json``) so it never collides with the
+    # **singular** entity file on the child dir (``experiment.json``,
+    # ``run.json``, ``project.json``). Pre-plural singular basenames are
+    # legacy read fallbacks only — writers always emit the plural form.
 
     @classmethod
     def _index_filename(cls) -> str:
+        """Canonical children-index basename (plural of the child kind)."""
+        singular = _CAMEL_TO_SNAKE.sub("_", cls.__name__).lower()
+        return f"{singular}s.json"
+
+    @classmethod
+    def _legacy_index_filename(cls) -> str:
+        """Pre-plural children-index basename (singular). Read-only fallback."""
         return _CAMEL_TO_SNAKE.sub("_", cls.__name__).lower() + ".json"
+
+    def _index_path_for(self, cls: type[Folder]) -> str:
+        """Resolved path of the children-index for *cls* under this folder.
+
+        Prefers the plural filename; falls back to a legacy singular file when
+        the plural is absent (one-release read compat).
+        """
+        primary = self._fs.join(self.resolve(), cls._index_filename())
+        if self._fs.exists(primary):
+            return primary
+        legacy = self._fs.join(self.resolve(), cls._legacy_index_filename())
+        if self._fs.exists(legacy):
+            return legacy
+        return primary
+
+    def _drop_legacy_index(self, cls: type[Folder]) -> None:
+        """Remove a singular legacy index after writing the plural form."""
+        legacy = self._fs.join(self.resolve(), cls._legacy_index_filename())
+        primary = self._fs.join(self.resolve(), cls._index_filename())
+        if legacy != primary and self._fs.exists(legacy) and self._fs.exists(primary):
+            with contextlib.suppress(OSError):
+                self._fs.remove(legacy)
 
     # ── Atomic JSON IO ───────────────────────────────────────────────────
 
@@ -251,26 +346,36 @@ class Folder:
         self._fs.atomic_write_json(fpath, data)
         return fpath
 
-    # ── OKF meta.yaml (unified concept marker; type → knowledge registry) ──
+    # ── OKF meta.json (sole concept identity; type → knowledge registry) ──
 
     def write_meta(self) -> str:
-        """Write the OKF ``meta.yaml`` marker (``type`` = this Folder's kind).
+        """Write the OKF ``meta.json`` concept identity (``type`` = this kind).
 
-        Additive — sits alongside the authoritative per-entity metadata json.
-        The ``type`` is the registered concept type, so a bundle can rebuild the
-        right subclass via :func:`concept_from_dir`.
+        One structured format on disk: JSON (same family as entity ``*.json``).
+
+        * required ``type`` — registered concept kind (path basename = id)
+        * optional ``created_at`` / ``updated_at`` — lifecycle when there is no
+          class-named entity JSON (generic :class:`Folder`)
+        * optional ``extra`` — free-form map
+
+        Domain entities keep class-named JSON for business fields. Subclasses
+        with a rich typed head (Note, Agent, …) override this method.
         """
-        data: dict[str, JSONValue] = {"type": self._kind, "id": self._name}
-        fpath = self._fs.join(self.path(), META_YAML_FILENAME)
-        self._fs.atomic_write_text(fpath, yaml.safe_dump(data, sort_keys=False))
+        data: dict[str, JSONValue] = {
+            "type": self._kind,
+            "created_at": self._metadata.created_at.isoformat(),
+            "updated_at": self._metadata.updated_at.isoformat(),
+        }
+        if self._metadata.extra:
+            data["extra"] = self._metadata.extra
+        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
+        self._fs.atomic_write_json(fpath, data)
         return fpath
 
     def read_meta(self) -> dict[str, JSONValue]:
-        """Read the OKF ``meta.yaml`` marker, or ``{}`` if absent."""
-        fpath = self._fs.join(self.resolve(), META_YAML_FILENAME)
-        if not self._fs.exists(fpath):
-            return {}
-        return cast("dict[str, JSONValue]", yaml.safe_load(self._fs.read_text(fpath)) or {})
+        """Read the OKF ``meta.json`` marker (or legacy ``meta.json``), or ``{}``."""
+        raw = _load_concept_marker_dict(self._fs, self.resolve())
+        return cast("dict[str, JSONValue]", raw) if raw is not None else {}
 
     # ── OKF narrative + markdown-link knowledge graph ─────────────────────
 
@@ -330,7 +435,7 @@ class Folder:
         """
         return self.links().typed_concepts
 
-    # ── OKF _ops/ operational sidecar (hot machine state, never in meta.yaml) ─
+    # ── OKF _ops/ operational sidecar (hot machine state, never in meta.json) ─
 
     def ops_dir(self) -> str:
         """Return the per-Folder ``_ops/`` sidecar dir, creating it if absent."""
@@ -368,16 +473,26 @@ class Folder:
     # ── Lifecycle ────────────────────────────────────────────────────────
 
     def materialize(self) -> None:
-        meta_path = self._fs.join(self.path(), _METADATA_FILENAME)
+        """Persist concept identity as ``meta.json`` (creating the dir lazily)."""
         self._metadata = self._metadata.model_copy(update={"updated_at": datetime.now()})
-        _save_metadata(self._metadata, meta_path, fs=self._fs)
+        self.write_meta()
 
     def save(self) -> None:
-        meta_path = self._fs.join(self.path(), _METADATA_FILENAME)
+        """Bump ``updated_at`` and rewrite ``meta.json``."""
         self._metadata = self._metadata.model_copy(update={"updated_at": datetime.now()})
-        _save_metadata(self._metadata, meta_path, fs=self._fs)
+        self.write_meta()
 
     # ── Children ─────────────────────────────────────────────────────────
+
+    def _try_child_folder_metadata(self, entry_path: PathArg) -> FolderMetadata | None:
+        """Load in-memory FolderMetadata from ``meta.json`` (or legacy files)."""
+        raw = _load_concept_marker_dict(self._fs, entry_path)
+        if raw is not None:
+            return _folder_metadata_from_marker(entry_path, raw)
+        legacy = self._fs.join(entry_path, _LEGACY_METADATA_FILENAME)
+        if self._fs.exists(legacy):
+            return _load_metadata(FolderMetadata, legacy, fs=self._fs)
+        return None
 
     def children(self, kind: str | None = None) -> list[Folder]:
         self_path = self.resolve()
@@ -390,10 +505,9 @@ class Folder:
             entry_path = self._fs.join(self_path, entry_name)
             if not self._fs.is_dir(entry_path):
                 continue
-            meta_file = self._fs.join(entry_path, _METADATA_FILENAME)
-            if not self._fs.exists(meta_file):
+            child_meta = self._try_child_folder_metadata(entry_path)
+            if child_meta is None:
                 continue
-            child_meta = _load_metadata(FolderMetadata, meta_file, fs=self._fs)
             if kind is not None and child_meta.kind != kind:
                 continue
             child = _reconstruct(
@@ -477,35 +591,23 @@ class Folder:
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Folder:
-        """Generic loader: reconstruct *child_dir* from its persisted record.
+        """Generic loader: reconstruct *child_dir* from ``meta.json``.
 
-        ``metadata.json`` (the authoritative entity record) wins when present.
-        A Concept dir carrying only the OKF ``meta.yaml`` marker — e.g. a
-        registered type whose owning module is not imported in this process,
-        reached through :func:`concept_from_dir`'s base-``Folder`` resolution —
-        reconstructs read-only from the marker (id = dir name, kind = ``type``),
-        so a Bundle walk stays total over heterogeneous concepts. A dir with
-        neither record is not a Folder: ``FileNotFoundError``.
+        Concept identity is ``meta.json`` (``type`` → kind; dir name → id).
+        Legacy ``meta.json`` / ``metadata.json`` are accepted only when the
+        canonical marker is absent (read compat; never written). A dir with
+        no marker is not a Folder: ``FileNotFoundError``.
         """
         fs = parent._fs
-        meta_file = fs.join(child_dir, _METADATA_FILENAME)
-        if fs.exists(meta_file):
-            child_meta = _load_metadata(FolderMetadata, meta_file, fs=fs)
+        raw = _load_concept_marker_dict(fs, child_dir)
+        if raw is not None:
+            child_meta = _folder_metadata_from_marker(child_dir, raw)
             return _reconstruct(cls, cls.base_from_disk_attrs(parent, child_meta))
-        marker_file = fs.join(child_dir, META_YAML_FILENAME)
-        if fs.exists(marker_file):
-            marker = yaml.safe_load(fs.read_text(marker_file))
-            kind = str(marker.get("type", "")) if isinstance(marker, dict) else ""
-            slug = PurePosixPath(str(child_dir)).name
-            child_meta = FolderMetadata(
-                id=slug,
-                name=slug,
-                kind=kind or "concept",
-                created_at=datetime.now(UTC),
-                updated_at=datetime.now(UTC),
-            )
+        legacy = fs.join(child_dir, _LEGACY_METADATA_FILENAME)
+        if fs.exists(legacy):
+            child_meta = _load_metadata(FolderMetadata, legacy, fs=fs)
             return _reconstruct(cls, cls.base_from_disk_attrs(parent, child_meta))
-        raise FileNotFoundError(meta_file)
+        raise FileNotFoundError(fs.join(child_dir, META_JSON_FILENAME))
 
     # ── Generic five-verb CRUD ───────────────────────────────────────────
 
@@ -550,8 +652,9 @@ class Folder:
         child._parent = self
         child._root_path = None
         child._fs = self._fs
-        child.materialize()
-        child.write_meta()  # OKF marker, additive
+        child.materialize()  # base: meta.json; WPER subclasses: entity json + write_meta
+        if _load_concept_marker_dict(self._fs, child.resolve()) is None:
+            child.write_meta()
         self._children_cache[slug] = child
         self._upsert_index_row(child)
         return child
@@ -594,10 +697,9 @@ class Folder:
                 entry_path = self._fs.join(self_path, entry_name)
                 if not self._fs.is_dir(entry_path):
                     continue
-                meta_file = self._fs.join(entry_path, _METADATA_FILENAME)
-                if not self._fs.exists(meta_file):
+                child_meta = self._try_child_folder_metadata(entry_path)
+                if child_meta is None:
                     continue
-                child_meta = _load_metadata(FolderMetadata, meta_file, fs=self._fs)
                 child = _reconstruct(
                     Folder,
                     {
@@ -612,9 +714,10 @@ class Folder:
                 )
                 out.append(cast(F, child))
             return out
-        index_path = self._fs.join(self_path, cls._index_filename())
+        index_path = self._index_path_for(cls)
         if not self._fs.exists(index_path):
             self.sync_folders(cls=cls)
+            index_path = self._index_path_for(cls)
             if not self._fs.exists(index_path):
                 return []
         try:
@@ -643,10 +746,14 @@ class Folder:
 
     def sync_folders(self, *, cls: type[Folder]) -> None:
         container = cls._container_dir(self)
+        # Always write the plural (canonical) form.
         index_path = self._fs.join(self.resolve(), cls._index_filename())
         if not self._fs.is_dir(container):
             if self._fs.exists(index_path):
                 self._fs.remove(index_path)
+            legacy = self._fs.join(self.resolve(), cls._legacy_index_filename())
+            if legacy != index_path and self._fs.exists(legacy):
+                self._fs.remove(legacy)
             return
         rows: dict[str, dict[str, JSONValue]] = {}
         for entry_name in sorted(self._fs.listdir(container)):
@@ -662,6 +769,7 @@ class Folder:
             if isinstance(child, cls):
                 rows[child._name] = child._to_index_row()
         self._fs.atomic_write_json(index_path, rows)
+        self._drop_legacy_index(cls)
 
     def remove_folder(self, name: str, *, cls: type[Folder]) -> None:
         for candidate in (name, slugify(name)):
@@ -687,11 +795,15 @@ class Folder:
         return Path(parent._fs.dirname(cls.child_dir(parent, "_probe_")))
 
     def _upsert_index_row(self, child: Folder) -> None:
-        fpath = self._fs.join(self.resolve(), type(child)._index_filename())
+        child_cls = type(child)
+        # Seed from whichever index is currently on disk (plural or legacy).
+        existing = self._index_path_for(child_cls)
+        # Always write the plural (canonical) form.
+        fpath = self._fs.join(self.resolve(), child_cls._index_filename())
         rows: dict[str, dict[str, JSONValue]] = {}
-        if self._fs.exists(fpath):
+        if self._fs.exists(existing):
             try:
-                with self._fs.open(fpath) as fh:
+                with self._fs.open(existing) as fh:
                     raw: object = json.load(fh)
             except (OSError, json.JSONDecodeError):
                 raw = None
@@ -701,13 +813,14 @@ class Folder:
                         rows[str(k)] = cast("dict[str, JSONValue]", v)
         rows[child._name] = child._to_index_row()
         self._fs.atomic_write_json(fpath, rows)
+        self._drop_legacy_index(child_cls)
 
     def _remove_index_row(self, cls: type[Folder], slug: str) -> None:
-        fpath = self._fs.join(self.resolve(), cls._index_filename())
-        if not self._fs.exists(fpath):
+        existing = self._index_path_for(cls)
+        if not self._fs.exists(existing):
             return
         try:
-            with self._fs.open(fpath) as fh:
+            with self._fs.open(existing) as fh:
                 raw: object = json.load(fh)
         except (OSError, json.JSONDecodeError):
             return
@@ -717,7 +830,10 @@ class Folder:
         if slug not in rows:
             return
         rows.pop(slug)
+        # Rewrite to the plural form (and drop legacy).
+        fpath = self._fs.join(self.resolve(), cls._index_filename())
         self._fs.atomic_write_json(fpath, rows)
+        self._drop_legacy_index(cls)
 
     def _to_index_row(self) -> dict[str, JSONValue]:
         return cast("dict[str, JSONValue]", self._metadata.model_dump(mode="json"))
@@ -775,8 +891,12 @@ class Folder:
             }
         )
         new_parent._children_cache[target_id] = self
-        meta_path = new_parent._fs.join(target_dir, _METADATA_FILENAME)
-        _save_metadata(self._metadata, meta_path, fs=new_parent._fs)
+        self.write_meta()
+        # Drop legacy dual-file identity if present after the move.
+        legacy = new_parent._fs.join(target_dir, _LEGACY_METADATA_FILENAME)
+        if new_parent._fs.exists(legacy):
+            with contextlib.suppress(OSError):
+                new_parent._fs.remove(legacy)
         # Children indexes are derived; rebuild both endpoints from on-disk truth
         # so a typed ``list_folders(cls=…)`` on either parent reflects the move.
         if old_parent is not None:
@@ -796,7 +916,7 @@ def append_link(
     Writes a real markdown link (relative to *src*'s dir) so
     :meth:`Folder.out_edges` resolves it back to *dst* and
     :meth:`Folder.typed_out_edges` recovers *role*. The graph lives in markdown,
-    never in ``meta.yaml``. The *role* is carried in the link's ``[label]``
+    never in ``meta.json``. The *role* is carried in the link's ``[label]``
     channel via :func:`~molexp.workspace.edges.encode_label` — the default role
     encodes to the bare label, so pre-role output stays byte-identical. Appends
     unconditionally; link dedup remains a future enhancement.
@@ -827,26 +947,23 @@ def append_link(
 
 
 def concept_from_dir(child_dir: PathArg, parent: Folder) -> Folder:
-    """Reconstruct *child_dir* as its registered concept subclass via meta.yaml.
+    """Reconstruct *child_dir* as its registered concept subclass via meta.json.
 
-    Reads the OKF ``meta.yaml`` ``type`` and resolves it through the knowledge
+    Reads the OKF ``meta.json`` ``type`` and resolves it through the knowledge
     concept-type registry (unknown/absent → base :class:`Folder`), then
     delegates to that class's ``from_disk``.
     """
     fs = parent._fs
-    meta_path = fs.join(child_dir, META_YAML_FILENAME)
-    type_str = ""
-    if fs.exists(meta_path):
-        meta = yaml.safe_load(fs.read_text(meta_path))
-        if isinstance(meta, dict):
-            type_str = str(meta.get("type", ""))
+    marker = _load_concept_marker_dict(fs, child_dir) or {}
+    type_str = str(marker.get("type", ""))
     cls = resolve_concept_type(type_str, Folder)
     return cls.from_disk(child_dir, parent)
 
 
 __all__ = [
     "INDEX_FILENAME",
-    "META_YAML_FILENAME",
+    "META_JSON_FILENAME",
+    "META_YAML_FILENAME",  # alias of META_JSON_FILENAME
     "WORKSPACE_EXPERIMENT_KIND",
     "WORKSPACE_PROJECT_KIND",
     "WORKSPACE_ROOT_KIND",

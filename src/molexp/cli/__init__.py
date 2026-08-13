@@ -1,13 +1,12 @@
 """molexp CLI — flat command tree.
 
 Top-level verbs (``run`` / ``serve`` / ``monitor`` / ``explore`` / ``context`` /
-``info`` / ``exec`` / ``shell`` / ``sync`` / ``push`` / ``pull`` / ``init`` /
-``agent`` / ``plan``) and noun groups (``project`` / ``experiment`` / ``runs`` /
-``asset`` / ``target`` / ``session`` / ``config`` / ``mcp`` / ``curate`` /
-``git`` / ``knowledge``) register directly on the app. Each workspace-bound
-commands resolve their execution target via :mod:`molexp.cli._target`;
-``serve`` deliberately accepts only local ``-ws/--workspace`` paths. There is
-no ``workspace`` god-group.
+``info`` / ``exec`` / ``shell`` / ``connect`` / ``sync`` / ``push`` / ``pull`` /
+``init`` / ``agent`` / ``plan``) and noun groups (``project`` / ``experiment`` /
+``runs`` / ``asset`` / ``target`` / ``session`` / ``config`` / ``mcp`` /
+``curate`` / ``git`` / ``knowledge``) register directly on the app. Each
+workspace-bound command resolves its execution target via
+:mod:`molexp.cli._target`. There is no ``workspace`` god-group.
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ from __future__ import annotations
 import typer
 from mollog import get_logger
 
+from molexp.cli import connect_cmd as _connect_cmd
 from molexp.cli._app import app
 
 # ── init + agent (top-level command functions) ───────────────────────────────

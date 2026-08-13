@@ -154,6 +154,27 @@ export const parseHostQualifiedLabel = (label: string): { host: string; root: st
 };
 
 /**
+ * Compact label for chrome (ContextBar, multi-ws tree headers).
+ *
+ * Full serve labels like ``Arrhenius:/home/jicli594/work/mace-nve`` are the
+ * identity for copy/API, but repeating them in every chrome surface is noise.
+ * Display ``Host · basename`` (remote) or the directory basename (local);
+ * keep the full string in ``title`` / tooltip / copy-path.
+ */
+export const shortWorkspaceLabel = (label: string): string => {
+  const trimmed = label.trim();
+  if (!trimmed) return trimmed;
+  const hostQualified = parseHostQualifiedLabel(trimmed);
+  if (hostQualified) {
+    const leaf = basename(hostQualified.root) || hostQualified.root;
+    return `${hostQualified.host} · ${leaf}`;
+  }
+  // Local absolute or bare path — show the leaf only when it has a parent.
+  const leaf = basename(trimmed.replace(/\/+$/, ""));
+  return leaf || trimmed;
+};
+
+/**
  * Absolute path for clipboard copy.
  *
  * - **Local** → POSIX absolute (``/Users/…/projects/…``).

@@ -6,7 +6,14 @@ import { cn } from "@/lib/utils";
 export interface NumberFieldProps
   extends Omit<
     React.ComponentProps<typeof Input>,
-    "type" | "value" | "min" | "max" | "step" | "onChange" | "onBlur" | "onKeyDown"
+    | "type"
+    | "value"
+    | "min"
+    | "max"
+    | "step"
+    | "onChange"
+    | "onBlur"
+    | "onKeyDown"
   > {
   value: number;
   min?: number;
@@ -46,7 +53,10 @@ export function NumberField({
     <Input
       {...inputProps}
       type="number"
-      className={cn("h-control-compact w-16 shrink-0 px-2 text-label tabular-nums", className)}
+      className={cn(
+        "h-control-compact w-16 shrink-0 px-2 text-label tabular-nums",
+        className,
+      )}
       value={draft}
       min={min}
       max={max}

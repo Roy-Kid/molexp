@@ -2,7 +2,7 @@
 
 Hot machine state (status / ownership / heartbeat / executions) lives in the
 ``_ops/`` operational sidecar, physically isolated from the knowledge-layer
-``meta.yaml`` (the OKF identity-vs-runtime split). Reuses the existing
+``meta.json`` (the OKF identity-vs-runtime split). Reuses the existing
 ``workspace.models`` ``RunStatus`` / ``ExecutionRecord``; timestamps are
 aware-UTC so heartbeat staleness compares correctly across hosts.
 """

@@ -3,8 +3,8 @@
 Notes and references are ``Folder`` subclasses (concept types, mountable
 anywhere). A note's body lives in ``index.md`` and its citations are markdown
 links (resolved by ``out_edges``); a reference's structured bib fields live in
-``meta.yaml`` (``ReferenceMeta``). Each ref/note is its own Concept directory,
-reconstructed from ``meta.yaml`` ``type`` via the shared concept-type registry.
+``meta.json`` (``ReferenceMeta``). Each ref/note is its own Concept directory,
+reconstructed from ``meta.json`` ``type`` via the shared concept-type registry.
 """
 
 from __future__ import annotations

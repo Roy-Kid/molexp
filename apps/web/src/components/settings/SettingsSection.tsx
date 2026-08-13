@@ -31,13 +31,19 @@ export function SettingsSection({
   description,
 }: SettingsSectionProps): JSX.Element {
   return (
-    <section id={id} className={cn("scroll-mt-3 space-y-3", className)} data-settings-section={id}>
+    <section
+      id={id}
+      className={cn("scroll-mt-3 space-y-3", className)}
+      data-settings-section={id}
+    >
       <header className="space-y-1">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold tracking-tight text-foreground">{title}</h3>
           {trailing}
         </div>
-        {description ? <p className="text-micro text-muted-foreground">{description}</p> : null}
+        {description ? (
+          <p className="text-micro text-muted-foreground">{description}</p>
+        ) : null}
       </header>
       <div className="space-y-2.5">{children}</div>
     </section>

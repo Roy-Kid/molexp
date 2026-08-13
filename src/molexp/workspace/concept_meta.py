@@ -1,22 +1,24 @@
-"""``ConceptMeta`` — the structured ``meta.yaml`` payload of an OKF Concept.
+"""``ConceptMeta`` — the structured ``meta.json`` payload of an OKF Concept.
 
-Workspace-local OKF base for typed ``meta.yaml`` bodies (e.g.
+Workspace-local OKF base for typed concept heads (e.g.
 :class:`molexp.workspace.reference_meta.ReferenceMeta`). The agent layer keeps
 its own ``AgentMeta`` / ``AgentSessionMeta`` shapes; this base serves the
 workspace-owned Concept types. Kept in the workspace layer so nothing here
 depends on ``molexp.knowledge`` (which is now the concept-type registry only).
+
+Serialization is **JSON only** (same format family as entity ``*.json``).
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConceptMeta(BaseModel):
-    """Structured ``meta.yaml`` payload of one OKF Concept.
+    """Structured ``meta.json`` payload of one OKF Concept.
 
     Attributes:
         type: Concept subtype discriminator — the one required OKF field.
@@ -37,23 +39,31 @@ class ConceptMeta(BaseModel):
     timestamp: datetime | None = None
 
     @classmethod
-    def from_yaml(cls, text: str) -> ConceptMeta:
-        """Parse a ``meta.yaml`` string into a :class:`ConceptMeta`.
+    def from_json(cls, text: str) -> ConceptMeta:
+        """Parse a ``meta.json`` string into a :class:`ConceptMeta`."""
+        data = json.loads(text) if text.strip() else {}
+        return cls.model_validate(data)
 
-        Uses ``yaml.safe_load``; an empty document yields a validation error
-        (``type`` is required).
-        """
+    def to_json(self) -> str:
+        """Serialize to a ``meta.json`` string (pretty, stable key order)."""
+        return json.dumps(self.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n"
+
+    # ── Back-compat aliases (YAML-era names) ──────────────────────────────
+
+    @classmethod
+    def from_yaml(cls, text: str) -> ConceptMeta:
+        """Deprecated alias for :meth:`from_json` (also accepts legacy YAML text)."""
+        stripped = text.lstrip()
+        if stripped.startswith(("{", "[")):
+            return cls.from_json(text)
+        import yaml
+
         data = yaml.safe_load(text) or {}
         return cls.model_validate(data)
 
     def to_yaml(self) -> str:
-        """Serialize to a ``meta.yaml`` string via ``yaml.safe_dump``.
-
-        Includes any subtype ``extra`` keys; key order is preserved
-        (``sort_keys=False``). Datetimes are rendered through
-        ``model_dump(mode="json")`` (ISO strings).
-        """
-        return yaml.safe_dump(self.model_dump(mode="json"), sort_keys=False)
+        """Deprecated alias for :meth:`to_json`."""
+        return self.to_json()
 
 
 __all__ = ["ConceptMeta"]

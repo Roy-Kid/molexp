@@ -14,6 +14,7 @@ import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
 import { WorkbenchAction } from "@/components/workbench";
 import type { DiscoveredFile } from "@/plugins/types";
+import { molplotDisplayName } from "./display-name";
 import { MolplotRawChart } from "./MolplotRawChart";
 
 export const MolplotObservablesTab = ({
@@ -101,7 +102,9 @@ export const MolplotObservablesTab = ({
               }`}
             >
               <FileText className="size-3.5 flex-none" aria-hidden />
-              <span className="truncate">{candidate.name}</span>
+              <span className="truncate" title={candidate.name}>
+                {molplotDisplayName(candidate.name)}
+              </span>
             </WorkbenchAction>
           ))}
         </div>
@@ -109,11 +112,10 @@ export const MolplotObservablesTab = ({
 
       <main className="min-w-0 flex-1 overflow-auto p-4">
         {file && (
-          <div className="mb-3 flex items-center justify-between gap-3 font-mono text-micro text-muted-foreground">
-            <span className="truncate text-foreground" title={file.relPath}>
-              {file.relPath}
+          <div className="mb-3 flex items-center justify-between gap-3 text-micro text-muted-foreground">
+            <span className="truncate font-medium text-foreground" title={file.relPath}>
+              {molplotDisplayName(file.name)}
             </span>
-            <span>Vega-Lite · MolPlot</span>
           </div>
         )}
         {loading && <p className="text-body text-muted-foreground">Loading plot…</p>}
@@ -121,8 +123,8 @@ export const MolplotObservablesTab = ({
           <EmptyState
             density="compact"
             icon={<BarChart3 className="size-5" />}
-            title="Cannot render this observable"
-            description={error}
+            title="Cannot render this plot"
+            description="This file could not be opened as a chart."
           />
         )}
         {spec && (

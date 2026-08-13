@@ -17,9 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.workspace.base import _load_metadata
 from molexp.workspace.folder import Folder, FolderMoveCollisionError, append_link
-from molexp.workspace.models import FolderMetadata
 
 
 # ``Folder`` has no business subclasses at this level; this private subclass
@@ -142,18 +140,21 @@ class TestFolder:
         assert [c.metadata.name for c in parent.children(kind="test.beta")] == ["beta"]
 
     def test_save_bumps_updated_at_past_created_at(self, tmp_path: Path) -> None:
-        """Regression guard on the deliberate deviation from the mtime-based
-        design (sub-spec 01 §6): ``save()`` advances ``updated_at`` monotonically
-        inside the metadata JSON, decoupled from filesystem mtime."""
+        """``save()`` advances ``updated_at`` in ``meta.json`` (sole concept file)."""
         folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
         folder.materialize()
+        meta_path = Path(folder.path()) / "meta.json"
+        assert meta_path.is_file()
+        assert not (Path(folder.path()) / "metadata.json").exists()
 
         time.sleep(0.001)  # let the clock tick so the bump is observable
         folder.save()
 
-        loaded = _load_metadata(FolderMetadata, Path(folder.path()) / "metadata.json")
-        assert isinstance(loaded, FolderMetadata)
-        assert loaded.updated_at > loaded.created_at
+        raw = json.loads(meta_path.read_text())
+        assert raw["type"] == "test.root"
+        created = raw["created_at"]
+        updated = raw["updated_at"]
+        assert updated > created
 
     def test_delete_removes_directory_tree(self, tmp_path: Path) -> None:
         """``delete()`` removes the directory tree (including nested files)."""
@@ -210,10 +211,9 @@ class TestFolder:
 
 
 def _concept_folder(name: str, root: Path) -> Folder:
-    """A materialized base Concept dir (metadata.json + meta.yaml) for edge tests."""
+    """A materialized base Concept dir (``meta.json`` only) for edge tests."""
     folder = Folder(name=name, kind="bundle.concept", root_path=str(root))
     folder.materialize()
-    folder.write_meta()
     return folder
 
 
@@ -236,7 +236,7 @@ class TestFolderEdges:
 
     def test_legacy_untyped_link_defaults_role_and_is_kept(self, tmp_path: Path) -> None:
         """A plain pre-role markdown link parses to ``DEFAULT_EDGE_ROLE`` and is
-        never dropped; ``meta.yaml`` is never consulted for the edge."""
+        never dropped; ``meta.json`` is never consulted for the edge."""
         from molexp.workspace.edges import DEFAULT_EDGE_ROLE
 
         src = _concept_folder("src", tmp_path)
@@ -249,7 +249,7 @@ class TestFolderEdges:
         assert os.path.normpath(str(dst.resolve())) in {
             os.path.normpath(e) for e in src.out_edges()
         }
-        assert "dst" not in (Path(src.resolve()) / "meta.yaml").read_text(encoding="utf-8")
+        assert "dst" not in (Path(src.resolve()) / "meta.json").read_text(encoding="utf-8")
 
     def test_append_link_unknown_role_raises_and_writes_nothing(self, tmp_path: Path) -> None:
         src = _concept_folder("src", tmp_path)

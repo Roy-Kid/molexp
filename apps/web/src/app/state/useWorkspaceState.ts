@@ -126,8 +126,8 @@ const findTreeNode = (root: WorkspaceTreeNode, path: string): WorkspaceTreeNode 
 const fetchWorkspaces = async (): Promise<WorkspaceSnapshot["workspaces"]> => {
   try {
     return await workspaceApi.getServedWorkspaces();
-  } catch (err) {
-    console.warn("Served workspaces unavailable:", err);
+  } catch {
+    // Soft: list endpoint failed (backend down). Empty set; no console spam.
     return [];
   }
 };
@@ -146,8 +146,7 @@ const fetchProjectsList = async (
     try {
       // Prefer flat /api/projects (active workspace) — same data, one RTT.
       return mapProjects(await workspaceApi.getProjects(), ws.key);
-    } catch (err) {
-      console.warn(`Projects unavailable for workspace ${ws.key}:`, err);
+    } catch {
       return [];
     }
   }
@@ -156,8 +155,7 @@ const fetchProjectsList = async (
       if (ws.unreachable) return [];
       try {
         return mapProjects(await workspaceApi.getProjectsForWorkspace(ws.key), ws.key);
-      } catch (err) {
-        console.warn(`Projects unavailable for workspace ${ws.key}:`, err);
+      } catch {
         return [];
       }
     }),
@@ -296,7 +294,10 @@ export const useWorkspaceState = (activeView?: LeftPanelView): WorkspaceState =>
     if (!root) return;
     const node = findTreeNode(root, dirPath);
     if (node?.kind !== "directory") return;
-    if (node.childrenLoaded) return;
+    // Skip only when we already have a non-empty listing. An empty
+    // ``childrenLoaded`` folder may be a stale remote pin (UI shows "Empty"
+    // forever if we refuse to re-listdir).
+    if (node.childrenLoaded && node.children.length > 0) return;
 
     try {
       const fs = getWorkspaceFs();

@@ -10,6 +10,7 @@ import {
   parseHostQualifiedLabel,
   relativeTo,
   runWorkspaceRelativePath,
+  shortWorkspaceLabel,
   toApiPath,
 } from "@/lib/workspace-path";
 
@@ -100,5 +101,14 @@ describe("workspace-path (pure POSIX)", () => {
     expect(runWorkspaceRelativePath({ projectId: "p1", experimentId: "e1", id: "abc12345" })).toBe(
       "projects/p1/experiments/e1/runs/run-abc12345",
     );
+  });
+
+  it("shortWorkspaceLabel compresses host-qualified serve labels", () => {
+    expect(shortWorkspaceLabel("Arrhenius:/home/jicli594/work/mace-nve")).toBe(
+      "Arrhenius · mace-nve",
+    );
+    expect(shortWorkspaceLabel("user@hpc:/data/ws")).toBe("user@hpc · ws");
+    expect(shortWorkspaceLabel("/Users/me/work/local-ws")).toBe("local-ws");
+    expect(shortWorkspaceLabel("already-short")).toBe("already-short");
   });
 });

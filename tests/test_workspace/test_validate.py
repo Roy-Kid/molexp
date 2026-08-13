@@ -69,7 +69,7 @@ class TestValidateWorkspace:
 
     def test_missing_concept_marker_is_an_error(self, tmp_path: Path) -> None:
         ws = _workspace(tmp_path)
-        (Path(ws.get_project("alpha").resolve()) / "meta.yaml").unlink()
+        (Path(ws.get_project("alpha").resolve()) / "meta.json").unlink()
 
         report = ws.validate()
         marker = [v for v in report.errors if v.rule == "concept.marker"]
@@ -85,7 +85,7 @@ class TestValidateWorkspace:
         assert [v.path for v in stray] == ["leftover-run-output"]
 
     def test_a_concept_mounted_anywhere_is_not_a_stray(self, tmp_path: Path) -> None:
-        # Any Folder subclass may mount at any Folder; meta.yaml is what makes
+        # Any Folder subclass may mount at any Folder; meta.json is what makes
         # a directory legitimate, not its name.
         from molexp.workspace import Note
 
@@ -98,7 +98,7 @@ class TestValidateWorkspace:
 
     def test_stale_children_index_is_flagged_against_disk(self, tmp_path: Path) -> None:
         ws = _workspace(tmp_path)
-        index = Path(ws.resolve()) / "project.json"
+        index = Path(ws.resolve()) / "projects.json"
         payload = json.loads(index.read_text())
         payload["ghost"] = dict(next(iter(payload.values())), id="ghost", name="ghost")
         index.write_text(json.dumps(payload))
@@ -106,6 +106,24 @@ class TestValidateWorkspace:
         report = ws.validate()
         stale = [v for v in report.errors if v.rule == "index.stale"]
         assert stale and "ghost" in stale[0].detail
+
+    def test_children_index_is_plural_not_singular(self, tmp_path: Path) -> None:
+        """Index basenames are plural; entity basenames stay singular."""
+        ws = _workspace(tmp_path)
+        root = Path(ws.resolve())
+        assert (root / "projects.json").is_file()
+        assert not (root / "project.json").exists()  # no singular index at root
+        proj = root / "projects" / "alpha"
+        assert (proj / "project.json").is_file()  # entity
+        assert (proj / "experiments.json").is_file()  # index
+        assert not (proj / "experiment.json").exists()  # not an index here
+        exp = proj / "experiments" / "sweep"
+        assert (exp / "experiment.json").is_file()  # entity
+        assert (exp / "runs.json").is_file()  # index
+        # Singular run.json only under runs/run-*/ (entity), not as the index.
+        assert not (exp / "run.json").exists()
+        run_dirs = list((exp / "runs").iterdir())
+        assert run_dirs and (run_dirs[0] / "run.json").is_file()
 
     def test_project_dir_that_is_not_a_slug_is_flagged(self, tmp_path: Path) -> None:
         ws = _workspace(tmp_path)
@@ -142,7 +160,7 @@ class TestValidateWorkspace:
         report = ws.validate()
         stray = next(v for v in report.errors if v.rule == "layout.stray")
         assert stray.hint
-        assert "projects" in stray.hint or "meta.yaml" in stray.hint
+        assert "projects" in stray.hint or "meta.json" in stray.hint
         assert "layout.stray" in report.issues_by_rule()
         assert report.error_count >= 1
         assert report.ok is False

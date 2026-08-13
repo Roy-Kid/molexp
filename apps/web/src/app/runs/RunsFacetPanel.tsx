@@ -53,7 +53,7 @@ export const RunsFacetPanel = ({
   const active = hasActiveFilters(filters);
 
   return (
-    <div className="space-y-4 px-1 pb-4">
+    <div className="space-y-4">
       <FacetGroup title="Quick views">
         <div className="space-y-1">
           {QUICK_VIEWS.map((view) => {

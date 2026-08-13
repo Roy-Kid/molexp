@@ -443,7 +443,8 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
 
   return (
     <div className="space-y-2" aria-busy={loading || searchLoading || operationLabel !== null}>
-      <div className="flex items-center justify-between gap-1 px-1">
+      {/* Same action density as LeftExplorer title actions (gap-0.5, compact icons). */}
+      <div className="flex items-center justify-between gap-0.5">
         <KnowledgeFilter
           tags={tags}
           statuses={statuses}
@@ -455,21 +456,20 @@ export const DocTree = ({ snapshot, activeId, onSelect }: DocTreeProps): JSX.Ele
         />
         <WorkbenchIconAction
           label="New document"
+          kind="ghost"
           disabled={operationLabel !== null}
           onClick={() => void handleCreateRoot()}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
         </WorkbenchIconAction>
       </div>
-      <div className="px-1">
-        <Input
-          value={search}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          placeholder="Search notes (title, tags, body)…"
-          className="h-control-compact text-label"
-          aria-label="Search knowledge"
-        />
-      </div>
+      <Input
+        value={search}
+        onChange={(e) => handleSearchChange(e.target.value)}
+        placeholder="Search notes (title, tags, body)…"
+        className="h-control-compact text-label"
+        aria-label="Search knowledge"
+      />
       {facetsLoading && tags.length === 0 && statuses.length === 0 && (
         <WorkbenchOperationState
           kind="loading"

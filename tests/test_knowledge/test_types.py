@@ -1,6 +1,6 @@
 """Tests for the ``molexp.knowledge`` concept-type registry.
 
-The registry maps a Concept's ``meta.yaml`` ``type`` string to its Python
+The registry maps a Concept's ``meta.json`` ``type`` string to its Python
 class so a storage layer reconstructs typed Concepts (not bare bases). It is
 *open* (upstream layers register their own types) and *forward-compatible*
 (unknown types resolve to a supplied default). The registry is process-global,

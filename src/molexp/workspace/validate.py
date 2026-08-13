@@ -2,7 +2,7 @@
 
 Read-only. The layout law lives in one place — the ``Folder`` family and the
 on-disk contract it derives (container subdir, the mandatory ``run-`` prefix,
-entity vs children-index filenames, the per-concept ``meta.yaml`` marker).
+entity vs children-index filenames, the per-concept ``meta.json`` marker).
 This module is that law expressed as a checker, so a tree assembled by hand,
 by an adoption tool, or by an older molexp can be held to the same standard
 the writers obey.
@@ -40,11 +40,13 @@ Severity = Literal["error", "warning"]
 
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
-META_YAML = "meta.yaml"
+META_JSON = "meta.json"
+_LEGACY_META_YAML = "meta.yaml"
+META_YAML = META_JSON  # back-compat alias
 RUN_DIR_PREFIX = "run-"
 
 #: Structural container subdirs per level — directories that hold children or
-#: payload rather than being Concepts themselves, so they carry no meta.yaml.
+#: payload rather than being Concepts themselves, so they carry no meta.json.
 _CONTAINERS: dict[str, frozenset[str]] = {
     "workspace": frozenset({"projects", "assets", "cache"}),
     "project": frozenset({"experiments", "assets", "cache"}),
@@ -54,9 +56,22 @@ _CONTAINERS: dict[str, frozenset[str]] = {
     ),
 }
 
-#: level -> (entity filename, container subdir, children-index filename)
+#: level -> entity filename (singular — lives on the concept's own directory)
 _ENTITY_FILE: dict[str, str] = {
     "workspace": "workspace.json",
+    "project": "project.json",
+    "experiment": "experiment.json",
+    "run": "run.json",
+}
+#: level -> children-index filename on the PARENT (plural of the child kind).
+#: Disambiguates from the singular entity file on each child dir.
+_INDEX_FILE: dict[str, str] = {
+    "project": "projects.json",
+    "experiment": "experiments.json",
+    "run": "runs.json",
+}
+#: Pre-plural singular index basenames (one-release read/warn only).
+_LEGACY_INDEX_FILE: dict[str, str] = {
     "project": "project.json",
     "experiment": "experiment.json",
     "run": "run.json",
@@ -72,7 +87,7 @@ _CHILD_OF: dict[str, str] = {
 _RULE_HINTS: dict[str, str] = {
     "workspace.missing": (
         "Create the directory, then call materialize_workspace / "
-        "Workspace(...).materialize() so workspace.json + meta.yaml exist."
+        "Workspace(...).materialize() so workspace.json + meta.json exist."
     ),
     "workspace.entity": (
         "Not a workspace root. materialize_workspace(path=…) or "
@@ -81,28 +96,34 @@ _RULE_HINTS: dict[str, str] = {
     ),
     "workspace.index": (
         "Regenerate the project children index: re-open via Workspace and "
-        "list/add projects so project.json is rewritten from disk."
+        "list/add projects so projects.json is rewritten from disk."
     ),
     "project.entity": (
         "Missing project.json. Prefer add_project(name=…) (create-or-get) so "
-        "the entity file is written; hand-written dirs need project.json + meta.yaml."
+        "the entity file is written; hand-written dirs need project.json + meta.json."
     ),
     "project.slug": (
         "Rename the directory to a kebab-case slug (e.g. mace-r2san); ids are "
         "slug(name) with no prefix."
     ),
     "project.index": (
-        "Regenerate experiment.json under the project by listing/adding "
+        "Regenerate experiments.json under the project by listing/adding "
         "experiments through the Folder API."
     ),
     "experiment.entity": (
         "Missing experiment.json. Use add_experiment(project_id, name) or "
-        "write experiment.json + meta.yaml under experiments/<slug>/."
+        "write experiment.json + meta.json under experiments/<slug>/."
     ),
     "experiment.slug": ("Rename the experiment directory to a kebab-case slug (no prefix)."),
     "experiment.index": (
-        "Regenerate run.json under the experiment by listing/adding runs "
+        "Regenerate runs.json under the experiment by listing/adding runs "
         "through the Folder API (disk is authoritative)."
+    ),
+    "index.legacy_name": (
+        "Children index must be plural (projects.json / experiments.json / "
+        "runs.json), not the singular entity basename. Call "
+        "parent.sync_folders(cls=…) to rewrite the plural form and drop the "
+        "legacy singular file."
     ),
     "run.entity": (
         "Missing run.json. Scaffold with create_run / experiment.add_run(params=…); "
@@ -117,12 +138,12 @@ _RULE_HINTS: dict[str, str] = {
         "Ignore, or execute the run so the hot-state sidecar is created."
     ),
     "concept.marker": (
-        "Write meta.yaml with a registered concept type "
+        "Write meta.json with a registered concept type "
         "(e.g. type: workspace.project | workspace.experiment | workspace.run)."
     ),
     "layout.stray": (
         "Move with ws.wp.mv(src, dst) / me.wp.mv(ws, src, dst) under the "
-        "four-tier tree (e.g. projects/<id>/assets/…), or add meta.yaml to "
+        "four-tier tree (e.g. projects/<id>/assets/…), or add meta.json to "
         "make it an OKF Concept, or ws.wp.rm(path, recursive=True) if disposable."
     ),
     "index.stale": (
@@ -297,36 +318,60 @@ class _Checker:
 
     # -- per-level checks ------------------------------------------------
 
+    def _has_concept_marker(self, path: str) -> bool:
+        return self._fs.is_file(self._fs.join(path, META_JSON)) or self._fs.is_file(
+            self._fs.join(path, _LEGACY_META_YAML)
+        )
+
     def _check_concept(self, path: str, level: str) -> None:
         """Entity file + OKF marker for one concept directory."""
         entity = _ENTITY_FILE[level]
         if not self._fs.is_file(self._fs.join(path, entity)):
             self._add(path, f"{level}.entity", f"missing {entity}")
-        if not self._fs.is_file(self._fs.join(path, META_YAML)):
-            self._add(path, "concept.marker", f"missing {META_YAML} concept marker")
+        if not self._has_concept_marker(path):
+            self._add(path, "concept.marker", f"missing {META_JSON} concept marker")
 
     def _check_strays(self, path: str, level: str) -> None:
-        """Every child dir is a known container or a Concept (has meta.yaml)."""
+        """Every child dir is a known container or a Concept (has meta.json)."""
         allowed = _CONTAINERS[level]
         for name in self._subdirs(path):
             if name in allowed:
                 continue
             child = self._fs.join(path, name)
-            if self._fs.is_file(self._fs.join(child, META_YAML)):
+            if self._has_concept_marker(child):
                 continue  # a Concept may mount at any Folder
             self._add(
                 child,
                 "layout.stray",
-                f"{name!r} is neither a container {sorted(allowed)} nor a Concept (no {META_YAML})",
+                f"{name!r} is neither a container {sorted(allowed)} nor a Concept (no {META_JSON})",
             )
 
     def _check_index(self, path: str, level: str, child_dirs: list[str]) -> None:
         """The derived children index must match the entity dirs on disk."""
         child_level = _CHILD_OF[level]
-        index_name = _ENTITY_FILE[child_level]
+        index_name = _INDEX_FILE[child_level]
         index_path = self._fs.join(path, index_name)
+        legacy_name = _LEGACY_INDEX_FILE[child_level]
+        legacy_path = self._fs.join(path, legacy_name)
 
         on_disk = {d[len(RUN_DIR_PREFIX) :] if child_level == "run" else d for d in child_dirs}
+
+        # Prefer the plural (canonical) index; fall back to legacy singular
+        # for the stale check but always flag the wrong basename.
+        if self._fs.is_file(legacy_path) and not self._fs.is_file(index_path):
+            self._add(
+                legacy_path,
+                "index.legacy_name",
+                f"children index uses singular {legacy_name!r}; rename to {index_name!r}",
+            )
+            index_path = legacy_path
+        elif self._fs.is_file(legacy_path) and self._fs.is_file(index_path):
+            self._add(
+                legacy_path,
+                "index.legacy_name",
+                f"legacy singular {legacy_name!r} still present alongside {index_name!r}; remove it",
+            )
+
         if not self._fs.is_file(index_path):
             if on_disk:
                 self._add(

@@ -87,19 +87,20 @@ class AssembleKnowledgeContext(Stage):
         )
 
     def _render_digest(self, start: Path) -> str:
-        from molexp.workspace import Bundle, Workspace, assemble_workspace_context
+        from molexp.workspace import Workspace, assemble_workspace_context
         from molexp.workspace.knowledge_item import KNOWLEDGE_ITEM_KIND
 
         root = _find_workspace_root(start)
         if root is None:
             return _NO_WORKSPACE_DIGEST
-        refs = assemble_workspace_context(Workspace(root)).knowledge
+        ws = Workspace(root)
+        refs = assemble_workspace_context(ws).knowledge
         if not refs:
             return _EMPTY_DIGEST
 
         from molexp.workspace.errors import ConceptNotFoundError
 
-        bundle = Bundle(root)
+        bundle = ws.as_bundle()
         items: list[tuple[int, datetime, str, str, Mapping[str, object], Folder]] = []
         titles: list[str] = []
         for ref in refs:

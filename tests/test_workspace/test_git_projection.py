@@ -127,8 +127,12 @@ class TestGitProjection:
         assert "executions" not in joined
         # The run ENTITY file is projected (identity), the index files are not.
         assert any(p.endswith("run.json") for p in paths)
-        # No children-index at a container level (e.g. demo/experiment.json).
-        assert not any(p.endswith("/experiment.json") or p == "project.json" for p in paths)
+        # No plural children-index at a parent level (projects/experiments/runs.json).
+        assert not any(
+            p == "projects.json"
+            or p.endswith(("/experiments.json", "/runs.json", "/projects.json"))
+            for p in paths
+        )
 
     # ── molexp.ids + cache keys untouched ────────────────────────────────
 

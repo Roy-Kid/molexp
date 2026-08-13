@@ -239,6 +239,11 @@ export interface ServedWorkspaceSummary {
   /** True for the workspace whose deep tree (experiments/runs) is loaded. */
   active: boolean;
   unreachable: boolean;
+  /**
+   * Remote host needs a verification code (2FA/OTP). When true the shell
+   * shows the connect dialog so the user can enter the code in-browser.
+   */
+  needsAuth?: boolean;
 }
 
 export interface WorkspaceSnapshot {

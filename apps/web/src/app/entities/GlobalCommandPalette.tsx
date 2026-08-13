@@ -1,12 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// GlobalCommandPalette — ⌘K / Ctrl-K jump-to-anything across the whole
-// workspace. Replaces the old ContextBar search, which only filtered the
-// currently-visible left tree. Results span every entity kind and navigate via
-// the single ``entityPath`` URL scheme, so this is the connective tissue that
-// lets a user reach any node from anywhere.
+// GlobalCommandPalette
+//
+//   ⌘K / Ctrl+K        → Go to… (projects / experiments / runs / …)
+//   ⌘⇧P / Ctrl+Shift+P → Commands (reload, reconnect, …)  — same as molvis
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Search } from "lucide-react";
+import { Search, Terminal } from "lucide-react";
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { NoteSummary } from "@/api/generated/models/NoteSummary";
@@ -24,31 +23,80 @@ import {
   WorkbenchRetryAction,
 } from "@/components/workbench";
 
-interface GlobalCommandPaletteProps {
-  snapshot: WorkspaceSnapshot;
+export interface PaletteCommand {
+  id: string;
+  label: string;
+  detail?: string;
+  run: () => void;
 }
 
-export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): JSX.Element => {
+interface GlobalCommandPaletteProps {
+  snapshot: WorkspaceSnapshot;
+  /** Host actions for ⌘⇧P (Reload, Reconnect, …). */
+  commands?: PaletteCommand[];
+}
+
+type PaletteMode = "goto" | "commands";
+
+function scoreCommand(query: string, label: string, detail?: string): number {
+  const q = query.trim().toLowerCase();
+  if (!q) return 1;
+  const hay = `${label} ${detail ?? ""}`.toLowerCase();
+  if (hay === q) return 100;
+  if (hay.startsWith(q)) return 80;
+  if (hay.includes(q)) return 50;
+  let i = 0;
+  for (const ch of hay) {
+    if (ch === q[i]) i += 1;
+    if (i >= q.length) return 20;
+  }
+  return 0;
+}
+
+export const GlobalCommandPalette = ({
+  snapshot,
+  commands = [],
+}: GlobalCommandPaletteProps): JSX.Element => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<PaletteMode>("goto");
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Global hotkey: ⌘K (mac) / Ctrl-K (everywhere else).
+  const modeRef = useRef(mode);
+  const openRef = useRef(open);
+  modeRef.current = mode;
+  openRef.current = open;
+
+  // ⌘K → go to; ⌘⇧P → commands (molvis / VS Code parity).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      const key = event.key.toLowerCase();
+      const mod = event.metaKey || event.ctrlKey;
+      if (!mod) return;
+      if (key === "k" && !event.shiftKey) {
         event.preventDefault();
-        setOpen((prev) => !prev);
+        if (openRef.current && modeRef.current === "goto") {
+          setOpen(false);
+        } else {
+          setMode("goto");
+          setOpen(true);
+        }
+      } else if (key === "p" && event.shiftKey) {
+        event.preventDefault();
+        if (openRef.current && modeRef.current === "commands") {
+          setOpen(false);
+        } else {
+          setMode("commands");
+          setOpen(true);
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Knowledge docs join the jump list (vision-loop-08). Best-effort fetch-once
-  // (the useKnowledgeFacets pattern): the palette still works without them.
   const [knowledgeDocs, setKnowledgeDocs] = useState<NoteSummary[]>([]);
   const [knowledgeLoading, setKnowledgeLoading] = useState(true);
   const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
@@ -73,23 +121,32 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
   }, [loadKnowledge]);
 
   const catalog = useMemo(() => buildCatalog(snapshot, knowledgeDocs), [snapshot, knowledgeDocs]);
-  const results = useMemo(() => searchCatalog(catalog, query), [catalog, query]);
+  const gotoResults = useMemo(() => searchCatalog(catalog, query), [catalog, query]);
 
-  // Reset transient state whenever the dialog opens.
+  const commandResults = useMemo(() => {
+    const scored = commands
+      .map((c) => ({ cmd: c, score: scoreCommand(query, c.label, c.detail) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.cmd.label.localeCompare(b.cmd.label));
+    return scored.map((x) => x.cmd);
+  }, [commands, query]);
+
+  const resultsLen = mode === "goto" ? gotoResults.length : commandResults.length;
+
   useEffect(() => {
     if (open) {
       setQuery("");
       setActiveIndex(0);
     }
-  }, [open]);
+  }, [open, mode]);
 
   const onQueryChange = (value: string): void => {
     setQuery(value);
     setActiveIndex(0);
   };
 
-  const commit = (index: number): void => {
-    const entry = results[index];
+  const commitGoto = (index: number): void => {
+    const entry = gotoResults[index];
     if (!entry) return;
     const path = entityPath(entry.ref, snapshot);
     if (!path) return;
@@ -97,10 +154,22 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
     setOpen(false);
   };
 
+  const commitCommand = (index: number): void => {
+    const cmd = commandResults[index];
+    if (!cmd) return;
+    setOpen(false);
+    cmd.run();
+  };
+
+  const commit = (index: number): void => {
+    if (mode === "goto") commitGoto(index);
+    else commitCommand(index);
+  };
+
   const onInputKeyDown = (event: React.KeyboardEvent): void => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveIndex((i) => Math.min(i + 1, results.length - 1));
+      setActiveIndex((i) => Math.min(i + 1, Math.max(resultsLen - 1, 0)));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       setActiveIndex((i) => Math.max(i - 1, 0));
@@ -109,6 +178,9 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
       commit(activeIndex);
     }
   };
+
+  const placeholder =
+    mode === "commands" ? "Type a command…" : "Jump to a project, experiment, run…";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -120,25 +192,33 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
         }}
       >
         <div className="flex items-center gap-2 border-b border-border px-3">
-          <Search className="h-4 w-4 flex-none text-muted-foreground" />
+          {mode === "commands" ? (
+            <Terminal className="h-4 w-4 flex-none text-muted-foreground" />
+          ) : (
+            <Search className="h-4 w-4 flex-none text-muted-foreground" />
+          )}
           <Input
             ref={inputRef}
             role="combobox"
-            aria-label="Search workspace"
+            aria-label={mode === "commands" ? "Run a command" : "Search workspace"}
             aria-autocomplete="list"
             aria-expanded="true"
             aria-controls="global-command-results"
             aria-activedescendant={
-              results.length > 0 ? `global-command-option-${activeIndex}` : undefined
+              resultsLen > 0 ? `global-command-option-${activeIndex}` : undefined
             }
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             onKeyDown={onInputKeyDown}
-            placeholder="Jump to a project, experiment, run, workflow, asset, agent, note…"
+            placeholder={placeholder}
             className="h-control-comfortable w-full rounded-none border-0 bg-transparent px-0 text-body focus-visible:ring-0"
           />
+          <kbd className="hidden flex-none rounded-control border border-border bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground sm:inline">
+            {mode === "commands" ? "⌘⇧P" : "⌘K"}
+          </kbd>
         </div>
-        {knowledgeLoading && knowledgeDocs.length === 0 && (
+
+        {mode === "goto" && knowledgeLoading && knowledgeDocs.length === 0 && (
           <WorkbenchOperationState
             kind="loading"
             density="inline"
@@ -146,7 +226,7 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
             className="border-b border-border px-3 py-2"
           />
         )}
-        {knowledgeError && (
+        {mode === "goto" && knowledgeError && (
           <WorkbenchOperationState
             kind="error"
             density="compact"
@@ -155,14 +235,54 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
             action={<WorkbenchRetryAction onClick={() => void loadKnowledge()} />}
           />
         )}
+
         <div
           id="global-command-results"
           role="listbox"
-          aria-label="Workspace search results"
-          aria-busy={knowledgeLoading}
+          aria-label={mode === "commands" ? "Commands" : "Workspace search results"}
           className="max-h-80 overflow-y-auto p-1"
         >
-          {results.length === 0 ? (
+          {mode === "commands" ? (
+            commandResults.length === 0 ? (
+              <WorkbenchOperationState
+                kind="empty"
+                density="compact"
+                title="No commands"
+                detail={query ? "No matching commands." : "No commands registered."}
+              />
+            ) : (
+              commandResults.map((cmd, index) => {
+                const isActive = index === activeIndex;
+                return (
+                  <WorkbenchAction
+                    kind="ghost"
+                    size="content"
+                    type="button"
+                    role="option"
+                    id={`global-command-option-${index}`}
+                    aria-selected={isActive}
+                    tabIndex={-1}
+                    key={cmd.id}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => commitCommand(index)}
+                    className={`flex w-full items-center gap-3 rounded-control px-3 py-2 text-left ${
+                      isActive ? "bg-muted" : ""
+                    }`}
+                  >
+                    <Terminal className="h-4 w-4 flex-none text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-body-lg text-foreground">
+                      {cmd.label}
+                    </span>
+                    {cmd.detail ? (
+                      <span className="flex-none font-mono text-micro text-muted-foreground">
+                        {cmd.detail}
+                      </span>
+                    ) : null}
+                  </WorkbenchAction>
+                );
+              })
+            )
+          ) : resultsLen === 0 ? (
             knowledgeLoading ? (
               <WorkbenchOperationState
                 kind="loading"
@@ -182,52 +302,44 @@ export const GlobalCommandPalette = ({ snapshot }: GlobalCommandPaletteProps): J
               />
             )
           ) : (
-            <>
-              <WorkbenchOperationState
-                kind="success"
-                density="inline"
-                title={`${results.length} result${results.length === 1 ? "" : "s"}`}
-                className="sr-only"
-              />
-              {results.map((entry, index) => {
-                const meta = entityMeta(entry.ref.kind);
-                const Icon = meta.icon;
-                const isActive = index === activeIndex;
-                return (
-                  <WorkbenchAction
-                    kind="ghost"
-                    size="content"
-                    type="button"
-                    role="option"
-                    id={`global-command-option-${index}`}
-                    aria-selected={isActive}
-                    tabIndex={-1}
-                    key={`${entry.ref.kind}:${entry.ref.id}`}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => commit(index)}
-                    className={`flex w-full items-center gap-3 rounded-control px-3 py-2 text-left ${
-                      isActive ? "bg-muted" : ""
-                    }`}
-                  >
-                    <Icon className={`h-4 w-4 flex-none ${meta.iconClassName}`} />
-                    <span className="min-w-0 flex-1 truncate text-body-lg text-foreground">
-                      {entry.ref.label ?? entry.ref.id}
-                    </span>
-                    <span className="flex-none text-micro uppercase tracking-wide text-muted-foreground">
-                      {meta.label}
-                    </span>
-                    {entry.ref.status && (
-                      <StatusBadge
-                        status={entry.ref.status as SemanticStatus}
-                        size="sm"
-                        dot
-                        showLabel={false}
-                      />
-                    )}
-                  </WorkbenchAction>
-                );
-              })}
-            </>
+            gotoResults.map((entry, index) => {
+              const meta = entityMeta(entry.ref.kind);
+              const Icon = meta.icon;
+              const isActive = index === activeIndex;
+              return (
+                <WorkbenchAction
+                  kind="ghost"
+                  size="content"
+                  type="button"
+                  role="option"
+                  id={`global-command-option-${index}`}
+                  aria-selected={isActive}
+                  tabIndex={-1}
+                  key={`${entry.ref.kind}:${entry.ref.id}`}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => commitGoto(index)}
+                  className={`flex w-full items-center gap-3 rounded-control px-3 py-2 text-left ${
+                    isActive ? "bg-muted" : ""
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 flex-none ${meta.iconClassName}`} />
+                  <span className="min-w-0 flex-1 truncate text-body-lg text-foreground">
+                    {entry.ref.label ?? entry.ref.id}
+                  </span>
+                  <span className="flex-none text-micro uppercase tracking-wide text-muted-foreground">
+                    {meta.label}
+                  </span>
+                  {entry.ref.status && (
+                    <StatusBadge
+                      status={entry.ref.status as SemanticStatus}
+                      size="sm"
+                      dot
+                      showLabel={false}
+                    />
+                  )}
+                </WorkbenchAction>
+              );
+            })
           )}
         </div>
       </DialogContent>

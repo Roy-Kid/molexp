@@ -18,13 +18,23 @@ interface CreateProjectDialogProps {
   onProjectCreated: () => void;
   /** When set, the trigger is disabled and hover explains why. */
   writeDeniedReason?: string | null;
+  /** Controlled open (e.g. from tree context menu). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Show the header + button. Default true. */
+  showTrigger?: boolean;
 }
 
 export function CreateProjectDialog({
   onProjectCreated,
   writeDeniedReason,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  showTrigger = true,
 }: CreateProjectDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = controlledOnOpenChange ?? setUncontrolledOpen;
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,32 +61,31 @@ export function CreateProjectDialog({
     }
   };
 
-  if (writeDeniedReason) {
-    return (
-      <WorkbenchIconAction
-        label="New project"
-        kind="ghost"
-        className="h-control-compact w-control-compact"
-        aria-label="New project"
-        deniedReason={writeDeniedReason}
-      >
-        <Plus className="h-4 w-4" />
-      </WorkbenchIconAction>
-    );
-  }
-
-  return (
+  const dialog = (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+      {showTrigger && !writeDeniedReason ? (
+        <DialogTrigger asChild>
+          <WorkbenchIconAction
+            label="New project"
+            kind="ghost"
+            className="h-control-compact w-control-compact"
+            aria-label="New project"
+          >
+            <Plus className="h-4 w-4" />
+          </WorkbenchIconAction>
+        </DialogTrigger>
+      ) : null}
+      {showTrigger && writeDeniedReason ? (
         <WorkbenchIconAction
           label="New project"
           kind="ghost"
           className="h-control-compact w-control-compact"
           aria-label="New project"
+          deniedReason={writeDeniedReason}
         >
           <Plus className="h-4 w-4" />
         </WorkbenchIconAction>
-      </DialogTrigger>
+      ) : null}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Create Project</DialogTitle>
@@ -111,4 +120,6 @@ export function CreateProjectDialog({
       </DialogContent>
     </Dialog>
   );
+
+  return dialog;
 }

@@ -5,7 +5,7 @@ command does here routes through the same :class:`molexp.workspace.Bundle`
 verbs Python callers use (the Python == UI/CLI invariant). ``import-zotero``
 links a local Zotero library read-only via :meth:`Bundle.import_zotero` /
 :func:`molexp.workspace.read_zotero_items` — each item becomes a
-``ReferenceConcept`` directory whose ``meta.yaml`` carries the bib record and
+``ReferenceConcept`` directory whose ``meta.json`` carries the bib record and
 whose PDF is *pointed at* in place, never copied.
 """
 
@@ -86,16 +86,15 @@ def import_zotero(
     """Link a local Zotero library as reference Concepts (read-only import).
 
     Each Zotero item becomes a ``ReferenceConcept`` directory under
-    ``<dest>/references/`` — bib fields in ``meta.yaml``, PDFs pointed at in
+    ``<dest>/references/`` — bib fields in ``meta.json``, PDFs pointed at in
     place (never copied). Re-running is idempotent: an item updates its
     existing directory instead of duplicating it.
     """
-    from molexp.workspace import Bundle
 
     db = _resolve_zotero_db(database)
     ws = _load_dest_workspace(dest)
 
-    bundle = Bundle(ws.root)
+    bundle = ws.as_bundle()
     try:
         refs = bundle.import_zotero(db)
     except sqlite3.Error as exc:
@@ -138,10 +137,10 @@ def knowledge_search(
     """
     from rich.table import Table
 
-    from molexp.workspace import Bundle, Workspace
+    from molexp.workspace import Workspace
 
     ws = Workspace((path or Path.cwd()).resolve())
-    result = Bundle(ws.resolve()).search(query, concept_type=concept_type, tag=tag)
+    result = ws.as_bundle().search(query, concept_type=concept_type, tag=tag)
     if not result.hits:
         rprint(f"[dim]No knowledge matches for {query!r}.[/dim]")
         return

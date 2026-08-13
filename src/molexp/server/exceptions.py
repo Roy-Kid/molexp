@@ -479,12 +479,18 @@ class RemoteWorkspaceReadOnlyError(MolExpError):
 
 
 class RemoteWorkspaceUnreachableError(MolExpError):
-    """The transport to a remote workspace failed (connection / auth)."""
+    """Remote workspace not open yet (needs OTP) or temporarily offline.
+
+    Soft status (503), not a hard 5xx crash — the UI shows the connect dialog
+    or an idle strip; logs must stay quiet.
+    """
 
     def __init__(self, key: str, reason: str | None = None) -> None:
+        # Short opaque message — never dump ConnectionError / SSH stderr.
+        soft = reason if reason in {"needs_auth", "unreachable"} else "unreachable"
         super().__init__(
-            message=f"Remote workspace '{key}' is unreachable" + (f": {reason}" if reason else ""),
+            message=soft,
             code="REMOTE_WORKSPACE_UNREACHABLE",
-            status_code=502,
-            details={"workspace": key, **({"reason": reason} if reason else {})},
+            status_code=503,
+            details={"workspace": key, "reason": soft},
         )

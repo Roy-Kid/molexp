@@ -192,6 +192,7 @@ export const workspaceApi = {
       path: string | null;
       active?: boolean;
       unreachable?: boolean;
+      needsAuth?: boolean;
     }>;
     return rows.map((row) => ({
       key: row.key,
@@ -200,7 +201,41 @@ export const workspaceApi = {
       path: row.path ?? null,
       active: row.active ?? false,
       unreachable: row.unreachable ?? false,
+      needsAuth: row.needsAuth ?? row.unreachable ?? false,
     }));
+  },
+  /**
+   * Submit a 2FA/OTP verification code for a remote served workspace.
+   * Establishes OpenSSH ControlMaster so subsequent API calls succeed.
+   */
+  connectRemoteWorkspace: async (
+    key: string,
+    code: string,
+    options?: { force?: boolean },
+  ): Promise<{ ok: boolean; masterAlive: boolean; host: string }> => {
+    const response = await fetch(`/api/workspaces/${encodeURIComponent(key)}/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, force: options?.force ?? false }),
+    });
+    if (!response.ok) {
+      // Short machine-readable failure only — UI maps to a quiet hint line.
+      const status = response.status;
+      if (status === 401 || status === 403) throw new Error("auth");
+      if (status === 408 || status === 504) throw new Error("timeout");
+      if (status === 502 || status === 503) throw new Error("unreachable");
+      throw new Error("failed");
+    }
+    const body = (await response.json().catch(() => ({}))) as {
+      ok?: boolean;
+      masterAlive?: boolean;
+      host?: string;
+    };
+    return {
+      ok: body.ok ?? true,
+      masterAlive: body.masterAlive ?? false,
+      host: body.host ?? key,
+    };
   },
   // Switch the active workspace (used when a user opens a non-active workspace
   // in the multi-workspace nav). Local switches by path; remote by target name
@@ -216,6 +251,65 @@ export const workspaceApi = {
     });
     if (!response.ok) {
       throw new Error(`Failed to activate workspace ${workspace.key}: ${response.status}`);
+    }
+  },
+  /**
+   * VS Code "Add Folder to Workspace" — append a root to the live served set.
+   * Local absolute path, remote `Host:/abs`, or `@registry-name`.
+   */
+  addServedWorkspace: async (input: {
+    kind: "local" | "remote";
+    path?: string;
+    name?: string;
+    createIfMissing?: boolean;
+    activate?: boolean;
+  }): Promise<ServedWorkspaceSummary> => {
+    const response = await fetch("/api/workspaces/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: input.kind,
+        path: input.path,
+        name: input.name,
+        create_if_missing: input.createIfMissing ?? false,
+        activate: input.activate ?? true,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response
+        .json()
+        .then((b: { detail?: unknown }) =>
+          typeof b.detail === "string" ? b.detail : response.statusText,
+        )
+        .catch(() => response.statusText);
+      throw new Error(detail || `Failed to add workspace (${response.status})`);
+    }
+    const row = (await response.json()) as {
+      key: string;
+      label: string;
+      isRemote: boolean;
+      path: string | null;
+      active?: boolean;
+      unreachable?: boolean;
+      needsAuth?: boolean;
+    };
+    return {
+      key: row.key,
+      label: row.label,
+      isRemote: row.isRemote,
+      path: row.path ?? null,
+      active: row.active ?? false,
+      unreachable: row.unreachable ?? false,
+      needsAuth: row.needsAuth ?? row.unreachable ?? false,
+    };
+  },
+  /** VS Code "Remove Folder from Workspace" — drop a root from the served set. */
+  removeServedWorkspace: async (key: string): Promise<void> => {
+    const response = await fetch(`/api/workspaces/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to remove workspace ${key}: ${response.status}`);
     }
   },
   // Projects of one named workspace via the aggregate route

@@ -189,7 +189,7 @@ const AutoLayoutOnMount = ({
       try {
         historyRef.current.clear();
       } catch {
-        // History is optional when the canvas is read-only.
+        // Defensive: history should always be bound (see editorProps.history).
       }
       settledRef.current = true;
       // Brief suppress for straggler MOVE_NODEs that land after history.clear().
@@ -347,11 +347,15 @@ export const FlowgramCanvas = ({
           </WorkflowNodeRenderer>
         ),
       },
-      // Editing engines are only needed in editable mode.
+      // History must always be enabled: AutoLayoutOnMount and useClientContext()
+      // resolve HistoryService via inversify. With history off, readonly canvases
+      // throw "No matching bindings found for serviceIdentifier: HistoryService".
+      // Undo chrome stays gated on `editable`; we only need the binding + clear().
+      history: { enable: true },
+      // Node engine / content-change dirty tracking only in editable mode.
       ...(editable
         ? {
             nodeEngine: { enable: true },
-            history: { enable: true },
             onContentChange(ctx) {
               // Dirty tracking is history-backed, not "any document mutation":
               // 1) Mount-time auto-layout MOVE_NODEs fire before the dirty gate

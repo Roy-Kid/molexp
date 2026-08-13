@@ -4,9 +4,9 @@ A workspace does not only record what a computation produced — it also records
 
 ## The mental model
 
-One paragraph carries the whole design. A note is a directory: its path is its identity, a small `meta.yaml` marks what kind of Concept the directory is (`note.note`, `reference.reference`, ...), and `index.md` holds the narrative. The Markdown links inside `index.md` are not decoration — they **are** the knowledge graph. Every link is a typed edge to another Concept, and reverse lookups (backlinks) are recomputed from those links rather than stored in a second index. Heavy payloads such as PDFs are *pointed at* through a path recorded in metadata — never copied into the workspace.
+One paragraph carries the whole design. A note is a directory: its path is its identity, a small `meta.json` marks what kind of Concept the directory is (`note.note`, `reference.reference`, ...), and `index.md` holds the narrative. The Markdown links inside `index.md` are not decoration — they **are** the knowledge graph. Every link is a typed edge to another Concept, and reverse lookups (backlinks) are recomputed from those links rather than stored in a second index. Heavy payloads such as PDFs are *pointed at* through a path recorded in metadata — never copied into the workspace.
 
-Because every workspace entity (`Workspace`, `Project`, `Experiment`, `Run`) is itself a `Folder` with a `meta.yaml`, notes and references mount anywhere in the hierarchy and can link to anything in it: a note under an experiment can cite a paper, reference a run, or point at a sibling note, all with the same Markdown-link edge.
+Because every workspace entity (`Workspace`, `Project`, `Experiment`, `Run`) is itself a `Folder` with a `meta.json`, notes and references mount anywhere in the hierarchy and can link to anything in it: a note under an experiment can cite a paper, reference a run, or point at a sibling note, all with the same Markdown-link edge.
 
 The management entry point is the `Bundle` façade. A bundle wraps a root directory (typically the workspace root) and exposes the Concept tree beneath it: `create_note`, `link`, `walk`, `backlinks`, `search`, `import_zotero`.
 
@@ -34,7 +34,7 @@ print(bundle.rel_path(note))
 # projects/polymer-cg/experiments/solvation-sweep/analysis-notes
 ```
 
-The `body` is the note's `index.md`; read it back with `note.body()` and replace it with `note.set_body(...)`. Structured document metadata — categorical tags and a lifecycle status — lives in the note's `meta.yaml` as a typed `NoteMeta` payload, written with `write_note_meta`:
+The `body` is the note's `index.md`; read it back with `note.body()` and replace it with `note.set_body(...)`. Structured document metadata — categorical tags and a lifecycle status — lives in the note's `meta.json` as a typed `NoteMeta` payload, written with `write_note_meta`:
 
 ```python
 from molexp.workspace import NoteMeta
@@ -50,14 +50,13 @@ On disk the note is an ordinary directory next to the experiment's other content
 ```text
 lab/projects/polymer-cg/experiments/solvation-sweep/
 └── analysis-notes/
-    ├── meta.yaml       # type: note.note — plus tags and status
-    ├── index.md        # the narrative; its links are the graph edges
-    └── metadata.json   # Folder mount bookkeeping (derived)
+    ├── meta.json       # sole concept identity: type (+ tags/status)
+    └── index.md        # the narrative; its links are the graph edges
 ```
 
 ## Attach a literature reference
 
-A reference is its own Concept type, `ReferenceConcept`: one directory per work, with the structured bibliographic record (`ReferenceMeta`) in `meta.yaml` and the human-readable citation text in `index.md`. Mount it wherever it belongs — here, next to the note under the same experiment — using the generic `add_folder` verb every `Folder` supports:
+A reference is its own Concept type, `ReferenceConcept`: one directory per work, with the structured bibliographic record (`ReferenceMeta`) in `meta.json` and the human-readable citation text in `index.md`. Mount it wherever it belongs — here, next to the note under the same experiment — using the generic `add_folder` verb every `Folder` supports:
 
 ```python
 from molexp.workspace import ReferenceConcept, ReferenceMeta
@@ -117,7 +116,7 @@ print([bundle.rel_path(r) for r in bundle.references()])
 
 ## Import a Zotero library
 
-If your papers already live in Zotero, you do not have to retype them. `molexp knowledge import-zotero` links a local Zotero library into a workspace: it opens Zotero's own `zotero.sqlite` **strictly read-only** and materializes each item as a `ReferenceConcept` under `<workspace>/references/` — bibliographic fields into `meta.yaml`, and each item's PDF pointed at inside Zotero's own `storage/` tree. No bytes are copied, and your Zotero library is never modified.
+If your papers already live in Zotero, you do not have to retype them. `molexp knowledge import-zotero` links a local Zotero library into a workspace: it opens Zotero's own `zotero.sqlite` **strictly read-only** and materializes each item as a `ReferenceConcept` under `<workspace>/references/` — bibliographic fields into `meta.json`, and each item's PDF pointed at inside Zotero's own `storage/` tree. No bytes are copied, and your Zotero library is never modified.
 
 ```console
 $ molexp knowledge import-zotero ~/Zotero/zotero.sqlite --dest ./lab

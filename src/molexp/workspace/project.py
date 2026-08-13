@@ -210,6 +210,7 @@ class Project(Folder):
         self._fs.mkdir(d, parents=True, exist_ok=True)
         meta_path = self._fs.join(d, "project.json")
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
+        self.write_meta()
 
     def save(self) -> None:
         """Persist current metadata to disk."""

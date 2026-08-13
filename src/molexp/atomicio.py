@@ -78,7 +78,7 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
 
     Companion to :func:`atomic_write_json` for plain-text artifacts —
     markdown reports, generated source previews, log snapshots, and OKF
-    ``meta.yaml`` / ``index.md`` / ``log.md`` files — that are read back
+    ``meta.json`` / ``index.md`` / ``log.md`` files — that are read back
     as strings rather than parsed as JSON. Same temp-file + ``os.replace``
     pattern; if the process crashes mid-write the original file remains
     intact.

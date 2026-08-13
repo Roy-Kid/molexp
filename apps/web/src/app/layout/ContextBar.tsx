@@ -5,6 +5,7 @@ import type { ServedWorkspaceSummary } from "@/app/types";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WorkbenchIconAction } from "@/components/workbench";
+import { shortWorkspaceLabel } from "@/lib/workspace-path";
 
 interface ContextBarProps {
   searchQuery: string;
@@ -63,7 +64,7 @@ export const ContextBar = ({
                       <HardDrive className="h-3 w-3 flex-none text-muted-foreground" aria-hidden />
                     )}
                     <span className="min-w-0 truncate font-mono text-foreground/80">
-                      {activeWorkspace.label}
+                      {shortWorkspaceLabel(activeWorkspace.label)}
                     </span>
                   </span>
                 </TooltipTrigger>

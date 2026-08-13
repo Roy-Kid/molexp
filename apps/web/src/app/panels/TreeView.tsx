@@ -55,6 +55,40 @@ interface TreeViewProps {
   dataEpoch?: number;
 }
 
+/** Shared action renderer for tree row menus and panel blank-area menus. */
+export const TreeMenuItems = ({ actions }: { actions: TreeNodeAction[] }): JSX.Element => (
+  <>
+    {actions.map((action) => {
+      const ActionIcon = action.icon;
+      return (
+        <Fragment key={action.id}>
+          {action.separatorBefore && <ContextMenuSeparator />}
+          <ContextMenuItem
+            disabled={action.disabled}
+            title={action.title}
+            className={
+              action.destructive
+                ? "text-destructive focus:text-destructive data-[highlighted]:[&_svg]:text-destructive"
+                : undefined
+            }
+            onSelect={() => {
+              if (!action.disabled) {
+                action.onSelect();
+              }
+            }}
+          >
+            {ActionIcon ? <ActionIcon /> : null}
+            <span className="min-w-0 flex-1 truncate">{action.label}</span>
+            {action.disabled && action.title ? (
+              <span className="sr-only">{action.title}</span>
+            ) : null}
+          </ContextMenuItem>
+        </Fragment>
+      );
+    })}
+  </>
+);
+
 const INDENT = 14;
 
 interface RowProps {
@@ -108,7 +142,7 @@ const TreeRow = ({
       kind="ghost"
       size="content"
       type="button"
-      className={`group flex h-control-compact min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-control px-2 text-left text-body-lg transition-colors ${
+      className={`group flex h-control-compact min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-[2px] px-2 text-left text-body-lg transition-colors ${
         // Soft lavender wash — solid bg-accent is for buttons, too dark on day mode rows.
         isActive ? "bg-accent-muted text-accent-muted-foreground" : "hover:bg-muted/40"
       }`}
@@ -142,36 +176,8 @@ const TreeRow = ({
     actions.length > 0 ? (
       <ContextMenu>
         <ContextMenuTrigger asChild>{rowButton}</ContextMenuTrigger>
-        <ContextMenuContent className="w-48">
-          {actions.map((action) => {
-            const ActionIcon = action.icon;
-            return (
-              <Fragment key={action.id}>
-                {action.separatorBefore && <ContextMenuSeparator />}
-                <ContextMenuItem
-                  disabled={action.disabled}
-                  title={action.title}
-                  // title= is the hover tip for disabled items (e.g. role denial)
-                  className={
-                    action.destructive
-                      ? "text-destructive focus:text-destructive data-[highlighted]:[&_svg]:text-destructive"
-                      : undefined
-                  }
-                  onSelect={() => {
-                    if (!action.disabled) {
-                      action.onSelect();
-                    }
-                  }}
-                >
-                  {ActionIcon ? <ActionIcon /> : null}
-                  <span className="min-w-0 flex-1 truncate">{action.label}</span>
-                  {action.disabled && action.title ? (
-                    <span className="sr-only">{action.title}</span>
-                  ) : null}
-                </ContextMenuItem>
-              </Fragment>
-            );
-          })}
+        <ContextMenuContent className="w-52">
+          <TreeMenuItems actions={actions} />
         </ContextMenuContent>
       </ContextMenu>
     ) : (
@@ -179,7 +185,18 @@ const TreeRow = ({
     );
 
   return (
-    <div>
+    // data-tree-row: panel blank-area menu skips rows that own a context menu.
+    <div
+      data-tree-row=""
+      onContextMenu={
+        actions.length > 0
+          ? (event) => {
+              // Inner row menu owns this event — do not bubble to panel blank menu.
+              event.stopPropagation();
+            }
+          : undefined
+      }
+    >
       <div className="flex items-center gap-1" style={{ paddingLeft: `${depth * INDENT}px` }}>
         {hasChildren ? (
           <WorkbenchIconAction
@@ -286,7 +303,7 @@ export const TreeView = ({
   const reserveChevron = nodes.some((n) => n.children !== undefined);
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-0.5">
       {nodes.map((node) => (
         <TreeRow
           key={node.id}

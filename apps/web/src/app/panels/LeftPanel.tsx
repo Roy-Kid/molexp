@@ -1,7 +1,6 @@
 import {
   Activity,
   Archive,
-  Ban,
   Blocks,
   BookOpen,
   Bot,
@@ -15,11 +14,9 @@ import {
   FolderOpen,
   FolderPlus,
   FolderTree,
-  HardDrive,
   PlayCircle,
   Plus,
   RefreshCw,
-  Server,
   Settings,
   Sparkles,
   Trash2,
@@ -30,13 +27,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApiError } from "@/api/generated";
 import { usePermissions } from "@/app/auth";
+import { AddWorkspaceDialog } from "@/app/components/AddWorkspaceDialog";
 import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
 import { CreateProjectDialog } from "@/app/components/CreateProjectDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import { EMPTY_COPY, StatusBadge } from "@/app/components/entity";
 import { DocTree } from "@/app/knowledge/DocTree";
+import { LeftExplorer, LeftIconRail } from "@/app/panels/LeftExplorer";
 import type { TreeNode, TreeNodeAction } from "@/app/panels/TreeView";
-import { TreeView } from "@/app/panels/TreeView";
+import { TreeMenuItems, TreeView } from "@/app/panels/TreeView";
 import { computeFacetCounts } from "@/app/runs/aggregates";
 import { parseFilterParams, writeFilterParams } from "@/app/runs/filterParams";
 import { RunsFacetPanel } from "@/app/runs/RunsFacetPanel";
@@ -62,10 +61,7 @@ import type {
 import { useAlert, useConfirm } from "@/components/ConfirmDialog";
 import { usePrompt } from "@/components/PromptDialog";
 import { Code as InlineCode } from "@/components/ui/code";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { WorkbenchIconAction, WorkbenchToggleAction } from "@/components/workbench";
+import { WorkbenchIconAction } from "@/components/workbench";
 import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 import { countLabel } from "@/lib/count-label";
 import { getWorkspaceFs } from "@/lib/workspace-fs";
@@ -74,6 +70,7 @@ import {
   join as joinWorkspacePath,
   type PathDisplayContext,
   runWorkspaceRelativePath,
+  shortWorkspaceLabel,
 } from "@/lib/workspace-path";
 
 const errorDetail = (error: unknown): string => {
@@ -206,6 +203,10 @@ interface ProjectTreeActions {
   /** Qualify absolute / host-remote paths for Copy path. */
   pathContext: PathDisplayContext;
   onRefresh: () => void;
+  /** Open create-project dialog (workspace root context menu). */
+  onCreateProject?: () => void;
+  /** VS Code "Add Folder to Workspace" (blank-area / root menu). */
+  onAddWorkspace?: () => void;
   /** Lazy-load experiments when a project row expands. */
   onExpandProject?: (projectId: string) => void;
   /** Lazy-load runs when an experiment row expands. */
@@ -305,7 +306,7 @@ const buildProjectNodes = (
       actions: [
         {
           id: "open",
-          label: "Open project",
+          label: "Open",
           icon: ExternalLink,
           onSelect: () => {
             actions.onExpandProject?.(project.id);
@@ -315,23 +316,33 @@ const buildProjectNodes = (
         gateTreeWrite(
           {
             id: "new-experiment",
-            label: "New experiment",
+            label: "New Experiment…",
             icon: FlaskConical,
             onSelect: () => actions.onCreateExperiment(project.id),
           },
           actions.writeDeniedReason,
         ),
         {
+          id: "copy-path",
+          label: "Copy Path",
+          icon: Copy,
+          onSelect: () =>
+            actions.onCopyText(
+              formatQualifiedPath(`projects/${project.id}`, actions.pathContext),
+            ),
+        },
+        {
           id: "refresh",
           label: "Refresh",
           icon: RefreshCw,
+          separatorBefore: true,
           onSelect: actions.onRefresh,
         },
         gateTreeWrite(
           {
             id: "delete",
-            label: "Delete project",
-            icon: Ban,
+            label: "Delete",
+            icon: Trash2,
             destructive: true,
             separatorBefore: true,
             onSelect: () => actions.onDeleteProject(project.id),
@@ -363,7 +374,7 @@ const buildProjectNodes = (
           actions: [
             {
               id: "open",
-              label: "Open experiment",
+              label: "Open",
               icon: ExternalLink,
               onSelect: () => {
                 actions.onExpandExperiment?.(project.id, experiment.id);
@@ -373,7 +384,7 @@ const buildProjectNodes = (
             gateTreeWrite(
               {
                 id: "new-run",
-                label: "New run",
+                label: "New Run…",
                 icon: PlayCircle,
                 onSelect: () => actions.onCreateRun(experiment.id),
               },
@@ -381,7 +392,7 @@ const buildProjectNodes = (
             ),
             {
               id: "open-workflow",
-              label: "Open workflow",
+              label: "Open Workflow",
               icon: Workflow,
               onSelect: () => {
                 const workflow = snapshot.workflows.find(
@@ -397,11 +408,23 @@ const buildProjectNodes = (
               },
               disabled: !snapshot.workflows.some((item) => item.experimentId === experiment.id),
             },
+            {
+              id: "copy-path",
+              label: "Copy Path",
+              icon: Copy,
+              onSelect: () =>
+                actions.onCopyText(
+                  formatQualifiedPath(
+                    `projects/${project.id}/experiments/${experiment.id}`,
+                    actions.pathContext,
+                  ),
+                ),
+            },
             gateTreeWrite(
               {
                 id: "delete",
-                label: "Delete experiment",
-                icon: Ban,
+                label: "Delete",
+                icon: Trash2,
                 destructive: true,
                 separatorBefore: true,
                 onSelect: () => actions.onDeleteExperiment(experiment),
@@ -456,32 +479,104 @@ const buildShallowProjectNodes = (
       labelClassName: statusTextClass(project.status),
       icon: Blocks,
       iconClassName: "text-muted-foreground/50",
-      right: <CompactCount>switch</CompactCount>,
       onSelect: onActivate,
+      actions: [
+        {
+          id: "open",
+          label: "Open Workspace",
+          icon: FolderOpen,
+          onSelect: onActivate,
+        },
+      ],
     }));
 };
 
-// Multi-workspace nav: one collapsible header per served workspace (label +
-// local/remote/unreachable badge). The ACTIVE workspace shows its full
-// interactive project tree (experiments/runs); the others list project names
-// that activate the workspace on click. Single-workspace callers use
-// buildProjectNodes directly (unchanged flat list).
+// VS Code multi-root explorer: one collapsible folder per served workspace.
+// Active root expands to Project → Experiment → Run; inactive roots list
+// shallow projects that switch active on click. Always used when serve has
+// ≥1 workspace (including a single root — same chrome as multi-root).
 const buildWorkspaceGroupedNodes = (
   snapshot: WorkspaceSnapshot,
   actions: ProjectTreeActions,
   searchQuery: string,
   onActivateWorkspace: (ws: ServedWorkspaceSummary) => void,
+  onRemoveWorkspace?: (ws: ServedWorkspaceSummary) => void,
 ): TreeNode[] => {
+  const canRemoveRoot = snapshot.workspaces.length > 1 && Boolean(onRemoveWorkspace);
   return snapshot.workspaces.map((ws) => {
     // Projects without a workspaceKey (legacy/single-ws payloads) belong to
     // the active workspace — never drop them as "no projects".
     const wsProjects = snapshot.projects.filter(
       (project) => project.workspaceKey === ws.key || (project.workspaceKey == null && ws.active),
     );
+
+    const workspaceActions: TreeNodeAction[] = [
+      ...(ws.active
+        ? [
+            gateTreeWrite(
+              {
+                id: "new-project",
+                label: "New Project…",
+                icon: Plus,
+                onSelect: () => actions.onCreateProject?.(),
+              },
+              actions.writeDeniedReason,
+            ),
+          ]
+        : [
+            {
+              id: "open-workspace",
+              label: "Open Workspace",
+              icon: FolderOpen,
+              onSelect: () => onActivateWorkspace(ws),
+            },
+          ]),
+      {
+        id: "copy-path",
+        label: "Copy Path",
+        icon: Copy,
+        onSelect: () =>
+          actions.onCopyText(
+            ws.isRemote || !ws.path
+              ? ws.label
+              : formatQualifiedPath("", {
+                  root: ws.path,
+                  workspace: { label: ws.label, isRemote: ws.isRemote, path: ws.path },
+                }),
+          ),
+      },
+      {
+        id: "add-folder",
+        label: "Add Folder to Workspace…",
+        icon: FolderPlus,
+        separatorBefore: true,
+        onSelect: () => actions.onAddWorkspace?.(),
+      },
+      {
+        id: "refresh",
+        label: "Refresh Explorer",
+        icon: RefreshCw,
+        onSelect: actions.onRefresh,
+      },
+      ...(canRemoveRoot
+        ? [
+            {
+              id: "remove-folder",
+              label: "Remove Folder from Workspace",
+              icon: Trash2,
+              destructive: true,
+              separatorBefore: true,
+              onSelect: () => onRemoveWorkspace?.(ws),
+            } satisfies TreeNodeAction,
+          ]
+        : []),
+    ];
+
     const header: TreeNode = {
       id: `ws:${ws.key}`,
-      label: ws.label,
-      icon: ws.unreachable ? CloudOff : ws.isRemote ? Server : HardDrive,
+      // Short chrome label (Host · leaf); full serve identity stays in title.
+      label: shortWorkspaceLabel(ws.label),
+      icon: ws.unreachable ? CloudOff : ws.active ? FolderOpen : Folder,
       iconClassName: ws.unreachable
         ? "text-status-failed-foreground"
         : ws.active
@@ -489,16 +584,29 @@ const buildWorkspaceGroupedNodes = (
           : "text-muted-foreground",
       right: workspaceBadge(ws),
       emptyChildLabel: ws.unreachable ? "Unreachable" : "No projects",
+      hoverTitle: ws.label,
+      actions: workspaceActions,
+      onSelect: ws.active ? undefined : () => onActivateWorkspace(ws),
     };
+
     if (ws.unreachable) {
       return { ...header, children: [] };
     }
     if (ws.active) {
-      return { ...header, children: buildProjectNodes(snapshot, actions, searchQuery, wsProjects) };
+      const scopedActions: ProjectTreeActions = {
+        ...actions,
+        pathContext: {
+          root: ws.path ?? actions.pathContext.root,
+          workspace: { label: ws.label, isRemote: ws.isRemote, path: ws.path },
+        },
+      };
+      return {
+        ...header,
+        children: buildProjectNodes(snapshot, scopedActions, searchQuery, wsProjects),
+      };
     }
     return {
       ...header,
-      onSelect: () => onActivateWorkspace(ws),
       children: buildShallowProjectNodes(wsProjects, searchQuery, ws.key, () =>
         onActivateWorkspace(ws),
       ),
@@ -898,8 +1006,12 @@ const buildProjectExpandPath = (
   activeId: string | undefined,
   searchQuery: string,
 ): string[] => {
+  // Always expand active served workspace roots (VS Code multi-root defaults open).
+  const ids: string[] = snapshot.workspaces
+    .filter((ws) => ws.active || searchQuery)
+    .map((ws) => `ws:${ws.key}`);
+
   if (searchQuery) {
-    const ids: string[] = [];
     for (const project of snapshot.projects) {
       ids.push(project.id);
       for (const experiment of snapshot.experiments.filter((e) => e.projectId === project.id)) {
@@ -909,9 +1021,8 @@ const buildProjectExpandPath = (
     return ids;
   }
 
-  if (!activeId) return [];
+  if (!activeId) return ids;
 
-  const ids: string[] = [];
   if (snapshot.projects.some((p) => p.id === activeId)) {
     ids.push(activeId);
   }
@@ -946,12 +1057,9 @@ export const LeftPanel = ({
 }: LeftPanelProps): JSX.Element => {
   const listHeader = listHeaderByView[view];
   const hasWorkspace = Boolean(snapshot.workspaceRoot);
-  // Active served workspace — always surface its identity so a single remote
-  // mount (e.g. ``Arrhenius:/home/…/mace-nve``) is never anonymous under
-  // "Projects". Multi-ws tree headers still group by workspace; this is the
-  // strip above the list for every projects view.
-  const activeWorkspace =
-    snapshot.workspaces.find((w) => w.active) ?? snapshot.workspaces[0] ?? null;
+  // Active workspace identity is shown once in ContextBar (short label).
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
   const [createExperimentProjectId, setCreateExperimentProjectId] = useState<string | null>(null);
   const [createRunExperimentId, setCreateRunExperimentId] = useState<string | null>(null);
   const { prompt, dialog: promptDialog } = usePrompt();
@@ -1163,6 +1271,8 @@ export const LeftPanel = ({
     onSelect,
     onCreateExperiment: setCreateExperimentProjectId,
     onCreateRun: setCreateRunExperimentId,
+    onCreateProject: () => setCreateProjectOpen(true),
+    onAddWorkspace: () => setAddWorkspaceOpen(true),
     writeDeniedReason,
     onDeleteProject: (projectId) => {
       void handleDeleteProject(projectId);
@@ -1200,17 +1310,73 @@ export const LeftPanel = ({
       .catch((err) => console.warn(`Failed to switch to workspace ${ws.key}:`, err));
   };
 
-  // >1 served workspace → group projects under per-workspace headers; otherwise
-  // today's flat project list (single-workspace behaviour unchanged).
+  const handleRemoveWorkspace = async (ws: ServedWorkspaceSummary): Promise<void> => {
+    if (snapshot.workspaces.length <= 1) return;
+    const confirmed = await confirm({
+      title: "Remove Folder from Workspace?",
+      description: (
+        <>
+          <InlineCode className="rounded-control bg-muted px-1 py-1 text-label">
+            {shortWorkspaceLabel(ws.label)}
+          </InlineCode>{" "}
+          will leave the explorer. Files on disk are not deleted.
+        </>
+      ),
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    try {
+      await workspaceApi.removeServedWorkspace(ws.key);
+      onRefresh();
+    } catch (error) {
+      await alert({
+        title: "Remove failed",
+        description: errorDetail(error),
+      });
+    }
+  };
+
+  // VS Code multi-root: always fold under served workspace roots when the
+  // server exposes any; flat list only if no served-workspace metadata.
   const projectNodes =
-    snapshot.workspaces.length > 1
+    snapshot.workspaces.length >= 1
       ? buildWorkspaceGroupedNodes(
           snapshot,
           projectTreeActions,
           searchQuery,
           handleActivateWorkspace,
+          (ws) => {
+            void handleRemoveWorkspace(ws);
+          },
         )
       : buildProjectNodes(snapshot, projectTreeActions, searchQuery);
+
+  // Blank-area explorer menu (VS Code: right-click empty space in Projects).
+  const projectsBackgroundActions: TreeNodeAction[] = [
+    {
+      id: "add-folder",
+      label: "Add Folder to Workspace…",
+      icon: FolderPlus,
+      onSelect: () => setAddWorkspaceOpen(true),
+    },
+    gateTreeWrite(
+      {
+        id: "new-project",
+        label: "New Project…",
+        icon: Plus,
+        onSelect: () => setCreateProjectOpen(true),
+      },
+      writeDeniedReason,
+    ),
+    {
+      id: "refresh",
+      label: "Refresh Explorer",
+      icon: RefreshCw,
+      separatorBefore: true,
+      onSelect: onRefresh,
+    },
+  ];
   const workspaceNodes = buildWorkspaceNodes(snapshot, workspaceTreeActions);
   const assetNodes = buildAssetNodes(snapshot, onSelect, handleCopyText, searchQuery);
   const workflowNodes = buildWorkflowNodes(snapshot, onSelect, handleCopyText, searchQuery);
@@ -1235,6 +1401,11 @@ export const LeftPanel = ({
         expandPath={projectExpandPath}
         dataEpoch={dataEpoch}
         emptyTitle={searchQuery ? EMPTY_COPY.projectsFilter.title : EMPTY_COPY.entries.title}
+        emptyDescription={
+          searchQuery
+            ? undefined
+            : "Right-click empty space to add a folder to the workspace."
+        }
         onExpand={(nodeId) => {
           // Project ids live at the top level of the snapshot.
           if (snapshot.projects.some((p) => p.id === nodeId)) {
@@ -1270,7 +1441,7 @@ export const LeftPanel = ({
       />
     ),
     activity: (
-      <div className="space-y-2 px-2 py-3 text-label text-muted-foreground">
+      <div className="space-y-2 text-label text-muted-foreground">
         <p className="font-medium text-foreground">Event spine</p>
         <p>
           The center panel shows the workspace-wide activity timeline (runs, knowledge, assets).
@@ -1293,10 +1464,13 @@ export const LeftPanel = ({
     ),
     knowledge: <DocTree snapshot={snapshot} activeId={activeId} onSelect={onSelect} />,
     settings: (
-      <nav className="space-y-1 px-1 pb-4 text-label">
-        <div className="rounded-control bg-muted/30 px-2 py-2 font-medium text-foreground">
+      <nav className="space-y-1 text-label" aria-label="Settings">
+        <div className="rounded-[2px] border border-border bg-muted/30 px-2 py-2 font-medium text-foreground">
           Compute targets
         </div>
+        <p className="px-1 text-muted-foreground">
+          Target registry and defaults open in the center panel when selected.
+        </p>
       </nav>
     ),
   };
@@ -1305,160 +1479,136 @@ export const LeftPanel = ({
     ? snapshot.experiments.find((experiment) => experiment.id === createRunExperimentId)
     : null;
 
+  // Per-view title-bar actions — same slot in LeftExplorer for every tab.
+  const headerActions: Partial<Record<LeftPanelView, ReactNode>> = {
+    projects: (
+      <>
+        <WorkbenchIconAction
+          label="Add Folder to Workspace"
+          kind="ghost"
+          onClick={() => setAddWorkspaceOpen(true)}
+          title="Add Folder to Workspace"
+        >
+          <FolderPlus className="h-4 w-4" />
+        </WorkbenchIconAction>
+        <WorkbenchIconAction label="Refresh projects" kind="ghost" onClick={onRefresh}>
+          <RefreshCw className="h-4 w-4" />
+        </WorkbenchIconAction>
+        <CreateProjectDialog
+          onProjectCreated={onRefresh}
+          writeDeniedReason={writeDeniedReason}
+          open={createProjectOpen}
+          onOpenChange={setCreateProjectOpen}
+          showTrigger
+        />
+      </>
+    ),
+    workspace: !hasWorkspace ? (
+      <WorkbenchIconAction
+        label="Open workspace"
+        kind="ghost"
+        deniedReason={writeDeniedReason}
+        onClick={() => {
+          void handleOpenWorkspace();
+        }}
+      >
+        <FolderOpen className="h-4 w-4" />
+      </WorkbenchIconAction>
+    ) : (
+      <>
+        <WorkbenchIconAction
+          label="New file"
+          kind="ghost"
+          deniedReason={writeDeniedReason}
+          onClick={() => {
+            void handleCreateFile();
+          }}
+        >
+          <FilePlus className="h-4 w-4" />
+        </WorkbenchIconAction>
+        <WorkbenchIconAction
+          label="New folder"
+          kind="ghost"
+          deniedReason={writeDeniedReason}
+          onClick={() => {
+            void handleCreateDirectory();
+          }}
+        >
+          <FolderPlus className="h-4 w-4" />
+        </WorkbenchIconAction>
+        <WorkbenchIconAction label="Refresh workspace" kind="ghost" onClick={onRefresh}>
+          <RefreshCw className="h-4 w-4" />
+        </WorkbenchIconAction>
+      </>
+    ),
+    agent: (
+      <>
+        <WorkbenchIconAction
+          label="Agent settings"
+          kind="ghost"
+          onClick={() => onSelect({ objectType: "agent", objectId: "settings" })}
+          title="Agents, model, skills, tools, and MCP"
+        >
+          <Settings className="h-4 w-4" />
+        </WorkbenchIconAction>
+        <WorkbenchIconAction
+          label="New agent task"
+          kind="ghost"
+          deniedReason={writeDeniedReason}
+          onClick={() => onSelect({ objectType: "agent", objectId: "new" })}
+        >
+          <Plus className="h-4 w-4" />
+        </WorkbenchIconAction>
+      </>
+    ),
+    runs: (
+      <WorkbenchIconAction label="Refresh runs" kind="ghost" onClick={onRefresh}>
+        <RefreshCw className="h-4 w-4" />
+      </WorkbenchIconAction>
+    ),
+    asset: (
+      <WorkbenchIconAction label="Refresh assets" kind="ghost" onClick={onRefresh}>
+        <RefreshCw className="h-4 w-4" />
+      </WorkbenchIconAction>
+    ),
+    workflow: (
+      <WorkbenchIconAction label="Refresh workflows" kind="ghost" onClick={onRefresh}>
+        <RefreshCw className="h-4 w-4" />
+      </WorkbenchIconAction>
+    ),
+    activity: (
+      <WorkbenchIconAction label="Refresh activity" kind="ghost" onClick={onRefresh}>
+        <RefreshCw className="h-4 w-4" />
+      </WorkbenchIconAction>
+    ),
+  };
+
   return (
-    <div className="flex h-full">
-      <TooltipProvider>
-        <div className="flex w-14 flex-col items-center gap-2 border-r border-border bg-muted/20 py-4">
-          {viewOptions.map((option) => {
-            const isActive = view === option.id;
-            return (
-              <Tooltip key={option.id}>
-                <TooltipTrigger asChild>
-                  <WorkbenchToggleAction
-                    label={option.label}
-                    pressed={isActive}
-                    onClick={() => onViewChange(option.id)}
-                  >
-                    <option.icon className="h-4 w-4" />
-                  </WorkbenchToggleAction>
-                </TooltipTrigger>
-                <TooltipContent side="right">{option.label}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-          <div className="mt-auto">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <WorkbenchToggleAction
-                  label="Settings"
-                  pressed={view === "settings"}
-                  onClick={() => onViewChange("settings")}
-                >
-                  <Settings className="h-4 w-4" />
-                </WorkbenchToggleAction>
-              </TooltipTrigger>
-              <TooltipContent side="right">Settings</TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
-      </TooltipProvider>
+    <div className="flex h-full min-h-0">
+      <LeftIconRail
+        items={viewOptions.map((o) => ({ id: o.id, label: o.label, icon: o.icon }))}
+        activeId={view}
+        onSelect={(id) => onViewChange(id as LeftPanelView)}
+        footer={{ id: "settings", label: "Settings", icon: Settings }}
+      />
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="space-y-1 px-4 py-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
-              {listHeader}
-            </p>
+      <LeftExplorer
+        title={listHeader}
+        actions={headerActions[view]}
+        blankMenu={
+          view === "projects" ? (
+            <TreeMenuItems actions={projectsBackgroundActions} />
+          ) : undefined
+        }
+      >
+        {treeByView[view]}
+      </LeftExplorer>
 
-            {view === "projects" && (
-              <div className="flex items-center gap-1">
-                <WorkbenchIconAction
-                  label="Refresh projects"
-                  kind="ghost"
-                  onClick={onRefresh}
-                  aria-label="Refresh projects"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </WorkbenchIconAction>
-                <CreateProjectDialog
-                  onProjectCreated={onRefresh}
-                  writeDeniedReason={writeDeniedReason}
-                />
-              </div>
-            )}
-
-            {view === "workspace" && (
-              <div className="flex items-center gap-1">
-                {!hasWorkspace ? (
-                  <WorkbenchIconAction
-                    label="Open workspace"
-                    kind="ghost"
-                    deniedReason={writeDeniedReason}
-                    onClick={() => {
-                      void handleOpenWorkspace();
-                    }}
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                  </WorkbenchIconAction>
-                ) : (
-                  <>
-                    <WorkbenchIconAction
-                      label="New file"
-                      kind="ghost"
-                      deniedReason={writeDeniedReason}
-                      onClick={() => {
-                        void handleCreateFile();
-                      }}
-                    >
-                      <FilePlus className="h-4 w-4" />
-                    </WorkbenchIconAction>
-                    <WorkbenchIconAction
-                      label="New folder"
-                      kind="ghost"
-                      deniedReason={writeDeniedReason}
-                      onClick={() => {
-                        void handleCreateDirectory();
-                      }}
-                    >
-                      <FolderPlus className="h-4 w-4" />
-                    </WorkbenchIconAction>
-                    <WorkbenchIconAction
-                      label="Refresh workspace"
-                      kind="ghost"
-                      className="h-control-compact w-control-compact"
-                      onClick={onRefresh}
-                      aria-label="Refresh workspace"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                    </WorkbenchIconAction>
-                  </>
-                )}
-              </div>
-            )}
-
-            {view === "agent" && (
-              <div className="flex items-center gap-1">
-                <WorkbenchIconAction
-                  label="Agent settings"
-                  kind="ghost"
-                  onClick={() => onSelect({ objectType: "agent", objectId: "settings" })}
-                  title="Agents, model, skills, tools, and MCP"
-                >
-                  <Settings className="h-4 w-4" />
-                </WorkbenchIconAction>
-                <WorkbenchIconAction
-                  label="New agent task"
-                  kind="ghost"
-                  deniedReason={writeDeniedReason}
-                  onClick={() => onSelect({ objectType: "agent", objectId: "new" })}
-                >
-                  <Plus className="h-4 w-4" />
-                </WorkbenchIconAction>
-              </div>
-            )}
-          </div>
-
-          {/* Always-on workspace identity for the projects inventory so a
-              single-host mount is never mistaken for "local anonymous". */}
-          {view === "projects" && activeWorkspace && (
-            <div className="flex min-w-0 items-center gap-1.5 pt-0.5" title={activeWorkspace.label}>
-              {activeWorkspace.unreachable ? (
-                <CloudOff className="h-3 w-3 flex-none text-status-failed-foreground" aria-hidden />
-              ) : activeWorkspace.isRemote ? (
-                <Server className="h-3 w-3 flex-none text-status-warning-foreground" aria-hidden />
-              ) : (
-                <HardDrive className="h-3 w-3 flex-none text-muted-foreground" aria-hidden />
-              )}
-              <span className="min-w-0 truncate font-mono text-micro text-foreground/80">
-                {activeWorkspace.label}
-              </span>
-              {workspaceBadge(activeWorkspace)}
-            </div>
-          )}
-          <Separator />
-        </div>
-        <ScrollArea className="flex-1 px-4 pb-4">{treeByView[view]}</ScrollArea>
-      </div>
+      <AddWorkspaceDialog
+        open={addWorkspaceOpen}
+        onOpenChange={setAddWorkspaceOpen}
+        onAdded={onRefresh}
+      />
       {createExperimentProjectId && (
         <CreateExperimentDialog
           projectId={createExperimentProjectId}
