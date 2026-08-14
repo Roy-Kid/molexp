@@ -1,3 +1,5 @@
+import "./side-effects";
+
 /**
  * Internal `workflow` UI plugin — owns the workflow entity center/right
  * surfaces and the workspace-file `workflow.json` graph preview.
@@ -8,9 +10,9 @@
  */
 
 import { buildRegistryKey, registerRendererContribution } from "@/app/registry";
-import { WorkflowFileViewer } from "@/app/renderers/WorkflowFileViewer";
-import { WorkflowInspector } from "@/app/renderers/WorkflowInspector";
-import { WorkflowViewer } from "@/app/renderers/WorkflowViewer";
+import { WorkflowFileViewer } from "@/plugins/workflow/WorkflowFileViewer";
+import { WorkflowInspector } from "@/plugins/workflow/WorkflowInspector";
+import { WorkflowViewer } from "@/plugins/workflow/WorkflowViewer";
 import type { UiPluginModule } from "@/plugins/types";
 
 const workflowPlugin: UiPluginModule = {
@@ -64,4 +66,12 @@ const workflowPlugin: UiPluginModule = {
   },
 };
 
+export { FlowgramCanvas, type FlowgramCanvasProps } from "./flowgram-canvas";
+export {
+  buildFlowgramDocument,
+  buildWorkflowDocument,
+  type FlowgramDocument,
+  parseTaskGraphIr,
+} from "./flowgram-document";
+export type { TaskGraphJson, TaskNodeJson } from "./task-graph-ir";
 export default workflowPlugin;

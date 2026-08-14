@@ -1,6 +1,6 @@
 import { DashboardCanvas, OverviewSurface } from "@/app/components/entity";
 // Module-path import (not the barrel) — see KnowledgeBacklinksCard loader note.
-import { KnowledgeBacklinksCard } from "@/app/components/entity/KnowledgeBacklinksCard";
+import { KnowledgeBacklinksCard } from "@/plugins/knowledge";
 import { formatScalar } from "@/app/renderers/dashboardData";
 import type { ApiAssetResponse, RunSummary } from "@/app/types";
 import {

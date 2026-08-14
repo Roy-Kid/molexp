@@ -38,7 +38,7 @@ import {
 } from "@/app/renderers/dashboardData";
 import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
 import { buildExperimentWorkbenchData } from "@/app/renderers/entityWorkbenchData";
-import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
+import { WorkflowGraphViewer } from "@/plugins/workflow/WorkflowGraphViewer";
 import { canCancel } from "@/app/runs/runLifecycle";
 import {
   buildRunListActions,

@@ -1,4 +1,4 @@
-import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
+import type { TaskGraphJson } from "@/plugins/workflow";
 
 export type LeftPanelView =
   | "workspace"

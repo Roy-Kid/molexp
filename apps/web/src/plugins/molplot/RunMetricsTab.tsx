@@ -1,7 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import type { JSX } from "react";
 import { EmptyState } from "@/app/components/entity";
-import { RunMetricsView } from "@/app/runs/metrics/RunMetricsView";
+import { RunMetricsView } from "@/plugins/molplot/RunMetricsView";
 import type { RendererProps } from "@/app/types";
 import type { DiscoveredFile } from "@/plugins/types";
 

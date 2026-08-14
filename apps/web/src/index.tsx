@@ -1,6 +1,3 @@
-// reflect-metadata MUST be imported before any flowgram canvas module so the
-// editor's inversify DI containers see the emitted decorator metadata.
-import "reflect-metadata";
 import { QueryClientProvider } from "@tanstack/react-query";
 import ReactDOM from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";

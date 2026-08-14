@@ -43,12 +43,7 @@ import type {
   WorkspaceSnapshot,
   WorkspaceTreeNode,
 } from "@/app/types";
-import {
-  buildFlowgramDocument,
-  type FlowgramDocument,
-  parseTaskGraphIr,
-} from "@/components/workflow/flowgram-document";
-import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
+import { parseTaskGraphIr, type TaskGraphJson } from "@/plugins/workflow";
 
 // Local types not yet in OpenAPI. The lineage fields (`assetId`,
 // `assetKind`, `producerRunId`, `producerTaskId`) are populated when
@@ -1092,21 +1087,6 @@ export const mapAssets = (assets: ApiAssetResponse[], projectId?: string): Asset
       runId: ids[2],
     };
   });
-};
-
-/**
- * Build a flowgram free-layout document from an experiment's `workflow_source`
- * when it is a serialized IR (`{task_configs, links}` — see `Workflow.to_dict()`
- * / `schema/workflow.json`). Returns `undefined` when the source is absent or is
- * a Python script / path rather than a serialized IR, so callers fall back to
- * the raw string.
- */
-export const buildWorkflowDocument = (
-  source: string | null | undefined,
-): FlowgramDocument | undefined => {
-  const ir = parseTaskGraphIr(source);
-  if (!ir) return undefined;
-  return buildFlowgramDocument(ir);
 };
 
 export const mapWorkflows = (

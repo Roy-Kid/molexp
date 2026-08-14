@@ -17,7 +17,7 @@ import {
 import { type ComponentType, type JSX, useEffect, useState } from "react";
 import type { KnowledgeSearchRow } from "@/api/generated/models/KnowledgeSearchRow";
 import { StatusBadge } from "@/app/components/entity";
-import { selectionForSearchHit } from "@/app/knowledge/searchHitSelection";
+import { selectionForSearchHit } from "@/plugins/knowledge/searchHitSelection";
 import type { TreeNode, TreeNodeAction } from "@/app/panels/TreeView";
 import { TreeView } from "@/app/panels/TreeView";
 import { workspaceApi } from "@/app/state/api";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@rstest/core";
-import { SLASH_COMMANDS, slashCommandMarkdown } from "@/app/renderers/knowledge/slashCommands";
+import { SLASH_COMMANDS, slashCommandMarkdown } from "@/plugins/knowledge/slashCommands";
 
 describe("slashCommandMarkdown (ac-001)", () => {
   it("maps block commands to their markdown prefixes", () => {

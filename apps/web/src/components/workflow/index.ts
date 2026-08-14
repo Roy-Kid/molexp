@@ -15,16 +15,19 @@
  * - IR types + pure graph utilities + the flowgram-document builder.
  */
 
+import "@/plugins/workflow/side-effects";
+
 export {
   FlowgramCanvas,
   type FlowgramCanvasProps,
-} from "@/components/workflow/flowgram-canvas";
+} from "@/plugins/workflow/flowgram-canvas";
 export {
   FlowgramCanvasToolbar,
   type FlowgramCanvasToolbarProps,
 } from "@/components/workflow/flowgram-canvas-toolbar";
 export {
   buildFlowgramDocument,
+  buildWorkflowDocument,
   type FlowgramDocument,
   type FlowgramEdge,
   type FlowgramNode,
@@ -33,7 +36,7 @@ export {
   normalizeTaskGraph,
   parseTaskGraphIr,
   taskGraphToWireDocument,
-} from "@/components/workflow/flowgram-document";
+} from "@/plugins/workflow/flowgram-document";
 export {
   analyzePaths,
   type GraphEdgeInput,
@@ -46,7 +49,7 @@ export type {
   TaskGraphJson,
   TaskNodeJson,
   TaskNodePosition,
-} from "@/components/workflow/task-graph-ir";
+} from "@/plugins/workflow/task-graph-ir";
 export {
   parseWorkflowIr,
   WorkflowGraph,

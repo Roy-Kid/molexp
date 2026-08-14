@@ -13,8 +13,8 @@ import type { KnowledgeListResponse } from "@/api/generated/models/KnowledgeList
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
 import type { ReferenceSummary } from "@/api/generated/models/ReferenceSummary";
 import { EmptyState, EntityHeader } from "@/app/components/entity";
-import { DocumentControls } from "@/app/renderers/knowledge/DocumentControls";
-import { EntityRefCard } from "@/app/renderers/knowledge/EntityRefCard";
+import { DocumentControls } from "@/plugins/knowledge/DocumentControls";
+import { EntityRefCard } from "@/plugins/knowledge/EntityRefCard";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";

@@ -1,5 +1,5 @@
 import { registerFileTypeContribution } from "@/app/registry";
-import { RunMetricsTab } from "@/plugins/metrics/RunMetricsTab";
+import { RunMetricsTab } from "@/plugins/molplot/RunMetricsTab";
 import type { UiPluginModule } from "@/plugins/types";
 import { MolplotObservablesTab } from "./MolplotObservablesTab";
 
@@ -8,6 +8,10 @@ export { MolplotBarChart } from "./MolplotBarChart";
 export { MolplotGanttChart } from "./MolplotGanttChart";
 export { MolplotLineChart, type MolplotLineChartHandle } from "./MolplotLineChart";
 export { MolplotRawChart } from "./MolplotRawChart";
+export { MultiRunMetricsView } from "./MultiRunMetricsView";
+export { RunMetricsTab } from "./RunMetricsTab";
+export { RunMetricsView } from "./RunMetricsView";
+export { smoothEma } from "./smoothing";
 
 /**
  * molplot UI plugin — activates purely by filename suffixes (no heuristics).

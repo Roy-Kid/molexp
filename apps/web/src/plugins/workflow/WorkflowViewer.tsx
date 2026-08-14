@@ -8,8 +8,8 @@ import {
   OverviewPage,
   OverviewSection,
 } from "@/app/components/entity";
-import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
-import { WorkflowSourceViewer } from "@/app/renderers/WorkflowSourceViewer";
+import { WorkflowGraphViewer } from "@/plugins/workflow/WorkflowGraphViewer";
+import { WorkflowSourceViewer } from "@/plugins/workflow/WorkflowSourceViewer";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
 import { WorkbenchAction } from "@/components/workbench";

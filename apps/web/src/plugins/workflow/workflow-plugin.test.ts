@@ -4,6 +4,9 @@
  * (CSS/DOM); stubs stand in for Components.
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "@rstest/core";
 import { registerRendererContribution, tryResolveRenderer } from "@/app/registry";
 import {
@@ -74,6 +77,11 @@ beforeEach(() => {
 });
 
 describe("workflow plugin", () => {
+  it("does not import viewers from @/app/renderers", () => {
+    const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+    expect(source).not.toContain("@/app/renderers");
+  });
+
   it("exposes a toggleable workflow catalog entry shape", () => {
     expect(workflowMeta.id).toBe("workflow");
     expect(workflowMeta.name).toBe("Workflow");

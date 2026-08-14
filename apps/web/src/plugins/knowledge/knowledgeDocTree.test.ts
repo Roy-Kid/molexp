@@ -4,7 +4,7 @@ import {
   buildOutline,
   type DocEntry,
   type DocTreeNode,
-} from "@/app/knowledge/knowledgeDocTree";
+} from "@/plugins/knowledge/knowledgeDocTree";
 
 /** Depth-first search for the first node whose `relPath` matches. */
 const findByRelPath = (nodes: DocTreeNode[], relPath: string): DocTreeNode | null => {

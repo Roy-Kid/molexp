@@ -6,7 +6,7 @@ import { EmptyState } from "@/app/components/entity";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RunStatusBadge, WorkbenchIconAction } from "@/components/workbench";
 import { cn } from "@/lib/utils";
-import { RunMetricsView } from "../metrics/RunMetricsView";
+import { RunMetricsView } from "@/plugins/molplot";
 import type { WorkspaceRunRow } from "../types";
 import { useRunInspectorLogs } from "../useRunInspectorLogs";
 import { RunInspectorDetails } from "./RunInspectorDetails";

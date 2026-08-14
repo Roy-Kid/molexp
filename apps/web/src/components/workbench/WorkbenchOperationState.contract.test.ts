@@ -10,10 +10,10 @@ const readSource = (path: string): string => readFileSync(resolve(srcRoot, path)
 const ASYNC_SURFACES = [
   "app/renderers/ProjectViewer.tsx",
   "app/renderers/AssetViewer.tsx",
-  "app/renderers/WorkflowFileViewer.tsx",
-  "app/renderers/WorkflowSourceViewer.tsx",
-  "app/knowledge/DocTree.tsx",
-  "app/knowledge/KnowledgeDocPanel.tsx",
+  "plugins/workflow/WorkflowFileViewer.tsx",
+  "plugins/workflow/WorkflowSourceViewer.tsx",
+  "plugins/knowledge/DocTree.tsx",
+  "plugins/knowledge/KnowledgeDocPanel.tsx",
   // KnowledgeBacklinksCard only mounts when rows exist (no loading/error chrome).
   "app/components/ApprovalsBell.tsx",
   "app/renderers/agent/ApprovalsInbox.tsx",

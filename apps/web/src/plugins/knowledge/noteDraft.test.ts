@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@rstest/core";
-import { buildNoteDocUpdate, isDirty, normalizeMarkdown } from "../noteDraft";
+import { buildNoteDocUpdate, isDirty, normalizeMarkdown } from "./noteDraft";
 
 describe("normalizeMarkdown", () => {
   it("is idempotent (normalize(normalize(x)) === normalize(x))", () => {
