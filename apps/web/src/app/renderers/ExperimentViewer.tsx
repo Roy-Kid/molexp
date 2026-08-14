@@ -38,7 +38,6 @@ import {
 } from "@/app/renderers/dashboardData";
 import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
 import { buildExperimentWorkbenchData } from "@/app/renderers/entityWorkbenchData";
-import { WorkflowGraphViewer } from "@/plugins/workflow/WorkflowGraphViewer";
 import { canCancel } from "@/app/runs/runLifecycle";
 import {
   buildRunListActions,
@@ -75,6 +74,7 @@ import { formatDateTime } from "@/lib/datetime";
 import { getWorkspaceFs } from "@/lib/workspace-fs";
 import { formatQualifiedPath, runWorkspaceRelativePath } from "@/lib/workspace-path";
 import { isPluginEnabled, usePluginPreferencesGeneration } from "@/plugins/preferences";
+import { WorkflowGraphViewer } from "@/plugins/workflow/WorkflowGraphViewer";
 
 const formatResultPreview = (results: Record<string, unknown>): string => {
   const entries = Object.entries(results);

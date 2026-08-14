@@ -25,20 +25,9 @@ def molq_setup(tmp_path, monkeypatch, client):
     ``MOLCRAFTS_HOME`` redirects molcfg's base so molq's default config/db land
     under ``tmp_path`` (molcfg reads ``$HOME``/``$MOLCRAFTS_HOME`` directly).
     """
-    monkeypatch.setenv("MOLCRAFTS_HOME", str(tmp_path))
-    config_dir = tmp_path / "molq" / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    # molq ≥0.8 reads YAML only (TOML is rejected with ConfigError).
-    (config_dir / "config.yaml").write_text(
-        f"""
-profiles:
-  demo:
-    scheduler: local
-    cluster_name: demo-local
-    jobs_dir: "{tmp_path / "jobs"}"
-""".strip()
-    )
-    (tmp_path / "jobs").mkdir(exist_ok=True)
+    from tests.test_plugins.test_submit_molq.conftest import write_molq_demo_config
+
+    write_molq_demo_config(tmp_path, monkeypatch)
     dashboard._reset_submitor_cache()
     yield client
     dashboard._reset_submitor_cache()

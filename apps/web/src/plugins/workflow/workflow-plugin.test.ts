@@ -78,7 +78,10 @@ beforeEach(() => {
 
 describe("workflow plugin", () => {
   it("does not import viewers from @/app/renderers", () => {
-    const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+    const source = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "index.ts"),
+      "utf8",
+    );
     expect(source).not.toContain("@/app/renderers");
   });
 

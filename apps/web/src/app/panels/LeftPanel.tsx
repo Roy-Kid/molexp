@@ -32,7 +32,6 @@ import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog"
 import { CreateProjectDialog } from "@/app/components/CreateProjectDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import { EMPTY_COPY, StatusBadge } from "@/app/components/entity";
-import { DocTree } from "@/plugins/knowledge";
 import { LeftExplorer, LeftIconRail } from "@/app/panels/LeftExplorer";
 import type { TreeNode, TreeNodeAction } from "@/app/panels/TreeView";
 import { TreeMenuItems, TreeView } from "@/app/panels/TreeView";
@@ -72,6 +71,7 @@ import {
   runWorkspaceRelativePath,
   shortWorkspaceLabel,
 } from "@/lib/workspace-path";
+import { DocTree } from "@/plugins/knowledge";
 
 const errorDetail = (error: unknown): string => {
   if (error instanceof ApiError) {

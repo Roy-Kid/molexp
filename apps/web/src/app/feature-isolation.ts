@@ -41,7 +41,10 @@ export const collectImportSpecifiers = (source: string): string[] => {
   return found;
 };
 
-export const featureTargetOf = (specifier: string, from: FeaturePluginId): FeaturePluginId | null => {
+export const featureTargetOf = (
+  specifier: string,
+  from: FeaturePluginId,
+): FeaturePluginId | null => {
   for (const id of FEATURE_PLUGIN_IDS) {
     if (id === from) continue;
     if (specifier === `@/plugins/${id}` || specifier.startsWith(`@/plugins/${id}/`)) {

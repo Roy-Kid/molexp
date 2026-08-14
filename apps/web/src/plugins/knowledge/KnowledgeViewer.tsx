@@ -13,8 +13,6 @@ import type { KnowledgeListResponse } from "@/api/generated/models/KnowledgeList
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
 import type { ReferenceSummary } from "@/api/generated/models/ReferenceSummary";
 import { EmptyState, EntityHeader } from "@/app/components/entity";
-import { DocumentControls } from "@/plugins/knowledge/DocumentControls";
-import { EntityRefCard } from "@/plugins/knowledge/EntityRefCard";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
@@ -24,6 +22,8 @@ import {
   WorkbenchIconAction,
   WorkbenchToggleAction,
 } from "@/components/workbench";
+import { DocumentControls } from "@/plugins/knowledge/DocumentControls";
+import { EntityRefCard } from "@/plugins/knowledge/EntityRefCard";
 
 // Lazy-loaded so Milkdown / ProseMirror (a heavy dependency graph) is split
 // into an async chunk fetched only when the user enters edit mode, keeping the

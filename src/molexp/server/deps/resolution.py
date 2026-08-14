@@ -64,7 +64,8 @@ def _ssh_master_alive_for_target(target: object) -> bool:
                 ssh_opts=tuple(getattr(target, "ssh_opts", ()) or ()),
             )
         )
-        return bool(ssh.is_master_alive())
+        is_alive = getattr(ssh, "is_master_alive", None)
+        return bool(callable(is_alive) and is_alive())
     except Exception:
         return False
 

@@ -7,8 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Slider } from "@/components/ui/slider";
 import { WorkbenchAction, WorkbenchIconAction } from "@/components/workbench";
 import { CHART_SERIES_PALETTE } from "@/lib/chart-tokens";
-import { smoothEma } from "@/plugins/molplot/smoothing";
 import { MolplotLineChart } from "@/plugins/molplot";
+import { smoothEma } from "@/plugins/molplot/smoothing";
 
 /**
  * Coord-driven run-metrics view: polls `getRunMetrics` for the run named by

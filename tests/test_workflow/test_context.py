@@ -35,11 +35,11 @@ class TestTaskContext:
 
     def test_state_access_emits_deprecation_warning_with_migration_message(self):
         ctx = TaskContext(inputs=None, state={"x": 1})
-        with pytest.warns(DeprecationWarning) as record:
+        with pytest.warns(
+            DeprecationWarning,
+            match=r"values now bind to named task parameters.*ctx.state will be removed",
+        ):
             _ = ctx.state
-        msg = str(record[0].message)
-        assert "values now bind to named task parameters" in msg
-        assert "ctx.state will be removed" in msg
 
 
 class TestReadOnlyStateView:

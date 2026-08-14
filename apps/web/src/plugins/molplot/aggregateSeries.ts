@@ -1,5 +1,5 @@
-import { smoothEma } from "@/plugins/molplot/smoothing";
 import type { LineChartConfig, LineSeriesConfig } from "@/plugins/molplot";
+import { smoothEma } from "@/plugins/molplot/smoothing";
 
 import { PALETTE, type ScalarSeries } from "./RunMetricsView";
 

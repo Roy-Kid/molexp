@@ -44,12 +44,56 @@ table + dialogs; data via TanStack Query).
 Failed logins are rate-limited in-process (5 failures / 5 minutes → 5 minute
 lockout per username and client host).
 
-- Resolves the local workspace with `pathlib.Path`; if the directory or
-  `workspace.json` is missing, initializes the workspace at that exact path.
-- Activates the workspace through the server's path override without changing
-  the process working directory.
-- Detects the bundled SPA at `src/molexp/_webapp/` via `importlib.resources`; if empty, runs **API-only** and prints instructions for the Vite dev server.
-- Runs `uvicorn.run(app, host=..., port=..., log_level="info")` inline (foreground, blocks until `Ctrl+C`).
+### Share UI with a colleague (`--tunnel`)
+
+`--tunnel` only punches a hole. The API stays on `127.0.0.1`. Choose the
+provider with `--via` (`cloudflared` or `zrok`); persist settings with
+`molexp config` (`tunnel.via`, `tunnel.token`, `tunnel.bin`, `tunnel.mode`,
+`tunnel.hostname`). Nothing is read from the environment. The public URL
+is printed on the `-> Dev UI` / `-> API` banner (not as an INFO log).
+With `--dev`, the hole waits for Rsbuild's `Local:` URL and dials the
+loopback that actually accepted that port (`/api` is proxied);
+without `--dev` it targets the API port (bundled UI).
+
+```bash
+# Cloudflare quick tunnel. Missing client → [y/N/path], y → ~/.local/bin/
+molexp serve -ws ./lab --tunnel
+
+# zrok hosted frontend (enable the account once after the binary is there)
+~/.local/bin/zrok enable <account-token>
+molexp serve -ws ./lab --tunnel --via zrok
+
+# Persist, then just --tunnel
+molexp config set tunnel.via zrok
+molexp serve -ws ./lab --tunnel
+
+# Named Cloudflare tunnel
+molexp serve -ws ./lab --tunnel --via cloudflared \
+  --tunnel-mode named --tunnel-token … --tunnel-hostname lab.example.com
+```
+
+On an HPC **login node**, `--tunnel` first looks on `PATH` and in
+`~/.local/bin`. If nothing is there it prompts
+`[y/N/path]`: `y` installs the official static binary into
+`~/.local/bin`, a typed path installs there instead, `n` cancels.
+Non-interactive sessions never download. Shared `$HOME` makes the file
+available on compute nodes. Air-gapped: copy the binary and
+`molexp config set tunnel.bin /path`.
+
+- CLI flags override `~/.molexp/config.json`.
+- **Security:** a public URL is reachable by anyone who has the link until
+  you Ctrl+C. Prefer named/reserved shares + Access for sensitive labs.
+  This is not multi-tenant isolation — it publishes the same workspace the
+  server is serving.
+
+- Resolves each `-ws` as a local path, an SCP spec (`user@host:/path`), or
+  a registered `@workspace-target`. Missing local directories are created
+  empty; plain folders open without writing `workspace.json`.
+- Activates the first workspace through the server's path override without
+  changing the process working directory.
+- Detects the bundled SPA at `src/molexp/dist/` via `importlib.resources`;
+  if empty, runs **API-only** and prints instructions for `molexp serve --dev`.
+- Runs uvicorn inline (foreground, blocks until `Ctrl+C`).
 
 ### Serving several workspaces
 
@@ -72,9 +116,9 @@ workspaces without ID collisions. The existing flat routes, such as
 `/api/projects` and `/api/workspace/runs`, continue to address the active
 workspace so single-workspace clients keep working unchanged.
 
-`serve` no longer accepts compute-target aliases or SSH workspace specs. Remote
-compute targets remain execution concerns and are configured independently;
-the server's `-ws` inputs are local workspace paths only.
+Compute-target aliases (`-t`) stay an execution concern and are configured
+independently. `-ws` still accepts a local path, an SCP spec
+(`user@host:/path`), or a registered `@workspace-target`.
 
 ### Watching run progress
 
@@ -91,7 +135,7 @@ cd /Users/roykid/work/molcrafts/polymer_electrolyte
 python build_flow.py
 ```
 
-Open the bundled UI, or run the Vite dev server if the backend reports
+Open the bundled UI, or `molexp serve --dev` if the backend reports
 API-only mode. The Runs view polls `/api/workspace/runs` every three seconds
 through a shared frontend store, so new runs, execution attempts, status
 changes, scheduler metadata, and completion/failure state appear without a page
@@ -115,8 +159,10 @@ molexp serve --dev -ws ./lab --port 8000
   (repo root: `npm run dev:api`) so `/api` on the UI origin proxies to
   this process. Offline mock UI is `npm run dev:web` (MSW), not this path.
 - Prints **Dev UI** `http://localhost:<ui-port>` — open that for live
-  reload. The API port still serves the bundled `dist` if present; that
-  is the production package, not HMR.
+  reload. Combined with `--tunnel`, molexp reads Rsbuild's `Local:` line
+  and punches whichever loopback actually accepted that port (not the
+  API-only fallback). The API port still serves the bundled `dist` if
+  present; that is the production package, not HMR.
 - Ctrl+C stops both processes (UI process group is SIGTERM'd).
 - Needs `npm` on PATH and `apps/web/package.json`. Set `MOLEXP_WEB_DIR` if the
   web app tree is not next to the package sources.
@@ -201,7 +247,7 @@ Pass a custom `config_dir=Path("./.local")` to the constructor to relocate them.
 ```python
 # docs: skip — illustrative fragment (``mount``/``app`` are create_app internals)
 from importlib.resources import files
-webapp = files("molexp") / "_webapp"
+webapp = files("molexp") / "dist"
 if webapp.is_dir() and (webapp / "index.html").exists():
     mount(app, webapp)
 ```
@@ -211,7 +257,7 @@ This works for editable installs, wheels, and packaged releases. The bundle is p
 ## Troubleshooting
 
 - **Port busy.** `ServerManager.start()` raises `RuntimeError: Server is already running` if `~/.molexp/server.pid` points at a live process. Call `manager.stop()` first or `rm` the stale pid file.
-- **API-only despite a build.** Check that `src/molexp/_webapp/index.html` exists in your active installation. Editable installs re-use the in-tree bundle; wheels ship a frozen copy.
+- **API-only despite a build.** Check that `src/molexp/dist/index.html` exists in your active installation. Editable installs re-use the in-tree bundle; wheels ship a frozen copy.
 - **Background process won't die.** Confirm `kill_on_exit=True` — with `False`, the subprocess is intentionally detached (`start_new_session=True`) and must be stopped via `manager.stop()`.
 
 ## Runnable Example

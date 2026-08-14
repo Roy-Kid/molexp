@@ -1,6 +1,4 @@
 import { DashboardCanvas, OverviewSurface } from "@/app/components/entity";
-// Module-path import (not the barrel) — see KnowledgeBacklinksCard loader note.
-import { KnowledgeBacklinksCard } from "@/plugins/knowledge";
 import { formatScalar } from "@/app/renderers/dashboardData";
 import type { ApiAssetResponse, RunSummary } from "@/app/types";
 import {
@@ -12,6 +10,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDateTime } from "@/lib/datetime";
+// Module-path import (not the barrel) — see KnowledgeBacklinksCard loader note.
+import { KnowledgeBacklinksCard } from "@/plugins/knowledge";
 
 interface RunOverviewProps {
   run: RunSummary;

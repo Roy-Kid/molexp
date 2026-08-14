@@ -10,10 +10,10 @@ import "./side-effects";
  */
 
 import { buildRegistryKey, registerRendererContribution } from "@/app/registry";
+import type { UiPluginModule } from "@/plugins/types";
 import { WorkflowFileViewer } from "@/plugins/workflow/WorkflowFileViewer";
 import { WorkflowInspector } from "@/plugins/workflow/WorkflowInspector";
 import { WorkflowViewer } from "@/plugins/workflow/WorkflowViewer";
-import type { UiPluginModule } from "@/plugins/types";
 
 const workflowPlugin: UiPluginModule = {
   id: "workflow",

@@ -68,6 +68,20 @@ manage accounts under **Settings → Users**. Non-loopback binds
 (`--host 0.0.0.0`) refuse to start without auth. Details:
 [Server Lifecycle](../guide/server-lifecycle.md#http-auth-optional).
 
+### Optional: share a public URL (`--tunnel`)
+
+On a login node, or when a colleague needs the UI, punch a hole while
+the API stays on loopback:
+
+```bash
+molexp serve -ws ./lab --tunnel
+```
+
+The public URL is printed on the start banner. Provider, token, and
+binary path come from `--via` / `--tunnel-token` or `molexp config`
+(`tunnel.*`) — never from the environment. Details:
+[Server Lifecycle](../guide/server-lifecycle.md#share-ui-with-a-colleague-tunnel).
+
 ## 2. Find your way around
 
 The activity bar on the left switches the panel between six views:

@@ -1,5 +1,5 @@
-import { KnowledgeDocPanel } from "@/plugins/knowledge/KnowledgeDocPanel";
 import { registerRendererContribution } from "@/app/registry";
+import { KnowledgeDocPanel } from "@/plugins/knowledge/KnowledgeDocPanel";
 import { KnowledgeViewer } from "@/plugins/knowledge/KnowledgeViewer";
 import type { UiPluginModule } from "@/plugins/types";
 

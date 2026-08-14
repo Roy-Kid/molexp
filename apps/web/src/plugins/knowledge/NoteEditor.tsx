@@ -8,12 +8,12 @@ import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { Code2, Eye, Save } from "lucide-react";
 import { type JSX, Suspense, useCallback, useMemo, useState } from "react";
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
-import { buildNoteDocUpdate, isDirty } from "@/plugins/knowledge/noteDraft";
-import { SlashMenu } from "@/plugins/knowledge/SlashMenu";
 import { workspaceApi } from "@/app/state/api";
 import type { WorkspaceSnapshot } from "@/app/types";
 import { WorkbenchIconAction, WorkbenchToggleAction } from "@/components/workbench";
 import { MonacoEditor } from "@/plugins/editor";
+import { buildNoteDocUpdate, isDirty } from "@/plugins/knowledge/noteDraft";
+import { SlashMenu } from "@/plugins/knowledge/SlashMenu";
 
 type EditMode = "wysiwyg" | "source";
 

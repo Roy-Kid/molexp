@@ -2,12 +2,12 @@ import { List } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 import { ApiError } from "@/api/generated";
 import type { NoteSummary } from "@/api/generated/models/NoteSummary";
-import { BacklinksPanel } from "@/plugins/knowledge/BacklinksPanel";
-import { buildOutline, type OutlineHeading } from "@/plugins/knowledge/knowledgeDocTree";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
 import { WorkbenchOperationState, WorkbenchRetryAction } from "@/components/workbench";
+import { BacklinksPanel } from "@/plugins/knowledge/BacklinksPanel";
+import { buildOutline, type OutlineHeading } from "@/plugins/knowledge/knowledgeDocTree";
 
 const INDENT_BY_LEVEL: Record<OutlineHeading["level"], string> = {
   1: "pl-2",

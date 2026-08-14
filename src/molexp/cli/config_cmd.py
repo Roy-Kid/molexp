@@ -55,7 +55,11 @@ def config_set(
 ) -> None:
     """Set a configuration value.
 
-    Example: molexp config set defaults.shell bash
+    Examples::
+
+        molexp config set agent.model anthropic:claude-sonnet-4-5
+        molexp config set tunnel.via zrok
+        molexp config set tunnel.token <token>
     """
     # Coerce value
     coerced: str | int | float | bool = value

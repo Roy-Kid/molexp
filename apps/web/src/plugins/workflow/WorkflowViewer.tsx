@@ -8,12 +8,12 @@ import {
   OverviewPage,
   OverviewSection,
 } from "@/app/components/entity";
-import { WorkflowGraphViewer } from "@/plugins/workflow/WorkflowGraphViewer";
-import { WorkflowSourceViewer } from "@/plugins/workflow/WorkflowSourceViewer";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
 import { WorkbenchAction } from "@/components/workbench";
 import { formatDateTime } from "@/lib/datetime";
+import { WorkflowGraphViewer } from "@/plugins/workflow/WorkflowGraphViewer";
+import { WorkflowSourceViewer } from "@/plugins/workflow/WorkflowSourceViewer";
 
 const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Element | null => {
   const workflow = snapshot.workflows.find((w) => w.id === selection.objectId);

@@ -18,25 +18,9 @@
 import "@/plugins/workflow/side-effects";
 
 export {
-  FlowgramCanvas,
-  type FlowgramCanvasProps,
-} from "@/plugins/workflow/flowgram-canvas";
-export {
   FlowgramCanvasToolbar,
   type FlowgramCanvasToolbarProps,
 } from "@/components/workflow/flowgram-canvas-toolbar";
-export {
-  buildFlowgramDocument,
-  buildWorkflowDocument,
-  type FlowgramDocument,
-  type FlowgramEdge,
-  type FlowgramNode,
-  type FlowgramNodeData,
-  flowgramDocToTaskGraphJson,
-  normalizeTaskGraph,
-  parseTaskGraphIr,
-  taskGraphToWireDocument,
-} from "@/plugins/workflow/flowgram-document";
 export {
   analyzePaths,
   type GraphEdgeInput,
@@ -44,12 +28,6 @@ export {
   planExecution,
   toTaskGraphJson,
 } from "@/components/workflow/graph-utils";
-export type {
-  EdgeJson,
-  TaskGraphJson,
-  TaskNodeJson,
-  TaskNodePosition,
-} from "@/plugins/workflow/task-graph-ir";
 export {
   parseWorkflowIr,
   WorkflowGraph,
@@ -63,3 +41,25 @@ export {
   WorkflowPreview,
   type WorkflowPreviewProps,
 } from "@/components/workflow/workflow-preview";
+export {
+  FlowgramCanvas,
+  type FlowgramCanvasProps,
+} from "@/plugins/workflow/flowgram-canvas";
+export {
+  buildFlowgramDocument,
+  buildWorkflowDocument,
+  type FlowgramDocument,
+  type FlowgramEdge,
+  type FlowgramNode,
+  type FlowgramNodeData,
+  flowgramDocToTaskGraphJson,
+  normalizeTaskGraph,
+  parseTaskGraphIr,
+  taskGraphToWireDocument,
+} from "@/plugins/workflow/flowgram-document";
+export type {
+  EdgeJson,
+  TaskGraphJson,
+  TaskNodeJson,
+  TaskNodePosition,
+} from "@/plugins/workflow/task-graph-ir";

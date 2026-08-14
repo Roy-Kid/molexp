@@ -49,16 +49,11 @@ repos:
         always_run: true
         stages: [pre-push]
 
-      # Mirrors the ci.yml `web` job command for command. That job is
-      # `continue-on-error` because the web app depends on @molcrafts/molplot and
-      # molvis through `file:` paths a CI clone does not have — so this
-      # hook is currently the ONLY place web regressions are actually caught.
-      # Make the CI job blocking (and drop this note) once those packages are
-      # published.
+      # Mirrors the ci.yml `web` job (`npm run lint && typecheck && test:web`).
       - id: web-checks
         name: "CI web (biome lint + tsc + rstest)"
         entry: bash -c 'npm run lint && npm run typecheck && npm run test:web'
         language: system
         pass_filenames: false
-        files: '^apps/web/'
+        files: '^apps/(web|vsc-ext)/'
         stages: [pre-push]

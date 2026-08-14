@@ -109,22 +109,9 @@ def molq_config(tmp_path, monkeypatch):
     the store, config, and any other molcfg-managed paths land in
     test scratch.
     """
-    monkeypatch.setenv("MOLCRAFTS_HOME", str(tmp_path))
-    config_dir = tmp_path / "molq" / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    # molq ≥0.8 reads YAML only (TOML is rejected with ConfigError).
-    config_path = config_dir / "config.yaml"
-    jobs_dir = tmp_path / "jobs"
-    jobs_dir.mkdir()
-    config_path.write_text(
-        f"""
-profiles:
-  demo:
-    scheduler: local
-    cluster_name: demo-local
-    jobs_dir: "{jobs_dir}"
-""".strip()
-    )
+    from tests.test_plugins.test_submit_molq.conftest import write_molq_demo_config
+
+    config_path = write_molq_demo_config(tmp_path, monkeypatch)
     dashboard._reset_submitor_cache()
     yield config_path
     dashboard._reset_submitor_cache()

@@ -24,6 +24,25 @@ from .schemas import HealthResponse
 
 logger = get_logger(__name__)
 
+# Shown when ``src/molexp/dist/index.html`` is missing (typical editable
+# install before ``npm run build:web``). Keep this HTML, not JSON: a
+# colleague opening the ``--tunnel`` URL in a browser should see next steps.
+_API_ONLY_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>molexp</title></head>
+<body style="font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem">
+<h1>molexp API only</h1>
+<p>This process has no bundled UI (<code>src/molexp/dist/index.html</code> is missing).</p>
+<ul>
+  <li><a href="/api/docs">OpenAPI docs</a></li>
+  <li><a href="/api/health">Health</a></li>
+</ul>
+<p>From a source checkout:</p>
+<pre>npm install
+npm run build:web
+molexp serve -ws … --tunnel</pre>
+<p>Or live-reload: <code>molexp serve --dev -ws …</code>. With <code>--tunnel</code> the public URL punches the Dev UI (Rsbuild), not this API-only page.</p>
+</body></html>"""
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:  # noqa: ARG001
@@ -245,10 +264,11 @@ def create_app(
 
         @app.get("/", tags=["system"])
         def root():  # noqa: ANN202
-            return {
-                "service": "molexp",
-                "docs": "/api/docs",
-                "health": "/api/health",
-            }
+            from fastapi.responses import HTMLResponse
+
+            # No compiled SPA (src/molexp/dist/index.html missing). Browsers
+            # hitting the tunnel URL used to see a raw JSON stub — show a
+            # short page instead. API clients still have /api/docs.
+            return HTMLResponse(_API_ONLY_PAGE)
 
     return app

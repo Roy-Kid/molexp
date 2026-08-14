@@ -51,8 +51,6 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
-    # Advisory: workspace depends on unpublished @molcrafts/molplot pin.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -65,4 +63,4 @@ jobs:
         run: npm install
       - name: Web lint + typecheck + test
         # Same command as .pre-commit-config.yaml `web-checks` (pre-push).
-        run: npm run lint && npm run typecheck:web && npm run test:web
+        run: npm run lint && npm run typecheck && npm run test:web
