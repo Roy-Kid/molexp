@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING, Protocol, cast
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from .folder import Folder
+    from .knowledge_item import KnowledgeItem, KnowledgeKind, SourceRef
     from .param import ParamSpace
     from .project import Project
     from .runset import RunSet
@@ -624,14 +626,13 @@ class Experiment(Folder):
         self,
         name: str,
         *,
-        kind: str = "Finding",
+        kind: KnowledgeKind = "Finding",
         body: str = "",
-        sources: list | None = None,
+        sources: list[SourceRef | Folder | str] | None = None,
         created_by: str = "user",
         title: str = "",
-    ):
+    ) -> KnowledgeItem:
         """Add a sourced knowledge item under this experiment."""
-        from .knowledge_item import KnowledgeKind
         from .knowledge_write import write_knowledge_item
         from .project import _normalize_sources
 
@@ -639,7 +640,7 @@ class Experiment(Folder):
         return write_knowledge_item(
             self,
             name=name,
-            kind=kind,  # type: ignore[arg-type]
+            kind=kind,
             sources=refs,
             created_by=created_by,
             body=body,
@@ -647,37 +648,44 @@ class Experiment(Folder):
             cite=[(self, "derived_from")],
         )
 
-    def knowledge(self, name: str):
+    def knowledge(self, name: str) -> KnowledgeItem:
         """Get a knowledge item under this experiment."""
         from .knowledge_item import KnowledgeItem
 
         return self.get_folder(name, cls=KnowledgeItem)
 
-    def set_knowledge(self, name: str, **kwargs):
+    def set_knowledge(
+        self,
+        name: str,
+        *,
+        kind: KnowledgeKind | None = None,
+        body: str | None = None,
+        sources: list[SourceRef | Folder | str] | None = None,
+        created_by: str | None = None,
+        title: str = "",
+    ) -> KnowledgeItem:
         """Update knowledge under this experiment."""
         from .knowledge_write import write_knowledge_item
         from .project import _normalize_sources
 
         item = self.knowledge(name)
         meta = item.read_knowledge_meta()
-        kind = kwargs.get("kind", meta.kind)
-        sources = kwargs.get("sources")
+        new_kind = kind if kind is not None else meta.kind
         refs = (
             _normalize_sources(sources, default_host=self)
             if sources is not None
             else list(meta.sources)
         )
-        body = kwargs.get("body", item.body())
-        created_by = kwargs.get("created_by", meta.created_by)
-        title = kwargs.get("title", name)
+        new_body = body if body is not None else item.body()
+        new_by = created_by if created_by is not None else meta.created_by
         return write_knowledge_item(
             self,
             name=name,
-            kind=kind,
+            kind=new_kind,
             sources=refs,
-            created_by=created_by,
-            body=body,
-            title=title,
+            created_by=new_by,
+            body=new_body,
+            title=title or name,
         )
 
     def del_knowledge(self, name: str) -> None:
@@ -685,7 +693,7 @@ class Experiment(Folder):
 
         self.remove_folder(name, cls=KnowledgeItem)
 
-    def knowledges(self) -> list:
+    def knowledges(self) -> list[KnowledgeItem]:
         from .knowledge_item import KnowledgeItem
 
         return self.list_folders(cls=KnowledgeItem)

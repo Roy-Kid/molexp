@@ -29,7 +29,6 @@ from .base import (
     _save_metadata,
 )
 from .errors import (
-    ExperimentNotFoundError,
     ProjectExistsError,
     ProjectNotFoundError,
 )
@@ -387,7 +386,9 @@ class Project(Folder):
         meta = item.read_knowledge_meta()
         new_kind = kind if kind is not None else meta.kind
         new_sources = (
-            _normalize_sources(sources, default_host=self) if sources is not None else list(meta.sources)
+            _normalize_sources(sources, default_host=self)
+            if sources is not None
+            else list(meta.sources)
         )
         new_by = created_by if created_by is not None else meta.created_by
         new_body = body if body is not None else item.body()
@@ -424,7 +425,12 @@ def _normalize_sources(
     """Accept SourceRef, Folder, or free strings (dataset: / DOI: / path)."""
     if not sources:
         # Sourced knowledge requires ≥1 SourceRef — default to the host itself.
-        return [SourceRef(kind="experiment" if isinstance(default_host, Experiment) else "file", ref=getattr(default_host, "id", default_host.name))]
+        return [
+            SourceRef(
+                kind="experiment" if isinstance(default_host, Experiment) else "file",
+                ref=getattr(default_host, "id", default_host.name),
+            )
+        ]
     out: list[SourceRef] = []
     for s in sources:
         if isinstance(s, SourceRef):
@@ -440,7 +446,7 @@ def _normalize_sources(
             out.append(SourceRef(kind=kind, ref=getattr(s, "id", s.name)))  # type: ignore[arg-type]
         else:
             text = str(s)
-            if text.startswith("dataset:") or text.startswith("model:") or text.startswith("plugin:"):
+            if text.startswith(("dataset:", "model:", "plugin:")):
                 out.append(SourceRef(kind="file", ref=text))
             elif text.upper().startswith("DOI:") or text.startswith("10."):
                 out.append(SourceRef(kind="reference", ref=text))

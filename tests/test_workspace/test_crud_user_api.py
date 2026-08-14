@@ -7,7 +7,6 @@ import pytest
 from molexp.workspace import (
     ExperimentNotFoundError,
     ProjectNotFoundError,
-    RunNotFoundError,
     Workspace,
 )
 from molexp.workspace.run import Run
@@ -88,7 +87,7 @@ class TestKnowledgeCrud:
         ws = Workspace.create(tmp_path / "lab", name="lab")
         p = ws.add_project("p")
         exp = p.add_experiment("e")
-        k = p.add_knowledge(
+        p.add_knowledge(
             "note-1",
             kind="ProtocolNote",
             body="# hello\n",
