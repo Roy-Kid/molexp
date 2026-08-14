@@ -3,6 +3,7 @@ import { RunMetricsTab } from "@/plugins/metrics/RunMetricsTab";
 import type { UiPluginModule } from "@/plugins/types";
 import { MolplotObservablesTab } from "./MolplotObservablesTab";
 
+export type { LineChartConfig, LineSeriesConfig, VegaLiteSpec } from "@molcrafts/molplot";
 export { MolplotBarChart } from "./MolplotBarChart";
 export { MolplotGanttChart } from "./MolplotGanttChart";
 export { MolplotLineChart, type MolplotLineChartHandle } from "./MolplotLineChart";

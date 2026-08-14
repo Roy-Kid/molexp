@@ -8,6 +8,7 @@
  */
 
 import { type JSX, useEffect, useRef, useState } from "react";
+import { loadMolvisCore } from "@/plugins/molvis/loadMolvisCore";
 
 type LoadState = "loading" | "ready" | "error";
 
@@ -42,10 +43,7 @@ export const InlineStructureViewer = ({
 
     const run = async (): Promise<void> => {
       try {
-        const [{ mountMolvis }, { loadFileContent }] = await Promise.all([
-          import("@molcrafts/molvis-stage"),
-          import("@molcrafts/molvis-stage/io"),
-        ]);
+        const { mountMolvis, loadFileContent } = await loadMolvisCore();
         if (cancelled) return;
 
         // Ensure laid-out size before molvis reads clientWidth/Height.

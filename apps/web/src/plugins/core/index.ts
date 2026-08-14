@@ -7,7 +7,7 @@ import type { UiPluginModule } from "@/plugins/types";
 const corePlugin: UiPluginModule = {
   id: "core",
   name: "Core",
-  description: "Built-in project, experiment, run, and knowledge surfaces.",
+  description: "Built-in project, experiment, and run surfaces.",
   userToggleable: false,
   register: () => {
     registerDefaultRenderers();

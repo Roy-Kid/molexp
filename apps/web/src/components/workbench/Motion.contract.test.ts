@@ -41,7 +41,7 @@ describe("workbench motion contract", () => {
     expect(css).toMatch(/:not\(\s*\.mol-heartbeat-pulse\s*\)/);
     expect(css).toContain("animation: molexp-progress-spin 0.85s linear infinite !important");
     expect(css).toContain(".workflow-port-render .bg-circle");
-    expect(readSource("components/workflow/flowgram-canvas.tsx")).toContain("useReducedMotion()");
+    expect(readSource("plugins/workflow/flowgram-canvas-impl.tsx")).toContain("useReducedMotion()");
   });
 
   it("gives every overlay family an implemented product motion primitive", () => {

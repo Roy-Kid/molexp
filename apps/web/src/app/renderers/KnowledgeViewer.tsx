@@ -29,7 +29,7 @@ import {
 // into an async chunk fetched only when the user enters edit mode, keeping the
 // read-only Knowledge browse path light.
 const NoteEditor = lazy(() =>
-  import("@/app/renderers/knowledge/NoteEditor").then((m) => ({ default: m.NoteEditor })),
+  import("@/plugins/knowledge/NoteEditor").then((m) => ({ default: m.NoteEditor })),
 );
 
 const COLUMN = "mx-auto w-full max-w-3xl";

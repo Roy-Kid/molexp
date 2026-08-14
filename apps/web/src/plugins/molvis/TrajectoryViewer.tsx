@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import { cn } from "@/lib/utils";
 import type { DiscoveredFile } from "@/plugins/types";
+import { loadMolvisCore } from "./loadMolvisCore";
 
 interface TrajectoryViewerProps {
   projectId: string;
@@ -47,10 +48,7 @@ export const TrajectoryViewer = ({
 
     const run = async (): Promise<void> => {
       try {
-        const [{ mountMolvis }, { loadFileContent }] = await Promise.all([
-          import("@molcrafts/molvis-stage"),
-          import("@molcrafts/molvis-stage/io"),
-        ]);
+        const { mountMolvis, loadFileContent } = await loadMolvisCore();
         if (cancelled) return;
 
         const app = mountMolvis(container) as unknown as MolvisHandle;

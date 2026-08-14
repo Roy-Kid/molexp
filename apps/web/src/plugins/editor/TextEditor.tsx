@@ -1,10 +1,11 @@
 import { Save } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WorkbenchIconAction, WorkbenchOperationState } from "@/components/workbench";
 import { filePreviewPluginRegistry } from "@/lib/file-preview-plugins";
+import { MonacoEditor } from "./MonacoEditor";
 
 /**
  * Monaco-backed text editor for workspace files.
@@ -20,8 +21,6 @@ import { filePreviewPluginRegistry } from "@/lib/file-preview-plugins";
  * *content* is supplied by other plugins (core markdown/workflow, molvis,
  * …); this editor only owns the hosting surface.
  */
-const Editor = lazy(() => import("@monaco-editor/react"));
-
 export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
   const [value, setValue] = useState<string>("");
   const [status, setStatus] = useState<"idle" | "loading" | "saving" | "error">("idle");
@@ -135,7 +134,7 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
                   <div className="p-3 text-label text-muted-foreground">Loading editor…</div>
                 }
               >
-                <Editor
+                <MonacoEditor
                   height="100%"
                   language={language}
                   value={value}

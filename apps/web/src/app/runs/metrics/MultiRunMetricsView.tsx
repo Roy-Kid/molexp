@@ -1,7 +1,5 @@
-import type { LineChartConfig } from "@molcrafts/molplot";
 import { AlertTriangle, Layers, Settings2 } from "lucide-react";
 import { type JSX, useEffect, useMemo, useState } from "react";
-
 import { EmptyState } from "@/app/components/entity";
 import { type MetricRecord, workspaceApi } from "@/app/state/api";
 import {
@@ -20,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { WorkbenchIconAction } from "@/components/workbench";
+import type { LineChartConfig } from "@/plugins/molplot";
 import { MolplotLineChart } from "@/plugins/molplot";
 import {
   type AggregateOptions,

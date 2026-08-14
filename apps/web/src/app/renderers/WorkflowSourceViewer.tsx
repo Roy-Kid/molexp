@@ -1,12 +1,8 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
 import { WorkbenchOperationState, WorkbenchRetryAction } from "@/components/workbench";
-
-// Lazy-loaded so `@monaco-editor/react` stays out of the initial page-load
-// bundle. This is the second Monaco consumer alongside the `editor` plugin's
-// TextEditor; both must lazy-import for Monaco to remain an async chunk.
-const Editor = lazy(() => import("@monaco-editor/react"));
+import { MonacoEditor } from "@/plugins/editor";
 
 export const WorkflowSourceViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
   const [content, setContent] = useState<string>("");
@@ -147,7 +143,7 @@ export const WorkflowSourceViewer = ({ selection, snapshot }: RendererProps): JS
       <Suspense
         fallback={<WorkbenchOperationState kind="loading" title="Loading source editor…" />}
       >
-        <Editor
+        <MonacoEditor
           height="100%"
           language="yaml"
           value={content}

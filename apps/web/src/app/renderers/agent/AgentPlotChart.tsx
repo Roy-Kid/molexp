@@ -8,8 +8,8 @@
  * binds — strip them.
  */
 
-import type { VegaLiteSpec } from "@molcrafts/molplot";
 import { type JSX, useEffect, useMemo, useRef } from "react";
+import type { VegaLiteSpec } from "@/plugins/molplot";
 import { MolplotRawChart } from "@/plugins/molplot";
 
 const prepareSpec = (raw: Record<string, unknown> | VegaLiteSpec): VegaLiteSpec => {

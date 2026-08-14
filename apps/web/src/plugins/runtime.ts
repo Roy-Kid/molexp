@@ -10,7 +10,7 @@
  * is ready, the first fetch escapes to the rsbuild proxy, and the
  * loader silently logs a warning instead of finding any plugins.
  *
- * Internal plugins (`core`, `editor`, `workflow`, `molplot`, `molq`,
+ * Internal plugins (`core`, `editor`, `workflow`, `knowledge`, `molplot`, `molq`,
  * `molvis`, `tensorboard`, `deltaf`) are statically imported here and
  * registered eagerly inside `bootPlugins()`. They do NOT appear in
  * `/api/plugins`. Charts (including dense host metrics under ``*.mlp.zarr``
@@ -28,6 +28,7 @@ import { resetContributionRuntimeForTests } from "@/plugins/contribution-runtime
 import corePlugin from "@/plugins/core";
 import deltafPlugin from "@/plugins/deltaf";
 import editorPlugin from "@/plugins/editor";
+import knowledgePlugin from "@/plugins/knowledge";
 import {
   createLoaderState,
   type DynamicImport,
@@ -81,6 +82,7 @@ export const bootPlugins = (): void => {
   registerPluginInstance(state, editorPlugin);
   // Workflow entity + workflow.json preview (was core registerDefaultRenderers).
   registerPluginInstance(state, workflowPlugin);
+  registerPluginInstance(state, knowledgePlugin);
   registerPluginInstance(state, deltafPlugin);
   registerPluginInstance(state, molplotPlugin);
   registerPluginInstance(state, molqPlugin);

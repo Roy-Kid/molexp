@@ -56,4 +56,5 @@ const editorPlugin: UiPluginModule = {
   },
 };
 
+export { MonacoEditor } from "./MonacoEditor";
 export default editorPlugin;
