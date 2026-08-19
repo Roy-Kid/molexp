@@ -1,7 +1,7 @@
 """molexp.harness — plugin host (atom = AgentCall) plus default orchestration plugins.
 
 The host lives at :mod:`molexp.harness.host` (not re-exported here). Workspace,
-workflow, agent, and science adapters mount as plugins; :func:`run_plan`
+workflow, agent, and science adapters mount as plugins; :class:`Plan`
 and :class:`ChatMode` are bundles. See ``.claude/notes/harness-plugins.md``.
 
 Provenance split (one owner per concern): the harness records
@@ -14,7 +14,7 @@ per-scope ``AssetManifest``); code-version and environment capture belong
 there, never here.
 
 Public surface (deliberately small): the Stage execution machinery, the two
-shipped bundles (:class:`ChatMode` + :func:`run_plan`), the stores
+shipped bundles (:class:`ChatMode` + :class:`Plan`), the stores
 their artifacts and audit trail live in, the executor seam, the approval
 gate, and the agent gateway. Everything else — stage classes, schemas,
 validators, policies, curation actions — is imported via its full submodule
@@ -36,7 +36,7 @@ from molexp.harness.core import HarnessRunContext, Stage, StageRunner
 from molexp.harness.errors import ApprovalPendingError, StageExecutionError
 from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
-from molexp.harness.modes import ChatMode, chat_loop_config, run_plan
+from molexp.harness.modes import ChatMode, Plan, chat_loop_config
 from molexp.harness.registry import CapabilityRegistry
 from molexp.harness.schemas import ModeResult
 from molexp.harness.stages import ApprovalGate
@@ -61,6 +61,7 @@ __all__ = [
     "HarnessRunContext",
     "LocalExecutor",
     "ModeResult",
+    "Plan",
     "RouterBackedAgentGateway",
     "SQLiteApprovalStore",
     "SQLiteArtifactLineageStore",
@@ -70,5 +71,4 @@ __all__ = [
     "StageRunner",
     "chat_loop_config",
     "replay_metadata",
-    "run_plan",
 ]

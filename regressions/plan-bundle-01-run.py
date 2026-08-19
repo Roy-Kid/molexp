@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import molexp.harness as harness
+from molexp.harness import Plan
 
 
 def main() -> None:
-    assert "run_plan" in harness.__all__
+    assert "Plan" in harness.__all__
+    assert "run_plan" not in harness.__all__
     assert "PlanOrchestrator" not in harness.__all__
-    assert callable(harness.run_plan)
+    assert isinstance(Plan, type)
     try:
         import molexp.harness.modes.plan_orchestrator  # noqa: F401
     except ModuleNotFoundError:

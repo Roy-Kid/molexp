@@ -91,7 +91,7 @@ class TestImportGuard:
     def test_import_plan_module_does_not_pull_forbidden_modules(self) -> None:
         """``import molexp.harness.modes.plan`` stays SDK-free.
 
-        ``run_plan`` imports ``molexp.workflow`` inside ``_run_plan_on_host``.
+        ``Plan.run`` imports ``molexp.workflow`` inside ``_run_on_host``.
         Merely importing the module must leave ``molexp.workflow`` /
         ``pydantic_ai`` / ``pydantic_graph`` out of ``sys.modules``.
         """

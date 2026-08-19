@@ -16,7 +16,7 @@ import pytest
 
 from molexp.harness import FileArtifactStore, ModeResult
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.plan import run_plan
+from molexp.harness.modes.plan import Plan
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -79,22 +79,23 @@ def _gateway(run: Any) -> StubAgentGateway:
 
 
 class TestRealizeDefault:
-    def test_run_plan_defaults_realize_true(self) -> None:
+    def test_plan_defaults_realize_true(self) -> None:
         import inspect
 
-        assert inspect.signature(run_plan).parameters["realize"].default is True
+        assert inspect.signature(Plan.__init__).parameters["realize"].default is True
 
 
 class TestRealizeFalseSkipsPhase2:
     @pytest.mark.asyncio
     async def test_no_bound_workflow_and_final_is_plan_report(self, run: Any) -> None:
-        result = await run_plan(
-            run=run,
-            user_input=_USER_INPUT,
-            gateway=_gateway(run),
+        result = await Plan(
             draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
+        ).run(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
         )
         store = FileArtifactStore(root=run.run_dir / "artifacts")
         assert store.latest_by_kind(FROZEN_PLAN_KIND) is not None
@@ -121,13 +122,14 @@ class TestRealizeTrueInvokesPhase2:
             )
 
         monkeypatch.setattr(RealizeBoard, "run", _fake_realize)
-        result = await run_plan(
-            run=run,
-            user_input=_USER_INPUT,
-            gateway=_gateway(run),
+        result = await Plan(
             draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=True,
+        ).run(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
         )
         assert calls == ["realize"]
         assert isinstance(result, ModeResult)

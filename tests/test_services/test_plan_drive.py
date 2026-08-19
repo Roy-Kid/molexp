@@ -15,23 +15,30 @@ class _FakeResult:
     pass
 
 
-async def _fake_plan(*, run, user_input, gateway, capability_registry=None, **kwargs: object):
-    del kwargs
-    _fake_plan.calls.append(
-        {
-            "run": run,
-            "user_input": user_input,
-            "gateway": gateway,
-            "capability_registry": capability_registry,
-        }
-    )
-    if _fake_plan.error is not None:
-        raise _fake_plan.error
-    return _FakeResult()
+class _FakePlan:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self._error = error
+        self.calls: list[dict[str, object]] = []
 
-
-_fake_plan.calls = []
-_fake_plan.error = None
+    async def run(
+        self,
+        *,
+        run: object,
+        user_input: str,
+        gateway: object,
+        capability_registry: object = None,
+    ) -> _FakeResult:
+        self.calls.append(
+            {
+                "run": run,
+                "user_input": user_input,
+                "gateway": gateway,
+                "capability_registry": capability_registry,
+            }
+        )
+        if self._error is not None:
+            raise self._error
+        return _FakeResult()
 
 
 @pytest.fixture()
@@ -43,28 +50,23 @@ def run(tmp_path: Path):
 
 class TestDrivePlanMode:
     def test_successful_pipeline_marks_run_succeeded(self, run) -> None:
-        _fake_plan.calls = []
-        _fake_plan.error = None
-        result = asyncio.run(
-            drive_plan_mode(run=run, user_input="x", gateway=object(), plan=_fake_plan)
-        )
+        plan = _FakePlan()
+        result = asyncio.run(drive_plan_mode(plan, run=run, user_input="x", gateway=object()))
         assert isinstance(result, _FakeResult)
         assert run.status == "succeeded"
-        assert _fake_plan.calls[0]["user_input"] == "x"
+        assert plan.calls[0]["user_input"] == "x"
 
     def test_failed_pipeline_marks_run_failed_and_propagates(self, run) -> None:
         from molexp.harness import StageExecutionError
 
-        _fake_plan.calls = []
-        _fake_plan.error = StageExecutionError("stage 'x' exploded")
+        plan = _FakePlan(error=StageExecutionError("stage 'x' exploded"))
         with pytest.raises(StageExecutionError):
-            asyncio.run(drive_plan_mode(run=run, user_input="x", gateway=object(), plan=_fake_plan))
+            asyncio.run(drive_plan_mode(plan, run=run, user_input="x", gateway=object()))
         assert run.status == "failed"
 
     def test_reentry_on_a_succeeded_run_is_allowed(self, run) -> None:
-        _fake_plan.calls = []
-        _fake_plan.error = None
-        asyncio.run(drive_plan_mode(run=run, user_input="x", gateway=object(), plan=_fake_plan))
-        asyncio.run(drive_plan_mode(run=run, user_input="x", gateway=object(), plan=_fake_plan))
+        plan = _FakePlan()
+        asyncio.run(drive_plan_mode(plan, run=run, user_input="x", gateway=object()))
+        asyncio.run(drive_plan_mode(plan, run=run, user_input="x", gateway=object()))
         assert run.status == "succeeded"
-        assert len(_fake_plan.calls) == 2
+        assert len(plan.calls) == 2

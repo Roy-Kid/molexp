@@ -1,6 +1,6 @@
 # Plan Mode 架构
 
-`run_plan` 把自然语言实验草案变成：**任务板（task board）**、经人审
+`molexp.harness.Plan` 把自然语言实验草案变成：**任务板（task board）**、经人审
 批的计划报告，以及（默认）**实现（realize）** 后的工作流——绑定任务 → 按任务
 代码生成与自修复 → 仅编译的 dry-run。这是 `molexp.harness` 里**唯一**交付的
 规划流水线。
@@ -38,7 +38,7 @@ flowchart TD
 | **2 实现** | 物化 bound → RealizeBoard | `bound_workflow`、`workflow_source`、`test_source`、`execution_result`（或 `intervention_request`） |
 
 **没有**线性九步 `Mode` 账本。硬门禁后的恢复是 **store-first**。仅当
-`run_plan(realize=False)` 时跳过阶段 2（测试或刻意 plan-only）。
+`Plan(realize=False)` 时跳过阶段 2（测试或刻意 plan-only）。
 
 ## 阶段 1 — 交互式规划
 
@@ -79,7 +79,7 @@ runs/run-<id>/
 molexp plan "为电解液 X 筛选溶剂条件"
 ```
 
-UI 与 CLI 同一 `drive_plan_mode(run_plan(...), ...)`。会话进度条阶段
+UI 与 CLI 同一 `drive_plan_mode(Plan(...), ...)`。会话进度条阶段
 与 `planStages.ts` / `record._STAGE_LABELS` 对齐。
 
 ## 相关

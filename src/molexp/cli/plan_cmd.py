@@ -1,7 +1,7 @@
 """``molexp plan`` — run the harness emergent-planning pipeline on a workspace.
 
 The production call path into :mod:`molexp.harness`: a natural-language
-experiment draft is handed to :func:`~molexp.harness.run_plan`
+experiment draft is handed to :class:`~molexp.harness.Plan`
 on a ``workspace.Run``, driven by a
 :class:`~molexp.harness.gateways.router_backed.RouterBackedAgentGateway`
 built from the configured LLM. The orchestrator runs two phases —
@@ -58,7 +58,7 @@ class InteractiveApprover:
     terminal it renders the review pack for the request and prompts
     ``[a]pprove / [r]eject / [v]revise``.
 
-    :func:`~molexp.harness.run_plan` receives it as its
+    :class:`~molexp.harness.Plan` receives it as its
     ``approve`` seam and asks it at the plan-tool side-effect gate and the hard
     ``approve_experiment_plan`` review gate before the plan is frozen.
     """
@@ -357,7 +357,7 @@ def plan(
 ) -> None:
     """Turn an experiment draft into a frozen experiment plan (emergent planning)."""
     from molexp.cli._common import deterministic_run_id, rprint
-    from molexp.harness import ApprovalPendingError, StageExecutionError
+    from molexp.harness import ApprovalPendingError, Plan, StageExecutionError
     from molexp.services.plan_runtime import PlanPreflightError
     from molexp.workspace import Workspace
 
@@ -433,10 +433,9 @@ def plan(
         # shared path the server's plan-tasks use.
         result = asyncio.run(
             drive_plan_mode(
+                Plan(approve=approver, realize=True),
                 run=run,
                 user_input=draft_text,
-                approve=approver,
-                realize=True,
                 gateway=gateway,
                 capability_registry=capability_registry,
             )

@@ -1,6 +1,6 @@
 """Boundary 4 — plan documentation contract (unit scan; no network).
 
-Pins architecture + guide docs describe ``run_plan`` two-phase flow
+Pins architecture + guide docs describe ``Plan`` two-phase flow
 and do not present the retired nine-step PlanMode as current truth.
 """
 
@@ -24,10 +24,10 @@ class TestPlanDocsExist:
 
 
 class TestPlanDocsNameRunPlan:
-    def test_each_doc_names_run_plan(self) -> None:
+    def test_each_doc_names_plan(self) -> None:
         for path in _DOC_PATHS:
             text = path.read_text(encoding="utf-8")
-            assert "run_plan" in text, path.name
+            assert "molexp.harness.Plan" in text or "`Plan`" in text, path.name
 
     def test_no_emergent_plan_orchestrator_name(self) -> None:
         for path in _DOC_PATHS:

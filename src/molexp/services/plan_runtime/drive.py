@@ -1,14 +1,12 @@
-"""``drive_plan_mode`` — the ONE way CLI and server run the plan bundle.
+"""``drive_plan_mode`` — CLI and server share this Run-lifecycle wrapper.
 
-Wraps ``run_plan`` in the run's own lifecycle (``run.start()``), so a
-plan Run's workspace status is honest: ``running`` while the pipeline
-executes, ``succeeded`` when it completes, ``failed`` when it raises.
+The plan *bundle* is :class:`molexp.harness.Plan` (harness). This module only
+starts the workspace Run so both faces see the same status machine.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from molexp.harness import CapabilityRegistry, ModeResult
@@ -17,33 +15,33 @@ if TYPE_CHECKING:
 
 __all__ = ["drive_plan_mode"]
 
-PlanRunner = Callable[..., Awaitable[Any]]
+
+class _PlanLike(Protocol):
+    async def run(
+        self,
+        *,
+        run: Any,  # noqa: ANN401
+        user_input: str,
+        gateway: Any,  # noqa: ANN401
+        capability_registry: Any = None,  # noqa: ANN401
+    ) -> Any: ...  # noqa: ANN401
 
 
 async def drive_plan_mode(
+    plan: _PlanLike,
     *,
     run: Run,
     user_input: str,
     gateway: AgentGateway,
     capability_registry: CapabilityRegistry | None = None,
-    plan: PlanRunner | None = None,
-    **plan_kwargs: Any,  # noqa: ANN401 — forwarded to run_plan
 ) -> ModeResult:
-    """Run the plan bundle against *run* inside the run lifecycle.
-
-    Tests inject a fake via ``plan=``. Production uses
-    :func:`molexp.harness.run_plan`.
-    """
-    from molexp.harness.modes.plan import run_plan
-
-    runner = plan if plan is not None else run_plan
+    """Run *plan* against *run* inside ``run.start()``."""
     with run.start() as run_ctx:
-        result = await runner(
+        result = await plan.run(
             run=run,
             user_input=user_input,
             gateway=gateway,
             capability_registry=capability_registry,
-            **plan_kwargs,
         )
         run_ctx.mark_succeeded()
     return result

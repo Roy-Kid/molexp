@@ -53,7 +53,7 @@ from molexp.harness import (
     SQLiteApprovalStore,
 )
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.plan import run_plan
+from molexp.harness.modes.plan import Plan
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -154,13 +154,14 @@ async def _check_guard_no_human_surface(root: Path) -> None:
     """(a) A malformed final board is rejected before any human gate is opened."""
     run = _make_run(root, "guard")
     with contextlib.suppress(Exception):
-        await run_plan(
-            run=run,
-            user_input=_USER_INPUT,
-            gateway=_gateway(run),
+        await Plan(
             draft=_CannedDraft(_malformed_board()),
             approve=auto_grant_approver,
             realize=False,
+        ).run(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
         )
 
     store = _store(run)
@@ -178,13 +179,14 @@ async def _check_store_first_suspend(root: Path) -> None:
     run = _make_run(root, "suspend")
     suspended = False
     try:
-        await run_plan(
-            run=run,
-            user_input=_USER_INPUT,
-            gateway=_gateway(run),
+        await Plan(
             draft=_CannedDraft(_valid_board()),
             approve=None,
             realize=False,
+        ).run(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
         )
     except ApprovalPendingError:
         suspended = True
@@ -211,16 +213,13 @@ async def _check_stored_grant_replay(root: Path) -> None:
     """(c) A recorded grant replays store-first → freeze (stable id) + render."""
     run = _make_run(root, "replay")
     gw = _gateway(run)
-    kwargs = {
-        "run": run,
-        "user_input": _USER_INPUT,
-        "gateway": gw,
-        "draft": _CannedDraft(_valid_board()),
-        "approve": None,
-        "realize": False,
-    }
+    plan = Plan(
+        draft=_CannedDraft(_valid_board()),
+        approve=None,
+        realize=False,
+    )
     with contextlib.suppress(ApprovalPendingError):
-        await run_plan(**kwargs)
+        await plan.run(run=run, user_input=_USER_INPUT, gateway=gw)
 
     approvals = _approvals(run)
     [pending] = approvals.pending(run.id)
@@ -235,10 +234,10 @@ async def _check_stored_grant_replay(root: Path) -> None:
     )
 
     # Second run replays the stored grant → freeze + render.
-    result = await run_plan(**kwargs)
+    result = await plan.run(run=run, user_input=_USER_INPUT, gateway=gw)
     store = _store(run)
     frozen = store.latest_by_kind(FROZEN_PLAN_KIND)
-    assert isinstance(result, ModeResult), "run_plan must return a ModeResult"
+    assert isinstance(result, ModeResult), "Plan.run must return a ModeResult"
     assert frozen is not None, "a granted replay must freeze the plan"
     assert result.final_artifact is not None, "a replay must surface a final artifact"
     print(f"[obs-c] replay: frozen_id={frozen.id} final_artifact_kind={result.final_artifact.kind}")
@@ -247,7 +246,7 @@ async def _check_stored_grant_replay(root: Path) -> None:
     )
 
     # Third run on the SAME board yields the SAME content-addressed frozen id.
-    await run_plan(**kwargs)
+    await plan.run(run=run, user_input=_USER_INPUT, gateway=gw)
     frozen_again = store.latest_by_kind(FROZEN_PLAN_KIND)
     assert frozen_again is not None
     print(

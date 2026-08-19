@@ -46,6 +46,7 @@ from molexp.harness import (
     FileArtifactStore,
     HarnessRunContext,
     ModeResult,
+    Plan,
     SQLiteApprovalStore,  # noqa: F401 — imported to prove the public surface still carries it
 )
 from molexp.harness.gateways.stub import StubAgentGateway
@@ -148,7 +149,7 @@ def _check_absence_guard() -> None:
     all_symbols = harness.__all__
     assert "Mode" not in all_symbols, "retired 'Mode' must not be in molexp.harness.__all__"
     assert "PlanMode" not in all_symbols, "retired 'PlanMode' must not be in molexp.harness.__all__"
-    assert "run_plan" in all_symbols, "the plan bundle 'run_plan' must be in molexp.harness.__all__"
+    assert "Plan" in all_symbols, "the plan bundle 'Plan' must be in molexp.harness.__all__"
     assert "PlanOrchestrator" not in all_symbols, (
         "retired PlanOrchestrator must not be in molexp.harness.__all__"
     )
@@ -159,7 +160,7 @@ def _check_absence_guard() -> None:
     print(
         f"[obs-1] absence guard: deleted={list(_DELETED_MODULES)} "
         f"__all__={len(all_symbols)} symbols (Mode/PlanMode absent, "
-        f"run_plan present)"
+        f"Plan present)"
     )
 
 
@@ -171,13 +172,15 @@ async def _check_shared_path_drive(root: Path) -> None:
     run = _make_run(root, "cutover")
     gateway = _gateway(run)
     result = await drive_plan_mode(
+        Plan(
+            draft=_CannedDraft(_valid_board()),
+            approve=auto_grant_approver,
+            realize=False,
+        ),
         run=run,
         user_input=_USER_INPUT,
         gateway=gateway,
         capability_registry=None,
-        draft=_CannedDraft(_valid_board()),
-        approve=auto_grant_approver,
-        realize=False,
     )
 
     assert isinstance(result, ModeResult), "drive_plan_mode must return a ModeResult"
@@ -194,9 +197,7 @@ async def _check_shared_path_drive(root: Path) -> None:
         "ModeResult.final_artifact must be the plan_report_renderer render output"
     )
 
-    print(
-        f"drove run_plan via drive_plan_mode; frozen={frozen.id} final={result.final_artifact.kind}"
-    )
+    print(f"drove Plan via drive_plan_mode; frozen={frozen.id} final={result.final_artifact.kind}")
 
 
 async def main() -> None:

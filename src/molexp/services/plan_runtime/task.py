@@ -5,7 +5,7 @@ unlike the agent-session runtime — it needs no session/turn split: the task IS
 the background ``asyncio.Task`` plus its coarse status. On success it persists
 the generated workflow onto the experiment so the UI graph renderer shows it.
 
-Approvals are **never** auto-granted: ``run_plan()`` runs with
+Approvals are **never** auto-granted: ``Plan()`` runs with
 no approver, so the review gate resolves store-first (a grant recorded in the
 run's approval store replays) and otherwise suspends — the task lands
 ``waiting_approval`` with the pending requests kept on it, the approvals inbox
@@ -344,7 +344,7 @@ class PlanTask:
             _LOG.debug(f"[plan-task {self.task_id}] waiting_approval events failed: {emit_exc!r}")
 
     async def _drive(self, gateway: AgentGateway) -> None:
-        from molexp.harness import ApprovalPendingError
+        from molexp.harness import ApprovalPendingError, Plan
 
         from .drive import drive_plan_mode
         from .materialize import materialize_plan_records
@@ -419,12 +419,11 @@ class PlanTask:
             # the same shared path `molexp plan` uses.
             # Phase 1 (board + freeze) + Phase 2 (RealizeBoard) when realize=True.
             self.result = await drive_plan_mode(
+                Plan(realize=True, on_loop_event=on_loop_event),
                 run=self.run,
                 user_input=self.draft,
                 gateway=gateway,
                 capability_registry=capability_registry,
-                realize=True,
-                on_loop_event=on_loop_event,
             )
             # Persist the workflow IR + record the Agents-tab session and
             # Knowledge records. Shared with `molexp plan` (CLI) so the Python
