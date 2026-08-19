@@ -2,6 +2,15 @@
 
 One line per **live** spec. `/mol:spec` adds entries; `/mol:impl` ticks the spec's tasks and prunes the entry (with the spec file) on completion.
 
+## plan-bundle (chain)
+
+_Closed 01–02 on `dev` (2026-08-19) — deleted `PlanOrchestrator`; plan is `run_plan`._
+
+| # | Spec | Commit theme |
+|---|---|---|
+| 01 | plan-bundle-01-run | `run_plan` replaces the class |
+| 02 | plan-bundle-02-callers | CLI/server/docs cut over |
+
 ## host-approval (chain)
 
 _Closed 01–02 on `dev` (2026-08-19) — store-first `approval/request` hung on `tools/pre-execute`._

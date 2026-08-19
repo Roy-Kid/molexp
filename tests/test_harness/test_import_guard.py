@@ -88,17 +88,16 @@ class TestImportGuard:
         loaded = [m for m in output.removeprefix("LOADED:").split(",") if m]
         assert loaded == [], f"forbidden modules imported transitively: {loaded}"
 
-    def test_import_plan_orchestrator_module_does_not_pull_forbidden_modules(self) -> None:
-        """ac-008: ``import molexp.harness.modes.plan_orchestrator`` stays SDK-free.
+    def test_import_plan_module_does_not_pull_forbidden_modules(self) -> None:
+        """``import molexp.harness.modes.plan`` stays SDK-free.
 
-        Plan orchestration imports ``molexp.workflow`` *inside* ``_run_on_host``.
-        Merely importing ``molexp.harness.modes.plan_orchestrator`` must leave
-        ``molexp.workflow`` / ``pydantic_ai`` / ``pydantic_graph`` out of
-        ``sys.modules``.
+        ``run_plan`` imports ``molexp.workflow`` inside ``_run_plan_on_host``.
+        Merely importing the module must leave ``molexp.workflow`` /
+        ``pydantic_ai`` / ``pydantic_graph`` out of ``sys.modules``.
         """
         probe = (
             "import sys, importlib;"
-            "importlib.import_module('molexp.harness.modes.plan_orchestrator');"
+            "importlib.import_module('molexp.harness.modes.plan');"
             "loaded = [m for m in sys.modules if m in " + repr(list(_FORBIDDEN)) + "];"
             "print('LOADED:' + ','.join(loaded))"
         )
@@ -111,9 +110,7 @@ class TestImportGuard:
         output = result.stdout.strip()
         assert output.startswith("LOADED:"), output
         loaded = [m for m in output.removeprefix("LOADED:").split(",") if m]
-        assert loaded == [], (
-            f"forbidden modules imported transitively by plan_orchestrator: {loaded}"
-        )
+        assert loaded == [], f"forbidden modules imported transitively by modes.plan: {loaded}"
 
     def test_import_host_module_does_not_pull_forbidden_modules(self) -> None:
         """``import molexp.harness.host`` stays workflow- and SDK-free."""

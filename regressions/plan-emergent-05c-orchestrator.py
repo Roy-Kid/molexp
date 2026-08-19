@@ -53,7 +53,7 @@ from molexp.harness import (
     SQLiteApprovalStore,
 )
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.plan_orchestrator import PlanOrchestrator
+from molexp.harness.modes.plan import run_plan
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -153,15 +153,15 @@ def _approvals(run: Run) -> SQLiteApprovalStore:
 async def _check_guard_no_human_surface(root: Path) -> None:
     """(a) A malformed final board is rejected before any human gate is opened."""
     run = _make_run(root, "guard")
-    orch = PlanOrchestrator(
-        draft=_CannedDraft(_malformed_board()),
-        approve=auto_grant_approver,
-        realize=False,
-    )
-    # A persistently malformed board must be rejected (raise) — but must never
-    # open a human gate: no review pack, no freeze, no pending approval.
     with contextlib.suppress(Exception):
-        await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
+        await run_plan(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
+            draft=_CannedDraft(_malformed_board()),
+            approve=auto_grant_approver,
+            realize=False,
+        )
 
     store = _store(run)
     review_pack = store.latest_by_kind("review_pack")
@@ -176,10 +176,16 @@ async def _check_guard_no_human_surface(root: Path) -> None:
 async def _check_store_first_suspend(root: Path) -> None:
     """(b) No approver + no grant ⇒ ApprovalPendingError + a pending request."""
     run = _make_run(root, "suspend")
-    orch = PlanOrchestrator(draft=_CannedDraft(_valid_board()), approve=None, realize=False)
     suspended = False
     try:
-        await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
+        await run_plan(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
+            draft=_CannedDraft(_valid_board()),
+            approve=None,
+            realize=False,
+        )
     except ApprovalPendingError:
         suspended = True
     assert suspended, "a valid board with no approver must suspend store-first"
@@ -205,10 +211,16 @@ async def _check_stored_grant_replay(root: Path) -> None:
     """(c) A recorded grant replays store-first → freeze (stable id) + render."""
     run = _make_run(root, "replay")
     gw = _gateway(run)
-    orch = PlanOrchestrator(draft=_CannedDraft(_valid_board()), approve=None, realize=False)
-    # First run suspends store-first; obtain the gate's request id publicly.
+    kwargs = {
+        "run": run,
+        "user_input": _USER_INPUT,
+        "gateway": gw,
+        "draft": _CannedDraft(_valid_board()),
+        "approve": None,
+        "realize": False,
+    }
     with contextlib.suppress(ApprovalPendingError):
-        await orch.run(run=run, user_input=_USER_INPUT, gateway=gw)
+        await run_plan(**kwargs)
 
     approvals = _approvals(run)
     [pending] = approvals.pending(run.id)
@@ -223,10 +235,10 @@ async def _check_stored_grant_replay(root: Path) -> None:
     )
 
     # Second run replays the stored grant → freeze + render.
-    result = await orch.run(run=run, user_input=_USER_INPUT, gateway=gw)
+    result = await run_plan(**kwargs)
     store = _store(run)
     frozen = store.latest_by_kind(FROZEN_PLAN_KIND)
-    assert isinstance(result, ModeResult), "orchestrator.run must return a ModeResult"
+    assert isinstance(result, ModeResult), "run_plan must return a ModeResult"
     assert frozen is not None, "a granted replay must freeze the plan"
     assert result.final_artifact is not None, "a replay must surface a final artifact"
     print(f"[obs-c] replay: frozen_id={frozen.id} final_artifact_kind={result.final_artifact.kind}")
@@ -235,7 +247,7 @@ async def _check_stored_grant_replay(root: Path) -> None:
     )
 
     # Third run on the SAME board yields the SAME content-addressed frozen id.
-    await orch.run(run=run, user_input=_USER_INPUT, gateway=gw)
+    await run_plan(**kwargs)
     frozen_again = store.latest_by_kind(FROZEN_PLAN_KIND)
     assert frozen_again is not None
     print(

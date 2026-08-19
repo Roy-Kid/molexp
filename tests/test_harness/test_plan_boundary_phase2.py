@@ -16,7 +16,7 @@ import pytest
 
 from molexp.harness import FileArtifactStore, ModeResult
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.plan_orchestrator import PlanOrchestrator
+from molexp.harness.modes.plan import run_plan
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -31,6 +31,7 @@ from molexp.harness.plan import (
 from molexp.harness.plan.bind_board import board_plan_to_bound_workflow
 from molexp.harness.schemas import PlanArtifactRef
 from molexp.harness.stages import auto_grant_approver
+from molexp.harness.stages.realize_board import RealizeBoard
 from molexp.workspace import Workspace
 
 _USER_INPUT = '{"title": "Boundary phase2", "objective": "Unit-test realization wiring."}'
@@ -78,20 +79,23 @@ def _gateway(run: Any) -> StubAgentGateway:
 
 
 class TestRealizeDefault:
-    def test_constructor_defaults_realize_true(self) -> None:
-        orch = PlanOrchestrator(draft=_CannedDraft(_valid_board()))
-        assert orch._realize is True
+    def test_run_plan_defaults_realize_true(self) -> None:
+        import inspect
+
+        assert inspect.signature(run_plan).parameters["realize"].default is True
 
 
 class TestRealizeFalseSkipsPhase2:
     @pytest.mark.asyncio
     async def test_no_bound_workflow_and_final_is_plan_report(self, run: Any) -> None:
-        orch = PlanOrchestrator(
+        result = await run_plan(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
             draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )
-        result = await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
         store = FileArtifactStore(root=run.run_dir / "artifacts")
         assert store.latest_by_kind(FROZEN_PLAN_KIND) is not None
         assert store.latest_by_kind("plan_report") is not None
@@ -107,8 +111,7 @@ class TestRealizeTrueInvokesPhase2:
     ) -> None:
         calls: list[str] = []
 
-        async def _fake_realize(self, ctx, plan, *, parent_ids):
-            del plan, parent_ids
+        async def _fake_realize(self, ctx):
             calls.append("realize")
             return ctx.artifact_store.put_json(
                 kind="execution_result",
@@ -117,13 +120,15 @@ class TestRealizeTrueInvokesPhase2:
                 parent_ids=[],
             )
 
-        monkeypatch.setattr(PlanOrchestrator, "_run_realization", _fake_realize)
-        orch = PlanOrchestrator(
+        monkeypatch.setattr(RealizeBoard, "run", _fake_realize)
+        result = await run_plan(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
             draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=True,
         )
-        result = await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
         assert calls == ["realize"]
         assert isinstance(result, ModeResult)
         assert result.final_artifact is not None

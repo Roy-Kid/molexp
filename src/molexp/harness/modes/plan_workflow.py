@@ -3,7 +3,7 @@
 Each LLM node is one :meth:`AgentGateway.call` (ReAct or structured).
 Form failure is ``wf.loop`` / ``Next("continue")``, not an agent outer loop.
 
-Imported lazily from :class:`PlanOrchestrator` so ``import molexp.harness``
+Imported lazily from :func:`run_plan` so ``import molexp.harness``
 does not load :mod:`molexp.workflow`.
 """
 

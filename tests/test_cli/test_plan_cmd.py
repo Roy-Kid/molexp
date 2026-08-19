@@ -18,11 +18,11 @@ class TestPlanCmd:
         """The CLI approver is an async ``(ApprovalRequest) -> ApprovalDecision``
         callable, and the emergent orchestrator accepts it as its ``approve`` seam."""
         from molexp.cli import plan_cmd
-        from molexp.harness.modes.plan_orchestrator import PlanOrchestrator
+        from molexp.harness.modes.plan import run_plan
 
         approver = plan_cmd.InteractiveApprover(
             run=SimpleNamespace(run_dir="/tmp/plan-run"), assume_yes=True
         )
         assert inspect.iscoroutinefunction(approver.__call__)
-        # Constructs without error → the approver conforms to the Approver type.
-        PlanOrchestrator(approve=approver)
+        # Keyword is accepted by run_plan (Approver type).
+        assert "approve" in inspect.signature(run_plan).parameters

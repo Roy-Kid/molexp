@@ -85,7 +85,7 @@ class PlanFile(BaseModel):
 
 
 class PlanDetailResponse(BaseModel):
-    """Full plan deliverables for PlanOrchestrator (and legacy nine-step artifacts).
+    """Full plan deliverables for the plan bundle (and legacy nine-step artifacts).
 
     Primary kinds: ``experimentPlan`` (spec + task board), ``planReport``,
     ``frozenExperimentPlan``, ``boundWorkflow``, then codegen/compile outputs.
@@ -483,7 +483,7 @@ def get_plan(
     user_plan = _read_json_kind(store, root, "user_plan") or {}
     draft = user_plan.get("raw_text")
     if not isinstance(draft, str) or not draft:
-        # PlanOrchestrator stores the draft as free-text user_input only;
+        # The plan bundle stores the draft as free-text user_input only;
         # fall back to the plan objective / title.
         if experiment_plan and isinstance(experiment_plan.get("spec"), dict):
             draft = str(

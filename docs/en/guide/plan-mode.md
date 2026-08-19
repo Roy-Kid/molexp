@@ -7,7 +7,7 @@
 3. **冻结计划** + 可读 **计划报告**，
 4. 默认再 **实现** 工作流（codegen + 仅编译 dry-run）。
 
-生产入口是 `molexp.harness.PlanOrchestrator`。内部细节见
+生产入口是 `molexp.harness.run_plan`。内部细节见
 [Plan Mode 架构](../architecture/plan-mode.md)。
 
 ## 前置条件
@@ -43,7 +43,7 @@ molexp plan --file draft.md --yes   # 自动过审查门禁，仍会跑实现阶
 ## UI
 
 Agent 作曲器切到 **Plan**（模式胶囊或 `Shift+Tab`）。同一 `POST /plan-tasks`
-驱动 `PlanOrchestrator`。
+驱动 `run_plan`。
 
 - **左轨** — 新阶段列表（任务板 → 审查 → 冻结 → 报告 → 绑定 → 源码 → 编译…）
 - **右栏** — 当前阶段交付物

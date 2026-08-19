@@ -1,7 +1,7 @@
 """Lock the shrunk ``molexp.harness`` public surface.
 
 The harness top level exports only the orchestration surface: the Stage
-machinery, the one shipped pipeline (``PlanOrchestrator``), the stores,
+machinery, the one shipped pipeline (``run_plan``), the stores,
 the executor seam, the approval gate, and the agent gateway — plus the symbols
 the public
 docs (``docs/guide/plan-mode.md`` / ``docs/architecture/plan-mode.md``) cite
@@ -28,7 +28,7 @@ EXPECTED_ALL = {
     "StageRunner",
     "HarnessRunContext",
     "ChatMode",
-    "PlanOrchestrator",
+    "run_plan",
     "ModeResult",
     "chat_loop_config",
     # baseline — stores, executors, gate, gateway

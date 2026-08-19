@@ -1,4 +1,4 @@
-"""Tests for :class:`PlanOrchestrator` (plan-emergent-05c + phase-2 wiring).
+"""Tests for :func:`run_plan` (plan-emergent-05c + phase-2 wiring).
 
 Offline, stub-driven: a ``StubAgentGateway`` plus a local stub
 ``draft=`` seam that writes a canned board. Phase 2 is disabled
@@ -21,7 +21,7 @@ from molexp.harness import (
     SQLiteApprovalStore,
 )
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.plan_orchestrator import PlanOrchestrator
+from molexp.harness.modes.plan import run_plan
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -105,12 +105,14 @@ def _approvals(run: Any) -> SQLiteApprovalStore:
 
 class TestStoreBundle:
     async def test_run_reproduces_the_build_ctx_store_bundle(self, run: Any) -> None:
-        orch = PlanOrchestrator(
+        result = await run_plan(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
             draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )
-        result = await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
 
         assert isinstance(result, ModeResult)
         assert result.run_id == run.id
@@ -125,13 +127,15 @@ class TestStoreBundle:
 
 class TestGuardFailSteersBack:
     async def test_malformed_final_board_never_reaches_the_gate(self, run: Any) -> None:
-        orch = PlanOrchestrator(
-            draft=_CannedDraft(_malformed_board()),
-            approve=auto_grant_approver,
-            realize=False,
-        )
         with contextlib.suppress(Exception):
-            await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
+            await run_plan(
+                run=run,
+                user_input=_USER_INPUT,
+                gateway=_gateway(run),
+                draft=_CannedDraft(_malformed_board()),
+                approve=auto_grant_approver,
+                realize=False,
+            )
 
         store = _store(run)
         assert store.latest_by_kind("review_pack") is None
@@ -146,26 +150,30 @@ class TestGuardFailSteersBack:
             del user_input
             write_board(board_path(ctx.workspace_root), boards.pop(0) if boards else _valid_board())
 
-        orch = PlanOrchestrator(
+        result = await run_plan(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
             draft=draft,
             approve=auto_grant_approver,
             realize=False,
             board_max_iters=4,
         )
-        result = await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
         assert isinstance(result, ModeResult)
         assert _store(run).latest_by_kind(FROZEN_PLAN_KIND) is not None
 
 
 class TestStoreFirstSuspend:
     async def test_valid_board_suspends_store_first_without_approver(self, run: Any) -> None:
-        orch = PlanOrchestrator(
-            draft=_CannedDraft(_valid_board()),
-            approve=None,
-            realize=False,
-        )
         with pytest.raises(ApprovalPendingError):
-            await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
+            await run_plan(
+                run=run,
+                user_input=_USER_INPUT,
+                gateway=_gateway(run),
+                draft=_CannedDraft(_valid_board()),
+                approve=None,
+                realize=False,
+            )
 
         pending = _approvals(run).pending(run.id)
         assert pending, "a pending approval request must be recorded on suspend"
@@ -180,13 +188,16 @@ class TestStoreFirstSuspend:
 class TestStoredGrantReplay:
     async def test_stored_grant_replays_into_freeze_and_render(self, run: Any) -> None:
         gw = _gateway(run)
-        orch = PlanOrchestrator(
-            draft=_CannedDraft(_valid_board()),
-            approve=None,
-            realize=False,
-        )
+        kwargs = {
+            "run": run,
+            "user_input": _USER_INPUT,
+            "gateway": gw,
+            "draft": _CannedDraft(_valid_board()),
+            "approve": None,
+            "realize": False,
+        }
         with pytest.raises(ApprovalPendingError):
-            await orch.run(run=run, user_input=_USER_INPUT, gateway=gw)
+            await run_plan(**kwargs)
 
         approvals = _approvals(run)
         [pending] = approvals.pending(run.id)
@@ -200,7 +211,7 @@ class TestStoredGrantReplay:
             )
         )
 
-        result = await orch.run(run=run, user_input=_USER_INPUT, gateway=gw)
+        result = await run_plan(**kwargs)
         assert isinstance(result, ModeResult)
         store = _store(run)
         frozen = store.latest_by_kind(FROZEN_PLAN_KIND)
@@ -208,32 +219,36 @@ class TestStoredGrantReplay:
         assert result.final_artifact is not None
         assert result.final_artifact.kind == "plan_report"
 
-        await orch.run(run=run, user_input=_USER_INPUT, gateway=gw)
+        await run_plan(**kwargs)
         assert store.latest_by_kind(FROZEN_PLAN_KIND).id == frozen.id
 
 
 class TestModeLikeShape:
     async def test_drive_plan_mode_returns_a_mode_result(self, run: Any) -> None:
-        orch = PlanOrchestrator(
+        result = await drive_plan_mode(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
             draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )
-        result = await drive_plan_mode(orch, run=run, user_input=_USER_INPUT, gateway=_gateway(run))
         assert isinstance(result, ModeResult)
         assert run.status == "succeeded"
 
 
 class TestPriorKnowledgeWire:
-    """close-loop-01: AssembleKnowledgeContext on the live PlanOrchestrator path."""
+    """close-loop-01: AssembleKnowledgeContext on the live run_plan path."""
 
     async def test_assembles_knowledge_context_and_lineages_experiment_plan(self, run: Any) -> None:
-        orch = PlanOrchestrator(
+        result = await run_plan(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
             draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )
-        result = await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
 
         store = _store(run)
         knowledge = store.latest_by_kind("knowledge_context")
@@ -264,12 +279,14 @@ class TestPriorKnowledgeWire:
         )
         item.write_index("grid too coarse near r_min — unique-fa-marker")
 
-        orch = PlanOrchestrator(
+        await run_plan(
+            run=run,
+            user_input=_USER_INPUT,
+            gateway=_gateway(run),
             draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )
-        await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
 
         store = FileArtifactStore(root=run.run_dir / "artifacts")
         knowledge = store.latest_by_kind("knowledge_context")
@@ -281,7 +298,7 @@ class TestPriorKnowledgeWire:
 
 class TestPlanLoopSystemPrompt:
     def test_appends_digest_when_present(self) -> None:
-        from molexp.harness.modes.plan_orchestrator import plan_loop_system_prompt
+        from molexp.harness.modes.plan import plan_loop_system_prompt
 
         bare = plan_loop_system_prompt(None)
         with_digest = plan_loop_system_prompt("# Prior\n\npath: failure-x")

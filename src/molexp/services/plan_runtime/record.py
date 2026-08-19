@@ -221,7 +221,7 @@ def _write_agent_task(
     )
 
 
-# PlanOrchestrator stages (artifact kind → step label). Mirrors UI planStages.ts.
+# Plan bundle stages (artifact kind → step label). Mirrors UI planStages.ts.
 _STAGE_LABELS: list[tuple[str, str]] = [
     ("experiment_plan", "Built the task board"),
     ("review_pack", "Opened the review gate"),

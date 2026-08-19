@@ -1,22 +1,14 @@
-"""``drive_plan_mode`` — the ONE way CLI and server run a PlanMode pipeline.
+"""``drive_plan_mode`` — the ONE way CLI and server run the plan bundle.
 
-Wraps ``mode.run(...)`` in the run's own lifecycle (``run.start()``), so a
+Wraps ``run_plan`` in the run's own lifecycle (``run.start()``), so a
 plan Run's workspace status is honest: ``running`` while the pipeline
-executes (with the ownership stamp + heartbeat every workflow run gets),
-``succeeded`` when all stages complete, ``failed`` when a stage raises.
-Without this, a plan run stayed ``pending`` forever and every status
-surface in the UI contradicted the 13 green pipeline steps.
-
-Plan re-entry stays governed by the stage ledger, NOT the run verbs: a
-re-run against a ``succeeded`` plan run enters the lifecycle again (ledger
-hits make it cheap), unlike ``molexp run`` which refuses succeeded runs.
-A concurrently *running* plan on the same Run is still refused by the
-lifecycle's ownership claim — one Run, one live execution.
+executes, ``succeeded`` when it completes, ``failed`` when it raises.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from molexp.harness import CapabilityRegistry, ModeResult
@@ -25,38 +17,33 @@ if TYPE_CHECKING:
 
 __all__ = ["drive_plan_mode"]
 
-
-class _ModeLike(Protocol):
-    async def run(
-        self,
-        *,
-        run: Any,  # noqa: ANN401 — workspace Run, duck-typed for tests
-        user_input: str,
-        gateway: Any,  # noqa: ANN401
-        capability_registry: Any = None,  # noqa: ANN401
-    ) -> Any: ...  # noqa: ANN401
+PlanRunner = Callable[..., Awaitable[Any]]
 
 
 async def drive_plan_mode(
-    mode: _ModeLike,
     *,
     run: Run,
     user_input: str,
     gateway: AgentGateway,
     capability_registry: CapabilityRegistry | None = None,
+    plan: PlanRunner | None = None,
+    **plan_kwargs: Any,  # noqa: ANN401 — forwarded to run_plan
 ) -> ModeResult:
-    """Run *mode* against *run* inside the run lifecycle; return its result.
+    """Run the plan bundle against *run* inside the run lifecycle.
 
-    Success marks the run ``succeeded`` explicitly (the lifecycle never
-    defaults to success); a raising stage propagates after the lifecycle
-    records ``failed``.
+    Tests inject a fake via ``plan=``. Production uses
+    :func:`molexp.harness.run_plan`.
     """
+    from molexp.harness.modes.plan import run_plan
+
+    runner = plan if plan is not None else run_plan
     with run.start() as run_ctx:
-        result = await mode.run(
+        result = await runner(
             run=run,
             user_input=user_input,
             gateway=gateway,
             capability_registry=capability_registry,
+            **plan_kwargs,
         )
         run_ctx.mark_succeeded()
     return result

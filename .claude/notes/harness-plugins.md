@@ -5,7 +5,7 @@
 
 > **Companion:** artifact / provenance / IR / approval internals stay in [`harness-goal.md`](harness-goal.md). Cross-layer coordination (WorkspaceContext → KnowledgeDelta) stays in [`integration.md`](integration.md). Those documents describe **bundles** mounted on this kernel. They do not define the kernel.
 
-**Rule:** molexp is a plugin composition. The atom is one **model call** (`AgentGateway.call` → pydantic-ai primitive). Chat is one shot and does not loop. Tool-using work is one ReAct (`stream_agentic`); ReAct already stops when the model stops calling tools. **Plan is a molexp Workflow** whose nodes each run one call/ReAct and persist artifacts. Tools are Host plugins. Do not grow `ChatLoop` / `InteractiveLoop` / `PlanOrchestrator` as kernels.
+**Rule:** molexp is a plugin composition. The atom is one **model call** (`AgentGateway.call` → pydantic-ai primitive). Chat is one shot and does not loop. Tool-using work is one ReAct (`stream_agentic`); ReAct already stops when the model stops calling tools. **Plan is a molexp Workflow** whose nodes each run one call/ReAct and persist artifacts. Tools are Host plugins. Do not grow `ChatLoop` / `InteractiveLoop` / `run_plan` as kernels.
 
 **Supersedes:** ChatLoop and InteractiveLoop as first-class loops; Plan as a privileged two-phase pipeline beside chat; the idea that plugins hang off InteractiveLoop.
 
@@ -157,7 +157,7 @@ Events (DeepSeek names where the seam matches): `agent/pre-step`, `llm/stream`, 
 
 **LLM plugin.** Publishes `ctx.llm`. The only `import pydantic_ai` site. Not a product Agent class. Chat = one structured call; a REPL line = one ReAct via `ctx.llm`.
 
-**Harness plugins.** The host (`molexp.harness.host`) *plus* default store / approval / plan-board / realize plugins. `PlanOrchestrator` is not the kernel — plan/solve are bundles composed on the host.
+**Harness plugins.** The host (`molexp.harness.host`) *plus* default store / approval / plan-board / realize plugins. `run_plan` is not the kernel — plan/solve are bundles composed on the host.
 
 **Science plugins** (`molpy`, `molvis`, `molq`, molmcp, metrics ingest). Each is a seam: package public API is the definition, the molexp adapter is the provider, a `ToolCapability` or preview route is the consumer. Science methods are never host tools; the host discovers them through `ctx.capabilities` / molmcp.
 
@@ -259,7 +259,7 @@ These stay inside their plugin. The host does not re-encode them.
 3. **Seams are complete.** Definition + Provider + Consumer. One role is not a seam.
 4. **Registrations are effects.** Unload unwinds. Import-time side effects are forbidden.
 5. **Model-visible ⟺ logged.** New model-visible input ⇒ new artifact or event.
-6. **Plugins, not driver changes.** New behavior attaches to a documented key or event. Editing the AgentCall driver or `PlanOrchestrator` to add a product feature is the wrong layer.
+6. **Plugins, not driver changes.** New behavior attaches to a documented key or event. Editing the AgentCall driver or `run_plan` to add a product feature is the wrong layer.
 7. **Agent proposes; plugins dispose.** The agent plugin returns structured proposals. Writes, executes, submits, and approvals go through the owning plugin's service, usually behind `ctx.approval`.
 8. **Misconfiguration fails at load.** A missing inject, an unknown capability id in a required bundle, a broken extra — loud at compose/load, never a silent skip.
 9. **Do not vendor Cordis.** The discipline is binding. The Python host is ours (or a future chosen runtime) and must stay inside the layer/inject DAG. A TypeScript kernel is not an import.
@@ -281,7 +281,7 @@ Keep; they become plugin-internal contracts or policy plugins:
 
 Re-read as bundles, not as the kernel:
 
-- `PlanOrchestrator` two-phase pipeline
+- `run_plan` two-phase pipeline
 - `ChatMode` (the `chat` bundle on InteractiveLoop)
 - `integration.md` coordination loop (WorkspaceContext → KnowledgeDelta)
 - `harness.capabilities` catalogs (rows a plugin registers)
@@ -306,6 +306,6 @@ The host is in `molexp.harness.host` (not on the frozen 22-symbol package root).
 | `AgentCallPlugin` | atom + waterfall; injects `artifacts` and rebinds persist. Chat and plan nodes enter here. |
 | `RunStoresPlugin` / `CapabilitiesPlugin` | default mounts |
 
-Production composers: `PlanOrchestrator.run`, `ChatMode.run` (unload in `finally`), `services.curate_runtime` `_build_ctx`.
+Production composers: `run_plan.run`, `ChatMode.run` (unload in `finally`), `services.curate_runtime` `_build_ctx`.
 
-`compose_run` / `ToolsPlugin` / `WorkflowPlugin` / `Host.dump_config` ship. Science adapters mount as `extra=` plugins on a composer. Do not add a second kernel. Do not grow `PlanOrchestrator` to own interpret / harvest / multi-cycle research.
+`compose_run` / `ToolsPlugin` / `WorkflowPlugin` / `Host.dump_config` ship. Science adapters mount as `extra=` plugins on a composer. Do not add a second kernel. Do not grow `run_plan` to own interpret / harvest / multi-cycle research.

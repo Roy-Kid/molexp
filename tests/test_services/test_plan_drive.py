@@ -1,13 +1,4 @@
-"""``drive_plan_mode`` — PlanMode inside the run lifecycle (honest status).
-
-Regression: a plan Run's workspace status stayed ``pending`` forever — the
-CLI and the server task both drove ``PlanMode().run(...)`` bare, so a run
-whose stages all completed still showed ``Pending`` in every UI status
-surface. The shared driver wraps the pipeline in ``run.start()`` so the
-status machine, ownership stamp, and heartbeat apply to plan runs exactly as
-they do to workflow runs. One test per lifecycle transition the driver owns
-(succeeded / failed) plus the ledger-governed re-entry rule.
-"""
+"""``drive_plan_mode`` — plan bundle inside the run lifecycle (honest status)."""
 
 from __future__ import annotations
 
@@ -24,25 +15,23 @@ class _FakeResult:
     pass
 
 
-class _FakeMode:
-    """Duck-typed Mode: async run(...) succeeding or raising."""
+async def _fake_plan(*, run, user_input, gateway, capability_registry=None, **kwargs: object):
+    del kwargs
+    _fake_plan.calls.append(
+        {
+            "run": run,
+            "user_input": user_input,
+            "gateway": gateway,
+            "capability_registry": capability_registry,
+        }
+    )
+    if _fake_plan.error is not None:
+        raise _fake_plan.error
+    return _FakeResult()
 
-    def __init__(self, *, error: Exception | None = None) -> None:
-        self._error = error
-        self.calls: list[dict] = []
 
-    async def run(self, *, run, user_input, gateway, capability_registry=None):
-        self.calls.append(
-            {
-                "run": run,
-                "user_input": user_input,
-                "gateway": gateway,
-                "capability_registry": capability_registry,
-            }
-        )
-        if self._error is not None:
-            raise self._error
-        return _FakeResult()
+_fake_plan.calls = []
+_fake_plan.error = None
 
 
 @pytest.fixture()
@@ -54,26 +43,28 @@ def run(tmp_path: Path):
 
 class TestDrivePlanMode:
     def test_successful_pipeline_marks_run_succeeded(self, run) -> None:
-        mode = _FakeMode()
-        result = asyncio.run(drive_plan_mode(mode, run=run, user_input="x", gateway=object()))
+        _fake_plan.calls = []
+        _fake_plan.error = None
+        result = asyncio.run(
+            drive_plan_mode(run=run, user_input="x", gateway=object(), plan=_fake_plan)
+        )
         assert isinstance(result, _FakeResult)
         assert run.status == "succeeded"
-        assert mode.calls[0]["user_input"] == "x"
+        assert _fake_plan.calls[0]["user_input"] == "x"
 
     def test_failed_pipeline_marks_run_failed_and_propagates(self, run) -> None:
         from molexp.harness import StageExecutionError
 
-        mode = _FakeMode(error=StageExecutionError("stage 'x' exploded"))
+        _fake_plan.calls = []
+        _fake_plan.error = StageExecutionError("stage 'x' exploded")
         with pytest.raises(StageExecutionError):
-            asyncio.run(drive_plan_mode(mode, run=run, user_input="x", gateway=object()))
+            asyncio.run(drive_plan_mode(run=run, user_input="x", gateway=object(), plan=_fake_plan))
         assert run.status == "failed"
 
     def test_reentry_on_a_succeeded_run_is_allowed(self, run) -> None:
-        """Plan re-entry is governed by the stage ledger, not the run verbs: a
-        re-run against a succeeded plan run enters the lifecycle again (and ends
-        succeeded again), unlike ``molexp run`` which refuses succeeded runs."""
-        mode = _FakeMode()
-        asyncio.run(drive_plan_mode(mode, run=run, user_input="x", gateway=object()))
-        asyncio.run(drive_plan_mode(mode, run=run, user_input="x", gateway=object()))
+        _fake_plan.calls = []
+        _fake_plan.error = None
+        asyncio.run(drive_plan_mode(run=run, user_input="x", gateway=object(), plan=_fake_plan))
+        asyncio.run(drive_plan_mode(run=run, user_input="x", gateway=object(), plan=_fake_plan))
         assert run.status == "succeeded"
-        assert len(mode.calls) == 2
+        assert len(_fake_plan.calls) == 2

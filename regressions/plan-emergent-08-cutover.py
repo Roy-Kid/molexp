@@ -49,7 +49,6 @@ from molexp.harness import (
     SQLiteApprovalStore,  # noqa: F401 — imported to prove the public surface still carries it
 )
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.plan_orchestrator import PlanOrchestrator
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -68,7 +67,7 @@ SLUG = "plan-emergent-08-cutover"
 # Modules the cutover deleted; importing any of them must fail hard.
 _DELETED_MODULES = (
     "molexp.harness.mode",
-    "molexp.harness.modes.plan",
+    "molexp.harness.modes.plan_orchestrator",
     "molexp.harness.stages.repair_loop",
     "molexp.harness.stages.sequential_task_build",
 )
@@ -149,8 +148,9 @@ def _check_absence_guard() -> None:
     all_symbols = harness.__all__
     assert "Mode" not in all_symbols, "retired 'Mode' must not be in molexp.harness.__all__"
     assert "PlanMode" not in all_symbols, "retired 'PlanMode' must not be in molexp.harness.__all__"
-    assert "PlanOrchestrator" in all_symbols, (
-        "the cutover target 'PlanOrchestrator' must be in molexp.harness.__all__"
+    assert "run_plan" in all_symbols, "the plan bundle 'run_plan' must be in molexp.harness.__all__"
+    assert "PlanOrchestrator" not in all_symbols, (
+        "retired PlanOrchestrator must not be in molexp.harness.__all__"
     )
     assert len(all_symbols) == 22, (
         f"harness public surface must be 22 symbols, got {len(all_symbols)}"
@@ -159,7 +159,7 @@ def _check_absence_guard() -> None:
     print(
         f"[obs-1] absence guard: deleted={list(_DELETED_MODULES)} "
         f"__all__={len(all_symbols)} symbols (Mode/PlanMode absent, "
-        f"PlanOrchestrator present)"
+        f"run_plan present)"
     )
 
 
@@ -170,20 +170,14 @@ async def _check_shared_path_drive(root: Path) -> None:
     """A plan is driven end-to-end through drive_plan_mode onto the orchestrator."""
     run = _make_run(root, "cutover")
     gateway = _gateway(run)
-    orchestrator = PlanOrchestrator(
-        draft=_CannedDraft(_valid_board()),
-        approve=auto_grant_approver,
-        # Phase 1 only: this script's contract is "offline, no subprocess", and
-        # phase-2 realization runs codegen agents through an executor subprocess.
-        realize=False,
-    )
-
     result = await drive_plan_mode(
-        orchestrator,
         run=run,
         user_input=_USER_INPUT,
         gateway=gateway,
         capability_registry=None,
+        draft=_CannedDraft(_valid_board()),
+        approve=auto_grant_approver,
+        realize=False,
     )
 
     assert isinstance(result, ModeResult), "drive_plan_mode must return a ModeResult"
@@ -201,8 +195,7 @@ async def _check_shared_path_drive(root: Path) -> None:
     )
 
     print(
-        f"drove PlanOrchestrator via drive_plan_mode; "
-        f"frozen={frozen.id} final={result.final_artifact.kind}"
+        f"drove run_plan via drive_plan_mode; frozen={frozen.id} final={result.final_artifact.kind}"
     )
 
 
