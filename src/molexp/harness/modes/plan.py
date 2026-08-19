@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from molexp.harness.executors import Executor
     from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.host.host import Host
+    from molexp.harness.host.plugin import Plugin
     from molexp.harness.modes.plan_workflow import PlanDraft
     from molexp.harness.registry.capability_registry import CapabilityRegistry
     from molexp.harness.schemas import PlanArtifactRef
@@ -102,6 +103,7 @@ class Plan:
         realize_attempts: int = 3,
         on_loop_event: LoopEventObserver | None = None,
         board_max_iters: int = 8,
+        plugins: tuple[Plugin, ...] = (),
     ) -> None:
         self.draft = draft
         self.probe = probe or PlanReachabilityProbe()
@@ -111,6 +113,7 @@ class Plan:
         self.realize_attempts = realize_attempts
         self.on_loop_event = on_loop_event
         self.board_max_iters = board_max_iters
+        self.plugins = plugins
 
     async def run(
         self,
@@ -126,6 +129,7 @@ class Plan:
             run_dir=run.run_dir,
             gateway=gateway,
             capability_registry=capability_registry,
+            extra=self.plugins,
         )
         try:
             return await self._run_on_host(host, run=run, user_input=user_input)

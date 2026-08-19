@@ -1,8 +1,8 @@
-"""``ChatMode`` — one-shot chat. Must not loop.
+"""``Chat`` — one-shot chat bundle. Must not loop.
 
 Chat is one ``AgentGateway.call`` with ``call_mode="structured"``.
 Tool-using REPL turns belong on :class:`~molexp.agent.AgentRunner`
-(``mode="agentic"``). Authoritative multi-step work is the plan workflow.
+(``mode="agentic"``). Authoritative multi-step work is :class:`Plan`.
 """
 
 from __future__ import annotations
@@ -18,8 +18,9 @@ from molexp.harness.schemas import ModeResult
 if TYPE_CHECKING:
     from molexp.agent.session import Session
     from molexp.harness.gateways.gateway import AgentGateway
+    from molexp.harness.host.plugin import Plugin
 
-__all__ = ["CHAT_SCRATCH_PREFIX", "ChatConfig", "ChatMode", "ChatReply", "chat_loop_config"]
+__all__ = ["CHAT_SCRATCH_PREFIX", "Chat", "ChatConfig", "ChatReply", "chat_loop_config"]
 
 CHAT_SCRATCH_PREFIX = "agent/.scratch"
 
@@ -57,10 +58,19 @@ def chat_loop_config(
     )
 
 
-class ChatMode:
-    """Harness Chat Mode — one structured AgentCall, no default workspace land."""
+class Chat:
+    """One structured AgentCall. Options on the instance; ``run`` takes the turn."""
 
     name = "chat"
+
+    def __init__(
+        self,
+        *,
+        context_block: str = "",
+        plugins: tuple[Plugin, ...] = (),
+    ) -> None:
+        self.context_block = context_block
+        self.plugins = plugins
 
     async def run(
         self,
@@ -79,6 +89,7 @@ class ChatMode:
         from molexp.harness.schemas import AgentCallSpec
         from molexp.harness.store.artifact_store import ArtifactStore
 
+        block = context_block or self.context_block
         root = Path(workspace_root).resolve()
         scratch = root / CHAT_SCRATCH_PREFIX
         scratch.mkdir(parents=True, exist_ok=True)
@@ -89,9 +100,9 @@ class ChatMode:
                 ChatReply,
                 "assistant_message",
                 tier=ModelTier.DEFAULT,
-                system_prompt=context_block,
+                system_prompt=block,
             )
-        host = compose_chat(gateway=gateway, scratch_dir=scratch)
+        host = compose_chat(gateway=gateway, scratch_dir=scratch, extra=self.plugins)
         try:
             atom = host.ctx.llm
             store = host.ctx.artifacts

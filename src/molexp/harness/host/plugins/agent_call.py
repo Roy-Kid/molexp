@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import dataclass
 
 from molexp.harness.errors import AgentCallRejectedError
 from molexp.harness.gateways.call_runtime import AgentCallRuntime
@@ -12,7 +13,15 @@ from molexp.harness.host.keys import Keys
 from molexp.harness.schemas import AgentCallResult, AgentCallSpec
 from molexp.harness.store.artifact_store import ArtifactStore
 
-__all__ = ["AgentCallGateway", "AgentCallPlugin"]
+__all__ = ["AgentCallGateway", "AgentCallPlugin", "AgentStep"]
+
+
+@dataclass(frozen=True, slots=True)
+class AgentStep:
+    """``agent/post-step`` payload: the spec that ran and its result."""
+
+    spec: AgentCallSpec
+    result: AgentCallResult
 
 
 class AgentCallGateway:
@@ -46,8 +55,15 @@ class AgentCallGateway:
             raise TypeError("inner AgentGateway.call does not accept runtime=")
         else:
             result = await self._inner.call(rewritten)
-        await self._ctx.emit("agent/post-step", result)
-        return result
+        posted = await self._ctx.waterfall(
+            "agent/post-step",
+            AgentStep(spec=rewritten, result=result),
+        )
+        if isinstance(posted, AgentStep):
+            return posted.result
+        if isinstance(posted, AgentCallResult):
+            return posted
+        raise TypeError("agent/post-step must return an AgentStep or AgentCallResult")
 
 
 class AgentCallPlugin:

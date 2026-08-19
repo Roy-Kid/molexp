@@ -198,6 +198,29 @@ class TestWaterfall:
         assert ran["n"] == 0
         assert inner.calls[0].agent_name == "orig"
 
+    async def test_post_step_waterfall_can_replace_result(self) -> None:
+        from molexp.harness.host.plugins.agent_call import AgentStep
+
+        host = Host()
+        host.ctx.provide(Keys.ARTIFACTS, object())
+        inner = _FakeGateway()
+        host.mount(AgentCallPlugin(inner))
+
+        async def swap(step: object, nxt: object) -> object:
+            current = await nxt(step)  # type: ignore[misc,operator]
+            assert isinstance(current, AgentStep)
+            return AgentStep(
+                spec=current.spec,
+                result=current.result.model_copy(update={"model": "swapped"}),
+            )
+
+        host.ctx.on("agent/post-step", swap, mode="waterfall")
+        atom = host.ctx.llm
+        result = await atom.call(  # type: ignore[union-attr]
+            AgentCallSpec(agent_name="orig", input_artifact_ids=[], output_schema={})
+        )
+        assert result.model == "swapped"
+
     def test_sources_spell_pre_step_not_pre_call(self) -> None:
         import inspect
 
@@ -210,6 +233,50 @@ class TestWaterfall:
         assert "pre-call" not in err_src
         assert "pre-step" in call_src
         assert "pre-call" not in call_src
+
+
+class TestReflection:
+    async def test_critic_replaces_result(self) -> None:
+        from molexp.harness.host.plugins.agent_call import AgentStep
+        from molexp.harness.host.plugins.reflection import Reflection
+
+        host = Host()
+        host.ctx.provide(Keys.ARTIFACTS, object())
+        inner = _FakeGateway()
+        host.mount(AgentCallPlugin(inner))
+
+        async def critic(step: AgentStep) -> object:
+            return step.result.model_copy(update={"model": "reflected"})
+
+        host.mount(Reflection(critic=critic))
+        atom = host.ctx.llm
+        result = await atom.call(  # type: ignore[union-attr]
+            AgentCallSpec(agent_name="orig", input_artifact_ids=[], output_schema={})
+        )
+        assert result.model == "reflected"
+
+    async def test_skip_list_does_not_call_critic(self) -> None:
+        from molexp.harness.host.plugins.agent_call import AgentStep
+        from molexp.harness.host.plugins.reflection import Reflection
+
+        host = Host()
+        host.ctx.provide(Keys.ARTIFACTS, object())
+        inner = _FakeGateway()
+        host.mount(AgentCallPlugin(inner))
+        called = {"n": 0}
+
+        async def critic(step: AgentStep) -> object:
+            del step
+            called["n"] += 1
+            return None
+
+        host.mount(Reflection(critic=critic, skip=("chat",)))
+        atom = host.ctx.llm
+        result = await atom.call(  # type: ignore[union-attr]
+            AgentCallSpec(agent_name="chat", input_artifact_ids=[], output_schema={})
+        )
+        assert called["n"] == 0
+        assert result.model == "fake"
 
 
 class TestKeys:

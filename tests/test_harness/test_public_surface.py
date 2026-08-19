@@ -27,7 +27,7 @@ EXPECTED_ALL = {
     "Stage",
     "StageRunner",
     "HarnessRunContext",
-    "ChatMode",
+    "Chat",
     "Plan",
     "ModeResult",
     "chat_loop_config",

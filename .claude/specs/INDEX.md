@@ -2,6 +2,22 @@
 
 One line per **live** spec. `/mol:spec` adds entries; `/mol:impl` ticks the spec's tasks and prunes the entry (with the spec file) on completion.
 
+## host-reflect (chain)
+
+_Closed 01 on `dev` (2026-08-19) — `Reflection` plugin on `agent/post-step` waterfall._
+
+| # | Spec | Commit theme |
+|---|---|---|
+| 01 | host-reflect-01-plugin | AgentStep + Reflection |
+
+## bundle-chat (chain)
+
+_Closed 01 on `dev` (2026-08-19) — `ChatMode` → `Chat`._
+
+| # | Spec | Commit theme |
+|---|---|---|
+| 01 | bundle-chat-01-class | `Chat` bundle |
+
 ## plan-bundle (chain)
 
 _Closed 01–02 on `dev` (2026-08-19) — deleted `PlanOrchestrator`; plan is `run_plan`._

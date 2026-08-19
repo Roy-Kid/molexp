@@ -66,7 +66,7 @@ construction), reduces the greens into a single `workflow_source` /
 durable `intervention_request` and raises before compile; it never silently
 reverts to phase 1.
 
-### `ChatMode` — exploratory, scratch-only
+### `Chat` — exploratory, scratch-only
 
 Same loop, different contract: no authoritative project/experiment/run
 creation, no `run_land`, code confined to `agent/.scratch/`. Success is an

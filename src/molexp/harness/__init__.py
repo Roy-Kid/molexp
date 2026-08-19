@@ -2,7 +2,7 @@
 
 The host lives at :mod:`molexp.harness.host` (not re-exported here). Workspace,
 workflow, agent, and science adapters mount as plugins; :class:`Plan`
-and :class:`ChatMode` are bundles. See ``.claude/notes/harness-plugins.md``.
+and :class:`Chat` are bundles. See ``.claude/notes/harness-plugins.md``.
 
 Provenance split (one owner per concern): the harness records
 **pipeline-artifact lineage only** — which stage of which run produced which
@@ -14,7 +14,7 @@ per-scope ``AssetManifest``); code-version and environment capture belong
 there, never here.
 
 Public surface (deliberately small): the Stage execution machinery, the two
-shipped bundles (:class:`ChatMode` + :class:`Plan`), the stores
+shipped bundles (:class:`Chat` + :class:`Plan`), the stores
 their artifacts and audit trail live in, the executor seam, the approval
 gate, and the agent gateway. Everything else — stage classes, schemas,
 validators, policies, curation actions — is imported via its full submodule
@@ -36,7 +36,7 @@ from molexp.harness.core import HarnessRunContext, Stage, StageRunner
 from molexp.harness.errors import ApprovalPendingError, StageExecutionError
 from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
-from molexp.harness.modes import ChatMode, Plan, chat_loop_config
+from molexp.harness.modes import Chat, Plan, chat_loop_config
 from molexp.harness.registry import CapabilityRegistry
 from molexp.harness.schemas import ModeResult
 from molexp.harness.stages import ApprovalGate
@@ -54,7 +54,7 @@ __all__ = [
     "ApprovalPendingError",
     "ArtifactStore",
     "CapabilityRegistry",
-    "ChatMode",
+    "Chat",
     "DryRunExecutor",
     "Executor",
     "FileArtifactStore",
