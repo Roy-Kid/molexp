@@ -1,15 +1,13 @@
-"""Optional workspace-local lifecycle tools for InteractiveLoop (gated mode).
+"""Workspace-local lifecycle tools (gated ``operation_mode=lifecycle``).
 
-**Layer note.** ``molexp.agent`` may not import ``molexp.harness``. The full
-harness ``LIFECYCLE_CAPABILITIES`` catalog (execute/resume/rerun with
-ApprovalGate) stays in plan/curate. This module only exposes verbs that are
-**workspace-owned** and therefore legal for the agent layer:
+``molexp.agent`` may not import ``molexp.harness``. The full harness
+lifecycle catalog stays in plan/curate. This module only exposes verbs
+that are workspace-owned:
 
 * ``cancel_run`` — :func:`molexp.workspace.lifecycle_ops.cancel_run`
 * ``harvest_run`` — :func:`molexp.workspace.harvest_run`
 
-Default InteractiveLoop never loads these — see
-:class:`~molexp.agent.loops.interactive.loop.InteractiveLoopConfig`.
+Mounted only when the ReAct surface is ``lifecycle``.
 """
 
 from __future__ import annotations

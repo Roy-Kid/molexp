@@ -7,14 +7,10 @@ Layout (under the product agent home)::
         _tasks/<task_id>/events.json     # optional transcript
         <session_id>/                    # AgentSession (runner)
         .scratch/                        # LocalExecutionEnv
-
-Legacy ``metadata.json`` under a task dir is still read once, then rewritten
-as ``task.json`` on the next write (greenfield prefer new name).
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import shutil
@@ -23,28 +19,23 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-# Co-located with InteractiveLoop.name ("agent") — single product agent home.
+# On-disk agent folder name — single product agent home.
 AGENT_HOME_NAME = "agent"
 TASKS_SUBDIR = "_tasks"
 TASK_FILE = "task.json"
-_LEGACY_TASK_FILE = "metadata.json"
 EVENTS_FILE = "events.json"
-# Back-compat alias for importers that still name the constant METADATA_FILE.
-METADATA_FILE = TASK_FILE
 
 
-#: The two agent-task modes. Persisted values outside this vocabulary are
-#: coerced on read, so consumers never have to re-widen the field.
+#: The two agent-task modes. On-disk ``active_mode`` must be one of these.
 AgentTaskMode = Literal["chat", "plan"]
 
 
-def _coerce_mode(raw: object, *, plan_mode: bool) -> AgentTaskMode:
-    """Read a persisted ``active_mode``, falling back to the plan_mode flag."""
+def _parse_mode(raw: object) -> AgentTaskMode | None:
     if raw == "chat":
         return "chat"
     if raw == "plan":
         return "plan"
-    return "plan" if plan_mode else "chat"
+    return None
 
 
 @dataclass(frozen=True)
@@ -82,7 +73,7 @@ def agent_tasks_dir(workspace_root: str | Path, *, create: bool = False) -> Path
     the laptop and fail with ``OSError: Operation not supported``.
 
     Pass ``create=True`` only on write paths that already know the root is a
-    local filesystem. Remote agent-task I/O should go through ``workspace._fs``
+    local filesystem. Remote agent-task I/O should go through ``workspace.fs``
     (not yet wired here) — until then writes on remote roots raise ``OSError``.
     """
     path = agent_home_dir(workspace_root) / TASKS_SUBDIR
@@ -125,46 +116,57 @@ def _task_dir(workspace_root: str | Path, task_id: str, *, create: bool = False)
     return path
 
 
-def _read_meta_file(meta_path: Path, task_id: str) -> PersistedAgentTask | None:
-    if not meta_path.exists():
+def _required_str(raw: dict[str, Any], key: str) -> str | None:
+    value = raw.get(key)
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _optional_str(raw: dict[str, Any], key: str) -> str | None:
+    value = raw.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _parse_task_json(path: Path, task_id: str) -> PersistedAgentTask | None:
+    if not path.exists():
         return None
     try:
-        raw = json.loads(meta_path.read_text())
+        raw = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(raw, dict):
         return None
+    mode = _parse_mode(raw.get("active_mode"))
+    session_id = _required_str(raw, "session_id")
+    title = _required_str(raw, "title")
+    status = _required_str(raw, "status")
+    created_at = _required_str(raw, "created_at")
+    if mode is None or session_id is None or title is None or status is None or created_at is None:
+        return None
+    goal = raw.get("goal")
+    if not isinstance(goal, str):
+        return None
+    persisted_id = _required_str(raw, "task_id")
+    if persisted_id is None or persisted_id != task_id:
+        return None
     return PersistedAgentTask(
-        task_id=str(raw.get("task_id") or task_id),
-        session_id=str(raw.get("session_id") or task_id),
-        title=str(raw.get("title") or "Untitled agent task"),
-        goal=str(raw.get("goal") or ""),
-        status=str(raw.get("status") or "unknown"),
-        created_at=str(raw.get("created_at") or _now_iso()),
-        updated_at=raw.get("updated_at") if isinstance(raw.get("updated_at"), str) else None,
-        plan_mode=bool(raw.get("plan_mode", False)),
-        active_mode=_coerce_mode(
-            raw.get("active_mode"), plan_mode=bool(raw.get("plan_mode", False))
-        ),
-        active_turn_id=(
-            raw.get("active_turn_id") if isinstance(raw.get("active_turn_id"), str) else None
-        ),
-        active_plan_task_id=(
-            raw.get("active_plan_task_id")
-            if isinstance(raw.get("active_plan_task_id"), str)
-            else None
-        ),
-        pending_plan_draft=(
-            raw.get("pending_plan_draft")
-            if isinstance(raw.get("pending_plan_draft"), str)
-            else None
-        ),
-        skill_id=raw.get("skill_id") if isinstance(raw.get("skill_id"), str) else None,
-        project_id=raw.get("project_id") if isinstance(raw.get("project_id"), str) else None,
-        experiment_id=(
-            raw.get("experiment_id") if isinstance(raw.get("experiment_id"), str) else None
-        ),
-        run_id=raw.get("run_id") if isinstance(raw.get("run_id"), str) else None,
+        task_id=persisted_id,
+        session_id=session_id,
+        title=title,
+        goal=goal,
+        status=status,
+        created_at=created_at,
+        updated_at=_optional_str(raw, "updated_at"),
+        plan_mode=mode == "plan",
+        active_mode=mode,
+        active_turn_id=_optional_str(raw, "active_turn_id"),
+        active_plan_task_id=_optional_str(raw, "active_plan_task_id"),
+        pending_plan_draft=_optional_str(raw, "pending_plan_draft"),
+        skill_id=_optional_str(raw, "skill_id"),
+        project_id=_optional_str(raw, "project_id"),
+        experiment_id=_optional_str(raw, "experiment_id"),
+        run_id=_optional_str(raw, "run_id"),
     )
 
 
@@ -190,14 +192,11 @@ def list_agent_task_metadata(workspace_root: str | Path) -> list[PersistedAgentT
 
 
 def _read_task_file(task_dir: Path, task_id: str) -> PersistedAgentTask | None:
-    """Read ``task.json``, falling back to legacy ``metadata.json``."""
-    primary = task_dir / TASK_FILE
-    if primary.is_file():
-        return _read_meta_file(primary, task_id)
-    legacy = task_dir / _LEGACY_TASK_FILE
-    if legacy.is_file():
-        return _read_meta_file(legacy, task_id)
-    return None
+    """Read ``task.json`` only."""
+    path = task_dir / TASK_FILE
+    if not path.is_file():
+        return None
+    return _parse_task_json(path, task_id)
 
 
 def read_agent_task_metadata(
@@ -224,7 +223,7 @@ def write_agent_task_metadata(
         "status": task.status,
         "created_at": task.created_at,
         "updated_at": task.updated_at or _now_iso(),
-        "plan_mode": task.plan_mode,
+        "plan_mode": task.active_mode == "plan",
         "active_mode": task.active_mode,
         "active_turn_id": task.active_turn_id,
         "active_plan_task_id": task.active_plan_task_id,
@@ -238,11 +237,6 @@ def write_agent_task_metadata(
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
     os.replace(tmp, path)  # noqa: PTH105
-    # Drop legacy name after successful write so dual files do not linger.
-    legacy = target_dir / _LEGACY_TASK_FILE
-    if legacy.is_file():
-        with contextlib.suppress(OSError):
-            legacy.unlink()
 
 
 def write_agent_task_events(

@@ -1,4 +1,4 @@
-"""Workflow resume seeding sources execution history from ``_ops`` (wsokf-07).
+"""Workflow resume seeding sources execution history from ``ops`` (wsokf-07).
 
 ``workflow/_engine/persistence.py``'s ``last_resumable_execution_id`` /
 ``seed_from_execution`` pick the most-recent non-succeeded execution from

@@ -136,14 +136,14 @@ def resolve_workspace_path_via_fs(workspace, path_str: str) -> str:  # noqa: ANN
     """Filesystem-aware variant of :func:`resolve_workspace_path`.
 
     Works for both local and remote workspaces by going through
-    ``workspace._fs`` rather than ``pathlib.Path``.  For pure local
-    workspaces (``_fs is LocalFileSystem``) it preserves the existing
+    ``workspace.fs`` rather than ``pathlib.Path``.  For pure local
+    workspaces (``fs is LocalFileSystem``) it preserves the existing
     ``Path.resolve()`` containment check so symlink escapes are still
     caught.  For any non-local backend (e.g. a remote workspace wrapped
     in :class:`CachedRemoteFileSystem`) it does string-level
     containment against the remote root.
     """
-    fs = workspace._fs
+    fs = workspace.fs
     root = str(workspace.root)
     if isinstance(fs, LocalFileSystem):
         resolved = resolve_workspace_path(Path(root).resolve(), path_str)
@@ -166,7 +166,7 @@ def resolve_workspace_path_via_fs(workspace, path_str: str) -> str:  # noqa: ANN
 @router.get("/info", response_model=WorkspaceInfoResponse)
 def get_workspace_info(workspace=Depends(get_workspace)) -> WorkspaceInfoResponse:  # noqa: ANN001
     """Get workspace information."""
-    fs = getattr(workspace, "_fs", None)
+    fs = getattr(workspace, "fs", None)
     is_cached = isinstance(fs, CachedRemoteFileSystem)
     return WorkspaceInfoResponse(
         root=str(workspace.root),
@@ -274,7 +274,7 @@ def list_workspace_files(
 ) -> dict:
     """Return a nested file tree rooted at the requested path.
 
-    Routes through ``workspace._fs`` so remote workspaces (and the
+    Routes through ``workspace.fs`` so remote workspaces (and the
     :class:`CachedRemoteFileSystem` mirror) work the same as local ones.
 
     With ``include=catalog``, file nodes that match a registered asset
@@ -288,7 +288,7 @@ def list_workspace_files(
     from molexp.workspace.fs_tree import list_tree_children, tree_to_workspace_file_dicts
     from molexp.workspace.gitignore import load_gitignore_matcher
 
-    fs = workspace._fs
+    fs = workspace.fs
     root = resolve_workspace_path_via_fs(workspace, "")
     requested = resolve_workspace_path_via_fs(workspace, path.lstrip("/"))
     if not fs.exists(requested):
@@ -381,11 +381,11 @@ def read_workspace_file(
 ) -> FileContentResponse:
     """Read a text file from the workspace.
 
-    Routes through ``workspace._fs`` so remote workspaces (and the
+    Routes through ``workspace.fs`` so remote workspaces (and the
     :class:`CachedRemoteFileSystem` mirror) take effect.
     """
     target = resolve_workspace_path_via_fs(workspace, path)
-    fs = workspace._fs
+    fs = workspace.fs
     if not fs.exists(target) or not fs.is_file(target):
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -407,11 +407,11 @@ def read_workspace_file_blob(
 ) -> StreamingResponse:
     """Read a binary file from the workspace.
 
-    Routes through ``workspace._fs`` so remote workspaces (and the
+    Routes through ``workspace.fs`` so remote workspaces (and the
     :class:`CachedRemoteFileSystem` mirror) take effect.
     """
     target = resolve_workspace_path_via_fs(workspace, path)
-    fs = workspace._fs
+    fs = workspace.fs
     if not fs.exists(target) or not fs.is_file(target):
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -768,7 +768,7 @@ class CacheStatusResponse(BaseModel):
 
 
 def _require_cached_fs(workspace) -> CachedRemoteFileSystem:  # noqa: ANN001
-    fs = getattr(workspace, "_fs", None)
+    fs = getattr(workspace, "fs", None)
     if not isinstance(fs, CachedRemoteFileSystem):
         raise HTTPException(
             status_code=409,
@@ -784,7 +784,7 @@ def workspace_cache_status(workspace=Depends(get_workspace)) -> CacheStatusRespo
     Local workspaces return ``cached=false`` with idle progress. The UI
     status strip polls this while ``phase`` is ``counting`` / ``fetching``.
     """
-    fs = getattr(workspace, "_fs", None)
+    fs = getattr(workspace, "fs", None)
     if not isinstance(fs, CachedRemoteFileSystem):
         return CacheStatusResponse(cached=False, phase="idle", message="")
     progress = fs.progress

@@ -14,8 +14,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from molexp.agent.ops.protocols import ToolSpec
+from molexp.agent.ops.surface import (
+    CHAT_SURFACE,
+    FULL_SURFACE,
+    SurfaceKey,
+    ToolSurface,
+    surface_for_mode,
+)
 
 __all__ = [
+    "ALL_BUILTIN_DEFS",
     "ARCHIVE_TOOL_NAMES",
     "BUILTIN_SOURCE",
     "BUILTIN_TOOLS",
@@ -23,8 +31,8 @@ __all__ = [
     "CHAT_TOOLS",
     "CHAT_TOOL_NAMES",
     "FULL_TOOL_NAMES",
-    "OPS_TOOL_NAMES",
     "builtin_tool_specs",
+    "declared_requirements",
     "lifecycle_builtin_specs",
     "tool_names_for_surface",
 ]
@@ -39,6 +47,7 @@ class BuiltinToolDef:
 
     name: str
     description: str
+    required: frozenset[SurfaceKey]
     #: (name, annotation, required) triples for the admin Tools list.
     parameters: tuple[tuple[str, str, bool], ...] = ()
 
@@ -51,6 +60,7 @@ CHAT_TOOLS: tuple[BuiltinToolDef, ...] = (
             "Read-only: list a directory, or list projects / experiments under a project. "
             "Does not create folders or runs."
         ),
+        required=frozenset({SurfaceKey.INSPECT}),
         parameters=(
             ("path", "str", False),
             ("project", "str | None", False),
@@ -62,6 +72,7 @@ CHAT_TOOLS: tuple[BuiltinToolDef, ...] = (
             "Write a UTF-8 file. In chat mode paths are confined under "
             "``agent/.scratch/`` (authoritative project/run trees are not writable)."
         ),
+        required=frozenset({SurfaceKey.SCRATCH_FS}),
         parameters=(
             ("path", "str", True),
             ("content", "str", True),
@@ -73,6 +84,7 @@ CHAT_TOOLS: tuple[BuiltinToolDef, ...] = (
             "Run Python (cwd = workspace root). Provide exactly one of path= or code=. "
             "Chat scripts live under agent/.scratch/ — not under projects/…/runs/."
         ),
+        required=frozenset({SurfaceKey.SCRATCH_FS}),
         parameters=(
             ("code", "str | None", False),
             ("path", "str | None", False),
@@ -86,6 +98,7 @@ CHAT_TOOLS: tuple[BuiltinToolDef, ...] = (
             "Pass ``spec_json`` from ``molplot.line_spec`` / ``scatter_spec`` / "
             "``bar_spec`` (json.dumps). Prefer this over PNG / Markdown images."
         ),
+        required=frozenset({SurfaceKey.EMBED}),
         parameters=(
             ("title", "str", True),
             ("spec_json", "str", True),
@@ -98,6 +111,7 @@ CHAT_TOOLS: tuple[BuiltinToolDef, ...] = (
             "Provide ``content`` as XYZ/PDB/EXTXYZ text, or ``path`` under "
             "agent/.scratch/. Prefer this over dumping coordinates as prose."
         ),
+        required=frozenset({SurfaceKey.EMBED}),
         parameters=(
             ("title", "str", True),
             ("format", "str", True),
@@ -111,6 +125,7 @@ CHAT_TOOLS: tuple[BuiltinToolDef, ...] = (
             "Search builtin tools, knowledge, and the live MCP catalog. "
             "Never invent third-party tool names."
         ),
+        required=frozenset({SurfaceKey.DISCOVERY}),
         parameters=(
             ("query", "str", True),
             ("kind", "str | None", False),
@@ -119,6 +134,7 @@ CHAT_TOOLS: tuple[BuiltinToolDef, ...] = (
     BuiltinToolDef(
         name="describe",
         description="Describe a discovery ref (builtin/MCP tool name or knowledge path).",
+        required=frozenset({SurfaceKey.DISCOVERY}),
         parameters=(("ref", "str", True),),
     ),
 )
@@ -132,6 +148,7 @@ _ARCHIVE_TOOLS: tuple[BuiltinToolDef, ...] = (
             "Idempotent. **Not mounted in chat mode** — use Plan, or full/archive surface "
             "when the user explicitly wants a durable Run."
         ),
+        required=frozenset({SurfaceKey.ARCHIVE}),
         parameters=(
             ("kind", "str", True),
             ("name", "str", True),
@@ -147,6 +164,7 @@ _ARCHIVE_TOOLS: tuple[BuiltinToolDef, ...] = (
             "mode.** Only after a real run exists and products meet the MolRec/source "
             "standard — non-standard dumps must not land."
         ),
+        required=frozenset({SurfaceKey.ARCHIVE}),
         parameters=(
             ("project", "str", True),
             ("experiment", "str", True),
@@ -169,19 +187,12 @@ BUILTIN_TOOLS: tuple[BuiltinToolDef, ...] = (
     CHAT_TOOLS[6],  # describe
 )
 
-CHAT_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in CHAT_TOOLS)
-ARCHIVE_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in _ARCHIVE_TOOLS)
-FULL_TOOL_NAMES: frozenset[str] = CHAT_TOOL_NAMES | ARCHIVE_TOOL_NAMES
-BUILTIN_TOOL_NAMES: frozenset[str] = FULL_TOOL_NAMES
-
-# Back-compat alias — full set (historical callers).
-OPS_TOOL_NAMES = BUILTIN_TOOL_NAMES
-
-# Optional builtins mounted only when InteractiveLoop operation_mode=lifecycle.
+# Optional builtins mounted only when operation_mode=lifecycle.
 _LIFECYCLE_BUILTINS: tuple[BuiltinToolDef, ...] = (
     BuiltinToolDef(
         name="cancel_run",
         description="Cancel a live running run (workspace cancel verb).",
+        required=frozenset({SurfaceKey.LIFECYCLE}),
         parameters=(
             ("project_id", "str", True),
             ("experiment_id", "str", True),
@@ -194,6 +205,7 @@ _LIFECYCLE_BUILTINS: tuple[BuiltinToolDef, ...] = (
             "Harvest a terminal run into a KnowledgeItem under its experiment. "
             "Fails softly on non-terminal runs."
         ),
+        required=frozenset({SurfaceKey.LIFECYCLE}),
         parameters=(
             ("project_id", "str", True),
             ("experiment_id", "str", True),
@@ -205,17 +217,28 @@ _LIFECYCLE_BUILTINS: tuple[BuiltinToolDef, ...] = (
     ),
 )
 
+ALL_BUILTIN_DEFS: tuple[BuiltinToolDef, ...] = (*BUILTIN_TOOLS, *_LIFECYCLE_BUILTINS)
+
+
+def _names_on(surface: ToolSurface) -> frozenset[str]:
+    """Names whose declared requirement is a subset of *surface*."""
+    return frozenset(t.name for t in ALL_BUILTIN_DEFS if t.required <= surface.keys)
+
+
+CHAT_TOOL_NAMES: frozenset[str] = _names_on(CHAT_SURFACE)
+ARCHIVE_TOOL_NAMES: frozenset[str] = frozenset(t.name for t in _ARCHIVE_TOOLS)
+FULL_TOOL_NAMES: frozenset[str] = _names_on(FULL_SURFACE)
+BUILTIN_TOOL_NAMES: frozenset[str] = FULL_TOOL_NAMES
+
+
+def declared_requirements() -> dict[str, frozenset[SurfaceKey]]:
+    """Builtin name → required keys (the declared half of the surface hook)."""
+    return {t.name: t.required for t in ALL_BUILTIN_DEFS}
+
 
 def tool_names_for_surface(surface: str) -> frozenset[str]:
-    """Return the builtin name set for ``chat`` or ``full``."""
-    key = surface.strip().lower()
-    if key in ("chat", "readonly", "default"):
-        return CHAT_TOOL_NAMES
-    if key in ("full", "archive", "ops"):
-        return FULL_TOOL_NAMES
-    if key == "lifecycle":
-        return FULL_TOOL_NAMES  # lifecycle extras appended separately
-    raise ValueError(f"unknown ops surface {surface!r}; use chat|full|lifecycle")
+    """Return the builtin name set allowed on *surface* (``required ⊆ keys``)."""
+    return _names_on(surface_for_mode(surface))
 
 
 def builtin_tool_specs(*, surface: str = "full") -> tuple[ToolSpec, ...]:

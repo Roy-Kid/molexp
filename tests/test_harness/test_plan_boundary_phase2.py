@@ -52,14 +52,12 @@ def _valid_board() -> TaskBoard:
     )
 
 
-class _CannedBoardRunner:
+class _CannedDraft:
     def __init__(self, board: TaskBoard) -> None:
         self._board = board
 
-    async def run_planning(
-        self, *, ctx: Any, board: Any, tools: Any, hooks: Any, user_input: str
-    ) -> None:
-        del board, tools, hooks, user_input
+    async def __call__(self, *, ctx: Any, user_input: str) -> None:
+        del user_input
         write_board(board_path(ctx.workspace_root), self._board)
 
 
@@ -81,7 +79,7 @@ def _gateway(run: Any) -> StubAgentGateway:
 
 class TestRealizeDefault:
     def test_constructor_defaults_realize_true(self) -> None:
-        orch = PlanOrchestrator(loop_runner=_CannedBoardRunner(_valid_board()))
+        orch = PlanOrchestrator(draft=_CannedDraft(_valid_board()))
         assert orch._realize is True
 
 
@@ -89,7 +87,7 @@ class TestRealizeFalseSkipsPhase2:
     @pytest.mark.asyncio
     async def test_no_bound_workflow_and_final_is_plan_report(self, run: Any) -> None:
         orch = PlanOrchestrator(
-            loop_runner=_CannedBoardRunner(_valid_board()),
+            draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )
@@ -121,7 +119,7 @@ class TestRealizeTrueInvokesPhase2:
 
         monkeypatch.setattr(PlanOrchestrator, "_run_realization", _fake_realize)
         orch = PlanOrchestrator(
-            loop_runner=_CannedBoardRunner(_valid_board()),
+            draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=True,
         )

@@ -1,1 +1,1 @@
-"""Tests for the emergent :class:`InteractiveLoop` (interactive-loop-cli-agent)."""
+"""ReAct assembly tests (MCP wiring, preamble)."""

@@ -18,7 +18,6 @@ import pytest
 from fastapi import HTTPException
 
 import molexp.server.deps.agent_runtime as agent_runtime_deps
-from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
 from molexp.agent.router import (
     AgenticChunk,
     FinalChunk,
@@ -79,8 +78,11 @@ class _BlockingRouter(_ScriptedRouter):
 
 
 def _runner(tmp: Path, router: object | None = None) -> AgentRunner:
-    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp))
-    return AgentRunner(loop=loop, router=router or _ScriptedRouter())  # type: ignore[arg-type]
+    return AgentRunner(
+        router=router or _ScriptedRouter(),  # type: ignore[arg-type]
+        workspace=tmp,
+        mode="agentic",
+    )
 
 
 @pytest.fixture

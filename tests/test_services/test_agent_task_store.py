@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from molexp.services.agent_task_store import (
@@ -43,9 +44,6 @@ class TestAgentTaskMetadata:
         write_agent_task_metadata(tmp_path, task)
         path = tmp_path / AGENT_HOME_NAME / TASKS_SUBDIR / "task-abc" / "task.json"
         assert path.is_file()
-        assert not (
-            tmp_path / AGENT_HOME_NAME / TASKS_SUBDIR / "task-abc" / "metadata.json"
-        ).exists()
 
         loaded = read_agent_task_metadata(tmp_path, "task-abc")
         assert loaded is not None
@@ -78,3 +76,22 @@ class TestAgentTaskMetadata:
         assert delete_agent_task(tmp_path, "task-ok/../../outside") is False
         assert victim.is_dir()
         assert (victim / "keep.txt").read_text() == "safe"
+
+    def test_missing_active_mode_is_not_coerced(self, tmp_path: Path) -> None:
+        """plan_mode does not stand in for active_mode."""
+        task_dir = tmp_path / AGENT_HOME_NAME / TASKS_SUBDIR / "task-bare"
+        task_dir.mkdir(parents=True)
+        (task_dir / "task.json").write_text(
+            json.dumps(
+                {
+                    "task_id": "task-bare",
+                    "session_id": "sess",
+                    "title": "bare",
+                    "goal": "g",
+                    "status": "running",
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "plan_mode": True,
+                }
+            )
+        )
+        assert read_agent_task_metadata(tmp_path, "task-bare") is None

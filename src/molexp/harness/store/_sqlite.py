@@ -33,10 +33,8 @@ SCHEMA_VERSION = 2
 History:
 
 - v1 — ``events`` + bare ``artifact_edges`` (parent/child/relation/created_at).
-- v2 — ``artifact_edges`` gains nullable ``stage`` + ``run_id`` columns so a
+- v2 — ``artifact_edges`` includes nullable ``stage`` + ``run_id`` columns so a
   lineage edge records which pipeline stage of which run derived the child.
-  v1 databases are migrated in place by :func:`_migrate_artifact_edges`
-  (pre-existing rows read back with ``NULL`` in the new columns).
 
 ``schema_version`` keeps one row per version ever applied (``INSERT OR
 IGNORE``); the effective version is ``MAX(version)``.
@@ -81,21 +79,7 @@ def open_db(path: Path) -> tuple[sqlite3.Connection, Lock]:
     """
     conn, lock = open_wal_connection(path)
     conn.executescript(_SCHEMA_SQL)
-    _migrate_artifact_edges(conn)
     # INSERT OR IGNORE avoids a PRIMARY KEY race when two processes open a fresh
     # DB concurrently.
     conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
     return conn, lock
-
-
-def _migrate_artifact_edges(conn: sqlite3.Connection) -> None:
-    """Bring a v1 ``artifact_edges`` table up to the v2 column set.
-
-    ``CREATE TABLE IF NOT EXISTS`` is a no-op on an existing v1 table, so the
-    ``stage`` / ``run_id`` columns are added here with ``ALTER TABLE``.
-    Idempotent: columns already present are left untouched.
-    """
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(artifact_edges)")}
-    for column in ("stage", "run_id"):
-        if column not in existing:
-            conn.execute(f"ALTER TABLE artifact_edges ADD COLUMN {column} TEXT")

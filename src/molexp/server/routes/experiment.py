@@ -87,7 +87,7 @@ def get_experiment_comparison(
         param_keys.update(run.parameters.keys())
         metrics_summary: dict[str, object] = {}
         try:
-            result = read_run_metrics(run.run_dir, fs=workspace._fs, limit=50000)
+            result = read_run_metrics(run.run_dir, fs=workspace.fs, limit=50000)
             for series in result.series:
                 key_raw = series.get("key")
                 latest = series.get("latestValue")

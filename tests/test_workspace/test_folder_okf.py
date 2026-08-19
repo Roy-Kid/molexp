@@ -4,7 +4,7 @@ Every Folder gains a narrative ``index.md`` whose markdown links are the
 knowledge graph (``out_edges`` / ``links``) and a sole concept identity file
 ``meta.json`` (``type`` → registry; path basename = id). Domain entities keep
 class-named JSON (``project.json`` / ``run.json`` / …). A ``Run`` additionally
-carries the hot-state ``_ops/run.json`` sidecar.
+carries the hot-state ``ops/run.json`` sidecar.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class TestFolderOKF:
         assert any("example.com" in e for e in scan.external)
         assert any("nope" in o for o in scan.other)
 
-    def test_meta_yaml_marks_concept_type_path_is_id(self, tmp_path: Path) -> None:
+    def test_meta_json_marks_concept_type_path_is_id(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab")
         ws.materialize()
         proj = ws.add_project("alpha")
@@ -66,8 +66,24 @@ class TestRunOpsSidecar:
         run.write_ops(RunOpsState(status=RunStatus.RUNNING, owner_pid=7))
         assert run.read_ops().status == RunStatus.RUNNING
         assert run.read_ops().owner_pid == 7
-        # hot state lands in _ops/run.json, isolated from run.json
-        assert (Path(run.resolve()) / "_ops" / "run.json").exists()
+        # hot state lands in ops/run.json, isolated from run.json
+        assert (Path(run.resolve()) / "ops" / "run.json").exists()
+
+    def test_read_ops_falls_back_to_legacy_underscore_dir(self, tmp_path: Path) -> None:
+        ws = Workspace(root=tmp_path / "lab")
+        ws.materialize()
+        run = ws.add_project("p").add_experiment("e").add_run()
+        legacy = Path(run.resolve()) / "_ops"
+        legacy.mkdir()
+        (legacy / "run.json").write_text(
+            '{"status": "running", "owner_pid": 3}',
+            encoding="utf-8",
+        )
+        assert run.read_ops().status == RunStatus.RUNNING
+        assert run.read_ops().owner_pid == 3
+        run.update_ops(lambda s: s.model_copy(update={"owner_pid": 9}))
+        assert (Path(run.resolve()) / "ops" / "run.json").exists()
+        assert run.read_ops().owner_pid == 9
 
     def test_update_ops_read_modify_writes(self, tmp_path: Path) -> None:
         ws = Workspace(root=tmp_path / "lab")
@@ -77,3 +93,15 @@ class TestRunOpsSidecar:
         out = run.update_ops(lambda s: s.model_copy(update={"status": RunStatus.RUNNING}))
         assert out.status == RunStatus.RUNNING
         assert run.read_ops().status == RunStatus.RUNNING
+
+
+class TestFolderFiles:
+    def test_files_is_store_on_workspace_disk(self, tmp_path: Path) -> None:
+        ws = Workspace(root=tmp_path / "lab")
+        ws.materialize()
+        proj = ws.add_project("alpha")
+        dest = proj.files.put("note.txt", "hello")
+        assert dest.read_text() == "hello"
+        assert dest.parent == Path(proj.resolve())
+        assert proj._disk() is ws.fs
+        assert not hasattr(proj, "fs")

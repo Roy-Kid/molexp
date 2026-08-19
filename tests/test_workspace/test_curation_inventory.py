@@ -25,7 +25,7 @@ def _seed_two_run_tree(root: Path) -> Workspace:
     exp = proj.add_experiment("baseline", params={"lr": 1e-3})
     succeeded = exp.add_run(params={"seed": 0})
     with succeeded.start() as ctx:
-        ctx.artifact.save("metrics.json", {"loss": 0.1})
+        ctx.register_artifact({"loss": 0.1}, name="metrics.json")
     exp.add_run(params={"seed": 1})  # left pending — never started
     return ws
 

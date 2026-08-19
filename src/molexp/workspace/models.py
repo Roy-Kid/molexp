@@ -260,7 +260,7 @@ class RunMetadata(BaseModel, frozen=True):
 
     Hot machine state — ``status`` / ``finished_at`` / execution history /
     ownership (pid/host/heartbeat) — does **not** live here. It is owned
-    by the OKF ``_ops/run.json`` sidecar (:class:`RunOpsState`), the sole
+    by the OKF ``ops/run.json`` sidecar (:class:`RunOpsState`), the sole
     source of truth (the OKF identity-vs-runtime split; wsokf-07/wsokf-10).
     Read it through the ops-backed :class:`~molexp.workspace.run.Run`
     accessors (``run.status`` / ``run.finished_at`` / ``run.execution_history``)

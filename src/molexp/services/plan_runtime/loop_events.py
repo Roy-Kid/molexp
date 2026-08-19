@@ -1,7 +1,7 @@
-"""Project plan InteractiveLoop AgentEvents into agent-task ``events.json``.
+"""Project plan ReAct AgentEvents into agent-task ``events.json``.
 
 The planning loop previously discarded its sink stream, so the Agents UI sat on
-``stage_started: Drafting…`` with no thinking / tool animation until the whole
+``stage_started: Drafting...`` with no thinking / tool animation until the whole
 LLM pass finished (or forever, when turn grouping hid those stages).
 
 This module is services-layer only (writes agent-task store) — harness stays

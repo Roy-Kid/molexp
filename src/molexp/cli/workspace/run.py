@@ -6,10 +6,10 @@ import os
 import subprocess
 import sys
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import typer
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
@@ -20,7 +20,7 @@ from molexp.cli._common import console, deterministic_run_id, reap_zombie_run, r
 from molexp.cli._target import TargetOption, resolve_workspace_target
 from molexp.profile import MolCfg, ProfileConfig, load_molcfg
 from molexp.profile.loader import find_default_config
-from molexp.workflow import WorkflowRuntime, default_binding_registry
+from molexp.workflow import default_binding_registry
 from molexp.workspace.run import RETRYABLE_STATUSES, RunStatus
 from molexp.workspace.source_snapshot import snapshot_sources
 from molexp.workspace.target import LocalTarget, RemoteTarget
@@ -395,6 +395,35 @@ def _dispatch_runs(
     return total_dispatched, dispatched_runs
 
 
+async def _execute_on_run_host(
+    spec: object,
+    *,
+    run: Run,
+    run_context: RunContextLike,
+    execution_id: str | None = None,
+    seed_outputs: Mapping[str, Any] | None = None,
+    bypass_cache: bool = False,
+) -> object:
+    """Run a compiled workflow through the ``run`` plugin profile."""
+    from molexp.harness.host import Keys, compose_run
+    from molexp.harness.host.plugins.workflow import WorkflowHandle
+
+    host = compose_run(run_id=run.id, run_dir=Path(run.run_dir))
+    try:
+        handle = host.ctx.require(Keys.WORKFLOW)
+        if not isinstance(handle, WorkflowHandle):
+            raise TypeError("run host did not publish a WorkflowHandle")
+        return await handle.execute(
+            spec,
+            run_context=run_context,
+            execution_id=execution_id,
+            seed_outputs=seed_outputs,
+            bypass_cache=bypass_cache,
+        )
+    finally:
+        host.unload()
+
+
 def _make_local_inprocess_handler(
     profile_cfg: ProfileConfig, *, verb: str | None = None, fresh: bool = False
 ) -> RunHandler:
@@ -416,13 +445,12 @@ def _make_local_inprocess_handler(
             execution_id, seed_outputs = seed_from_execution(mol_run)
         with RunContext(mol_run, profile_config=profile_cfg, execution_id=execution_id) as ctx:
             asyncio.run(
-                WorkflowRuntime().execute(
+                _execute_on_run_host(
                     spec,
+                    run=mol_run,
                     run_context=cast("RunContextLike", ctx),
                     execution_id=execution_id,
                     seed_outputs=seed_outputs,
-                    # --rerun --fresh: bypass cache reads so every task body
-                    # actually re-runs (results still land in the cache).
                     bypass_cache=fresh,
                 )
             )
@@ -558,19 +586,20 @@ def execute(
 
     seed_outputs = read_node_outputs(run_obj.run_dir, execution_id) if execution_id else None
     # Seed the profile config with the run's persisted config + its own dir so
-    # the workflow can locate ``work_dir`` (the in-process ``molexp run`` path
+    # the workflow can locate ``run_dir`` (the in-process ``molexp run`` path
     # seeds this via RunContext). Any --config/--profile overlays the persisted
     # values; the run dir is authoritative and always wins.
     overlay = _resolve_profile(config, profile)
     merged: dict[str, JSONValue] = dict(run_obj.metadata.config or {})
     merged.update(overlay.to_dict())
-    merged["work_dir"] = str(run_obj.run_dir)
+    merged["run_dir"] = str(run_obj.run_dir)
     profile_cfg = ProfileConfig(merged, name=overlay.name or run_obj.metadata.profile)
     rprint(f"[dim]execute[/dim] run={run_id} execution={execution_id or '(new)'}")
     with RunContext(run_obj, profile_config=profile_cfg, execution_id=execution_id) as ctx:
         asyncio.run(
-            WorkflowRuntime().execute(
+            _execute_on_run_host(
                 spec,
+                run=run_obj,
                 run_context=cast("RunContextLike", ctx),
                 execution_id=execution_id,
                 seed_outputs=seed_outputs,

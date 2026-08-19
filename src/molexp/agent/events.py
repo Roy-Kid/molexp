@@ -10,13 +10,12 @@ stage opening/closing, an artefact landing, an approval being requested
 or decided, a plan being emitted, a preflight failing, a repair being
 proposed, a compaction running, a loop finishing, an error.
 
-Four members carry the **emergent loop** of
-:class:`~molexp.agent.loops.interactive.InteractiveLoop`: a reasoning-level
+Four members carry one ReAct: a reasoning-level
 :class:`ThinkingDeltaEvent`, a token-level :class:`TokenDeltaEvent`, and the
 :class:`ToolCallStartedEvent` / :class:`ToolCallCompletedEvent` pair. They are
-the orchestration-level projection of the pydantic-ai agentic loop — the
-per-call streaming machinery itself stays inside pydantic-ai, behind the
-:meth:`~molexp.agent.router.Router.stream_agentic` surface.
+the orchestration-level projection of pydantic-ai's agentic loop — the
+per-call streaming machinery stays inside pydantic-ai, behind
+:meth:`~molexp.agent.router.Router.stream_agentic`.
 
 The module imports nothing from ``pydantic_ai`` / ``pydantic_graph`` —
 it is pure data.
@@ -198,8 +197,8 @@ class LoopSuspendedEvent(_BaseEvent):
     The dual of :class:`LoopCompletedEvent` for the suspend branch: a
     :class:`~molexp.agent.loops.hooks.ShouldStopGuard` returned
     :meth:`~molexp.agent.loops.hooks.HookOutcome.suspend`, so
-    :class:`~molexp.agent.loops.interactive.InteractiveLoop` stops without a
-    completion. No pending record is written — the session entry tree and its
+    the ReAct turn stops without a completion. No pending record is written —
+    the session entry tree and its
     ``leaf`` pointer (identified by :attr:`leaf_id`) are already durably
     persisted, so a later turn resumes straight from that tip.
 
@@ -229,7 +228,7 @@ class ThinkingDeltaEvent(_BaseEvent):
     The orchestration-level projection of a
     :class:`~molexp.agent.router.ThinkingDeltaChunk`: a reasoning model's
     private chain-of-thought, streamed *before* the answer.
-    :class:`~molexp.agent.loops.interactive.InteractiveLoop` yields one per
+    :class:`~molexp.agent.react` yields one per
     reasoning delta so a CLI / SSE consumer can surface "thinking…" in a
     collapsed / dimmed treatment, kept distinct from the answer's
     :class:`TokenDeltaEvent`\\ s. A model that does not reason emits none.
@@ -242,7 +241,7 @@ class ThinkingDeltaEvent(_BaseEvent):
 class TokenDeltaEvent(_BaseEvent):
     """Emitted for one token-level text increment from the emergent loop.
 
-    :class:`~molexp.agent.loops.interactive.InteractiveLoop` yields one
+    :mod:`~molexp.agent.react` yields one
     of these per assistant text delta so a CLI / SSE consumer can render
     the reply as it streams. v1 keeps these in the accumulated
     :attr:`~molexp.agent.loop.AgentRunResult.events` stream unfiltered.

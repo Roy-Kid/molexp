@@ -73,9 +73,8 @@ class TestSpecBundle(BaseModel):
     persist N separate ``test_spec`` artifacts (which would break the
     single-latest-artifact contract both ``ValidateTestSpec`` and
     ``GenerateTestCode`` rely on) the specs ride inside this bundle. The
-    artifact *kind* stays ``"test_spec"``; only its JSON shape widens from a
-    bare ``TestSpec`` to this wrapper. Each member's ``target_task_id`` names
-    the ``BoundTask`` it covers.
+    artifact *kind* stays ``"test_spec"``. Each member's ``target_task_id``
+    names the ``BoundTask`` it covers.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -86,18 +85,8 @@ class TestSpecBundle(BaseModel):
 
     @classmethod
     def from_artifact(cls, raw: bytes | str) -> TestSpecBundle:
-        """Parse a ``test_spec`` artifact body as a bundle.
-
-        Accepts the current bundle shape; falls back to a bare
-        :class:`TestSpec` (wrapped as a one-element bundle) so single-spec
-        artifacts written before the per-task fan-out still load. Raises if
-        the bytes are neither a bundle nor a TestSpec.
-        """
-        try:
-            return cls.model_validate_json(raw)
-        except ValueError:
-            spec = TestSpec.model_validate_json(raw)
-            return cls(id=spec.id, bound_workflow_id=spec.target_workflow_id or "", specs=[spec])
+        """Parse a ``test_spec`` artifact body as a :class:`TestSpecBundle`."""
+        return cls.model_validate_json(raw)
 
 
 class TestResult(BaseModel):

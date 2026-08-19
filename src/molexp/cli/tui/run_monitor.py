@@ -88,7 +88,7 @@ class RunMonitor:
         """
         from molq.dashboard import DashboardState, JobRow, RunDashboard
 
-        # Keep live Run handles so each tick re-reads ops through ``_fs``.
+        # Keep live Run handles so each tick re-reads ops through ``fs``.
         run_list = list(runs)
 
         def _build_state() -> DashboardState:

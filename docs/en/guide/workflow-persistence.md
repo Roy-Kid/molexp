@@ -96,7 +96,7 @@ Use these to group, compare, and replay runs.
             ├── run.json                  ← RunMetadata: identity/provenance only
             │                                (params, config_hash, profile, target —
             │                                 NO status / execution history)
-            ├── _ops/run.json             ← hot state: status, ownership,
+            ├── ops/run.json             ← hot state: status, ownership,
             │                                heartbeat, execution records
             ├── assets.json               ← run-scoped asset manifest
             ├── artifacts/                ← final products
@@ -107,7 +107,7 @@ Use these to group, compare, and replay runs.
                 └── error.txt             ← on failure: why, with traceback
 ```
 
-A run's `run.json` entity file is pure identity and provenance; the hot operational state — status, ownership stamps, heartbeat, the `ExecutionRecord` list — lives in the `_ops/run.json` sidecar, which is what `run.status` and `run.execution_history` read. Per-attempt files live under `executions/<exec_id>/` (the exec id is `exec-<run_id>` plus an optional `-N` suffix for reruns); when an attempt fails, `executions/<exec_id>/error.txt` records what went wrong. Run-lifecycle milestones (created / started / completed / failed) are also appended to a workspace-level timeline at `<workspace_root>/workspace.events.sqlite` — `molexp runs info` shows a run's recent events, and reading the timeline never creates the file.
+A run's `run.json` entity file is pure identity and provenance; the hot operational state — status, ownership stamps, heartbeat, the `ExecutionRecord` list — lives in the `ops/run.json` sidecar, which is what `run.status` and `run.execution_history` read. Per-attempt files live under `executions/<exec_id>/` (the exec id is `exec-<run_id>` plus an optional `-N` suffix for reruns); when an attempt fails, `executions/<exec_id>/error.txt` records what went wrong. Run-lifecycle milestones (created / started / completed / failed) are also appended to a workspace-level timeline at `<workspace_root>/workspace.events.sqlite` — `molexp runs info` shows a run's recent events, and reading the timeline never creates the file.
 
 All JSON files are written atomically (temp file + `os.rename`); structure is discovered by scanning directories, so you can move, inspect, or archive experiments independently without rewriting parent metadata.
 

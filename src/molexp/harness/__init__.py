@@ -1,10 +1,8 @@
-"""molexp.harness — lineage-first scientific workflow harness.
+"""molexp.harness — plugin host (atom = AgentCall) plus default orchestration plugins.
 
-Top-level package, sibling of :mod:`molexp.workspace`, :mod:`molexp.workflow`,
-and :mod:`molexp.agent`. Owns state, artifact lineage, validation, approval,
-execution, and audit for harness-driven runs; agents are demoted to
-proposal generators behind hard boundaries defined in
-``.claude/notes/harness-goal.md``.
+The host lives at :mod:`molexp.harness.host` (not re-exported here). Workspace,
+workflow, agent, and science adapters mount as plugins; ``PlanOrchestrator``
+and :class:`ChatMode` are bundles. See ``.claude/notes/harness-plugins.md``.
 
 Provenance split (one owner per concern): the harness records
 **pipeline-artifact lineage only** — which stage of which run produced which

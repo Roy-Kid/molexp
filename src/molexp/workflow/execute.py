@@ -3,7 +3,7 @@
 ``execute_run(workflow, run)`` folds the driver dance (``run.start()`` context
 + ``WorkflowRuntime().execute(..., run_context=ctx)`` + asyncio plumbing) into
 a single call on the **same execution path as** ``molexp run``: the
-``RunContext`` lifecycle owns the status machine, the ``_ops/run.json``
+``RunContext`` lifecycle owns the status machine, the ``ops/run.json``
 hot-state sidecar and the ownership heartbeat; the workflow engine owns
 scheduling, caching and node-level persistence. Nothing here is a second
 path — it is the CLI's in-process handler, made importable.
@@ -170,7 +170,7 @@ def execute_run(
         workflow: A ``CompiledWorkflow``, or an uncompiled
             ``WorkflowCompiler`` (compiled automatically).
         run: The workspace :class:`~molexp.workspace.run.Run` to execute
-            against (status machine / ``_ops`` sidecar / heartbeat are driven
+            against (status machine / ``ops`` sidecar / heartbeat are driven
             by its ``RunContext`` lifecycle, exactly as under ``molexp run``).
         rerun: ``True`` forces a fresh attempt (new ``exec-<run_id>-N``, no
             seeding) instead of the default resume-on-retryable behaviour —

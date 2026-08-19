@@ -1,4 +1,4 @@
-"""InteractiveLoop system-prompt composition (agent-code-loop-05-behavior).
+"""ReAct system-prompt composition (ops preamble + user prompt).
 
 The system string handed to ``stream_agentic`` is composed from the stable
 ops preamble (auto-discovery law: no hard-coded third-party MCP tool names)
@@ -13,8 +13,7 @@ from typing import Any
 
 import pytest
 
-from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
-from molexp.agent.loops.interactive.loop import DEFAULT_CODE_LOOP_PREAMBLE
+from molexp.agent.ops import DEFAULT_OPS_PREAMBLE
 from molexp.agent.router import (
     AgenticChunk,
     FinalChunk,
@@ -27,6 +26,26 @@ from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 
 pytestmark = pytest.mark.asyncio
+
+
+class _EmptyMcpCatalog:
+    """Turn catalog that opens nothing — isolates tests from ~/.molexp MCP."""
+
+    def __init__(self, _root: Path) -> None:
+        del _root
+
+    @property
+    def toolsets(self) -> tuple[object, ...]:
+        return ()
+
+    async def open(self) -> None:
+        return None
+
+    async def list_specs(self) -> tuple[()]:
+        return ()
+
+    async def aclose(self) -> None:
+        return None
 
 
 class _CaptureSystemRouter:
@@ -65,7 +84,7 @@ class _CaptureSystemRouter:
         return UsageBreakdown()
 
 
-class TestInteractiveLoopSystemPrompt:
+class TestReactSystemPrompt:
     async def test_preamble_carries_stable_ops_names_without_hardcoded_mcp(
         self,
         tmp_path: Path,
@@ -75,16 +94,15 @@ class TestInteractiveLoopSystemPrompt:
 
         Runtime MCP catalogs may inject live tool names into the system appendix
         (auto-discovery); the static preamble must not. Isolation: stub
-        open_mcp_toolsets so this unit does not depend on the operator's
+        McpCatalog so this unit does not depend on the operator's
         ~/.molexp MCP config.
         """
         monkeypatch.setattr(
-            "molexp.agent.loops.interactive.loop.open_mcp_toolsets",
-            lambda _root: (),
+            "molexp.agent.react.McpCatalog",
+            _EmptyMcpCatalog,
         )
         router = _CaptureSystemRouter()
-        loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
-        runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
+        runner = AgentRunner(router=router, workspace=tmp_path, mode="agentic")  # type: ignore[arg-type]
         session = Session(storage=InMemorySessionStorage(), session_id="preamble")
         _ = [ev async for ev in runner.run_events(session, "hi")]
 
@@ -93,18 +111,20 @@ class TestInteractiveLoopSystemPrompt:
         assert "code_write" in system
         assert "discover" in system
         # Static ops preamble — no hard-coded third-party MCP tool names.
-        assert "code_run" in DEFAULT_CODE_LOOP_PREAMBLE
-        assert "molexp_add_project" not in DEFAULT_CODE_LOOP_PREAMBLE
+        assert "code_run" in DEFAULT_OPS_PREAMBLE
+        assert "molexp_add_project" not in DEFAULT_OPS_PREAMBLE
         assert "molexp_add_project" not in system  # isolated: no live MCP catalog
 
     async def test_user_system_prompt_composes_after_preamble(self, tmp_path: Path) -> None:
         """A user ``system_prompt`` coexists with the default preamble, appended after it."""
         router = _CaptureSystemRouter()
         marker = "USER_CUSTOM_PROMPT_XYZ"
-        loop = InteractiveLoop(
-            config=InteractiveLoopConfig(workspace_root=tmp_path, system_prompt=marker)
+        runner = AgentRunner(
+            router=router,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            mode="agentic",
+            system_prompt=marker,
         )
-        runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
         session = Session(storage=InMemorySessionStorage(), session_id="compose")
         _ = [ev async for ev in runner.run_events(session, "hi")]
 

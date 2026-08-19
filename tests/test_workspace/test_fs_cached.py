@@ -324,7 +324,7 @@ class TestCachedRemoteFileSystem:
 
         second = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
         assert second.indexed is True
-        ws = SimpleNamespace(root="/scratch/me", _fs=second)
+        ws = SimpleNamespace(root="/scratch/me", fs=second)
         fake.calls.clear()
         # Without open-refresh: pure pin, zero remote on prepare + read.
         warnings = second.prepare(
@@ -352,7 +352,7 @@ class TestCachedRemoteFileSystem:
         first.read_bytes("/scratch/me/log.txt")
 
         second = CachedRemoteFileSystem(fake, mirror_root=mirror_root, ttl_seconds=300)
-        ws = SimpleNamespace(root="/scratch/me", _fs=second)
+        ws = SimpleNamespace(root="/scratch/me", fs=second)
         # Pin read works before/during refresh.
         assert second.read_bytes("/scratch/me/log.txt") == b"hello"
         warnings = second.prepare(ws, block_index=False, refresh_on_open=True)  # type: ignore[arg-type]
@@ -373,7 +373,7 @@ class TestCachedRemoteFileSystem:
         fake.files["/scratch/me/workspace.json"] = b'{"name":"ws"}'
         cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
         assert cached.indexed is False
-        ws = SimpleNamespace(root="/scratch/me", _fs=cached)
+        ws = SimpleNamespace(root="/scratch/me", fs=cached)
         warnings = cached.prepare(ws, block_index=False)  # type: ignore[arg-type]
         assert warnings == []
         assert cached.connected is True

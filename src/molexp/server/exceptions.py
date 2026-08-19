@@ -384,7 +384,7 @@ class PreviewSidecarNotFoundError(MolExpError):
 
 
 class NoReaderInSidecarError(MolExpError):
-    """The sidecar defines no concrete ``BaseTrajectoryReader`` subclass."""
+    """The sidecar defines no concrete ``molpy.io.BaseTrajectoryReader``."""
 
     def __init__(self, sidecar_path: str) -> None:
         super().__init__(

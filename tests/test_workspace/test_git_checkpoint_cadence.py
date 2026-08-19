@@ -54,7 +54,7 @@ class TestCheckpointRunOnSettle:
         await _enable_projection(ws)
 
         with run.start() as ctx:
-            ctx.artifact.save("m.json", {"v": 1})
+            ctx.register_artifact({"v": 1}, name="m.json")
         assert _commits(ws, run.id) == 1  # one settled execution → one commit
 
         # N high-frequency workspace writes that are NOT execution settles.
@@ -88,7 +88,7 @@ class TestMaterializeRun:
     async def test_materialize_run_into_scratch_not_live_workspace(self, tmp_path):
         ws, run = _new_run(tmp_path / "lab")
         with run.start() as ctx:
-            ctx.artifact.save("metrics.json", {"loss": 0.1})
+            ctx.register_artifact({"loss": 0.1}, name="metrics.json")
         await checkpoint(ws)  # build refs/molexp/runs/<id>
 
         scratch = tmp_path / "scratch"

@@ -21,6 +21,6 @@ Research code becomes untrustworthy for a boring reason: the script, the paramet
 
 - **[Workflow](workflow.md)** — The computation model: tasks, dependencies, compilation, execution. What stays *outside* the workflow layer.
 - **[Workspace](workspace.md)** — The on-disk hierarchy and the distinction between experiment (definition) and run (outcome).
-- **[Agent](agent.md)** — LLM conversation layer: the pydantic-ai facade, two loops (ChatLoop and InteractiveLoop), sessions, and events.
+- **[Agent](agent.md)** — LLM conversation layer: the pydantic-ai facade, one-shot chat or one ReAct per turn, sessions, and events.
 - **[Assets and Reproducibility](assets-and-reproducibility.md)** — Why reusable data needs first-class names and scopes. What FAIR means inside a workspace.
 - **[Plugins](plugins.md)** — The optional transport layer that reaches beyond local execution.

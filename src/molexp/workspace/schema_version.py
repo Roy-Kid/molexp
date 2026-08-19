@@ -12,6 +12,11 @@ if TYPE_CHECKING:
 MOLEXP_SCHEMA_VERSION = 1
 
 
+def versioned_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Wrap *payload* with the ``schema_version`` envelope FileStore writes."""
+    return {"schema_version": MOLEXP_SCHEMA_VERSION, **payload}
+
+
 class IncompatibleSchemaError(RuntimeError):
     """Raised when a JSON file's schema_version exceeds what this build understands."""
 
@@ -24,9 +29,9 @@ def write_versioned_json(
     if fs is not None:
         fs.atomic_write_json(str(path), versioned)
     else:
-        from .base import _atomic_write_json
+        from .base import atomic_write_json
 
-        _atomic_write_json(Path(path), versioned)
+        atomic_write_json(Path(path), versioned)
 
 
 def read_versioned_json(path: str | Path, *, fs: FileSystem | None = None) -> dict[str, Any]:
@@ -37,7 +42,12 @@ def read_versioned_json(path: str | Path, *, fs: FileSystem | None = None) -> di
     else:
         with open(path) as fh:  # noqa: PTH123
             data = json.load(fh)
-    sv = data.pop("schema_version", 0)
+    if "schema_version" not in data:
+        raise IncompatibleSchemaError(
+            f"{path} is missing schema_version; this molexp requires "
+            f"schema_version={MOLEXP_SCHEMA_VERSION}."
+        )
+    sv = data.pop("schema_version")
     if isinstance(sv, int) and sv > MOLEXP_SCHEMA_VERSION:
         raise IncompatibleSchemaError(
             f"{path} has schema_version={sv}; this molexp supports up to "

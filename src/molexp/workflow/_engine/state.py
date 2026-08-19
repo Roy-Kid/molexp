@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 
     from .._graph_decl import ParallelDecl, TaskRegistration
     from ..cache import Caching
-    from ..materialization_store import MaterializationStore
     from ..snapshot import TaskSnapshot
 
 
@@ -144,6 +143,4 @@ class WorkflowDeps:
     cache: Caching | None = None
     bypass_cache: bool = False
     snapshots: Mapping[str, TaskSnapshot] = field(default_factory=dict)
-    # Engine-side materialization layer (content-addressed workdir + task
-    # return-value persistence). ``None`` disables it (behaviour unchanged).
-    materialization: MaterializationStore | None = None
+    scratch_root: Path | None = None

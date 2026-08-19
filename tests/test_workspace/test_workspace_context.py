@@ -40,10 +40,10 @@ class TestAssembleWorkspaceContext:
         exp = ws.add_project("p").add_experiment("e", params={"lr": 1e-3})
         r1 = exp.add_run(params={"seed": 1})
         with r1.start() as ctx:
-            ctx.artifact.save("m1.json", {"loss": 0.1})
+            ctx.register_artifact({"loss": 0.1}, name="m1.json")
         r2 = exp.add_run(params={"seed": 2})
         with r2.start() as ctx:
-            ctx.artifact.save("m2.json", {"loss": 0.2})
+            ctx.register_artifact({"loss": 0.2}, name="m2.json")
         note = ws.add_folder(Note(parent=ws, name="idea"))
         note.set_body("# Idea\n\nnarrative\n")
 

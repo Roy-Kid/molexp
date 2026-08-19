@@ -2,7 +2,7 @@
 
 Covers acceptance criteria:
 - ac-003: Every entity JSON writer emits schema_version: 1
-- ac-004: Legacy v0 JSON (missing schema_version) loads + auto-upgrades
+- ac-004: JSON missing schema_version is rejected
 - ac-005: Future schema_version raises IncompatibleSchemaError
 """
 
@@ -26,7 +26,7 @@ def _seed_workspace(root) -> Workspace:
     exp = proj.add_experiment("e", params={"lr": 1e-3})
     run = exp.add_run()
     with run.start() as ctx:
-        ctx.artifact.save("metrics.json", {"loss": 0.1})
+        ctx.register_artifact({"loss": 0.1}, name="metrics.json")
     return ws
 
 
@@ -61,48 +61,23 @@ class TestSchemaVersionEmitted:
             assert data["schema_version"] == MOLEXP_SCHEMA_VERSION
 
 
-class TestLegacyV0Load:
-    def test_workspace_without_schema_version_loads(self, tmp_path):
-        # Hand-craft a v0 workspace: no schema_version field anywhere.
+class TestMissingSchemaRejected:
+    def test_workspace_without_schema_version_raises(self, tmp_path):
         root = tmp_path / "ws_v0"
         root.mkdir()
         (root / "workspace.json").write_text(
             json.dumps(
                 {
                     "id": "ws_v0",
-                    "name": "Legacy Lab",
+                    "name": "Lab",
                     "created_at": "2024-01-01T00:00:00",
                     "targets": [],
                 }
             )
         )
-        proj_dir = root / "projects" / "p"
-        proj_dir.mkdir(parents=True)
-        (proj_dir / "project.json").write_text(
-            json.dumps(
-                {
-                    "id": "p",
-                    "name": "p",
-                    "description": "",
-                    "owner": "",
-                    "tags": [],
-                    "config": {},
-                    "created_at": "2024-01-01T00:00:00",
-                }
-            )
-        )
 
-        ws = Workspace.load(root)
-        assert ws.name == "Legacy Lab"
-        projects = ws.list_projects()
-        assert len(projects) == 1
-        assert projects[0].id == "p"
-
-        # Re-saving must upgrade to current schema_version.
-        ws.save()
-        with open(root / "workspace.json") as fh:  # noqa: PTH123
-            saved = json.load(fh)
-        assert saved["schema_version"] == MOLEXP_SCHEMA_VERSION
+        with pytest.raises(IncompatibleSchemaError, match="missing schema_version"):
+            Workspace.load(root)
 
 
 class TestFutureSchemaRejected:

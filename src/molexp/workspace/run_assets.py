@@ -15,23 +15,27 @@ state owned by the facade, so they are injected as callables
 from __future__ import annotations
 
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .assets import (
-    ArtifactAccessor,
+    ArtifactAsset,
+    Asset,
     AssetManifest,
     AssetScope,
     CheckpointAccessor,
+    CheckpointAsset,
     ErrorTraceAsset,
-    ImportAction,
     LogAccessor,
+    LogAsset,
     Producer,
 )
+from .assets.base import AssetKind
+from .file_store import FileStore
 from .metrics import MetricsWriter
-from .utils import generate_asset_id
+from .utils import compute_content_hash, generate_asset_id
 
 if TYPE_CHECKING:
     from .run import Run
@@ -49,71 +53,61 @@ class RunAssets:
         get_execution_id: Callable[[], str | None],
     ) -> None:
         self._run = run
-        self._work_dir = work_dir
+        self._run_dir = work_dir
         self._scope = scope
         self._producer = producer
         self._get_execution_id = get_execution_id
         self._manifest = AssetManifest(work_dir)
+        self.files = FileStore(work_dir, fs=run._disk())
 
-        # Only the artifact accessor emits on the event spine (frequency
+        # Only artifact registration emits on the event spine (frequency
         # budget: log lines / checkpoints stay silent). The workspace root is
         # resolved through the run's ownership chain — the same path the run
         # lifecycle uses; a detached run (unit-test fixture) simply emits
         # nothing, per the spine's derived/non-fatal contract.
         try:
-            event_root = Path(str(run.experiment.project.workspace.root))
+            self._event_root = Path(str(run.experiment.project.workspace.root))
         except (RuntimeError, AttributeError):
-            # A detached run (bare test fixture) has no ownership chain.
-            event_root = None
-        self.artifact = ArtifactAccessor(
-            work_dir, scope, self._manifest, producer, event_root=event_root
+            self._event_root = None
+        self.log = LogAccessor(
+            work_dir,
+            scope,
+            self._manifest,
+            producer,
+            get_execution_id,
+            files=self.files,
         )
-        self.log = LogAccessor(work_dir, scope, self._manifest, producer, get_execution_id)
-        self.checkpoint = CheckpointAccessor(work_dir, scope, self._manifest, producer)
-        self.metrics = MetricsWriter(work_dir)
+        self.checkpoint = CheckpointAccessor(
+            work_dir, scope, self._manifest, producer, files=self.files
+        )
+        self.metrics = MetricsWriter(work_dir, append=self.files.append)
 
     # ── Working directories ─────────────────────────────────────────────
 
-    def folder(self, subpath: str | Path) -> Path:
-        """Create and return a working directory under this execution.
+    @property
+    def workdir(self) -> Path:
+        """Execution-scoped scratch directory ``<run>/executions/<id>/work``.
 
-        The returned path is ``<run>/executions/<execution_id>/<subpath>``,
-        materialized for the caller. Use it for task scratch / intermediate
-        files so every execution's working files live under its own
-        ``project → experiment → run → execution`` slot instead of a
-        hand-rolled global directory: the workspace owns the path layout and
-        the directory creation, so callers never assemble paths or ``mkdir``
-        themselves.
-
-        Args:
-            subpath: Path **relative** to the execution directory, e.g.
-                ``"scratch/CAT"`` or ``"output"``. May be nested.
-
-        Returns:
-            The created directory as an absolute :class:`~pathlib.Path`.
-
-        Raises:
-            RuntimeError: if no execution is active — call this inside
-                ``with run.start() as ctx:`` (or ``with run as ctx:``).
-            ValueError: if *subpath* is absolute or escapes the execution slot.
+        Created on access. Requires an active execution
+        (``with run.start() as ctx:``).
         """
         execution_id = self._get_execution_id()
         if execution_id is None:
             raise RuntimeError(
-                "RunContext.folder() requires an active execution; call it inside "
+                "RunContext.workdir requires an active execution; call it inside "
                 "`with run.start() as ctx:`."
             )
-        rel = Path(subpath)
-        if rel.is_absolute():
-            raise ValueError(f"RunContext.folder: subpath must be relative, got {subpath!r}")
-        exec_dir = (self._work_dir / "executions" / execution_id).resolve()
-        target = (exec_dir / rel).resolve()
-        if not target.is_relative_to(exec_dir):
-            raise ValueError(
-                f"RunContext.folder: subpath {subpath!r} escapes the execution directory"
+        return self.files.mkdir(Path("executions") / execution_id / "work")
+
+    def task_workdir(self, task_name: str) -> Path:
+        """Scratch directory for one task: ``executions/<id>/work/<task>/``."""
+        execution_id = self._get_execution_id()
+        if execution_id is None:
+            raise RuntimeError(
+                "RunContext.task_workdir requires an active execution; "
+                "call it inside `with run.start() as ctx:`."
             )
-        target.mkdir(parents=True, exist_ok=True)
-        return target
+        return self.files.mkdir(Path("executions") / execution_id / "work" / task_name)
 
     def get_data_dir(
         self,
@@ -148,19 +142,131 @@ class RunAssets:
             return data_dir
         raise FileNotFoundError(f"Asset {asset_name!r} not found and no fallback specified.")
 
-    # ── Asset access ────────────────────────────────────────────────────
+    # ── Catalog ─────────────────────────────────────────────────────────
 
-    def register_asset(  # noqa: ANN201
+    def register(
         self,
-        name: str,
-        src: Path | str,
-        action: ImportAction = "copy",
-        meta: dict | None = None,
-    ):
-        """Import a ``DataAsset`` into this run's experiment scope."""
-        return self._run.experiment.data_assets.import_asset(
-            name=name, src=src, action=action, meta=meta or {}
+        path: Path,
+        *,
+        kind: AssetKind = "artifact",
+        name: str | None = None,
+        mime: str | None = None,
+        tags: dict[str, str] | None = None,
+        consumed: Sequence[Asset | str] | None = None,
+        **extra: object,
+    ) -> Asset:
+        """Catalog an existing file. Does not copy or rewrite the payload."""
+        resolved = Path(path).resolve()
+        if not resolved.is_file():
+            raise FileNotFoundError(f"register: not a file: {path}")
+        root = self._run_dir.resolve()
+        if not resolved.is_relative_to(root):
+            raise ValueError(f"register: path {path} is not under run_dir {root}")
+        rel = resolved.relative_to(root)
+        now = datetime.now()
+        producer = self._producer()
+        if consumed:
+            ids = tuple(item if isinstance(item, str) else item.asset_id for item in consumed)
+            producer = producer.model_copy(update={"inputs": ids})
+        label = name or resolved.name
+        asset: Asset
+        if kind == "artifact":
+            asset = ArtifactAsset(
+                asset_id=generate_asset_id(),
+                name=label,
+                scope=self._scope,
+                path=rel,
+                created_at=now,
+                updated_at=now,
+                producer=producer,
+                tags=tags or {},
+                mime=mime,
+                size=resolved.stat().st_size,
+                content_hash=compute_content_hash(resolved),
+            )
+        elif kind == "log":
+            asset = LogAsset(
+                asset_id=generate_asset_id(),
+                name=label,
+                scope=self._scope,
+                path=rel,
+                created_at=now,
+                updated_at=now,
+                producer=producer,
+                tags=tags or {},
+            )
+        elif kind == "checkpoint":
+            ckpt_id = str(extra.get("ckpt_id") or label)
+            parent = extra.get("parent_ckpt_id")
+            asset = CheckpointAsset(
+                asset_id=generate_asset_id(),
+                name=label,
+                scope=self._scope,
+                path=rel,
+                created_at=now,
+                updated_at=now,
+                producer=producer,
+                tags=tags or {},
+                ckpt_id=ckpt_id,
+                parent_ckpt_id=str(parent) if parent is not None else None,
+            )
+        elif kind == "error_trace":
+            asset = ErrorTraceAsset(
+                asset_id=generate_asset_id(),
+                name=label,
+                scope=self._scope,
+                path=rel,
+                created_at=now,
+                updated_at=now,
+                producer=producer,
+                tags=tags or {},
+                exception_type=str(extra.get("exception_type") or "Error"),
+                message=str(extra.get("message") or ""),
+                execution_id=str(extra.get("execution_id") or "unbound"),
+            )
+        elif kind == "data":
+            raise ValueError("register: kind='data' uses data_assets.import_asset")
+        else:
+            raise ValueError(f"register: unknown kind {kind!r}")
+        self._manifest.register(asset)
+        if kind == "artifact" and self._event_root is not None:
+            from .assets._events import emit_asset_added
+
+            emit_asset_added(
+                self._event_root,
+                asset,
+                name=label,
+                extra_refs=[producer.run_id] if producer.run_id else (),
+            )
+        return asset
+
+    def register_artifact(
+        self,
+        data: object,
+        *,
+        name: str | None = None,
+        mime: str | None = None,
+        tags: dict[str, str] | None = None,
+        consumed: Sequence[Asset | str] | None = None,
+    ) -> ArtifactAsset:
+        if name is None:
+            if isinstance(data, Path):
+                name = Path(data).name
+            else:
+                raise ValueError("register_artifact: name is required when data is not a Path")
+        payload: Path | bytes | dict | list | str
+        if isinstance(data, (Path, bytes, dict, list, str)):
+            payload = data
+        elif isinstance(data, bytearray):
+            payload = bytes(data)
+        else:
+            payload = str(data)
+        dest = self.files.put(Path("artifacts") / name, payload)
+        asset = self.register(
+            dest, kind="artifact", name=name, mime=mime, tags=tags, consumed=consumed
         )
+        assert isinstance(asset, ArtifactAsset)
+        return asset
 
     def get_asset(self, name: str, scope: str = "project"):  # noqa: ANN201
         if scope == "experiment":
@@ -215,8 +321,6 @@ class RunAssets:
         """
         exec_id = self._get_execution_id() or "unbound"
         rel_path = Path("executions") / exec_id / "error.txt"
-        target = self._work_dir / rel_path
-        target.parent.mkdir(parents=True, exist_ok=True)
         body = f"Error: {datetime.now().isoformat()}\nType: {error_type}\nMessage: {message}\n\n"
         if traceback_text:
             body += traceback_text
@@ -226,19 +330,12 @@ class RunAssets:
                 "this task failure without re-raising. Per-task detail lives in "
                 f"executions/{exec_id}/workflow.json and logs/.)\n"
             )
-        target.write_text(body)
-
-        now = datetime.now()
-        asset = ErrorTraceAsset(
-            asset_id=generate_asset_id(),
+        target = self.files.put(rel_path, body)
+        self.register(
+            target,
+            kind="error_trace",
             name=f"error_{exec_id}",
-            scope=self._scope,
-            path=rel_path,
-            created_at=now,
-            updated_at=now,
-            producer=self._producer(),
             exception_type=error_type,
             message=message,
             execution_id=exec_id,
         )
-        self._manifest.register(asset)

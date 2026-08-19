@@ -78,6 +78,7 @@ from molexp.agent.router import (
     ToolResultChunk,
 )
 from molexp.harness.errors import AgentResponseNotRegisteredError
+from molexp.harness.gateways.call_runtime import AgentCallRuntime
 from molexp.harness.gateways.llm_trace import LlmCallObserver, LlmCallTrace
 from molexp.harness.schemas import (
     AgentCallResult,
@@ -135,17 +136,43 @@ class RouterBackedAgentGateway:
         """The underlying :class:`Router` this gateway dispatches through.
 
         Impl-specific accessor (**not** part of the :class:`AgentGateway`
-        Protocol, which stays ``async call(spec)``-only). It exists so a
-        harness-side loop driver — the emergent planning
-        ``InteractiveLoopPlanRunner`` (spec ``plan-emergent-05c-orchestrator``)
-        — can build a phase-02 ``AgentRuntime`` on the same router this gateway
-        already owns, rather than constructing a second one. Callers depend on
+        Protocol, which stays ``async call(spec)``-only). Tests and
+        plan nodes that already hold this gateway can reuse ``.router``
+        instead of constructing a second one. Callers depend on
         ``RouterBackedAgentGateway`` (or a fake exposing ``.router``), never on
         the bare Protocol.
         """
         return self._router
 
-    async def call(self, spec: AgentCallSpec) -> AgentCallResult:
+    def bind_artifact_store(self, store: ArtifactStore) -> None:
+        """Point persist at the host's artifact store (one object per run)."""
+        self._artifacts = store
+
+    def register_agent(
+        self,
+        agent_name: str,
+        schema: type[BaseModel],
+        output_kind: str,
+        *,
+        tier: ModelTier | None = None,
+        system_prompt: str = "",
+    ) -> None:
+        """Register a one-shot agent (used by Chat). Idempotent on the same schema."""
+        self._agent_responses[agent_name] = schema
+        self._output_kinds[agent_name] = output_kind
+        if system_prompt:
+            self._system_prompts[agent_name] = system_prompt
+        if tier is not None:
+            self._tier_by_agent[agent_name] = tier
+        elif agent_name not in self._tier_by_agent:
+            self._tier_by_agent[agent_name] = self._tier
+
+    async def call(
+        self,
+        spec: AgentCallSpec,
+        *,
+        runtime: AgentCallRuntime | None = None,
+    ) -> AgentCallResult:
         """Dispatch one agent call, branching on ``spec.call_mode``.
 
         The shared front-matter is identical for both paths: resolve the
@@ -177,15 +204,15 @@ class RouterBackedAgentGateway:
                 registered schema (or, via ``_resolve_tier``, no registered
                 tier).
         """
-        try:
-            schema = self._agent_responses[spec.agent_name]
-        except KeyError as exc:
+        schema = self._agent_responses.get(spec.agent_name)
+        if schema is None and spec.call_mode != "agentic":
             raise AgentResponseNotRegisteredError(
                 f"no response schema registered for agent_name={spec.agent_name!r}"
-            ) from exc
+            )
 
-        output_kind = self._output_kinds[spec.agent_name]
-        system_prompt = self._system_prompts.get(spec.agent_name, "")
+        output_kind = self._output_kinds.get(spec.agent_name, "assistant_message")
+        runtime_prompt = runtime.system_prompt if runtime is not None else ""
+        system_prompt = runtime_prompt or self._system_prompts.get(spec.agent_name, "")
         tier = self._resolve_tier(spec)
         mcp_tools = self._resolve_mcp_tools(spec)
         model_label = self._model_label_for_tier(tier)
@@ -227,6 +254,11 @@ class RouterBackedAgentGateway:
                 prompt=prompt,
                 prompt_ref=prompt_ref,
                 lineage_parents=lineage_parents,
+                runtime=runtime,
+            )
+        if schema is None:
+            raise AgentResponseNotRegisteredError(
+                f"no response schema registered for agent_name={spec.agent_name!r}"
             )
         return await self._call_structured(
             spec,
@@ -332,7 +364,7 @@ class RouterBackedAgentGateway:
         self,
         spec: AgentCallSpec,
         *,
-        schema: type[BaseModel],
+        schema: type[BaseModel] | None,
         output_kind: str,
         system_prompt: str,
         tier: ModelTier,
@@ -340,6 +372,7 @@ class RouterBackedAgentGateway:
         prompt: str,
         prompt_ref: PlanArtifactRef,
         lineage_parents: list[str],
+        runtime: AgentCallRuntime | None = None,
     ) -> AgentCallResult:
         """Drive the emergent tool loop (``Router.stream_agentic``).
 
@@ -369,13 +402,23 @@ class RouterBackedAgentGateway:
         t0 = time.monotonic()
         trace: list[dict[str, Any]] = []
         final_text: str | None = None
+        tools = runtime.tools if runtime is not None else ()
+        hooks = runtime.hooks if runtime is not None else None
+        on_event = runtime.on_event if runtime is not None else None
+        stream_kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "system": system_prompt,
+            "tier": tier,
+            "tools": tools,
+        }
+        if hooks is not None:
+            stream_kwargs["before_tool"] = hooks.before_tool
+            stream_kwargs["after_tool"] = hooks.after_tool
         try:
-            async for chunk in self._router.stream_agentic(
-                prompt=prompt,
-                system=system_prompt,
-                tier=tier,
-            ):
+            async for chunk in self._router.stream_agentic(**stream_kwargs):
                 trace.append(self._serialize_agentic_chunk(chunk))
+                if on_event is not None:
+                    await on_event(chunk)
                 if isinstance(chunk, FinalChunk):
                     final_text = chunk.text
         except Exception:
@@ -409,14 +452,16 @@ class RouterBackedAgentGateway:
                 f"agentic call for agent_name={spec.agent_name!r} produced no "
                 "FinalChunk; the raw trace was persisted"
             )
-        # No silent fallback: an unparseable final answer raises (the raw trace
-        # is already persisted above; no parsed-output artifact is written).
-        instance = schema.model_validate_json(final_text)
+        if schema is not None:
+            instance = schema.model_validate_json(final_text)
+            output_obj = instance.model_dump(mode="json")
+        else:
+            output_obj = {"text": final_text}
 
         output_ref: PlanArtifactRef = await asyncio.to_thread(
             self._artifacts.put_json,
             kind=output_kind,
-            obj=instance.model_dump(mode="json"),
+            obj=output_obj,
             created_by=f"agent:{spec.agent_name}",
             parent_ids=lineage_parents,
         )
@@ -476,6 +521,8 @@ class RouterBackedAgentGateway:
                     f"expected one of {[t.value for t in ModelTier]}"
                 ) from exc
         if spec.agent_name not in self._tier_by_agent:
+            if spec.agent_name not in self._agent_responses:
+                return self._tier
             raise AgentResponseNotRegisteredError(
                 f"no model tier registered for agent_name={spec.agent_name!r}; "
                 "every plan agent must appear in plan_agent_tiers() — "

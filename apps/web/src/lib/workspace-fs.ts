@@ -1,19 +1,23 @@
 /**
- * Workspace filesystem — the frontend twin of ``molexp.workspace.fs.FileSystem``.
+ * Workspace filesystem — the frontend view of ``Workspace.fs``, the disk.
  *
- * Path identity is {@link WorkspacePath} (pure POSIX). I/O goes through this
- * interface so local vs remote is invisible to callers: the HTTP implementation
- * talks to ``/api/workspace/*``, which the server routes through
- * ``workspace._fs`` (Local / Remote / CachedRemote).
+ * Backend model (keep these layers distinct):
+ * - ``Workspace.fs`` is the disk (``FileSystem``: local / remote / cached).
+ * - A Folder is a location on that disk, not an owner of one.
+ * - ``folder.files`` is the Python byte-exit (``FileStore``) at that location.
  *
- * Design rules (mirror the Python layer):
+ * This module is the HTTP twin of the *disk*, not of ``folder.files``.
+ * Path identity is {@link WorkspacePath} (pure POSIX). I/O goes through
+ * ``/api/workspace/*``, which the server routes through ``workspace.fs``.
+ *
+ * Design rules:
  * - Never use browser File APIs for workspace content.
  * - Prefer shallow ``listdir`` (maxDepth 1) and expand on demand.
  * - Missing remote index / empty tree is a normal state, not an error.
  */
 
 import type { WorkspaceTreeNode } from "@/app/types";
-import { basename, join, toApiPath, type WorkspacePath } from "@/lib/workspace-path";
+import { basename, toApiPath, type WorkspacePath } from "@/lib/workspace-path";
 
 // ── Wire shapes (server ``GET /api/workspace/files``) ──────────────────────
 
@@ -262,10 +266,3 @@ export const getWorkspaceFs = (): WorkspaceFs => defaultFs;
 export const setWorkspaceFsRoot = (root: WorkspacePath | null): void => {
   defaultFs = defaultFs.withRoot(root);
 };
-
-/** Test seam: replace the default FS instance. */
-export const setDefaultWorkspaceFs = (fs: HttpWorkspaceFs): void => {
-  defaultFs = fs;
-};
-
-export { basename as pathBasename, join as joinPath };

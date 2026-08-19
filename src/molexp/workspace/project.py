@@ -71,8 +71,6 @@ class Project(Folder):
         fs: FileSystem | None = None,
         _entity_metadata: ProjectMetadata | None = None,
     ) -> None:
-        from .fs_local import LocalFileSystem
-
         resolved_parent = parent if parent is not None else workspace
         if resolved_parent is None:
             raise ValueError("Project: parent (or workspace) is required")
@@ -90,7 +88,8 @@ class Project(Folder):
         self._name = meta.id
         self._kind = kind
         self._root_path = None
-        self._fs = fs or getattr(resolved_parent, "_fs", LocalFileSystem())
+        if fs is not None:
+            self._disk_backend = fs
         self._metadata = FolderMetadata(
             id=meta.id,
             name=meta.name,
@@ -115,13 +114,13 @@ class Project(Folder):
         Uses :meth:`~Folder.resolve` (not :meth:`~Folder.path`) so listing a
         project never issues a remote ``mkdir`` on the workspace root.
         """
-        return Path(parent._fs.join(parent.resolve(), "projects", derived_id))
+        return Path(parent._disk().join(parent.resolve(), "projects", derived_id))
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Project:
         """Load ``project.json`` and rebuild entity state. See Folder.from_disk hook docs."""
         meta = _load_metadata(
-            ProjectMetadata, parent._fs.join(child_dir, "project.json"), fs=parent._fs
+            ProjectMetadata, parent._disk().join(child_dir, "project.json"), fs=parent._disk()
         )
         folder_meta = FolderMetadata(
             id=meta.id,
@@ -185,7 +184,7 @@ class Project(Folder):
     @property
     def project_dir(self) -> Path:
         ws_root = self.workspace.resolve()
-        return Path(self._fs.join(ws_root, "projects", self.id))
+        return Path(self._disk().join(ws_root, "projects", self.id))
 
     @property
     def scope(self) -> AssetScope:
@@ -209,15 +208,15 @@ class Project(Folder):
     def materialize(self) -> None:
         """Create filesystem structure and persist metadata (non-recursive)."""
         d = self.project_dir
-        self._fs.mkdir(d, parents=True, exist_ok=True)
-        meta_path = self._fs.join(d, "project.json")
-        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
+        self._disk().mkdir(d, parents=True, exist_ok=True)
+        meta_path = self._disk().join(d, "project.json")
+        _save_metadata(self._entity_metadata, meta_path, fs=self._disk())
         self.write_meta()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
-        meta_path = self._fs.join(self.project_dir, "project.json")
-        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
+        meta_path = self._disk().join(self.project_dir, "project.json")
+        _save_metadata(self._entity_metadata, meta_path, fs=self._disk())
 
     def import_asset(  # noqa: ANN201
         self,

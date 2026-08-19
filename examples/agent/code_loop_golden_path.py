@@ -5,10 +5,9 @@ This is the **recipe** an agent should reimplement by consulting molmcp
 it. The molexp agent loop does not own create/sweep/plot verbs; it writes
 code that calls these public APIs.
 
-Behavior contract (InteractiveLoop): see
-``DEFAULT_CODE_LOOP_PREAMBLE`` in
-``molexp.agent.loops.interactive.loop`` — consult molmcp → write_file →
-execute_python → read results; plot with ``import molplot``.
+Behavior contract (Chat ReAct): see ``DEFAULT_OPS_PREAMBLE`` —
+consult molmcp → code_write → code_run → read results; plot with
+``import molplot``.
 
 Shape:
 

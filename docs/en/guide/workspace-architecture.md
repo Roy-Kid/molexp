@@ -111,11 +111,11 @@ Entering `run.start()` opens a `RunContext` which:
 5. On success, writes `status="succeeded"` plus the final timestamp.
 6. On failure, writes `status="failed"`, an `ErrorInfo`, and registers an `ErrorTraceAsset` pointing at `executions/<exec_id>/error.txt`.
 
-Every attempt appears in `run.execution_history`, newest last — a run that was retried twice will have three records. (Status, ownership, and the execution records live in the run's `_ops/run.json` hot-state sidecar, not in the `run.json` entity file.)
+Every attempt appears in `run.execution_history`, newest last — a run that was retried twice will have three records. (Status, ownership, and the execution records live in the run's `ops/run.json` hot-state sidecar, not in the `run.json` entity file.)
 
 ## Assets
 
-Every scope exposes a typed `assets` view — a read-only query surface over the authoritative per-scope `assets.json` manifests — and a `data_assets` library for importing external data. Run-time writes (artifacts, logs, checkpoints) go through the `RunContext` accessors, which register each asset in the scope's manifest as they write.
+Every scope exposes a typed `assets` view — a read-only query surface over the authoritative per-scope `assets.json` manifests — and a `data_assets` library for importing external data. Run-time writes go through `ctx.register_artifact` / `ctx.log` / `ctx.checkpoint`, which register each asset in the scope's manifest as they write.
 
 ```python
 from pathlib import Path
@@ -128,7 +128,7 @@ project.data_assets.import_asset("dataset", "qm9.csv")
 with run.start() as ctx:
     dataset = ctx.find_asset("dataset")       # walks run → experiment → project → workspace
     result = await WorkflowRuntime().execute(compiled, run_context=ctx)
-    ctx.artifact.save("metrics.json", result.outputs["train"])
+    ctx.register_artifact(result.outputs["train"], name="metrics.json")
     ctx.log("train").append("epoch 1")
 ```
 
@@ -169,7 +169,7 @@ molexp info      # show workspace summary
                 └── runs/
                     └── run-<run_id>/
                         ├── run.json        # identity/provenance (no status)
-                        ├── _ops/run.json   # hot state: status, ownership, executions
+                        ├── ops/run.json   # hot state: status, ownership, executions
                         ├── assets.json     # run-scoped asset manifest
                         ├── artifacts/
                         ├── .ckpt/          # checkpoint payloads (when written)

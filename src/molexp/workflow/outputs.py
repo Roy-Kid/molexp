@@ -15,7 +15,8 @@ The marker is replaced in the recorded output by a plain value — the artifact'
 on-disk run path / the metric's number — so a downstream task that binds the
 key by name receives something usable, never the marker object.
 
-Example (the body stays pure — only ``ctx.workdir``)::
+Example (the body stays pure — write under ``ctx.workdir``, publish
+with the same verbs as ``RunContext``)::
 
     @wf.task
     async def export_lammps(ctx, system) -> dict:
@@ -24,8 +25,8 @@ Example (the body stays pure — only ``ctx.workdir``)::
         out = ctx.workdir / "system.data"
         write_lammps_data(str(out), system.to_frame(), atom_style="full")
         return {
-            "data_file": RegisterArtifact(out, mime="chemical/x-lammps-data"),
-            "n_atoms": RegisterMetric("n_atoms", system.n_atoms),
+            "data_file": ctx.register_artifact(out, mime="chemical/x-lammps-data"),
+            "n_atoms": ctx.register_metric("n_atoms", system.n_atoms),
         }
 """
 

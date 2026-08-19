@@ -41,7 +41,7 @@ The experiment script is **science + declaration only**. These are platform resp
 | `argparse` / Typer for `--workspace` / `--seed` / … | `molexp run`, task params, `molcfg.yaml` profiles, `--override KEY=VAL` |
 | `sys.path.insert` to a package tree | Install the package (`pip install -e …`); sibling modules work because `molexp run` adds the script directory |
 | `exp.add_run(..., id=f"…{time.time()}")` + `execute_run` | `exp.run(wf.compile(), params=…)` then `molexp run`; re-execute with `--rerun [--fresh]` |
-| Second `run.start()` after execute to `artifact.save` / `metrics.scalar` | Return `RegisterArtifact` / `RegisterMetric` from the task (write files under `ctx.workdir`) |
+| Second `run.start()` after execute to register products | In the task: write under `ctx.workdir`, then `ctx.register_artifact` / `ctx.register_metric` |
 | Nested CLIs for optional trajectory / cutoff | Typed task parameters (or a second task), set via profile / `--override` |
 
 molmcp scaffold tools create workspace nodes and can `validate_workflow`; they **never** drive the runtime. Agents should write the declaration-style script, then invoke `molexp run`.

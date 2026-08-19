@@ -20,6 +20,8 @@ read-only Zotero importer that produces ``ReferenceConcept`` records
 
 Each scope exposes:
 
+- ``workspace.fs``         — the disk (local / remote / cached ``FileSystem``)
+- ``{folder}.files``       — ``FileStore`` rooted at that folder (user byte-exit)
 - ``{scope}.assets``       — read-only asset view (typed Asset queries over the manifests)
 - ``{scope}.data_assets``  — ``DataAssetLibrary`` for importing user inputs
 - ``workspace.cache``      — ``CacheFolder`` (singleton property; exposes ``as_cache_store()``)
@@ -70,6 +72,7 @@ from .events import (
     read_workspace_events,
 )
 from .experiment import Experiment
+from .file_store import FileStore
 from .folder import (
     WORKSPACE_EXPERIMENT_KIND,
     WORKSPACE_PROJECT_KIND,
@@ -199,6 +202,7 @@ __all__ = [
     "ExperimentMetadata",
     "ExperimentNotFoundError",
     "ExperimentRef",
+    "FileStore",
     "Folder",
     "FolderMetadata",
     "FolderMoveCollisionError",

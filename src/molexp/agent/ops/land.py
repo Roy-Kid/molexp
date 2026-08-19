@@ -223,7 +223,7 @@ def land_run_outputs(
             tags = _infer_tags(rel, src)
             if src.is_dir():
                 # Copy directory tree into artifacts/<name>/
-                dest = ctx.work_dir / "artifacts" / name
+                dest = ctx.run_dir / "artifacts" / name
                 if dest.exists():
                     shutil.rmtree(dest)
                 shutil.copytree(src, dest)
@@ -237,9 +237,9 @@ def land_run_outputs(
                         json.dumps({"kind": "molrec", "root": name, "tags": tags}),
                         encoding="utf-8",
                     )
-                    ctx.artifact.save(
-                        f"{name}/.molexp-artifact.json",
+                    ctx.register_artifact(
                         index,
+                        name=f"{name}/.molexp-artifact.json",
                         mime="application/json",
                         tags=tags,
                     )
@@ -247,22 +247,22 @@ def land_run_outputs(
                     # Flat dir of loose files — register each file.
                     for child in dest.rglob("*"):
                         if child.is_file():
-                            rel_child = child.relative_to(ctx.work_dir / "artifacts").as_posix()
-                            ctx.artifact.save(
-                                rel_child,
+                            rel_child = child.relative_to(ctx.run_dir / "artifacts").as_posix()
+                            ctx.register_artifact(
                                 child,
+                                name=rel_child,
                                 mime=guess_mime(child),
                                 tags=tags,
                             )
             else:
                 # save() copies into artifacts/<name>; same-path is a no-op copy.
-                ctx.artifact.save(name, src, mime=guess_mime(src), tags=tags)
+                ctx.register_artifact(src, name=name, mime=guess_mime(src), tags=tags)
             attached.append(name)
         for rel in sources or []:
             src = safe_path(root, rel)
             if not src.is_file():
                 raise FileNotFoundError(f"source not found: {rel}")
-            dest_dir = ctx.work_dir / "source"
+            dest_dir = ctx.run_dir / "source"
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest = dest_dir / src.name
             if not (dest.exists() and src.resolve().samefile(dest.resolve())):
@@ -271,9 +271,9 @@ def land_run_outputs(
                 with contextlib.suppress(shutil.SameFileError):
                     shutil.copy2(src, dest)
             sourced.append(src.name)
-            ctx.artifact.save(
-                f"source/{src.name}",
+            ctx.register_artifact(
                 dest if dest.exists() else src,
+                name=f"source/{src.name}",
                 mime=guess_mime(src) or "text/x-python",
                 tags={"role": "source", "landed_from": rel},
             )

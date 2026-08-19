@@ -42,6 +42,23 @@ DELETED_SYMBOLS = [
     "_refresh_executions_index",
     "_refresh_experiments_index",
     "_refresh_projects_index",
+    # JSON-only identity + one children-index (plural).
+    "META_YAML_FILENAME",
+    "_legacy_index_filename",
+    "_drop_legacy_index",
+    "_LEGACY_META_YAML",
+    "_LEGACY_METADATA_FILENAME",
+    "_LEGACY_INDEX_FILE",
+    "from_yaml",
+    "write_ref_meta",
+    "LEGACY_AGENT_MODEL_KEY",
+    "_LEGACY_TASK_FILE",
+    "ReadOnlyStateView",
+    "_normalize_legacy_status",
+    "_atomic_write_json",
+    "CROSS_HOST_HEARTBEAT_STALE_SECONDS",
+    "_migrate_scope_columns",
+    "_migrate_artifact_edges",
 ]
 
 DELETED_FILES = [
@@ -49,6 +66,7 @@ DELETED_FILES = [
     SRC / "workspace" / "resume_policy.py",
     SRC / "workspace" / "assets" / "output.py",
     SRC / "workspace" / "assets" / "execution.py",
+    SRC / "tree_monitor.py",
 ]
 
 

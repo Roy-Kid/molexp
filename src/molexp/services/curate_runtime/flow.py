@@ -36,15 +36,10 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from molexp.harness import HarnessRunContext
 from molexp.harness.capabilities import curation_capabilities
 from molexp.harness.capability import resolve_callable
 from molexp.harness.prompts.capability_catalog import render_capability_catalog
 from molexp.harness.schemas import AgentCallSpec
-from molexp.harness.store.approval_store import SQLiteApprovalStore
-from molexp.harness.store.file_artifact_store import FileArtifactStore
-from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 from molexp.mcp_capabilities import aresolve_curation_capability_registry
 from molexp.services.curate_runtime.proposal_flow import (
     curation_invocation_to_proposal,
@@ -53,6 +48,7 @@ from molexp.services.curate_runtime.proposal_flow import (
 
 if TYPE_CHECKING:
     from molexp.harness.gateways import AgentGateway
+    from molexp.harness.host.host import Host
     from molexp.harness.registry.capability_registry import CapabilityRegistry
     from molexp.harness.stages.approval_gate import Approver
     from molexp.workspace import Experiment, Run, Workspace
@@ -184,22 +180,22 @@ def resolve_curation_arguments(
     return args
 
 
-def _build_ctx(
-    run: Run, *, gateway: AgentGateway, registry: CapabilityRegistry
-) -> HarnessRunContext:
-    """Build a HarnessRunContext rooted at the run dir (mirrors Mode._build_ctx)."""
-    run_dir = Path(str(run.run_dir))
-    artifact_store = FileArtifactStore(root=run_dir / "artifacts")
-    db_path = run_dir / "harness.sqlite"
-    return HarnessRunContext(
+def _mount_curate(
+    *,
+    workspace: Workspace,
+    run: Run,
+    gateway: AgentGateway,
+    registry: CapabilityRegistry,
+) -> Host:
+    """Mount the ``curate`` profile. Caller must ``unload``."""
+    from molexp.harness.host.compose import compose_curate
+
+    return compose_curate(
         run_id=run.id,
-        workspace_root=run_dir,
-        artifact_store=artifact_store,
-        event_log=SQLiteEventLog(path=db_path),
-        lineage_store=SQLiteArtifactLineageStore(path=db_path, artifact_store=artifact_store),
-        agent_gateway=gateway,
+        run_dir=Path(str(run.run_dir)),
+        workspace_root=Path(workspace.resolve()),
+        gateway=gateway,
         capability_registry=registry,
-        approval_store=SQLiteApprovalStore(path=db_path),
     )
 
 
@@ -233,7 +229,38 @@ async def run_curation_flow(
         summary, the grant flag, and the produced artifact ids.
     """
     registry = await aresolve_curation_capability_registry(str(workspace.root))
-    ctx = _build_ctx(run, gateway=gateway, registry=registry)
+    host = _mount_curate(workspace=workspace, run=run, gateway=gateway, registry=registry)
+    try:
+        return await _run_curation_on_host(
+            host,
+            request=request,
+            workspace=workspace,
+            experiment=experiment,
+            run=run,
+            approve=approve,
+            registry=registry,
+        )
+    finally:
+        host.unload()
+
+
+async def _run_curation_on_host(
+    host: object,
+    *,
+    request: str,
+    workspace: Workspace,
+    experiment: Experiment,
+    run: Run,
+    approve: Approver | None,
+    registry: CapabilityRegistry,
+) -> CurationResult:
+    from molexp.harness.host.host import Host
+
+    if not isinstance(host, Host):
+        raise TypeError("curate flow requires a Host")
+    ctx = host.as_run_context()
+    if ctx.agent_gateway is None:
+        raise RuntimeError("curate host did not publish AgentCall")
 
     request_ref = ctx.artifact_store.put_text(
         kind="prompt", text=request, created_by="run_curation_flow", parent_ids=[]
@@ -246,7 +273,7 @@ async def run_curation_flow(
         parent_ids=[request_ref.id],
     )
 
-    call = await gateway.call(
+    call = await ctx.agent_gateway.call(
         AgentCallSpec(
             agent_name="curation_planner",
             input_artifact_ids=[request_ref.id],
@@ -273,7 +300,7 @@ async def run_curation_flow(
                 "ChangeProposal mapping — add one in proposal_flow before cataloging it"
             )
         result_proposal = await run_curation_proposal(
-            proposal, workspace=workspace, run=run, approve=approve
+            proposal, workspace=workspace, run=run, approve=approve, ctx=ctx
         )
         outcome = result_proposal.execution_result
         status = outcome.status if outcome is not None else "failed"

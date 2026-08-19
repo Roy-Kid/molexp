@@ -2,7 +2,20 @@
 
 One line per **live** spec. `/mol:spec` adds entries; `/mol:impl` ticks the spec's tasks and prunes the entry (with the spec file) on completion.
 
-_No live specs._
+## host-align (chain)
+
+_Closed 01–04 on `dev` (2026-08-19) — DeepSeek/Cordis `ctx.xxx`: attribute access, `ctx.llm`, `tools/*` pipeline, workspace/workflow plugins._
+
+| # | Spec | Commit theme |
+|---|---|---|
+| 01 | host-align-01-ctx | `ctx.tools` + `agent/pre-step` |
+| 02 | host-align-02-llm | `ctx.llm` is the only model seam |
+| 03 | host-align-03-tools | `tools/pre-execute` → execute → post-execute |
+| 04 | host-align-04-plugins | `ctx.workspace` / `ctx.workflow` |
+
+## plan-and-solve (superseded)
+
+_Discarded 2026-08-19 — rebuilt as host-align; no impl landed._
 
 ## close-loop (chain)
 

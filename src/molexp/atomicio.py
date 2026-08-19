@@ -73,6 +73,21 @@ def atomic_write_json(path: Path, data: object) -> None:
         raise
 
 
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    """Write bytes atomically via write-to-temp + rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_")
+    tmp = Path(tmp_path)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+        tmp.replace(path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+
+
 def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
     """Write text to a file atomically via write-to-temp + rename.
 

@@ -166,10 +166,9 @@ class TestFluentExperimentChain:
         # Re-declaring the same sweep does not duplicate runs.
         assert len(exp.list_runs()) == 2
 
-    def test_deprecated_run_workflow_still_works(self, tmp_path):
+    def test_run_workflow_defines(self, tmp_path):
         exp = Workspace(tmp_path / "ws", name="ws").add_project("p").add_experiment("e")
-        with pytest.warns(DeprecationWarning, match="define"):
-            exp.run(self._workflow(), params={"a": [1, 2]})
+        exp.run(self._workflow(), params={"a": [1, 2]})
         assert len(exp.list_runs()) == 2
 
     def test_run_by_id_gets_existing(self, tmp_path):

@@ -33,7 +33,7 @@ def _workspace_fs(workspace: Workspace) -> FileSystem | None:
     """
     from ..fs_local import LocalFileSystem
 
-    fs = getattr(workspace, "_fs", None)
+    fs = getattr(workspace, "fs", None)
     if fs is None or isinstance(fs, LocalFileSystem):
         return None
     return fs

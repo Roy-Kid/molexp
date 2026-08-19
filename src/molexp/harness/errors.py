@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from molexp.harness.schemas import ApprovalRequest, PlanArtifactRef
 
 __all__ = [
+    "AgentCallRejectedError",
     "AgentResponseNotRegisteredError",
     "ApprovalPendingError",
     "ArtifactNotFoundError",
@@ -25,6 +26,7 @@ __all__ = [
     "HarnessError",
     "ObjectRefResolutionError",
     "OutOfAffectedScopeError",
+    "PluginInjectError",
     "StageExecutionError",
     "StagePersistedFailureError",
     "TaskRealizationBlockedError",
@@ -34,6 +36,28 @@ __all__ = [
 
 class HarnessError(Exception):
     """Base for every exception raised by ``molexp.harness``."""
+
+
+class AgentCallRejectedError(HarnessError):
+    """Raised when an ``agent/pre-step`` listener rejects the call.
+
+    Rewrite by returning an :class:`~molexp.harness.schemas.AgentCallSpec`.
+    Reject by raising this error (or any exception). Do not return an
+    :class:`~molexp.harness.schemas.AgentCallResult` from ``agent/pre-step``.
+    """
+
+
+class PluginInjectError(HarnessError):
+    """Raised when a plugin is mounted before its ``inject`` keys exist.
+
+    Misconfiguration fails at load, never as a silent skip.
+    """
+
+    def __init__(self, plugin: str, missing: tuple[str, ...]) -> None:
+        keys = ", ".join(missing)
+        super().__init__(f"plugin {plugin!r} injects {keys} but those services are not on the host")
+        self.plugin = plugin
+        self.missing = missing
 
 
 class ArtifactNotFoundError(HarnessError):

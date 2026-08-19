@@ -3,7 +3,7 @@
 ``Experiment.sweep(workflow, params)`` seeds one content-addressed Run per
 parameter cell and returns a :class:`RunSet`; ``RunSet.execute`` drives every
 ``pending`` run through the exact same execution path as ``molexp run``
-(RunContext lifecycle → status machine, ``_ops`` sidecar, heartbeat →
+(RunContext lifecycle → status machine, ``ops`` sidecar, heartbeat →
 workflow engine), reached via the :func:`~molexp.workspace.run.set_run_executor`
 inversion seam — the workspace layer never imports workflow. One run's
 failure never interrupts its siblings; the summary reports it honestly.

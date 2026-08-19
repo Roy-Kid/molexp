@@ -24,26 +24,26 @@ from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
 class _RunContextStub:
     """Minimal duck-typed ``run_context`` — what the runtime now requires.
 
-    Exposes ``.work_dir`` / ``.config`` / ``.run`` so the runtime can extract a
+    Exposes ``.run_dir`` / ``.config`` / ``.run`` so the runtime can extract a
     run dir and forward the value to its private channel. No ``Workspace`` import.
     """
 
     def __init__(
         self,
         *,
-        work_dir: Path,
+        run_dir: Path,
         config: dict | None = None,
         run_id: str | None = None,
         params: dict | None = None,
     ):
-        self.work_dir = work_dir
+        self.run_dir = run_dir
         self.config = config or {}
         # Root-task params reach the body by name (engine reads run_context.params).
         self.params = params or {}
         self.run = type(
             "RunStub",
             (),
-            {"id": run_id or "stub-run", "run_dir": work_dir},
+            {"id": run_id or "stub-run", "run_dir": run_dir},
         )()
 
 
@@ -77,7 +77,7 @@ class TestWorkflowRuntimeExecute:
         wf = WorkflowCompiler(name="no-run-context")
 
         run_ctx = _RunContextStub(
-            work_dir=tmp_path / "run",
+            run_dir=tmp_path / "run",
             config={"epochs": 1, "dataset": "md17"},
         )
 
@@ -96,7 +96,7 @@ class TestWorkflowRuntimeExecute:
         run_dir/executions/<execution_id>/."""
         wf = WorkflowCompiler(name="duck")
 
-        run_ctx = _RunContextStub(work_dir=tmp_path / "stub-run")
+        run_ctx = _RunContextStub(run_dir=tmp_path / "stub-run")
 
         @wf.task
         async def step(ctx: TaskContext) -> str:
@@ -106,7 +106,7 @@ class TestWorkflowRuntimeExecute:
         assert result.status == "succeeded"
         assert result.outputs["step"] == "ok"
 
-        executions = run_ctx.work_dir / "executions"
+        executions = run_ctx.run_dir / "executions"
         assert executions.exists(), "runtime must materialize executions/ under run_dir"
         wf_jsons = list(executions.rglob("workflow.json"))
         assert wf_jsons, "workflow.json must be written under run_dir/executions/<id>/"

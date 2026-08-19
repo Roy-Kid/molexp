@@ -272,26 +272,7 @@ class TestMcpStore:
         )
         assert store.secret_references(McpScope.WORKSPACE) == {"GH": ["gh1", "gh2"]}
 
-    # ── read-path normalization + invalid entries ───────────────────────────
-
-    @pytest.mark.unit
-    def test_legacy_streamable_http_normalized_to_http(self, store, tmp_path):
-        """Older configs with ``type='streamable-http'`` load as ``type='http'``."""
-        config = tmp_path / "workspace" / MCP_CONFIG_FILENAME
-        config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text(
-            json.dumps(
-                {
-                    "mcpServers": {
-                        "old": {"type": "streamable-http", "url": "https://old.example/mcp"}
-                    }
-                }
-            )
-        )
-        entry = store.get(McpScope.WORKSPACE, "old")
-        assert entry is not None
-        assert entry.transport == "http"
-        assert entry.valid is True
+    # ── invalid entries ─────────────────────────────────────────────────────
 
     @pytest.mark.unit
     def test_entry_without_type_marked_invalid(self, tmp_path, isolated_user_dir):

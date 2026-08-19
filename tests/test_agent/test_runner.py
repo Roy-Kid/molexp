@@ -4,7 +4,7 @@ Mirrors :mod:`molexp.agent.runner`. Locks the runner's own behavior only:
 model-config resolution + validation, the ``run`` / ``run_events`` surfaces
 (drain-and-fold vs live stream, plus cancellation safety), the composed MCP
 usage-instructions preamble, and the workspace-driven storage selection for
-named sessions. ChatLoop event emission is owned by ``test_loops/test_chat.py``;
+named sessions. Text-turn event emission is owned by ``test_loops/``;
 raw JsonlSessionStorage persistence by ``harness/test_session_storage.py``;
 Agent-folder CRUD by ``test_folders.py``.
 """
@@ -20,7 +20,6 @@ import pytest
 
 from molexp.agent.events import LoopCompletedEvent, LoopStartedEvent
 from molexp.agent.loop import AgentRunResult
-from molexp.agent.loops import ChatLoop, ChatLoopConfig
 from molexp.agent.mcp import defaults as defaults_mod
 from molexp.agent.mcp import store as mcp_mod
 from molexp.agent.mcp.defaults import MOLMCP_USAGE_INSTRUCTIONS
@@ -50,7 +49,7 @@ class _RecordingRouter:
         return RouterTextResult(text="stub-ok")
 
     async def complete_structured(self, **_: Any) -> Any:
-        raise AssertionError("ChatLoop does not invoke complete_structured")
+        raise AssertionError("text mode does not invoke complete_structured")
 
     def clear_usage(self) -> None:
         return None
@@ -89,18 +88,17 @@ class TestAgentRunner:
             raise AssertionError("AgentRunner construction touched the network")
 
         with patch("socket.socket", side_effect=deny):
-            runner = AgentRunner(loop=ChatLoop(config=ChatLoopConfig()), model="openai:gpt-5.2")
+            runner = AgentRunner(mode="text", model="openai:gpt-5.2")
         socket.socket = real_socket
-        assert runner.loop is not None
+        assert runner.mode == "text"
 
     def test_rejects_when_no_model_source_given(self) -> None:
         with pytest.raises(AgentRunnerConfigError, match="one of"):
-            AgentRunner(loop=ChatLoop())
+            AgentRunner()
 
     def test_rejects_when_multiple_model_sources_given(self) -> None:
         with pytest.raises(AgentRunnerConfigError, match="exactly one"):
             AgentRunner(
-                loop=ChatLoop(),
                 model="openai:gpt-5.2",
                 models={
                     ModelTier.CHEAP: "openai:gpt-5.2",
@@ -111,10 +109,10 @@ class TestAgentRunner:
 
     def test_rejects_models_map_missing_a_tier(self) -> None:
         with pytest.raises(AgentRunnerConfigError, match="must cover"):
-            AgentRunner(loop=ChatLoop(), models={ModelTier.DEFAULT: "openai:gpt-5.2"})
+            AgentRunner(models={ModelTier.DEFAULT: "openai:gpt-5.2"})
 
     def test_model_string_broadcasts_to_every_tier(self) -> None:
-        runner = AgentRunner(loop=ChatLoop(), model="openai:gpt-5.2")
+        runner = AgentRunner(mode="text", model="openai:gpt-5.2")
         assert runner._tier_models == {
             ModelTier.CHEAP: "openai:gpt-5.2",
             ModelTier.DEFAULT: "openai:gpt-5.2",
@@ -123,7 +121,6 @@ class TestAgentRunner:
 
     def test_string_keyed_models_map_coerced_to_tiers(self) -> None:
         runner = AgentRunner(
-            loop=ChatLoop(),
             models={
                 "cheap": "openai:gpt-5.2-mini",
                 "default": "openai:gpt-5.2",
@@ -144,7 +141,7 @@ class TestAgentRunner:
             async def complete_structured(self, **_):  # type: ignore[no-untyped-def]
                 raise AssertionError("not called by this test")
 
-        runner = AgentRunner(loop=ChatLoop(), router=_Stub())
+        runner = AgentRunner(router=_Stub())
         assert runner._tier_models is None
         assert runner.model is None
 
@@ -156,7 +153,7 @@ class TestAgentRunner:
         pytest.importorskip("pydantic_ai")
         from pydantic_ai.models.test import TestModel
 
-        runner = AgentRunner(loop=ChatLoop(config=ChatLoopConfig()), model=TestModel())  # type: ignore[arg-type]
+        runner = AgentRunner(mode="text", model=TestModel())  # type: ignore[arg-type]
         result = await runner.run(runner.session("rt1"), "hello")
         assert isinstance(result, AgentRunResult)
         assert result.text
@@ -168,43 +165,39 @@ class TestAgentRunner:
         pytest.importorskip("pydantic_ai")
         from pydantic_ai.models.test import TestModel
 
-        runner = AgentRunner(loop=ChatLoop(), model=TestModel())  # type: ignore[arg-type]
+        runner = AgentRunner(mode="text", model=TestModel())  # type: ignore[arg-type]
         streamed = [ev async for ev in runner.run_events(runner.session("s"), "hi")]
         assert any(isinstance(e, LoopStartedEvent) for e in streamed)
         assert isinstance(streamed[-1], LoopCompletedEvent)
 
     @pytest.mark.asyncio
-    async def test_run_events_propagates_loop_exception_without_orphan_task(self) -> None:
-        """ac-007 — a loop raising mid-stream propagates cleanly; no orphan driver."""
+    async def test_run_events_propagates_router_exception_without_orphan_task(self) -> None:
+        """A router raising mid-stream propagates cleanly; no orphan driver."""
         import asyncio
 
-        from molexp.agent.events import AsyncIteratorEventSink
-        from molexp.agent.runtime import AgentRuntime
-
-        class _ExplodingMode:
-            name = "exploding"
-
-            async def run(
-                self,
-                *,
-                runtime: AgentRuntime,
-                sink: AsyncIteratorEventSink,
-                user_input: str,
-            ) -> None:
-                await sink(LoopStartedEvent(loop_name=self.name, user_input=user_input))
+        class _Boom:
+            async def complete_text(self, **_: object) -> object:
                 raise RuntimeError("mode boom")
 
-        pytest.importorskip("pydantic_ai")
-        from pydantic_ai.models.test import TestModel
+            async def complete_structured(self, **_: object) -> object:
+                raise AssertionError("unused")
 
-        runner = AgentRunner(loop=_ExplodingMode(), model=TestModel())  # type: ignore[arg-type]
+            def stream_agentic(self, **_: object) -> object:
+                raise AssertionError("unused")
+
+            def clear_usage(self) -> None:
+                return None
+
+            def snapshot_usage(self) -> UsageBreakdown:
+                return UsageBreakdown()
+
+        runner = AgentRunner(router=_Boom(), mode="text")  # type: ignore[arg-type]
         tasks_before = set(asyncio.all_tasks())
 
         with pytest.raises(RuntimeError, match="mode boom"):
             async for _ in runner.run_events(runner.session("explode"), "go"):
                 pass
 
-        # Yield once to let any pending cancellation/finalization complete.
         await asyncio.sleep(0)
         leaked = set(asyncio.all_tasks()) - tasks_before - {asyncio.current_task()}
         assert not leaked, f"orphan tasks left by run_events: {leaked!r}"
@@ -241,7 +234,7 @@ class TestAgentRunner:
             "molexp.agent._pydanticai.router.PydanticAIRouter",
             side_effect=_patched_router(captured),
         ):
-            runner = AgentRunner(loop=ChatLoop(), model="openai:gpt-5.2", workspace=workspace)
+            runner = AgentRunner(mode="text", model="openai:gpt-5.2", workspace=workspace)
             await runner.run(runner.session("mcp-1"), "hi")
 
         assert len(captured) == 1
@@ -264,7 +257,7 @@ class TestAgentRunner:
             "molexp.agent._pydanticai.router.PydanticAIRouter",
             side_effect=_patched_router(captured),
         ):
-            runner = AgentRunner(loop=ChatLoop(), model="openai:gpt-5.2", workspace=workspace)
+            runner = AgentRunner(mode="text", model="openai:gpt-5.2", workspace=workspace)
             await runner.run(runner.session("mcp-2"), "hi")
 
         composed = captured[0].ctor_kwargs.get("system_prompt", "")
@@ -274,7 +267,7 @@ class TestAgentRunner:
 
     def test_session_without_workspace_is_in_memory(self) -> None:
         """Without a workspace, ``session(id)`` is an in-memory session."""
-        runner = AgentRunner(loop=ChatLoop(), model="openai:gpt-5.2")
+        runner = AgentRunner(mode="text", model="openai:gpt-5.2")
         s = runner.session("anything")
         assert isinstance(s, Session)
         assert s.session_id == "anything"
@@ -297,7 +290,7 @@ class TestAgentRunner:
         test_model = TestModel()
 
         runner_a = AgentRunner(
-            loop=ChatLoop(config=ChatLoopConfig()),
+            mode="text",
             model=test_model,
             workspace=workspace,  # type: ignore[arg-type]
         )
@@ -308,7 +301,7 @@ class TestAgentRunner:
         assert entries_after_first > 0
 
         runner_b = AgentRunner(
-            loop=ChatLoop(config=ChatLoopConfig()),
+            mode="text",
             model=test_model,
             workspace=workspace,  # type: ignore[arg-type]
         )

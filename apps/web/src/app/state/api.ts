@@ -709,7 +709,7 @@ export const workspaceApi = {
    * `producerTaskId`) for nodes that match a registered asset.
    */
   /**
-   * List workspace directory via WorkspaceFs (Path + Fs model).
+   * List workspace directory via WorkspaceFs (HTTP view of Workspace.fs).
    * Prefer this over raw fetch so local/remote stay transparent.
    */
   getWorkspaceTree: async (

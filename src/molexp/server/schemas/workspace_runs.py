@@ -70,7 +70,7 @@ class WorkspaceRunRow(BaseModel):
         cluster = executor.get("cluster_name")
         scheduler = executor.get("scheduler")
 
-        # Execution history + finished_at are hot state → the OKF ``_ops``
+        # Execution history + finished_at are hot state → the OKF ``ops``
         # sidecar (wsokf-10); read once via ``run.read_ops()``.
         ops = run.read_ops()
         executions = [_build_execution_row(run.id, rec, executor) for rec in ops.executions]

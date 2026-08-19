@@ -181,7 +181,7 @@ def _invalidate_run_nav_cache(workspace, run_or_exp_path: str) -> None:  # noqa:
     Secondary fix for pin-until-refresh caches that hide newly-landed
     ``*.mlp.jsonl`` / run dirs until an explicit refresh.
     """
-    fs = getattr(workspace, "_fs", None)
+    fs = getattr(workspace, "fs", None)
     if isinstance(fs, CachedRemoteFileSystem):
         fs.invalidate(run_or_exp_path)
 
@@ -196,7 +196,7 @@ def list_runs(
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, "")
     # Fresh listdir for remote pin caches (new runs on the host).
-    runs_dir = workspace._fs.join(str(experiment.experiment_dir), "runs")
+    runs_dir = workspace.fs.join(str(experiment.experiment_dir), "runs")
     _invalidate_run_nav_cache(workspace, runs_dir)
     return [RunResponse.from_model(r) for r in experiment.list_runs()]
 
@@ -331,7 +331,7 @@ def get_run_metrics(
 
     result = read_run_metrics(
         run.run_dir,
-        fs=workspace._fs,
+        fs=workspace.fs,
         metric_type=metric_type,
         key=key,
         since_line=since_line,
@@ -358,7 +358,7 @@ def get_run_file_text(
 ) -> RunFileTextResponse:
     """Return the raw text content of a file under the run directory.
 
-    Routes through ``workspace._fs`` — same path as workspace file reads —
+    Routes through ``workspace.fs`` — same path as workspace file reads —
     so remote workspaces resolve correctly.
     """
     experiment = _get_experiment(workspace, project_id, experiment_id)
@@ -368,7 +368,7 @@ def get_run_file_text(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    fs = workspace._fs
+    fs = workspace.fs
     run_dir = str(run.run_dir)
     rel = path.lstrip("/")
     if ".." in Path(rel).parts:
@@ -503,7 +503,7 @@ def get_run_files(
     """Return the on-disk file tree for a run, enriched with catalog metadata.
 
     Uses the **same** :func:`~molexp.workspace.fs_tree.list_tree_children` walk
-    as workspace file listing (via ``workspace._fs``) so remote workspaces
+    as workspace file listing (via ``workspace.fs``) so remote workspaces
     activate plugins the same way as local ones. Catalog enrichment is
     best-effort for local asset scans only.
     """
@@ -514,7 +514,7 @@ def get_run_files(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    fs = workspace._fs
+    fs = workspace.fs
     run_dir = str(run.run_dir)
     # Drop pinned listings so newly-written ``*.mlp.jsonl`` / artifacts show up.
     _invalidate_run_nav_cache(workspace, run_dir)
@@ -775,12 +775,6 @@ def rerun_run(
 
 
 @router.post("/{run_id}/cancel", response_model=RunActionResponse)
-@router.post(
-    "/{run_id}/kill",
-    response_model=RunActionResponse,
-    deprecated=True,
-    description="Deprecated alias for `POST .../{run_id}/cancel` (same handler).",
-)
 def cancel_run(
     project_id: str,
     experiment_id: str,
@@ -789,9 +783,8 @@ def cancel_run(
 ) -> RunActionResponse:
     """Cancel a run.
 
-    ``cancel`` is the canonical verb (matching the CLI ``molexp runs cancel``
-    and the resulting ``cancelled`` status); ``/kill`` remains as a
-    deprecated alias route bound to this same handler.
+    ``cancel`` is the stop verb (matching the CLI ``molexp runs cancel``
+    and the resulting ``cancelled`` status).
 
     Routes through :func:`molexp.plugins.submit_molq.cancel.try_cancel`, which signals
     molq via :class:`molq.Submitor` for cluster-submitted runs and
@@ -1048,7 +1041,7 @@ def update_run_status(
     except ValueError:
         raise InvalidStatusError(run.status, new_status_str)  # noqa: B904
 
-    # Status / finished_at are hot state → the OKF ``_ops`` sidecar (wsokf-10).
+    # Status / finished_at are hot state → the OKF ``ops`` sidecar (wsokf-10).
     finished = datetime.now() if new_status_str in ("succeeded", "failed", "cancelled") else None
     run.update_ops(
         lambda s: s.model_copy(

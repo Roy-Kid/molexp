@@ -22,7 +22,7 @@ def running_run(tmp_path):
     ws.materialize()
     e = ws.add_project("p").add_experiment("e", workflow_source="s.py", params={})
     r = e.add_run(params={"seed": 1})
-    # Hot state (status / ownership) lives in the OKF _ops sidecar (wsokf-10).
+    # Hot state (status / ownership) lives in the OKF ops sidecar (wsokf-10).
     r.update_ops(lambda s: s.model_copy(update={"status": RunStatus.RUNNING}))
     return r
 

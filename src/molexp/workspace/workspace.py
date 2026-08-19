@@ -1,10 +1,14 @@
 """Workspace: top-level container with project management.
 
 The Workspace is the root of the hierarchy and the only :class:`Folder`
-whose ``parent`` is ``None``. Unlike lower levels, the workspace
-constructor **does** ensure its root directory + ``workspace.json``
-exist, because every other level needs a materialized workspace as
-anchor.
+whose ``parent`` is ``None``. It **owns the disk**
+(:attr:`Workspace.fs`, a :class:`~molexp.workspace.fs.FileSystem`).
+Child Folders are locations on that disk; they resolve I/O through
+:meth:`Folder._disk` and expose user writes as :attr:`Folder.files`.
+
+Unlike lower levels, the workspace constructor **does** ensure its root
+directory + ``workspace.json`` exist, because every other level needs a
+materialized workspace as anchor.
 
 Child factories (``.add_project(...)``) are idempotent: they load existing
 children from disk or create + materialize new ones.
@@ -93,13 +97,13 @@ class Workspace(Folder):
     def __init__(
         self, root: PathArg | None = None, name: str | None = None, *, fs: FileSystem | None = None
     ) -> None:
-        self._fs = fs or LocalFileSystem()
+        self._disk_backend = fs or LocalFileSystem()
 
         # Root precedence (local only). An explicit ``-ws`` override is STRONG
         # and wins over a script-passed root; an inferred override is WEAK and
         # only fills in when ``root`` is omitted. With no override, the passed
         # root is used as-is; with neither root nor override we fail fast.
-        local = isinstance(self._fs, LocalFileSystem)
+        local = isinstance(self.fs, LocalFileSystem)
         override = _cli_root_override if local else None
         if override is not None and (root is None or override[1]):
             resolved_raw = str(override[0])
@@ -109,15 +113,15 @@ class Workspace(Folder):
                 "pass a root or run the script via `molexp run`"
             )
         elif local:
-            resolved_raw = self._fs.resolve(str(root))
+            resolved_raw = self.fs.resolve(str(root))
         else:
             resolved_raw = str(root)  # Remote: use path as-is (tilde handled by remote shell)
 
-        metadata_path = self._fs.join(resolved_raw, "workspace.json")
-        if self._fs.exists(metadata_path):
-            entity_meta = _load_metadata(WorkspaceMetadata, metadata_path, fs=self._fs)
+        metadata_path = self.fs.join(resolved_raw, "workspace.json")
+        if self.fs.exists(metadata_path):
+            entity_meta = _load_metadata(WorkspaceMetadata, metadata_path, fs=self.fs)
         else:
-            display_name = name if name is not None else self._fs.basename(resolved_raw)
+            display_name = name if name is not None else self.fs.basename(resolved_raw)
             entity_meta = WorkspaceMetadata(id=slugify(display_name), name=display_name)
 
         # Workspace bypasses ``Folder.__init__`` because the human-readable
@@ -162,11 +166,11 @@ class Workspace(Folder):
         from *child_dir* and ignores the synthetic *parent* (a Workspace has
         none). See the Folder.from_disk hook docs.
         """
-        return cls(root=child_dir, fs=parent._fs)
+        return cls(root=child_dir, fs=parent._disk())
 
     def _ensure_materialized(self) -> None:
-        meta_path = self._fs.join(self.resolve(), "workspace.json")
-        if not self._fs.exists(meta_path):
+        meta_path = self.fs.join(self.resolve(), "workspace.json")
+        if not self.fs.exists(meta_path):
             self.materialize()
 
     def as_bundle(self) -> Bundle:
@@ -174,13 +178,18 @@ class Workspace(Folder):
 
         Critical for remote workspaces: ``Bundle(root)`` alone defaults to a
         local FS and sees an empty tree. Always use this (or
-        ``Bundle(root, fs=ws._fs)``) so knowledge walks hit the cache/SSH mirror.
+        ``Bundle(root, fs=ws.fs)``) so knowledge walks hit the cache/SSH mirror.
         """
         from .bundle import Bundle
 
-        return Bundle(self.root, fs=self._fs)
+        return Bundle(self.root, fs=self.fs)
 
     # ── Properties (entity-specific) ─────────────────────────────────────
+
+    @property
+    def fs(self) -> FileSystem:
+        """The disk this workspace lives on (local, remote, or cached)."""
+        return self._disk()
 
     @property
     def metadata(self) -> WorkspaceMetadata:  # type: ignore[override]
@@ -234,7 +243,7 @@ class Workspace(Folder):
         validates over its own transport. See
         :func:`~molexp.workspace.validate.validate_workspace`.
         """
-        return validate_workspace(self.resolve(), fs=self._fs)
+        return validate_workspace(self.resolve(), fs=self.fs)
 
     # ── Path toolkit (layout fixes) ─────────────────────────────────────
 
@@ -270,28 +279,17 @@ class Workspace(Folder):
     # ── Persistence ─────────────────────────────────────────────────────
 
     def materialize(self) -> None:
-        """Write workspace scaffold to disk.
-
-        .. deprecated::
-            Prefer :meth:`Workspace.create` for new labs, or rely on
-            :meth:`add_project` (which writes the root when needed). Kept for
-            compatibility; will warn in a future release.
-        """
+        """Write workspace scaffold to disk."""
         root_str = self.resolve()
-        self._fs.mkdir(root_str, parents=True, exist_ok=True)
-        meta_path = self._fs.join(root_str, "workspace.json")
-        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
+        self.fs.mkdir(root_str, parents=True, exist_ok=True)
+        meta_path = self.fs.join(root_str, "workspace.json")
+        _save_metadata(self._entity_metadata, meta_path, fs=self.fs)
         self.write_meta()  # sole concept identity (type); domain lives in workspace.json
 
     def save(self) -> None:
-        """Persist current metadata to disk.
-
-        .. deprecated::
-            Prefer :meth:`set_project` for field updates; workspace-level
-            metadata changes will gain an explicit setter. Kept for compatibility.
-        """
-        meta_path = self._fs.join(self.resolve(), "workspace.json")
-        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
+        """Persist current metadata to disk."""
+        meta_path = self.fs.join(self.resolve(), "workspace.json")
+        _save_metadata(self._entity_metadata, meta_path, fs=self.fs)
 
     # ── Alternative constructors ─────────────────────────────────────────
 
@@ -353,7 +351,7 @@ class Workspace(Folder):
         project (does not error). To update fields, use :meth:`set_project`.
         """
         self._ensure_materialized()
-        child = self._construct_child(Project, name, fs=self._fs)
+        child = self._construct_child(Project, name)
         return self.add_folder(child)
 
     def project(self, name: str) -> Project:

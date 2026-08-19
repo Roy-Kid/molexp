@@ -49,7 +49,7 @@ def classify(run: Run) -> CancelPlan:
     if status in _TERMINAL_STATUSES:
         return CancelPlan(kind="none", detail="already terminal")
 
-    # Ownership (pid/host) lives in the OKF ``_ops`` sidecar (wsokf-10);
+    # Ownership (pid/host) lives in the OKF ``ops`` sidecar (wsokf-10);
     # executor_info (scheduler/job ids) stays on run.json metadata.
     info = normalize_executor_info(run.metadata.executor_info, {})
     if info.get("backend") == "molq" and info.get("job_id"):

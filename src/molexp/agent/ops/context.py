@@ -1,4 +1,4 @@
-"""Build :class:`AgentSessionContext` for one InteractiveLoop turn."""
+"""Build :class:`AgentSessionContext` for one ReAct turn."""
 
 from __future__ import annotations
 
@@ -23,12 +23,15 @@ def build_session_context(
     mcp_tool_specs: tuple[ToolSpec, ...] = (),
     behavior: BehaviorPolicy | None = None,
     confine_code_to: str | None = None,
+    surface: str = "chat",
 ) -> AgentSessionContext:
     """Assemble the three ops implementations + behavior for one turn.
 
     Args:
         confine_code_to: When set (Chat Mode: ``agent/.scratch``),
             :class:`LocalCodeEnv` rewrites writes under that prefix.
+        surface: Builtin catalog preset forwarded to
+            :class:`~molexp.agent.ops.discovery.CatalogDiscovery`.
     """
     root = Path(workspace_root).resolve()
     return AgentSessionContext(
@@ -43,6 +46,7 @@ def build_session_context(
             workspace_root=root,
             mcp_toolsets=mcp_toolsets,
             mcp_tool_specs=mcp_tool_specs,
+            builtin_surface=surface,
         ),
         behavior=behavior or DefaultOpsBehavior(),
     )

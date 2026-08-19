@@ -44,7 +44,7 @@ result = run.execute(wf)
 print(run.status, result.outputs["report"])  # succeeded 0.1
 ```
 
-The run's directory now holds `run.json` (identity and provenance), `_ops/run.json` (status and ownership), and `executions/<exec_id>/` (per-task outputs). Read it back in a later session:
+The run's directory now holds `run.json` (identity and provenance), `ops/run.json` (status and ownership), and `executions/<exec_id>/` (per-task outputs). Read it back in a later session:
 
 ```python
 same_run = exp.get_run(run.id)

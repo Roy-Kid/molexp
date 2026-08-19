@@ -8,8 +8,7 @@ shallow otherwise), merges the violations into one
 :class:`PlanValidationReport`, and persists it **always** — on failure the stage
 raises :class:`StagePersistedFailureError` after persisting (mirroring
 :class:`ValidateWorkflowSource`). An empty bundle (no specs) is itself a
-violation. For back-compat the loader also accepts a bare ``TestSpec``
-artifact, treating it as a one-element bundle.
+violation.
 """
 
 from __future__ import annotations

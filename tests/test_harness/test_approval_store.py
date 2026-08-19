@@ -15,7 +15,6 @@ Its laws:
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -148,28 +147,7 @@ class TestSQLiteApprovalStore:
             store.record_decision(_decision("req-never-recorded", granted=True))
 
 
-# ---- plan-emergent-07: scope + target_agent_id round-trip + additive migration ----
-
-
-# Pre-generalization (legacy) ``approvals`` table: the exact column set before
-# plan-emergent-07 added ``scope`` / ``target_agent_id``. Used to prove the
-# idempotent additive migration (PRAGMA table_info -> ALTER TABLE ADD COLUMN)
-# defaults a legacy row's scope to ``approval_gate``.
-_LEGACY_SCHEMA_SQL = """
-CREATE TABLE approvals (
-    request_id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    intent TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    triggered_by_policy TEXT NOT NULL,
-    metadata_json TEXT NOT NULL,
-    requested_at TEXT NOT NULL,
-    state TEXT NOT NULL,
-    decided_by TEXT,
-    decided_at TEXT,
-    decision_reason TEXT
-);
-"""
+# ---- plan-emergent-07: scope + target_agent_id round-trip ----
 
 
 class TestApprovalStoreScope:
@@ -206,41 +184,3 @@ class TestApprovalStoreScope:
         [reopened] = store.pending(_RUN_ID)
         assert reopened.scope == "intervention_request"
         assert reopened.target_agent_id == "codegen-task-T"
-
-    def test_legacy_row_migrates_to_default_scope(self, tmp_path: Path) -> None:
-        """A row written before the new columns reads back scope=='approval_gate'.
-
-        The store's ``__init__`` runs an idempotent additive migration; a
-        pre-existing legacy ``approvals`` table (no ``scope`` / ``target_agent_id``
-        columns) must gain them and default legacy rows to ``approval_gate``.
-        """
-        db_path = tmp_path / "legacy.sqlite"
-        legacy = sqlite3.connect(db_path)
-        try:
-            legacy.executescript(_LEGACY_SCHEMA_SQL)
-            legacy.execute(
-                """
-                INSERT INTO approvals (
-                    request_id, run_id, intent, reason, triggered_by_policy,
-                    metadata_json, requested_at, state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-                """,
-                (
-                    "legacy-req",
-                    _RUN_ID,
-                    "experiment_spec",
-                    "legacy pending row",
-                    "PlanMode",
-                    "{}",
-                    datetime(2026, 7, 1, tzinfo=UTC).isoformat(),
-                ),
-            )
-            legacy.commit()
-        finally:
-            legacy.close()
-
-        store = SQLiteApprovalStore(db_path)  # __init__ migration runs here
-        [pending] = store.pending(_RUN_ID)
-        assert pending.id == "legacy-req"
-        assert pending.scope == "approval_gate"
-        assert pending.target_agent_id is None

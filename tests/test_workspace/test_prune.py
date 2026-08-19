@@ -4,7 +4,7 @@ The ONE prune core the CLI (``molexp runs prune``) and the harness lifecycle
 capability share: ``plan_execution_prune`` turns a selection (explicit ids /
 statuses / everything) into a frozen, reviewable ``ExecutionPrunePlan``;
 ``apply_execution_prune`` deletes exactly what the plan lists via
-``Run.delete_execution`` (rmtree + ``_ops`` history rewrite, atomic per entry).
+``Run.delete_execution`` (rmtree + ``ops`` history rewrite, atomic per entry).
 
 Contract points under test (spec Testing strategy + CLI-parity with the old
 inline core at ``cli/prune.py``):
@@ -13,7 +13,7 @@ inline core at ``cli/prune.py``):
   on an actively-running run raises the typed ``LivePruneRefusedError``;
 * a ``running`` record on a *terminal* run is a zombie leftover and prunes
   normally (same rule the CLI enforced);
-* apply removes exactly the planned dirs and rewrites the ``_ops`` execution
+* apply removes exactly the planned dirs and rewrites the ``ops`` execution
   history — run status / params / other attempts are untouched.
 """
 

@@ -79,24 +79,6 @@ class SQLiteApprovalStore:
         self._conn, self._lock = open_db(self._path)
         with self._lock:
             self._conn.executescript(_SCHEMA_SQL)
-            self._migrate_scope_columns()
-
-    def _migrate_scope_columns(self) -> None:
-        """Bring a pre-plan-emergent-07 ``approvals`` table up to the scope set.
-
-        ``CREATE TABLE IF NOT EXISTS`` is a no-op on a pre-existing legacy
-        table, so the ``scope`` / ``target_agent_id`` columns are added here
-        with ``ALTER TABLE``. Idempotent (columns already present are left
-        untouched); legacy rows read back ``scope == 'approval_gate'`` via the
-        column default. Mirrors ``store._sqlite._migrate_artifact_edges``.
-        """
-        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(approvals)")}
-        if "scope" not in existing:
-            self._conn.execute(
-                "ALTER TABLE approvals ADD COLUMN scope TEXT DEFAULT 'approval_gate'"
-            )
-        if "target_agent_id" not in existing:
-            self._conn.execute("ALTER TABLE approvals ADD COLUMN target_agent_id TEXT")
 
     def record_pending(self, run_id: str, request: ApprovalRequest) -> None:
         """Open (or re-open) *request* as pending.

@@ -3,7 +3,7 @@
 ``molexp.workflow.execute_run(workflow, run)`` folds the seven-touchpoint
 driver dance (``run.start()`` + ``WorkflowRuntime().execute(run_context=...)``
 + asyncio plumbing) into one call that reuses the exact same execution path
-as ``molexp run``: RunContext lifecycle (status machine, ``_ops`` sidecar,
+as ``molexp run``: RunContext lifecycle (status machine, ``ops`` sidecar,
 heartbeat) + the workflow engine. ``Run.execute`` is the workspace-side sugar
 reached through the ``set_run_executor`` inversion seam (workspace never
 imports workflow).

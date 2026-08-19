@@ -33,11 +33,15 @@ def _chain_workflow() -> WorkflowCompiler:
 
     @wf.task
     async def upstream(ctx: TaskContext) -> dict:
-        return {"value": 21}
+        out = {"value": 21}
+        ctx.register_artifact(out, name="upstream.json")
+        return out
 
     @wf.task(depends_on=["upstream"])
-    async def downstream(value: int) -> dict:
-        return {"doubled": value * 2}
+    async def downstream(ctx: TaskContext, value: int) -> dict:
+        out = {"doubled": value * 2}
+        ctx.register_artifact(out, name="downstream.json")
+        return out
 
     return wf
 
@@ -70,15 +74,21 @@ class TestEngineAutomaticLineage:
 
         @wf.task
         async def left(ctx: TaskContext) -> dict:
-            return {"l": 1}
+            out = {"l": 1}
+            ctx.register_artifact(out, name="left.json")
+            return out
 
         @wf.task
         async def right(ctx: TaskContext) -> dict:
-            return {"r": 2}
+            out = {"r": 2}
+            ctx.register_artifact(out, name="right.json")
+            return out
 
         @wf.task(depends_on=["left", "right"])
-        async def join(l: int, r: int) -> dict:  # noqa: E741 — mirrors upstream keys
-            return {"sum": l + r}
+        async def join(ctx: TaskContext, l: int, r: int) -> dict:  # noqa: E741
+            out = {"sum": l + r}
+            ctx.register_artifact(out, name="join.json")
+            return out
 
         ws = _workspace(tmp_path)
         run = ws.add_project("p").add_experiment("e").add_run(params=None)

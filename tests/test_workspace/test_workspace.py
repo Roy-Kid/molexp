@@ -68,10 +68,10 @@ class TestProject:
     def test_sync_folders_imports_orphan_dirs_into_index(self, tmp_path):
         """``sync_folders`` reconciles the per-class index with disk reality.
 
-        External tooling (rsync, manual rm, legacy migration) may leave
-        directories that ``add_*`` never indexed. ``sync_folders`` is the
-        explicit reconciliation hook; without it, the index stays
-        authoritative for ``list_*``.
+        External tooling (rsync, manual rm) may leave directories that
+        ``add_*`` never indexed. ``sync_folders`` is the explicit
+        reconciliation hook; without it, the index stays authoritative
+        for ``list_*``.
         """
         from molexp.workspace import Project
 
@@ -79,8 +79,8 @@ class TestProject:
         orphan = tmp_path / "projects" / "orphan"
         orphan.mkdir(parents=True)
         (orphan / "project.json").write_text(
-            '{"id":"orphan","name":"orphan","description":"","owner":"",'
-            '"tags":[],"config":{},"created_at":"2026-04-21T12:00:00"}'
+            '{"schema_version":1,"id":"orphan","name":"orphan","description":"",'
+            '"owner":"","tags":[],"config":{},"created_at":"2026-04-21T12:00:00"}'
         )
         ws = Workspace(tmp_path)
         ws.add_project("registered")

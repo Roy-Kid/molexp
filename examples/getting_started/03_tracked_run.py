@@ -40,7 +40,7 @@ async def main() -> None:
         result = await WorkflowRuntime().execute(compiled, run_context=ctx)
         # Driver-side workspace helpers — results, artifacts, logs.
         ctx.set_result("score", result.outputs["experiment_body"]["score"])
-        ctx.artifact.save("report.txt", "summary goes here")
+        ctx.register_artifact("summary goes here", name="report.txt")
         ctx.log("train").append("epoch 1 complete")
 
     for path in sorted(root.rglob("*")):

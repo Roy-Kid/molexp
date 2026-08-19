@@ -41,8 +41,9 @@ def bundle(tmp_path: Path) -> Path:
         <root>/alpha/            (concept)
         <root>/alpha/beta/       (concept, nested)
         <root>/delta/            (concept)
-        <root>/delta/_ops/       (sidecar — never a concept)
-        <root>/delta/_ops/nested_fake/meta.json   (planted; must be skipped)
+        <root>/delta/ops/        (sidecar — never a concept)
+        <root>/delta/ops/nested_fake/meta.json   (planted; must be skipped)
+        <root>/delta/_ops/       (legacy sidecar — also skipped)
         <root>/group/            (plain org dir — NOT a concept)
         <root>/group/gamma/      (concept, under a non-concept dir)
         <root>/loose.txt         (loose file — never a concept)
@@ -54,12 +55,13 @@ def bundle(tmp_path: Path) -> Path:
     _concept("beta", root / "alpha")
     _concept("delta", root)
 
-    # _ops sidecar with a planted meta.json that must never resurrect a concept.
-    ops_fake = root / "delta" / "_ops" / "nested_fake"
-    ops_fake.mkdir(parents=True)
-    (ops_fake / "meta.json").write_text(
-        '{\n  "type": "bundle.concept",\n  "id": "nested_fake"\n}\n'
-    )
+    # ops sidecar (and the pre-rename _ops location) must never resurrect a concept.
+    for ops_name in ("ops", "_ops"):
+        ops_fake = root / "delta" / ops_name / "nested_fake"
+        ops_fake.mkdir(parents=True)
+        (ops_fake / "meta.json").write_text(
+            '{\n  "type": "bundle.concept",\n  "id": "nested_fake"\n}\n'
+        )
 
     # plain organizational dir (no meta.json) with a concept nested beneath it.
     (root / "group").mkdir()
@@ -77,8 +79,8 @@ class TestWalk:
 
     def test_skips_ops_sidecars_and_non_concept_dirs(self, bundle: Path) -> None:
         rels = {Bundle(bundle).rel_path(f) for f in Bundle(bundle).walk()}
-        # the _ops sidecar and a meta.json planted under it never surface …
-        assert not any(r.startswith("delta/_ops") for r in rels)
+        # the ops sidecar (and legacy _ops) plus a planted meta.json never surface
+        assert "delta/ops/nested_fake" not in rels
         assert "delta/_ops/nested_fake" not in rels
         # … a non-concept organizational dir is not itself a concept …
         assert "group" not in rels

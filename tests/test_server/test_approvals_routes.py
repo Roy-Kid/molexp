@@ -1,9 +1,7 @@
 """Function-level unit tests for the approvals inbox routes (routes/approvals.py).
 
 Two route-module units are exercised directly, without booting the app:
-- ``ApprovalDecisionRequest`` — the decision payload schema: ``granted`` is a
-  boolean alias onto the three-way ``action`` field, and the action/granted
-  combinations are mutually validating.
+- ``ApprovalDecisionRequest`` — the decision payload schema requires ``action``.
 - ``stream_approval_events`` — the SSE route coroutine: its
   ``StreamingResponse`` body emits one ``changed`` frame per broadcast ping,
   the same ping a task suspension and a landed decision notify.
@@ -22,21 +20,17 @@ def _text(chunk: Any) -> str:
 
 
 class TestApprovalDecisionRequest:
-    def test_action_field_and_granted_alias_validation(self) -> None:
+    def test_action_field_is_required(self) -> None:
         from pydantic import ValidationError
 
         from molexp.server.routes.approvals import ApprovalDecisionRequest
 
-        ok = ApprovalDecisionRequest(requestId="r", granted=True)
+        ok = ApprovalDecisionRequest(requestId="r", action="approve")
         assert ok.action == "approve"
         ok2 = ApprovalDecisionRequest(requestId="r", action="revise", fieldValues={"a": 1})
         assert ok2.action == "revise"
         with pytest.raises(ValidationError):
-            ApprovalDecisionRequest(requestId="r")
-        with pytest.raises(ValidationError):
-            ApprovalDecisionRequest(requestId="r", action="approve", granted=False)
-        with pytest.raises(ValidationError):
-            ApprovalDecisionRequest(requestId="r", action="revise", granted=True)
+            ApprovalDecisionRequest(requestId="r")  # type: ignore[call-arg]
 
 
 class TestStreamApprovalEvents:

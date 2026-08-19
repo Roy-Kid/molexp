@@ -59,11 +59,6 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
-    # ``ArtifactAccessor`` types ``RunContextLike.artifact`` precisely; the
-    # workflow→workspace import is layering-legal and TYPE_CHECKING-only, so it
-    # adds no runtime cost and ``runtime_checkable`` still matches by attribute.
-    from molexp.workspace.assets.accessors import ArtifactAccessor
-
     # Imported under TYPE_CHECKING only — ``task.py`` imports back into this
     # module for ``TaskInput`` / ``TaskOutput``, so a runtime import would
     # create a cycle. The PEP 695 ``type`` alias below is evaluated lazily,
@@ -130,20 +125,21 @@ class RunContextLike(Protocol):
     """Duck-typed shape of ``workspace.run.RunContext`` used by the workflow runtime.
 
     Captures only the surface the workflow scheduler reaches into: the
-    run reference, the work directory, and the artifact accessor. Members are
-    read-only properties so the concrete ``RunContext`` (whose ``work_dir`` /
+    run reference, the run directory, and the register verbs. Members are
+    read-only properties so the concrete ``RunContext`` (whose ``run_dir`` /
     ``run`` are properties) structurally satisfies the protocol. Anything else
     on a real ``RunContext`` is out of scope for the workflow layer.
     """
 
     @property
-    def work_dir(self) -> Path: ...
+    def run_dir(self) -> Path: ...
 
     @property
     def run(self) -> RunLike: ...
 
-    @property
-    def artifact(self) -> ArtifactAccessor: ...
+    def register_artifact(self, data: object, *, name: str | None = ...) -> object: ...
+
+    def task_workdir(self, task_name: str) -> Path: ...
 
     def mark_failed(self, error: str | None = None, traceback_text: str | None = None) -> None: ...
 

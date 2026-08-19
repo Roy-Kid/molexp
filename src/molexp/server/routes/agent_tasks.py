@@ -171,7 +171,7 @@ def _persist_task_response(
     except OSError:
         # Remote workspace roots are not local paths — pathlib cannot mkdir
         # under /home/... on the laptop. Listing still works; persist is
-        # best-effort until agent tasks route through workspace._fs.
+        # best-effort until agent tasks route through workspace.fs.
         return
     # Stamp the live runtime so turn-complete flush uses the product task id.
     from molexp.server.dependencies import get_agent_runtime
@@ -816,7 +816,7 @@ def _compose_system_prompt_response(
     task_meta: PersistedAgentTask | None,
     plan_mode: bool,
 ) -> AgentSystemPromptResponse:
-    """Build the inspector breakdown of the effective InteractiveLoop system prompt.
+    """Build the inspector breakdown of the effective ReAct system prompt.
 
     Mirrors production composition order (ops preamble → optional mount
     context → plan addendum). Does not require a live LLM runtime.

@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 # the CLI and the server verbs consult ONE policy; these re-exports keep the
 # historical ``molexp.cli._common`` import path working.
 from molexp.workspace.run import Run
-from molexp.workspace.run_ops import HEARTBEAT_STALE_SECONDS
 from molexp.workspace.run_reaper import pid_alive, reap_zombie_run
 
 console = Console()
@@ -77,16 +76,10 @@ def deterministic_run_id(params: dict[str, JSONValue]) -> str:
     return derive_run_id(params)
 
 
-# Backward-compatible alias — the canonical constant lives in
-# ``molexp.workspace.run_ops.HEARTBEAT_STALE_SECONDS`` (one source of truth
-# for the cross-host staleness threshold).
-CROSS_HOST_HEARTBEAT_STALE_SECONDS = HEARTBEAT_STALE_SECONDS
-
-
 def run_executor_info(run: Run) -> dict[str, str]:
     """Return normalized executor metadata for a workspace run.
 
-    Ownership (pid/host) now lives in the OKF ``_ops`` sidecar (wsokf-10); it
+    Ownership (pid/host) now lives in the OKF ``ops`` sidecar (wsokf-10); it
     is surfaced as label fallbacks for ``normalize_executor_info``, which only
     consults scheduler-shaped keys (never pid/host), so an empty labels map is
     sufficient here.

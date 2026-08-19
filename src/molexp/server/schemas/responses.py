@@ -248,7 +248,7 @@ class RunResponse(BaseModel):
                 status=rec.status,
                 schedulerJobId=rec.scheduler_job_id,
             )
-            # Execution history + status come from the OKF ``_ops`` sidecar
+            # Execution history + status come from the OKF ``ops`` sidecar
             # (wsokf-07), read once via ``run.read_ops()``.
             for rec in run.read_ops().executions
         ]

@@ -1,7 +1,7 @@
 """``RunSet.execute`` — batch tracked execution over a sweep (runset-api sub-task 2).
 
 Locks the design red line: every run goes through the SAME execution path as
-``molexp run`` (RunContext lifecycle → status machine, ``_ops`` sidecar,
+``molexp run`` (RunContext lifecycle → status machine, ``ops`` sidecar,
 heartbeat → WorkflowRuntime), one run's failure never sinks its siblings, and
 the summary reports statuses honestly.
 """

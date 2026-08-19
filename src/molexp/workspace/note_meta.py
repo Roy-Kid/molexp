@@ -23,8 +23,9 @@ NOTE_TYPE = "note.note"
 class NoteMeta(ConceptMeta):
     """Document ``meta.json`` payload of a Note Concept.
 
-    Inherits :class:`ConceptMeta` (frozen, ``extra="allow"``, ``from_yaml`` /
-    ``to_yaml``, inherited ``tags``); ``type`` defaults to ``"note.note"``.
+    Inherits :class:`ConceptMeta` (frozen, ``extra="allow"``,
+    ``from_json`` / ``to_json``, inherited ``tags``); ``type`` defaults
+    to ``"note.note"``.
 
     Attributes:
         type: Concept discriminator (defaults to ``"note.note"``).

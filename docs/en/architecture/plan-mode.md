@@ -34,7 +34,7 @@ flowchart TD
 
 | 阶段 | 内容 | 代表产物 |
 |------|------|----------|
-| **1 规划** | InteractiveLoop + 任务板工具；表单守卫；可达性；硬审 | `experiment_plan`、`review_pack`、`frozen_experiment_plan`、`plan_report` |
+| **1 规划** | plan workflow（draft ReAct ⟲ form_check）+ 任务板工具；可达性；硬审 | `experiment_plan`、`review_pack`、`frozen_experiment_plan`、`plan_report` |
 | **2 实现** | 物化 bound → RealizeBoard | `bound_workflow`、`workflow_source`、`test_source`、`execution_result`（或 `intervention_request`） |
 
 **没有**线性九步 `Mode` 账本。硬门禁后的恢复是 **store-first**。仅当

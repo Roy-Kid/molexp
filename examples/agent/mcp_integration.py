@@ -1,4 +1,4 @@
-"""Agent with MCP toolsets — ``MCPServerStdio`` pattern + ``InteractiveLoop`` tool events.
+"""Agent with MCP toolsets — ``MCPServerStdio`` pattern + ReAct tool events.
 
 Matches ``docs/concept/agent.md``.
 
@@ -7,9 +7,9 @@ Demonstrates:
 1. Offline-first ``ScriptedRouter`` simulating MCP tool-call responses.
 2. ``MCPServerStdio`` construction pattern (commented — for real LLM runs).
 3. Live mode: configure ``mcp.json`` (or user ``~/.molexp/mcp.json``);
-   ``InteractiveLoop`` opens entries via ``open_mcp_toolsets`` and passes
+   a ReAct turn opens entries via ``McpCatalog`` and passes
    them as ``stream_agentic(toolsets=...)``.
-4. ``InteractiveLoop`` emitting ``ToolCallStartedEvent`` / ``ToolCallCompletedEvent``.
+4. ReAct emitting ``ToolCallStartedEvent`` / ``ToolCallCompletedEvent``.
 
 The offline mode proves the loop's tool-call contract works without a network;
 paste a key into ``API_KEY`` for live LLM mode. MCP servers come from McpStore,
@@ -32,7 +32,6 @@ from typing import Any
 import molexp
 from molexp.agent import AgentRunner
 from molexp.agent.events import ToolCallCompletedEvent, ToolCallStartedEvent
-from molexp.agent.loops import InteractiveLoop, InteractiveLoopConfig
 from molexp.agent.router import (
     AgenticChunk,
     FinalChunk,
@@ -71,7 +70,7 @@ class ScriptedRouter:
         yield FinalChunk(text=_RESULT)
 
     async def complete_text(self, **kwargs: Any) -> Any:
-        raise NotImplementedError("see examples/agent/chat_loop.py")
+        raise NotImplementedError("this demo uses stream_agentic")
 
     async def complete_structured(self, **kwargs: Any) -> Any:
         raise NotImplementedError
@@ -84,18 +83,17 @@ class ScriptedRouter:
 
 
 def _build_runner(workspace: Path) -> AgentRunner:
-    # Live MCP: write workspace/mcp.json (or ~/.molexp/mcp.json); InteractiveLoop
-    # opens valid entries automatically via open_mcp_toolsets + stream_agentic.
-    loop = InteractiveLoop(
-        config=InteractiveLoopConfig(
-            system_prompt="you are a data-analysis assistant with database tool access",
-            workspace_root=workspace,
-        )
-    )
+    # Live MCP: write workspace/mcp.json (or ~/.molexp/mcp.json); the ReAct turn
+    # opens valid entries automatically via McpCatalog + stream_agentic.
+    kwargs = {
+        "workspace": workspace,
+        "mode": "agentic",
+        "system_prompt": "you are a data-analysis assistant with database tool access",
+    }
     if API_KEY:
         molexp.config["deepseek_api_key"] = API_KEY
-        return AgentRunner(loop=loop, model=MODEL, workspace=workspace)
-    return AgentRunner(loop=loop, router=ScriptedRouter(), workspace=workspace)
+        return AgentRunner(model=MODEL, **kwargs)
+    return AgentRunner(router=ScriptedRouter(), **kwargs)
 
 
 async def main() -> None:

@@ -48,22 +48,5 @@ class ConceptMeta(BaseModel):
         """Serialize to a ``meta.json`` string (pretty, stable key order)."""
         return json.dumps(self.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n"
 
-    # ── Back-compat aliases (YAML-era names) ──────────────────────────────
-
-    @classmethod
-    def from_yaml(cls, text: str) -> ConceptMeta:
-        """Deprecated alias for :meth:`from_json` (also accepts legacy YAML text)."""
-        stripped = text.lstrip()
-        if stripped.startswith(("{", "[")):
-            return cls.from_json(text)
-        import yaml
-
-        data = yaml.safe_load(text) or {}
-        return cls.model_validate(data)
-
-    def to_yaml(self) -> str:
-        """Deprecated alias for :meth:`to_json`."""
-        return self.to_json()
-
 
 __all__ = ["ConceptMeta"]

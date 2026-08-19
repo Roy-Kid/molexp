@@ -241,7 +241,7 @@ def _detail_run(node: TreeNode) -> list[RenderableType]:
     run = node.ref
     data = read_run_json(run.run_dir)
     # Hot state (status / finished_at / executions) lives solely in the OKF
-    # _ops sidecar (wsokf-10); identity (profile/config/script/error) in run.json.
+    # ops sidecar (wsokf-10); identity (profile/config/script/error) in run.json.
     ops = run.read_ops()
     kv = _kv_table()
     kv.add_row("id", str(run.id))
@@ -292,7 +292,7 @@ def _detail_execution(node: TreeNode) -> list[RenderableType]:
     ), "execution-kind node must hold a (Run, exec_id) tuple"
     run = node.ref[0]
     exec_id = node.ref[1]
-    # Execution history lives solely in the OKF _ops sidecar (wsokf-10).
+    # Execution history lives solely in the OKF ops sidecar (wsokf-10).
     rec = next((r for r in run.read_ops().executions if r.execution_id == exec_id), None)
     kv = _kv_table()
     kv.add_row("execution_id", str(exec_id))

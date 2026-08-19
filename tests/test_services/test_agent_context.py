@@ -29,7 +29,7 @@ from molexp.workspace.run import Run
 from molexp.workspace.run_ops import RunOpsState
 
 # Naive timestamp on purpose — the run lifecycle writes naive datetimes into
-# the _ops sidecar, and mixing naive/aware breaks the assembler's run sort.
+# the ops sidecar, and mixing naive/aware breaks the assembler's run sort.
 _TS = datetime(2026, 1, 1)
 
 _CONFIG_HASH = "sha256:feedc0defeedc0de"
@@ -53,7 +53,7 @@ def _seed(tmp_path: Path) -> tuple[Workspace, Experiment, Run, Run]:
 
     ok = exp.add_run(params={"sigma": 0.25, "seed": 7})
     with ok.start() as ctx:
-        ctx.artifact.save("m1.json", {"loss": 0.1})
+        ctx.register_artifact({"loss": 0.1}, name="m1.json")
     ok.metadata = ok.metadata.model_copy(update={"config_hash": _CONFIG_HASH})
     ok.save()
 

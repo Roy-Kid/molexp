@@ -2,7 +2,8 @@
  * Pure POSIX path arithmetic for workspace paths — the frontend twin of
  * ``molexp.path.Path`` (PurePosixPath). No I/O, no network, no host binding.
  *
- * Pair with {@link WorkspaceFs} for ops. Never call browser/Node fs APIs here.
+ * Pair with {@link WorkspaceFs} (the HTTP view of ``Workspace.fs``, the disk)
+ * for I/O. Never call browser/Node fs APIs here.
  *
  * Convention:
  * - Absolute paths start with ``/`` (remote roots, e.g. ``/home/me/ws``).

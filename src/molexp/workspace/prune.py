@@ -14,10 +14,10 @@ The two phases are the safety contract:
   never gets a plan it must second-guess. (A ``running`` record on a
   terminal run is a zombie leftover and prunes normally.)
 * **Apply is mechanical.** It loops :meth:`Run.delete_execution` (already
-  atomic per entry: ``rmtree`` + ``_ops`` history rewrite) over the plan's
+  atomic per entry: ``rmtree`` + ``ops`` history rewrite) over the plan's
   entries and reports what was removed vs. already gone.
 
-Only ``executions/<exec_id>/`` directories and their ``_ops`` history entries
+Only ``executions/<exec_id>/`` directories and their ``ops`` history entries
 are touched; run status / parameters / artifacts are left alone.
 """
 

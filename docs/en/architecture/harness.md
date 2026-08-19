@@ -39,17 +39,18 @@ they cannot collide across layers.
 
 ## Two modes
 
-Both drive the agent-layer `InteractiveLoop`; they differ in tool surface and
-in what they are allowed to write.
+Chat is one structured `AgentGateway.call`. Plan is a workflow of
+AgentCall/ReAct nodes. They differ in tool surface and in what they are
+allowed to write.
 
 ### `PlanOrchestrator` — authoritative, two-phase
 
 The production pipeline behind `molexp plan` and `POST /plan-tasks` (both
 through the one shared `services.plan_runtime.drive_plan_mode`).
 
-**Phase 1 — interactive planning.** The loop mutates a task board through the
-harness plan-tool surface (`harness.plan_tools`), guarded by a
-`PlanFormValidator` `should_stop` hook: a malformed board *denies termination*
+**Phase 1 — plan workflow.** A `draft_board` ReAct mutates a task board through
+the harness plan-tool surface (`harness.plan_tools` on `ctx.tools`).
+`form_check` is a `wf.loop` edge: a malformed board *denies exit*
 and steers the violations back to the planning agent, so a human never sees
 one. A read-only `PlanReachabilityProbe` then annotates each task's
 feasibility, the `ExperimentPlan` is persisted as the review subject, and a

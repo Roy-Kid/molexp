@@ -35,7 +35,7 @@ def _ensure_remote_ready(workspace: Workspace) -> None:
     """
     from molexp.workspace.fs_cached import CachedRemoteFileSystem
 
-    fs = getattr(workspace, "_fs", None)
+    fs = getattr(workspace, "fs", None)
     if not isinstance(fs, CachedRemoteFileSystem):
         return
     # Async force-refresh on link — progress is polled by the status strip.

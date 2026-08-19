@@ -251,7 +251,7 @@ class CachedRemoteFileSystem:
 
     @property
     def indexing(self) -> bool:
-        """True while a background :meth:`schedule_index` walk is in flight."""
+        """True while a background :meth:`schedule_refresh` walk is in flight."""
         return self._indexing
 
     @property
@@ -514,9 +514,6 @@ class CachedRemoteFileSystem:
                 daemon=True,
             )
             self._index_thread.start()
-
-    # Back-compat alias
-    schedule_index = schedule_refresh
 
     def prepare(
         self,
@@ -852,13 +849,6 @@ class CachedRemoteFileSystem:
             return None
         return self._dir_index.get(key)
 
-    # Back-compat aliases used by older call sites / tests.
-    def _fresh_entry(self, key: str) -> _Entry | None:
-        return self._pinned_entry(key)
-
-    def _fresh_dir(self, key: str) -> _DirEntry | None:
-        return self._pinned_dir(key)
-
     def _revalidate_file_entry(self, key: str, entry: _Entry) -> bool:
         """Return True when remote file is unchanged; refresh ``fetched_at``.
 
@@ -1100,11 +1090,11 @@ def prefetch_workspace_indices(
     max_workers: int | None = None,
     on_file: Callable[[str], None] | None = None,
 ) -> list[PrefetchWarning]:
-    """Outside-in parallel walk of entity metadata through ``workspace._fs``.
+    """Outside-in parallel walk of entity metadata through ``workspace.fs``.
 
     Levels (each level fully completes before the next — outer → inner):
 
-    1. **Workspace** — ``workspace.json`` + ``project.json`` index +
+    1. **Workspace** — ``workspace.json`` + ``projects.json`` index +
        ``listdir(projects/)``.
     2. **Projects** — all ``project.json`` in parallel, then per-project
        experiment indexes + ``listdir(experiments/)`` in parallel.
@@ -1128,7 +1118,7 @@ def prefetch_workspace_indices(
         parallel execution).
     """
     state = _PrefetchState()
-    fs = workspace._fs
+    fs = workspace.fs
     root = str(workspace.root)
     workers = _prefetch_workers(max_workers)
     # Propagate active-refresh force_fetch into worker threads (TLS is not
@@ -1149,11 +1139,9 @@ def prefetch_workspace_indices(
         _safe_read(fs, fs.join(root, "workspace.json"), state, on_file=on_file)
         _prefetch_concept_files(fs, root, state, on_file=on_file)
         projects_dir = fs.join(root, "projects")
-        # Children index of projects (plural). Also try legacy singular.
         _safe_read(
             fs, fs.join(root, "projects.json"), state, warn_on_missing=False, on_file=on_file
         )
-        _safe_read(fs, fs.join(root, "project.json"), state, warn_on_missing=False, on_file=on_file)
         try:
             project_names = list(fs.listdir(projects_dir))
         except FileNotFoundError:
@@ -1190,17 +1178,9 @@ def prefetch_workspace_indices(
         def _list_experiments(project_name: str) -> list[tuple[str, str]]:
             project_dir = fs.join(projects_dir, project_name)
             experiments_dir = fs.join(project_dir, "experiments")
-            # Children index of experiments (plural + legacy singular).
             _safe_read(
                 fs,
                 fs.join(project_dir, "experiments.json"),
-                state,
-                warn_on_missing=False,
-                on_file=on_file,
-            )
-            _safe_read(
-                fs,
-                fs.join(project_dir, "experiment.json"),
                 state,
                 warn_on_missing=False,
                 on_file=on_file,
@@ -1256,17 +1236,9 @@ def prefetch_workspace_indices(
             project_name, exp_name = pair
             experiment_dir = fs.join(projects_dir, project_name, "experiments", exp_name)
             runs_dir = fs.join(experiment_dir, "runs")
-            # Children index of runs (plural + legacy singular).
             _safe_read(
                 fs,
                 fs.join(experiment_dir, "runs.json"),
-                state,
-                warn_on_missing=False,
-                on_file=on_file,
-            )
-            _safe_read(
-                fs,
-                fs.join(experiment_dir, "run.json"),
                 state,
                 warn_on_missing=False,
                 on_file=on_file,
@@ -1308,7 +1280,17 @@ def prefetch_workspace_indices(
 
 # Container / infrastructure dirs that are never free-form knowledge mounts.
 _KNOWLEDGE_SKIP_DEFAULT = frozenset(
-    {"projects", "experiments", "runs", "assets", "cache", "_ops", "executions", "artifacts"}
+    {
+        "projects",
+        "experiments",
+        "runs",
+        "assets",
+        "cache",
+        "ops",
+        "_ops",
+        "executions",
+        "artifacts",
+    }
 )
 
 
@@ -1319,8 +1301,8 @@ def _prefetch_concept_files(
     *,
     on_file: Callable[[str], None] | None = None,
 ) -> None:
-    """Pull concept identity + narrative (``meta.json`` / legacy yaml / ``index.md``)."""
-    for name in ("meta.json", "meta.yaml", "index.md"):
+    """Pull concept identity + narrative (``meta.json`` / ``index.md``)."""
+    for name in ("meta.json", "index.md"):
         _safe_read(
             fs,
             fs.join(concept_dir, name),

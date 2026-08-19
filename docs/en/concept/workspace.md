@@ -44,7 +44,7 @@ workspace_root/
         ├── runs.json       ← children index (runs; plural)
         └── runs/run-<id>/
             ├── run.json    ← identity and provenance (singular)
-            ├── _ops/run.json ← hot state (status, ownership)
+            ├── ops/run.json ← hot state (status, ownership)
             ├── assets.json ← run-scoped asset manifest
             └── executions/<exec_id>/
                 ├── execution.json

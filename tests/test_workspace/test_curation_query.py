@@ -46,7 +46,7 @@ class TestAggregateAssetsByKind:
         exp = ws.add_project("p").add_experiment("e", params={})
         run = exp.add_run(params={"seed": 0})
         with run.start() as ctx:
-            ctx.artifact.save("m.json", {"x": 1})
+            ctx.register_artifact({"x": 1}, name="m.json")
 
         # Artifacts are run-scoped; the experiment scope is empty non-recursively.
         assert aggregate_assets_by_kind(exp) == {}
@@ -56,7 +56,7 @@ class TestAggregateAssetsByKind:
         exp = ws.add_project("p").add_experiment("e", params={})
         run = exp.add_run(params={"seed": 0})
         with run.start() as ctx:
-            ctx.artifact.save("m.json", {"x": 1})
+            ctx.register_artifact({"x": 1}, name="m.json")
 
         result = aggregate_assets_by_kind(exp, recursive=True)
         assert result.get("artifact") == 1

@@ -99,7 +99,7 @@ class Asset(BaseModel):
     """SHA-256 of the asset's payload, prefixed with ``sha256:``.
 
     Set automatically by :class:`~molexp.workspace.assets.data.DataAssetLibrary`
-    and :class:`~molexp.workspace.assets.accessors.ArtifactAccessor`. Streaming
+    and :meth:`~molexp.workspace.runcontext.RunContext.register_artifact`. Streaming
     or time-series kinds (``log``, ``checkpoint``, ``error_trace``,
     ``execution_state``) leave it ``None`` — content addressing of an
     open-ended stream is ambiguous.

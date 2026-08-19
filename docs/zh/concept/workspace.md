@@ -44,7 +44,7 @@ workspace_root/
         ├── run.json        ← 子级索引（运行列表）
         └── runs/run-<id>/
             ├── run.json    ← 身份和溯源
-            ├── _ops/run.json ← 热状态（状态、所有权）
+            ├── ops/run.json ← 热状态（状态、所有权）
             ├── assets.json ← 运行作用域资产清单
             └── executions/<exec_id>/
                 ├── execution.json

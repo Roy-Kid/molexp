@@ -1,9 +1,9 @@
-"""InteractiveLoop wires McpStore entries into ``stream_agentic(toolsets=...)``.
+"""ReAct wires McpStore entries into ``stream_agentic(toolsets=...)``.
 
 Owns the loop↔MCP seam only: a valid store entry becomes an opened toolset
 handed to the router (happy path), and a build failure is best-effort
 non-fatal (boundary). Tool-mounting and chunk translation are owned by
-``test_loop.py``; ``readonly_tools`` confinement by ``test_tools.py``.
+``test_loop.py``; scratch confinement by ``tests/test_agent/ops/test_ops_surface.py``.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from typing import Any
 import pytest
 
 from molexp.agent.events import LoopCompletedEvent
-from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
 from molexp.agent.router import (
     AgenticChunk,
     FinalChunk,
@@ -76,7 +75,7 @@ def _isolate_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr("molexp.agent.mcp.defaults.seed_user_defaults", lambda *_a, **_k: False)
 
 
-class TestInteractiveLoopMcpWiring:
+class TestReactMcpWiring:
     """The loop's best-effort MCP-toolset seam."""
 
     @pytest.mark.asyncio
@@ -96,8 +95,7 @@ class TestInteractiveLoopMcpWiring:
         _write_workspace_mcp(tmp_path)
 
         router = _CaptureToolsetsRouter()
-        loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
-        runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
+        runner = AgentRunner(router=router, workspace=tmp_path, mode="agentic")  # type: ignore[arg-type]
         session = Session(storage=InMemorySessionStorage(), session_id="mcp-wire")
 
         events = [ev async for ev in runner.run_events(session, "list tools")]
@@ -120,8 +118,7 @@ class TestInteractiveLoopMcpWiring:
         _write_workspace_mcp(tmp_path)
 
         router = _CaptureToolsetsRouter()
-        loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
-        runner = AgentRunner(loop=loop, router=router)  # type: ignore[arg-type]
+        runner = AgentRunner(router=router, workspace=tmp_path, mode="agentic")  # type: ignore[arg-type]
         session = Session(storage=InMemorySessionStorage(), session_id="mcp-fail")
 
         events = [ev async for ev in runner.run_events(session, "still works")]

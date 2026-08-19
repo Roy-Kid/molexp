@@ -9,25 +9,21 @@ under `agent/` — see the confinement rule below.)
 
 ## Public API
 
-The agent layer exposes five user-visible names plus the two concrete
-loops:
+The agent layer exposes four user-visible names:
 
 ```python
 from molexp.agent import (
-    AgentLoop, AgentRunner, AgentRunResult, AgentRuntime, AgentSession,
+    AgentRunner, AgentRunResult, AgentRuntime, AgentSession,
 )
-from molexp.agent.loops import ChatLoop, InteractiveLoop
 ```
 
-`ChatLoop` is one LLM round-trip; `InteractiveLoop` is the emergent
-tool loop driving `Router.stream_agentic`. ("Loop" is the agent-layer
-LLM-conversation concept; "Mode" is reserved for `molexp.harness.Mode`
-orchestration — the former agent-side plan pipeline / run execution pipelines moved
-to the harness layer.)
+Chat is one `Router.complete_text` (`AgentRunner(mode="text")`).
+Tool-using work is one ReAct (`mode="agentic"` → `Router.stream_agentic`).
+Plan orchestration is a harness workflow, not an agent loop.
 
 Construction is plain Python — no factory functions
 (`create_agent(...)` / `build_agent(...)` / `Agent(provider=...)`).
-`AgentRunner(*, loop, model=…, router=…)` lazily builds the underlying
+`AgentRunner(*, model=…, router=…)` lazily builds the underlying
 pydantic-ai router on first `.run()`, so `import molexp.agent` is cheap.
 A loop receives an `AgentRuntime` (`session` + `router` +
 `execution_env`) and emits everything it sees through the injected

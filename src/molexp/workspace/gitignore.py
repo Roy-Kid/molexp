@@ -74,7 +74,7 @@ class GitIgnoreMatcher:
 
     def __init__(self, root: PathArg, *, fs: FileSystem | None = None) -> None:
         self._root = os.fspath(root)
-        self._fs: FileSystem = fs if fs is not None else LocalFileSystem()
+        self.fs: FileSystem = fs if fs is not None else LocalFileSystem()
         # (base_rel, spec) — base_rel is '' for root-level rules; nested
         # patterns apply relative to their owning directory.
         self._layers: list[tuple[str, GitIgnoreSpec]] = [
@@ -89,8 +89,8 @@ class GitIgnoreMatcher:
 
     def _gitignore_abs(self, base_rel: str) -> str:
         if base_rel:
-            return self._fs.join(self._root, *base_rel.split("/"), ".gitignore")
-        return self._fs.join(self._root, ".gitignore")
+            return self.fs.join(self._root, *base_rel.split("/"), ".gitignore")
+        return self.fs.join(self._root, ".gitignore")
 
     def _try_load(self, base_rel: str) -> None:
         """Load ``base_rel/.gitignore`` once (no-op if missing / unreadable)."""
@@ -100,9 +100,9 @@ class GitIgnoreMatcher:
         self._loaded_bases.add(base)
         path = self._gitignore_abs(base)
         try:
-            if not self._fs.is_file(path):
+            if not self.fs.is_file(path):
                 return
-            text = self._fs.read_text(path)
+            text = self.fs.read_text(path)
         except OSError:
             return
         lines = text.splitlines()

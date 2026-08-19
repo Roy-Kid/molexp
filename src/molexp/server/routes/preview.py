@@ -64,7 +64,7 @@ def preview_asset(
         AssetNotFoundError: Unknown asset id (404).
         PreviewSidecarNotFoundError: No sidecar next to the dataset (404).
         NoReaderInSidecarError / AmbiguousReaderError / PreviewReaderError:
-            The sidecar is empty / ambiguous / broken (422).
+            The molpy sidecar has no reader / too many / failed (422).
     """
     dataset_path = _resolve_dataset_path(workspace, asset_id)
 

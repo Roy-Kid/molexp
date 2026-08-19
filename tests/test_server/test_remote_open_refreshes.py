@@ -16,7 +16,7 @@ def test_ensure_remote_ready_force_refreshes_async() -> None:
     """
     fs = MagicMock(spec=CachedRemoteFileSystem)
     ws = MagicMock()
-    ws._fs = fs
+    ws.fs = fs
 
     _ensure_remote_ready(ws)
 
@@ -25,5 +25,5 @@ def test_ensure_remote_ready_force_refreshes_async() -> None:
 
 def test_ensure_remote_ready_skips_local_fs() -> None:
     ws = MagicMock()
-    ws._fs = object()  # not CachedRemoteFileSystem
+    ws.fs = object()  # not CachedRemoteFileSystem
     _ensure_remote_ready(ws)  # no raise

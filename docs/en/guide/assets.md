@@ -74,7 +74,7 @@ run = ws.project("demo").experiment("baseline").add_run({"lr": 1e-3})
 
 with run.start() as ctx:
     ctx.set_active_task("train")
-    asset = ctx.artifact.save("metrics.json", {"loss": 0.1})
+    asset = ctx.register_artifact({"loss": 0.1}, name="metrics.json")
     # asset.producer.run_id == run.id
     # asset.producer.task_id == "train"
     log = ctx.log("train")
@@ -82,7 +82,7 @@ with run.start() as ctx:
     ckpt = ctx.checkpoint("epoch-1", data={"step": 1})
 ```
 
-`ArtifactAccessor.save()`, `LogAccessor.__call__()`, and `CheckpointAccessor.__call__()` all write to the right natural directory and register the asset in the scope's manifest in one atomic step. `set_active_task(task_id)` scopes subsequent writes to a specific task so that a run with many tasks still produces clearly-attributed assets. (When the workflow engine executes a task under a tracked run, it tags the active task for you.)
+`ctx.register_artifact(...)`, `ctx.log(name).append(...)`, and `ctx.checkpoint(...)` all write to the right natural directory and register the asset in the scope's manifest in one atomic step. `set_active_task(task_id)` scopes subsequent writes to a specific task so that a run with many tasks still produces clearly-attributed assets. (When the workflow engine executes a task under a tracked run, it tags the active task for you.)
 
 ## Querying across scopes
 

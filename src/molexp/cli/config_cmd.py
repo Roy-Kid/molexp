@@ -98,3 +98,50 @@ def config_unset(
         return
     _set_operator_values({}, unset=[key], path=_CONFIG_PATH)
     rprint(f"[green]OK[/green] Removed {key}")
+
+
+@config_app.command("dump")
+def config_dump(
+    profile: Annotated[
+        str,
+        typer.Option("--profile", help="Plugin profile: chat | plan | run | curate."),
+    ] = "run",
+) -> None:
+    """Print the plugin tree this profile would boot (not operator config)."""
+    import tempfile
+    from pathlib import Path
+    from typing import cast
+
+    from molexp.harness.gateways.gateway import AgentGateway
+    from molexp.harness.host import (
+        compose_chat,
+        compose_curate,
+        compose_plan,
+        compose_run,
+    )
+
+    class _DumpGateway:
+        async def call(self, spec: object, *, runtime: object | None = None) -> object:
+            del spec, runtime
+            raise RuntimeError("config dump does not call the model")
+
+    scratch = Path(tempfile.mkdtemp(prefix="molexp-dump-"))
+    name = profile.strip().lower()
+    dump_gw = cast(AgentGateway, _DumpGateway())
+    if name == "chat":
+        host = compose_chat(gateway=dump_gw, scratch_dir=scratch)
+    elif name == "plan":
+        host = compose_plan(run_id="dump", run_dir=scratch, gateway=dump_gw)
+    elif name == "curate":
+        host = compose_curate(run_id="dump", run_dir=scratch, workspace_root=scratch)
+    elif name == "run":
+        host = compose_run(run_id="dump", run_dir=scratch)
+    else:
+        rprint(f"[red]Unknown profile:[/red] {profile!r}. Use chat, plan, run, or curate.")
+        raise typer.Exit(1)
+    try:
+        from rich import print as _rprint
+
+        _rprint(json.dumps(host.dump_config(), indent=2))
+    finally:
+        host.unload()

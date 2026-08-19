@@ -52,7 +52,7 @@ from .snapshot import TaskSnapshot
 logger = get_logger(__name__)
 
 # Bump this when CacheEntry schema changes in a backwards-incompatible way.
-CACHE_FORMAT_VERSION = 1
+CACHE_FORMAT_VERSION = 2
 
 # Array-like inputs larger than this (element count) are content-hashed
 # instead of fully serialized when computing cache keys, to avoid OOM on

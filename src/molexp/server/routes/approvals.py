@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from molexp.server.dependencies import get_workspace
 
@@ -85,32 +85,14 @@ class PendingApprovalsResponse(BaseModel):
 class ApprovalDecisionRequest(BaseModel):
     """Operator decision — ReviewDecision-shaped wire body.
 
-    Preferred field is ``action`` (approve|reject|revise). ``granted`` remains
-    as a **deprecated** boolean alias for approve/reject only (migration for
-    older UI clients that only knew grant/deny).
+    ``action`` is required (approve|reject|revise).
     """
 
     requestId: str
-    action: ReviewActionWire | None = None
+    action: ReviewActionWire
     fieldValues: dict[str, Any] = Field(default_factory=dict)
     reason: str | None = None
     edits: dict[str, Any] | None = None
-    granted: bool | None = None
-
-    @model_validator(mode="after")
-    def _normalize_action(self) -> ApprovalDecisionRequest:
-        if self.action is None and self.granted is None:
-            raise ValueError("either action or granted is required")
-        if self.action is None and self.granted is not None:
-            object.__setattr__(self, "action", "approve" if self.granted else "reject")
-            return self
-        if self.action is not None and self.granted is not None:
-            if self.action == "revise":
-                raise ValueError("action=revise cannot be combined with granted")
-            mapped = "approve" if self.granted else "reject"
-            if self.action != mapped:
-                raise ValueError(f"action={self.action!r} conflicts with granted={self.granted!r}")
-        return self
 
 
 class ApprovalDecisionResponse(BaseModel):
@@ -271,7 +253,6 @@ async def decide_approval(
             f"{task_kind} task {task_id!r} is {task.status!r}, not waiting_approval",
         )
     pending = _pending_request(task, request.requestId)
-    assert request.action is not None  # normalized by model_validator
 
     if task_kind == "plan":
         from molexp.services.plan_runtime.decide import decide_plan_review

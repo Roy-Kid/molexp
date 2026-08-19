@@ -4,9 +4,12 @@ Core molexp (workspace + local workflow) has zero optional dependencies.
 Heavy backends are loaded on demand through this registry so that
 ``import molexp`` never fails due to a missing package.
 
-Plugin naming convention: ``{category}_{implementation}``
+Plugin naming convention: ``{category}_{implementation}`` or the product name
+when the plugin *is* that product's molexp adapter:
 
-- ``submit_molq`` — Job submission via molq schedulers
+- ``molpy`` — preview readers + LAMMPS log ingest via molpy's public API
+- ``molvis`` — headless snapshots via molvis
+- ``submit_molq`` — job submission via molq schedulers
 - ``gh`` — GitHub API client (GraphQL + REST) backed by httpx
 
 The agent capability is now provided directly by ``molexp.agent``

@@ -27,15 +27,12 @@ from molexp.harness.actions import (
 from molexp.harness.actions.handlers import register_lifecycle_handlers
 from molexp.harness.capabilities import curation_capabilities, lifecycle_capabilities
 from molexp.harness.change_proposal_gate import approval_level_for, gate_change_proposal
-from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.schemas import ChangeProposal, ChangeSpec, ObjectRef, StateSnapshot
 from molexp.harness.schemas.change_proposal import Reversibility
-from molexp.harness.store.approval_store import SQLiteApprovalStore
-from molexp.harness.store.file_artifact_store import FileArtifactStore
-from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
 if TYPE_CHECKING:
+    from molexp.harness.core.run_context import HarnessRunContext
+    from molexp.harness.host.host import Host
     from molexp.harness.stages.approval_gate import Approver
     from molexp.workspace import Run, Workspace
 
@@ -297,23 +294,19 @@ def build_curation_proposal(
     raise ValueError(f"unknown curation op {op!r}")
 
 
-def _build_ctx(workspace: Workspace, run: Run) -> HarnessRunContext:
-    """Build a harness ctx: audit stores under the run dir, but the REAL workspace root.
+def _build_ctx(workspace: Workspace, run: Run) -> Host:
+    """Build a harness ctx via the ``curate`` host profile.
 
     ``workspace_root`` MUST be the real workspace root (not the run dir), because
     the curation handlers resolve every ``ObjectRef`` via
     ``resolve_object_ref(ctx.workspace_root, …)``.
     """
-    run_dir = Path(str(run.run_dir))
-    artifact_store = FileArtifactStore(root=run_dir / "artifacts")
-    db_path = run_dir / "harness.sqlite"
-    return HarnessRunContext(
+    from molexp.harness.host.compose import compose_curate
+
+    return compose_curate(
         run_id=run.id,
+        run_dir=Path(str(run.run_dir)),
         workspace_root=Path(workspace.resolve()),
-        artifact_store=artifact_store,
-        event_log=SQLiteEventLog(path=db_path),
-        lineage_store=SQLiteArtifactLineageStore(path=db_path, artifact_store=artifact_store),
-        approval_store=SQLiteApprovalStore(path=db_path),
     )
 
 
@@ -323,6 +316,7 @@ async def run_curation_proposal(
     workspace: Workspace,
     run: Run,
     approve: Approver | None = None,
+    ctx: HarnessRunContext | None = None,
 ) -> ChangeProposal:
     """Gate + execute *proposal* through the P2.1 ChangeProposal stack (single gate).
 
@@ -331,12 +325,28 @@ async def run_curation_proposal(
         workspace: The live workspace whose objects the proposal mutates.
         run: The content-addressed audit run whose dir hosts the artifacts + audit db.
         approve: The approver resolving the gate (default: the gate's auto-grant).
+        ctx: Already-mounted Stage projection. When set, this call does
+            not compose a second Host (the NL ``run_curation_flow`` path).
+            Standalone CLI/route entries omit it and own compose/unload.
 
     Returns:
         A copy of *proposal* with ``execution_result`` filled — ``executed`` /
         ``failed`` on a grant, ``rejected`` on a denial.
     """
-    ctx = _build_ctx(workspace, run)
+    if ctx is not None:
+        return await _execute_proposal(ctx, proposal, approve)
+    host = _build_ctx(workspace, run)
+    try:
+        return await _execute_proposal(host.as_run_context(), proposal, approve)
+    finally:
+        host.unload()
+
+
+async def _execute_proposal(
+    ctx: HarnessRunContext,
+    proposal: ChangeProposal,
+    approve: Approver | None,
+) -> ChangeProposal:
     registry = ChangeActionRegistry()
     register_curation_handlers(registry)
     register_lifecycle_handlers(registry)

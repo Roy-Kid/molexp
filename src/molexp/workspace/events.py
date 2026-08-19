@@ -192,7 +192,7 @@ def emit_workspace_event(
     - **Default-on.** The first emit creates ``<root>/workspace.events.sqlite``;
       no opt-in step exists. Wired emit sites: the run-lifecycle milestones
       (``run.created`` / ``run.started`` / ``run.completed`` / ``run.failed``
-      — one row per status change), ``asset.added`` from ``ArtifactAccessor.save``
+      — one row per status change), ``asset.added`` from ``register_artifact``
       and the ``DataAssetLibrary`` import/register verbs (log-line appends and
       checkpoints deliberately stay silent — that is the frequency budget), and
       ``knowledge.created`` from the Bundle create verbs and the plan-record

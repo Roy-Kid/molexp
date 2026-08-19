@@ -9,6 +9,7 @@ core in :mod:`.node`.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
 
 from mollog import get_logger
@@ -114,12 +115,16 @@ def _artifact_manifest(deps: WorkflowDeps, name: str) -> list[dict[str, JSONValu
         content_hash = getattr(asset, "content_hash", None)
         if not content_hash:
             continue
+        path = getattr(asset, "path", None)
         manifest.append(
             {
                 "name": getattr(asset, "name", None),
                 "kind": getattr(asset, "kind", "artifact"),
                 "content_hash": content_hash,
                 "asset_id": getattr(asset, "asset_id", None),
+                "mime": getattr(asset, "mime", None),
+                "tags": getattr(asset, "tags", None) or {},
+                "path": str(path) if path is not None else None,
             }
         )
     return manifest
@@ -156,40 +161,65 @@ def _upstream_asset_ids(deps: WorkflowDeps, registration: object) -> tuple[str, 
     return tuple(ids)
 
 
-def _reregister_artifacts(
-    deps: WorkflowDeps, name: str, manifest: list[dict], *, inputs: tuple[str, ...] = ()
-) -> None:
-    """Re-register cached artifacts into the current run by content-hash.
-
-    Idempotent manifest re-registration keyed on ``(name, content_hash)``
-    pointing at bytes already present in the content-addressed store — no
-    recompute, no byte recopy. Entries whose bytes are absent (fresh
-    workspace) are skipped gracefully. Reached purely through the duck-typed
-    ``run_context`` surface so the workflow layer keeps its decoupling from a
-    concrete workspace import.
-    """
-    run_context = deps.run_context
-    if run_context is None or not manifest:
+def _put_file_blobs(deps: WorkflowDeps, manifest: list[dict]) -> None:
+    """Copy registered file bytes into the cache blob store (cache axis)."""
+    store = getattr(getattr(deps, "cache", None), "store", None)
+    put_blob = getattr(store, "put_blob", None)
+    if not callable(put_blob) or not manifest:
         return
-    # The run re-registers content-addressed artifacts into its own manifest
-    # (duck-typed so the workflow layer keeps no concrete workspace import).
-    run = getattr(run_context, "run", None)
-    reregister = getattr(run, "reregister_artifact", None)
-    if not callable(reregister):
+    run_dir = getattr(deps.run_context, "run_dir", None) or getattr(deps, "run_dir", None)
+    if run_dir is None:
+        return
+    root = Path(run_dir)
+    for entry in manifest:
+        content_hash = entry.get("content_hash")
+        rel = entry.get("path")
+        if not content_hash or not rel:
+            continue
+        path = root / rel
+        if not path.is_file():
+            continue
+        try:
+            put_blob(str(content_hash), path.read_bytes())
+        except Exception:
+            logger.debug(f"cache: blob put for {entry.get('name')!r} skipped")
+
+
+def _restore_cached_files(
+    deps: WorkflowDeps,
+    manifest: list[dict],
+    *,
+    consumed: tuple[str, ...] = (),
+) -> None:
+    """Publish cached file blobs onto the current run via register_artifact."""
+    run_context = deps.run_context
+    register = getattr(run_context, "register_artifact", None)
+    store = getattr(getattr(deps, "cache", None), "store", None)
+    get_blob = getattr(store, "get_blob", None)
+    if not callable(register) or not callable(get_blob) or not manifest:
         return
     for entry in manifest:
         content_hash = entry.get("content_hash")
-        if not content_hash:
+        name = entry.get("name")
+        if not content_hash or not name:
             continue
         try:
-            reregister(
-                name=entry.get("name"),
-                content_hash=content_hash,
-                producer_task=name,
-                inputs=inputs,
+            blob = get_blob(str(content_hash))
+        except Exception:
+            blob = None
+        if blob is None:
+            continue
+        tags = entry.get("tags")
+        try:
+            register(
+                blob,
+                name=str(name),
+                mime=entry.get("mime"),
+                tags=tags if isinstance(tags, dict) else None,
+                consumed=list(consumed) or None,
             )
         except Exception:
-            logger.debug(f"cache: re-register of artifact {entry.get('name')!r} skipped")
+            logger.debug(f"cache: restore of {name!r} skipped")
 
 
 async def run_task_body_cached(
@@ -239,38 +269,28 @@ async def run_task_body_cached(
         except Exception:
             payload = None
         if payload is not None:
-            artifacts = payload.get("artifacts", [])
-            if isinstance(artifacts, list):
-                # A hit re-registers with the SAME computed edge set a miss
-                # would record — one cached task never snaps the chain.
-                _reregister_artifacts(
+            files = payload.get("files", payload.get("artifacts", []))
+            if isinstance(files, list):
+                set_active = getattr(deps.run_context, "set_active_task", None)
+                if callable(set_active):
+                    set_active(name)
+                try:
+                    consumed = _upstream_asset_ids(deps, registration)
+                except Exception:
+                    consumed = ()
+                _restore_cached_files(
                     deps,
-                    name,
-                    [a for a in artifacts if isinstance(a, dict)],
-                    inputs=_upstream_asset_ids(deps, registration),
+                    [a for a in files if isinstance(a, dict)],
+                    consumed=consumed,
                 )
             return payload.get("result")
 
     raw = await run_task_body(name, deps, state, delivered=delivered)
 
-    # Engine materialization: persist the task's return value as a content-hashed
-    # artifact (fail-soft) — the live caller of the materialization layer. Runs
-    # before the cache put so the artifact manifest captures it too.
-    materialization = getattr(deps, "materialization", None)
-    if materialization is not None:
-        try:
-            materialization.persist_result(
-                name,
-                raw,
-                run_context=deps.run_context,
-                consumed_asset_ids=_upstream_asset_ids(deps, registration),
-            )
-        except Exception:
-            logger.debug(f"materialize: persist for task {name!r} skipped")
-
     if cacheable and _is_json_safe(raw):
         manifest = _artifact_manifest(deps, name)
-        result_payload = cast("dict[str, JSONValue]", {"result": raw, "artifacts": manifest})
+        _put_file_blobs(deps, manifest)
+        result_payload = cast("dict[str, JSONValue]", {"result": raw, "files": manifest})
         try:
             cache.put(snapshot, cache_inputs, result_payload)
         except Exception as exc:

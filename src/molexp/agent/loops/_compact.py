@@ -1,12 +1,10 @@
-"""Compaction trigger shared by the shipped loops.
+"""Compaction trigger shared by text and ReAct turns.
 
 :func:`maybe_compact` is the impure half of context compaction — the
 deterministic cut-point selection lives in
-:mod:`molexp.agent.compaction` (pure data + pure functions). Both
-shipped loops (:class:`~molexp.agent.loops.chat.ChatLoop`,
-:class:`~molexp.agent.loops.interactive.InteractiveLoop`) call it at
-the one natural seam they share: right after appending the user
-message, right before the model call.
+:mod:`molexp.agent.compaction` (pure data + pure functions).
+:class:`~molexp.agent.runner.AgentRunner` calls it after appending the
+user message, right before the model call.
 
 The trigger is conservative: nothing happens until the *effective*
 context (entries after the most recent compaction cut) is estimated
@@ -15,9 +13,7 @@ oldest span is summarized through :meth:`Router.complete_text` on the
 ``CHEAP`` tier, a :class:`~molexp.agent.session_entry.CompactionEntry`
 records the cut, and a
 :class:`~molexp.agent.events.CompactionPerformedEvent` flows to the
-sink. Opt out per loop via
-``ChatLoopConfig(compaction=CompactionSettings(enabled=False))`` (same
-for ``InteractiveLoopConfig``).
+sink. Opt out via ``AgentRunner(compaction=CompactionSettings(enabled=False))``.
 """
 
 from __future__ import annotations

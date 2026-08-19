@@ -7,7 +7,7 @@ manifest, and the manifest-scanning query layer (:mod:`.scan`).  See
 
 from . import lineage, scan
 from ._adapter import ASSET_ADAPTER, AnyAsset, parse_asset
-from .accessors import ArtifactAccessor, CheckpointAccessor, LogAccessor
+from .accessors import CheckpointAccessor, LogAccessor
 from .artifact import ArtifactAsset
 from .base import Asset, AssetScope, Producer
 from .checkpoint import CheckpointAsset
@@ -20,7 +20,6 @@ from .view import AssetsView
 __all__ = [
     "ASSET_ADAPTER",
     "AnyAsset",
-    "ArtifactAccessor",
     "ArtifactAsset",
     "Asset",
     "AssetManifest",

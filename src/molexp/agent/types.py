@@ -22,80 +22,11 @@ module deliberately does **not** define a parallel artifact type.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-class GoalMode(StrEnum):
-    """Legacy enum tagging a :class:`Goal`'s intended runtime mode.
-
-    Retained on :class:`Goal` for in-flight session metadata; the runtime
-    ``AgentLoop`` ABC (in :mod:`molexp.agent.loop`) is the post-refactor
-    successor for *strategy* selection at the runner layer.
-    """
-
-    CHAT = "chat"
-    PLAN = "plan"
-    REVIEW = "review"
-
-
-class SessionStatus(StrEnum):
-    """Terminal and live session states.
-
-    On server restart any non-terminal session is flipped to
-    ``interrupted``; full rehydration to ``resumable`` is a follow-up.
-    """
-
-    PENDING = "pending"
-    RUNNING = "running"
-    AWAITING_APPROVAL = "awaiting_approval"
-    AWAITING_PLAN_DECISION = "awaiting_plan_decision"
-    AWAITING_USER = "awaiting_user"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    INTERRUPTED = "interrupted"
-    RESUMABLE = "resumable"
-    LEGACY = "legacy"
-
-
-class FailureKind(StrEnum):
-    """Typed failure taxonomy."""
-
-    MODEL_ERROR = "model_error"
-    TOOL_ERROR = "tool_error"
-    TOOL_NOT_FOUND = "tool_not_found"
-    POLICY_DENIED = "policy_denied"
-    APPROVAL_DENIED = "approval_denied"
-    CONTEXT_OVERFLOW = "context_overflow"
-    INVALID_PLAN = "invalid_plan"
-    USER_CANCELLED = "user_cancelled"
-    WORKSPACE_CONFLICT = "workspace_conflict"
-    INTERNAL_ERROR = "internal_error"
-
-
 _FROZEN = ConfigDict(frozen=True)
-
-
-class Goal(BaseModel):
-    """A user-specified objective for one agent session.
-
-    The skill is referenced by id (``skill_id``) so the
-    ``ContextManager`` can re-resolve the addendum from
-    :class:`SkillStore` on every turn. The full skill body is *never*
-    inlined here — the harness keeps semantic state only.
-    """
-
-    model_config = _FROZEN
-
-    description: str
-    constraints: dict[str, Any] = Field(default_factory=dict)
-    success_criteria: list[str] = Field(default_factory=list)
-    mode: GoalMode = GoalMode.CHAT
-    instructions_override: str | None = None
-    skill_id: str | None = None
 
 
 class Message(BaseModel):
@@ -243,16 +174,6 @@ class UsageBreakdown(BaseModel):
         out.append(sep)
         out.append(fmt(rows[-1]))
         return "\n".join(out)
-
-
-class AgentFailure(BaseModel):
-    """Typed failure record threaded through tool results and events."""
-
-    model_config = _FROZEN
-
-    kind: FailureKind
-    message: str
-    detail: dict[str, Any] = Field(default_factory=dict)
 
 
 # Helpers --------------------------------------------------------------

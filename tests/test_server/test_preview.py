@@ -1,8 +1,6 @@
-"""Tests for sidecar-backed dataset preview (``molexp.server.preview``).
+"""Tests for sidecar-backed dataset preview.
 
-The preview module is server-owned pure logic (no lower layer owns it), so the
-trust gate, exactly-one-reader rule and host-owned frame cap are tested here at
-their owner.
+Host owns discovery + frame cap. The molpy plugin owns reader types.
 """
 
 from __future__ import annotations
@@ -10,29 +8,32 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from molpy.io import BaseTrajectoryReader
 
 from molexp.server.preview import (
     AmbiguousReaderError,
     NoReaderInSidecarError,
     PreviewReaderError,
     PreviewSidecarNotFoundError,
-    load_sidecar_reader,
+    frames_to_extxyz,
+    load_preview,
     preview_frames,
     resolve_sidecar,
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "fake_sidecar.py"
 
-# A sidecar that defines no BaseTrajectoryReader subclass.
 _ZERO_READER_SRC = "VALUE = 42\n"
 
-# A sidecar that defines two concrete BaseTrajectoryReader subclasses.
 _TWO_READER_SRC = """
 from molpy.io import BaseTrajectoryReader
 from molpy import Frame
 
 
 class ReaderA(BaseTrajectoryReader):
+    def __init__(self, fpath):
+        super().__init__(fpath, must_exist=False)
+
     def read_frame(self, i):
         return Frame()
 
@@ -42,6 +43,9 @@ class ReaderA(BaseTrajectoryReader):
 
 
 class ReaderB(BaseTrajectoryReader):
+    def __init__(self, fpath):
+        super().__init__(fpath, must_exist=False)
+
     def read_frame(self, i):
         return Frame()
 
@@ -49,7 +53,6 @@ class ReaderB(BaseTrajectoryReader):
     def n_frames(self):
         return 1
 """
-# A sidecar that raises while its module body executes.
 _BROKEN_SRC = "raise RuntimeError('sidecar boom')\n"
 
 
@@ -60,12 +63,6 @@ def _make_sidecar_dataset(
     ext: str = ".bin",
     sidecar_src: str | None = None,
 ) -> Path:
-    """Create ``<stem><ext>`` plus its same-stem ``<stem>.py`` sidecar.
-
-    ``sidecar_src=None`` copies the committed ``fake_sidecar.py`` (the
-    happy-path reader); pass a string to install a variant sidecar.
-    Returns the dataset path.
-    """
     dataset = dir_path / f"{stem}{ext}"
     dataset.write_bytes(b"fake dataset content")
     sidecar = dir_path / f"{stem}.py"
@@ -77,8 +74,6 @@ def _make_sidecar_dataset(
 
 
 class TestSidecarPreview:
-    """Pure-logic owner: trust gate, exactly-one-reader, host-owned frame cap."""
-
     def test_resolve_does_not_import_the_sidecar(self, tmp_path, monkeypatch):
         sentinel = tmp_path / "import.sentinel"
         monkeypatch.setenv("MOLEXP_TEST_IMPORT_SENTINEL", str(sentinel))
@@ -97,9 +92,7 @@ class TestSidecarPreview:
         monkeypatch.setenv("MOLEXP_TEST_MAIN_SENTINEL", str(main_sentinel))
 
         dataset = _make_sidecar_dataset(tmp_path)
-        reader = load_sidecar_reader(dataset)
-
-        from molpy.io import BaseTrajectoryReader
+        reader = load_preview(dataset)
 
         assert isinstance(reader, BaseTrajectoryReader)
         assert import_sentinel.exists(), "explicit load must execute the module body"
@@ -108,24 +101,30 @@ class TestSidecarPreview:
     def test_load_zero_readers_raises_no_reader(self, tmp_path):
         dataset = _make_sidecar_dataset(tmp_path, sidecar_src=_ZERO_READER_SRC)
         with pytest.raises(NoReaderInSidecarError):
-            load_sidecar_reader(dataset)
+            load_preview(dataset)
 
     def test_load_two_readers_raises_ambiguous(self, tmp_path):
         dataset = _make_sidecar_dataset(tmp_path, sidecar_src=_TWO_READER_SRC)
         with pytest.raises(AmbiguousReaderError):
-            load_sidecar_reader(dataset)
+            load_preview(dataset)
 
     def test_load_broken_sidecar_raises_reader_error(self, tmp_path):
         dataset = _make_sidecar_dataset(tmp_path, sidecar_src=_BROKEN_SRC)
         with pytest.raises(PreviewReaderError):
-            load_sidecar_reader(dataset)
+            load_preview(dataset)
 
     def test_load_missing_sidecar_raises_not_found(self, tmp_path):
         dataset = tmp_path / "plain.bin"
         dataset.write_bytes(b"x")
         with pytest.raises(PreviewSidecarNotFoundError):
-            load_sidecar_reader(dataset)
+            load_preview(dataset)
 
     def test_preview_frames_caps_at_host_limit(self, tmp_path):
-        dataset = _make_sidecar_dataset(tmp_path)  # FakeReader yields 5 frames
+        dataset = _make_sidecar_dataset(tmp_path)
         assert len(preview_frames(dataset, limit=3)) == 3
+
+    def test_frames_to_extxyz_uses_molpy_writer(self, tmp_path):
+        dataset = _make_sidecar_dataset(tmp_path)
+        xyz = frames_to_extxyz(preview_frames(dataset, limit=2)).decode()
+        assert "C" in xyz
+        assert "O" in xyz

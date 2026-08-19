@@ -108,13 +108,12 @@ def _configured_model() -> str | None:
     The canonical key is ``"agent.model"`` (same spelling as the CLI's
     ``molexp config set agent.model <id>``; the server startup bridge —
     :func:`molexp.services.operator_config.bridge_operator_config` — populates
-    it from ``~/.molexp/config.json``). The legacy flat ``"agent_model"``
-    key is still honoured for in-code users.
+    it from ``~/.molexp/config.json``).
     """
     import molexp
-    from molexp.services.operator_config import AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY
+    from molexp.services.operator_config import AGENT_MODEL_KEY
 
-    model = molexp.config.get(AGENT_MODEL_KEY) or molexp.config.get(LEGACY_AGENT_MODEL_KEY)
+    model = molexp.config.get(AGENT_MODEL_KEY)
     return model if isinstance(model, str) and model else None
 
 
@@ -194,25 +193,25 @@ def _build_runner(
         )
 
     from molexp.agent import AgentRunner
-    from molexp.agent.loops import InteractiveLoop
-    from molexp.harness.modes.chat import chat_loop_config
 
     root = getattr(workspace, "root", None)
     workspace_root = Path(str(root)) if root is not None else None
-    # Default agent sessions are Chat Mode (scratch-only, no default land).
-    # Plan turns use PlanOrchestrator separately; lifecycle tools stay optional.
-    loop = InteractiveLoop(
-        config=chat_loop_config(
-            workspace_root=workspace_root,
-            context_block=context_block,
-        )
-    )
     if models is not None:
         return AgentRunner(
-            loop=loop, models=models, workspace=workspace_root, session_anchor=session_anchor
+            models=models,
+            workspace=workspace_root,
+            session_anchor=session_anchor,
+            context_block=context_block,
+            operation_mode="chat",
+            mode="agentic",
         )
     return AgentRunner(
-        loop=loop, model=model, workspace=workspace_root, session_anchor=session_anchor
+        model=model,
+        workspace=workspace_root,
+        session_anchor=session_anchor,
+        context_block=context_block,
+        operation_mode="chat",
+        mode="agentic",
     )
 
 

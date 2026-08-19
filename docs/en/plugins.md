@@ -3,9 +3,9 @@
 ## Scientific data vs plugins (dependency DAG)
 
 **A molexp Run is not a MolRec record.** The Run is a workspace *host*
-(``run.json`` identity, ``_ops/run.json`` hot lifecycle, ``artifacts/``,
+(``run.json`` identity, ``ops/run.json`` hot lifecycle, ``artifacts/``,
 ``source/``). Scientific packages are **MolRec** products landed under the
-run or written beside it. Do not treat ``_ops`` / ``run.json`` as MolRec
+run or written beside it. Do not treat ``ops`` / ``run.json`` as MolRec
 ``status/`` / ``meta/``.
 
 Latest molrec L4 (see molrec ``docs/spec/storage.md``):

@@ -69,7 +69,7 @@ async def main() -> None:
         result = await WorkflowRuntime().execute(compiled, run_context=ctx)
         # Workspace helpers are driver-side, on the RunContext.
         ctx.set_result("record", result.outputs["record"])
-        ctx.artifact.save("record.json", {"value": result.outputs["record"]})
+        ctx.register_artifact({"value": result.outputs["record"]}, name="record.json")
         ctx.log("record").append(f"value={result.outputs['record']}")
 
     print(f"status:  {result.status}")

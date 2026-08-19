@@ -1,31 +1,45 @@
-"""``ChatMode`` — harness-level chat orchestration (peer of Plan).
+"""``ChatMode`` — one-shot chat. Must not loop.
 
-Chat uses the same :class:`~molexp.agent.loops.interactive.InteractiveLoop` as
-Plan, but a **different tool surface and land policy**:
-
-* default **no** authoritative project/run creation
-* **no** ``run_land`` (non-standard products must not pollute the workspace)
-* code confined to ``agent/.scratch/``
-* success = answer + optional scratch scripts, not a succeeded Run
-
-Authoritative multi-step workflows remain :class:`PlanOrchestrator`.
+Chat is one ``AgentGateway.call`` with ``call_mode="structured"``.
+Tool-using REPL turns belong on :class:`~molexp.agent.AgentRunner`
+(``mode="agentic"``). Authoritative multi-step work is the plan workflow.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, ConfigDict
 
 from molexp.harness.schemas import ModeResult
 
 if TYPE_CHECKING:
-    from molexp.agent.loops import InteractiveLoop, InteractiveLoopConfig
     from molexp.agent.session import Session
     from molexp.harness.gateways.gateway import AgentGateway
 
-__all__ = ["CHAT_SCRATCH_PREFIX", "ChatMode", "chat_loop_config"]
+__all__ = ["CHAT_SCRATCH_PREFIX", "ChatConfig", "ChatMode", "ChatReply", "chat_loop_config"]
 
 CHAT_SCRATCH_PREFIX = "agent/.scratch"
+
+
+class ChatReply(BaseModel):
+    """One-shot chat payload — a single assistant reply, no tool loop."""
+
+    model_config = ConfigDict(frozen=True)
+
+    text: str = ""
+
+
+@dataclass(frozen=True)
+class ChatConfig:
+    """Scratch-only chat settings (one-shot, no session loop)."""
+
+    workspace_root: Path | None = None
+    context_block: str = ""
+    system_prompt: str = ""
+    operation_mode: str = "chat"
 
 
 def chat_loop_config(
@@ -33,14 +47,9 @@ def chat_loop_config(
     workspace_root: Path | None = None,
     context_block: str = "",
     system_prompt: str = "",
-) -> InteractiveLoopConfig:
-    """Build :class:`~molexp.agent.loops.InteractiveLoopConfig` for Chat Mode.
-
-    Always ``operation_mode="chat"`` (scratch-only builtins, no default land).
-    """
-    from molexp.agent.loops import InteractiveLoopConfig
-
-    return InteractiveLoopConfig(
+) -> ChatConfig:
+    """Build :class:`ChatConfig` for Chat Mode (always ``operation_mode="chat"``)."""
+    return ChatConfig(
         workspace_root=workspace_root,
         context_block=context_block,
         system_prompt=system_prompt,
@@ -49,36 +58,9 @@ def chat_loop_config(
 
 
 class ChatMode:
-    """Harness Chat Mode — InteractiveLoop, no default workspace land.
-
-    Attributes:
-        name: Mode id (``"chat"``), peer of Plan's ``"plan"``.
-    """
+    """Harness Chat Mode — one structured AgentCall, no default workspace land."""
 
     name = "chat"
-
-    def build_loop(
-        self,
-        *,
-        workspace_root: Path | None = None,
-        context_block: str = "",
-        system_prompt: str = "",
-        hooks: object | None = None,
-        tools: tuple[object, ...] = (),
-    ) -> InteractiveLoop:
-        """Construct the chat :class:`InteractiveLoop` (scratch surface)."""
-        from molexp.agent.loops import InteractiveLoop
-        from molexp.agent.loops.hooks import LoopHooks
-
-        return InteractiveLoop(
-            config=chat_loop_config(
-                workspace_root=workspace_root,
-                context_block=context_block,
-                system_prompt=system_prompt,
-            ),
-            hooks=hooks if isinstance(hooks, LoopHooks) else None,  # type: ignore[arg-type]
-            tools=tools,
-        )
 
     async def run(
         self,
@@ -89,39 +71,51 @@ class ChatMode:
         session: Session | None = None,
         context_block: str = "",
     ) -> ModeResult:
-        """Drive one chat turn via InteractiveLoop; do not create a science Run.
+        """Drive one chat turn through :meth:`AgentGateway.call` (no loop)."""
+        del session  # one-shot; session persistence is the AgentRunner REPL's job
+        from molexp.agent.router import ModelTier
+        from molexp.harness.gateways.gateway import AgentGateway as Gateway
+        from molexp.harness.host.compose import compose_chat
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.artifact_store import ArtifactStore
 
-        Unlike Plan, chat does not materialize content-addressed experiment
-        runs. Session messages may still persist under the agent folder.
-        """
-        from molexp.agent.events import AsyncIteratorEventSink
-        from molexp.agent.execution_env import LocalExecutionEnv
-        from molexp.agent.runtime import AgentRuntime
-        from molexp.agent.session import InMemorySessionStorage, Session
-
-        router = getattr(gateway, "router", None)
-        if router is None:
-            raise TypeError(
-                "ChatMode requires gateway.router (RouterBackedAgentGateway or test fake)"
-            )
         root = Path(workspace_root).resolve()
         scratch = root / CHAT_SCRATCH_PREFIX
         scratch.mkdir(parents=True, exist_ok=True)
-
-        sess = session if session is not None else Session(storage=InMemorySessionStorage())
-        runtime = AgentRuntime(
-            session=sess,
-            router=router,  # type: ignore[arg-type]
-            execution_env=LocalExecutionEnv(scratch_dir=scratch),
-        )
-        loop = self.build_loop(workspace_root=root, context_block=context_block)
-        sink = AsyncIteratorEventSink()
+        register = getattr(gateway, "register_agent", None)
+        if callable(register):
+            register(
+                "chat",
+                ChatReply,
+                "assistant_message",
+                tier=ModelTier.DEFAULT,
+                system_prompt=context_block,
+            )
+        host = compose_chat(gateway=gateway, scratch_dir=scratch)
         try:
-            await loop.run(runtime=runtime, sink=sink, user_input=user_input)
+            atom = host.ctx.llm
+            store = host.ctx.artifacts
+            if not isinstance(atom, Gateway):
+                raise TypeError("chat host did not publish an AgentGateway")
+            if not isinstance(store, ArtifactStore):
+                raise TypeError("chat host did not publish an ArtifactStore")
+            prompt_ref = store.put_text(
+                kind="prompt",
+                text=user_input,
+                created_by="chat",
+                parent_ids=[],
+            )
+            await atom.call(
+                AgentCallSpec(
+                    agent_name="chat",
+                    input_artifact_ids=[prompt_ref.id],
+                    output_schema=ChatReply.model_json_schema(),
+                    call_mode="structured",
+                ),
+            )
         finally:
-            await sink.close()
+            host.unload()
 
-        # Chat has no content-addressed science Run; ids are session placeholders.
         return ModeResult(
             mode_name=self.name,
             run_id="chat",

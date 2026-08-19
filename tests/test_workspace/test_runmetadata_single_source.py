@@ -1,10 +1,10 @@
-"""``RunMetadata`` is identity/provenance only — hot state lives in ``_ops`` (wsokf-10).
+"""``RunMetadata`` is identity/provenance only — hot state lives in ``ops`` (wsokf-10).
 
-wsokf-07 made ``_ops/run.json`` (:class:`RunOpsState`) the *read* source for a
+wsokf-07 made ``ops/run.json`` (:class:`RunOpsState`) the *read* source for a
 Run's hot machine state while keeping the same fields mirrored in
 ``RunMetadata`` (``run.json``). wsokf-10 completes the single-source-of-truth
 law: the hot-state fields (``status`` / ``finished_at`` / ``execution_history`` /
-``labels``) are **removed** from ``RunMetadata`` so ``_ops/run.json`` is the
+``labels``) are **removed** from ``RunMetadata`` so ``ops/run.json`` is the
 sole source. ``run.json`` keeps identity / provenance (params, config, profile,
 workflow snapshot, source snapshot, target, executor_info) plus the terminal
 ``error`` diagnostic.
@@ -24,7 +24,7 @@ def _read_run_json(run) -> dict:
 
 
 def _read_ops_json(run) -> dict:
-    return json.loads(Path(str(run.run_dir / "_ops" / "run.json")).read_text())
+    return json.loads(Path(str(run.run_dir / "ops" / "run.json")).read_text())
 
 
 # ── (a) field removal + extra=ignore ────────────────────────────────────────
@@ -56,7 +56,7 @@ class TestFieldRemoval:
             assert not hasattr(meta, removed)
 
 
-# ── (b) cancel writes hot-state to _ops only ────────────────────────────────
+# ── (b) cancel writes hot-state to ops only ────────────────────────────────
 
 
 class TestCancelOpsOnly:
@@ -78,7 +78,7 @@ class TestCancelOpsOnly:
             assert removed not in on_disk, f"run.json must not carry {removed!r}"
 
 
-# ── (c) full lifecycle writes hot-state to _ops, error to run.json ──────────
+# ── (c) full lifecycle writes hot-state to ops, error to run.json ──────────
 
 
 class TestLifecycleOpsOnly:

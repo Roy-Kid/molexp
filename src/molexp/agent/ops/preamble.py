@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-# Chat Mode (default InteractiveLoop) — explore + scratch; no authoritative land.
+# Chat Mode — explore + scratch; no authoritative land.
 DEFAULT_OPS_PREAMBLE = CHAT_OPS_PREAMBLE = """\
-You are molexp's **Chat Mode** research agent (InteractiveLoop).
+You are molexp's **Chat Mode** research agent.
 
 ## Product role
 Chat is for **thinking, exploring, and ad-hoc scripts**. It is a first-class \
@@ -81,7 +81,7 @@ You are molexp's research agent on the **full/archive** tool surface.
 
 
 class DefaultOpsBehavior:
-    """Default :class:`BehaviorPolicy` for Chat Mode InteractiveLoop."""
+    """Default :class:`BehaviorPolicy` for Chat Mode."""
 
     def system_preamble(self) -> str:
         return CHAT_OPS_PREAMBLE

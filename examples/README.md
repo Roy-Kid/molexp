@@ -72,11 +72,9 @@ key into the `API_KEY` constant to flip the *same* loop to the real model.
 
 | Example | What it shows |
 |---|---|
-| `agent/chat_loop.py` | Minimum viable agent loop — `ChatLoop` + a named runtime `AgentSession` driven through `AgentRunner`. The offline run proves the persistence contract: two turns on one named session, then `result.messages` carries all four messages rebuilt from `entries.jsonl`. |
-| `agent/interactive_loop.py` | The emergent tool loop — `InteractiveLoop` driving `Router.stream_agentic`. The scripted stream yields a thinking delta, one full tool round, then the streamed answer; the demo asserts the chunk→`AgentEvent` translation (`ToolCallStartedEvent` / `ToolCallCompletedEvent`). The loop behind the `molexp agent` CLI REPL. |
-| `agent/mcp_integration.py` | Agent with MCP toolsets — offline ScriptedRouter simulates tool calls, MCPServerStdio construction pattern (commented), InteractiveLoop tool events. |
+| `agent/mcp_integration.py` | Agent with MCP toolsets — offline ScriptedRouter simulates tool calls; each turn is one ReAct (`AgentRunner(mode="agentic")`) on a named `AgentSession`. |
 
-> Note: "**Loop**" is the agent-layer LLM-conversation concept (`AgentLoop` → `ChatLoop` / `InteractiveLoop`). "**Mode**" is reserved for the harness orchestration concept below (`harness.Mode` → `PlanMode` / `RunMode`).
+> Note: Chat is one `complete_text`. Tool-using work is one ReAct per user line. A REPL is a **session** of those turns (history on `AgentSession`), not a molexp loop. Plan is a harness workflow.
 >
 > **API keys** — live mode registers the LLM key *in code* via `molexp.config["deepseek_api_key"] = ...` (paste into the `API_KEY` constant at the top of each file). `molexp.config` is a live `molcfg.Config`; molexp reads the key from it, **never from environment variables**.
 

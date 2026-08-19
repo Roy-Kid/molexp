@@ -24,7 +24,7 @@ def _workspace(tmp_path: Path) -> Workspace:
 def test_validate_reports_conforming_tree(tmp_path: Path) -> None:
     _workspace(tmp_path)
     result = CliRunner().invoke(app, ["validate", "-ws", str(tmp_path)])
-    # A never-executed run warns (no _ops sidecar) but the tree still conforms.
+    # A never-executed run warns (no ops sidecar) but the tree still conforms.
     assert result.exit_code == 0, result.output
     assert "0 error(s)" in result.output
 

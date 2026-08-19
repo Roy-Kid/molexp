@@ -156,7 +156,7 @@ def _build_experiment_node(exp: Experiment, project_id: str) -> TreeNode:
 def _build_run_node(run: Run, project_id: str, exp_id: str) -> TreeNode:
     data = read_run_json(run.run_dir)
     # Hot state (status / finished_at / execution history) lives solely in the
-    # OKF ``_ops`` sidecar (wsokf-10) — read it through the ops-backed Run
+    # OKF ``ops`` sidecar (wsokf-10) — read it through the ops-backed Run
     # accessors. Identity (created_at, executor_info, error) stays in run.json.
     ops = run.read_ops()
     status = ops.status.value

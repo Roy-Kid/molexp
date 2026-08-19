@@ -46,6 +46,7 @@ from .edges import DEFAULT_EDGE_ROLE, EdgeRole
 from .errors import ConceptNotFoundError
 from .folder import (
     INDEX_FILENAME,
+    LEGACY_OPS_DIR,
     META_JSON_FILENAME,
     OPS_DIR,
     Folder,
@@ -56,8 +57,6 @@ from .fs import FileSystem, PathArg
 from .fs_local import LocalFileSystem
 from .reference_meta import ReferenceMeta
 from .zotero_concepts import read_zotero_items
-
-_LEGACY_META_YAML = "meta.yaml"
 
 if TYPE_CHECKING:
     from .assets.base import Asset
@@ -104,9 +103,7 @@ def _is_concept_dir(path: PathArg, fs: FileSystem) -> bool:
     try:
         if not fs.is_dir(path):
             return False
-        return fs.exists(fs.join(path, META_JSON_FILENAME)) or fs.exists(
-            fs.join(path, _LEGACY_META_YAML)
-        )
+        return fs.exists(fs.join(path, META_JSON_FILENAME))
     except OSError:
         # Broken / cycle symlinks or path-too-long entries are not concepts.
         return False
@@ -123,7 +120,7 @@ class Bundle:
             fs: The filesystem backing this bundle's I/O (default: local).
         """
         self._root = _StdPath(os.fspath(root))
-        self._fs: FileSystem = fs if fs is not None else LocalFileSystem()
+        self.fs: FileSystem = fs if fs is not None else LocalFileSystem()
         # Built lazily on first walk — keeps construction free of I/O.
         self._ignore: GitIgnoreMatcher | None = None
 
@@ -131,11 +128,6 @@ class Bundle:
     def root(self) -> _StdPath:
         """The bundle root directory."""
         return self._root
-
-    @property
-    def fs(self) -> FileSystem:
-        """The filesystem backing this bundle's I/O."""
-        return self._fs
 
     # ── identity helpers ─────────────────────────────────────────────────
 
@@ -171,7 +163,7 @@ class Bundle:
         as the parent, walking up past non-Concept organizational dirs.
 
         When no ancestor Concept exists within the bundle, a path-only base
-        ``Folder`` anchored at *path*'s immediate parent dir carries ``_fs`` +
+        ``Folder`` anchored at *path*'s immediate parent dir carries ``fs`` +
         path. That is correct for a base Concept — whose ``resolve()`` chains
         only its own name — but a **layout-aware entity** (``Project`` /
         ``Experiment`` / ``Run``) replays its container segment (``projects/`` …)
@@ -225,11 +217,11 @@ class Bundle:
         whole typed chain is built) and returned.
         """
         root = str(self._root)
-        current = self._fs.dirname(child_dir)
+        current = self.fs.dirname(child_dir)
         while current != root and self._is_within_root(current):
-            if _is_concept_dir(current, self._fs):
+            if _is_concept_dir(current, self.fs):
                 return self._folder_for(current)
-            parent = self._fs.dirname(current)
+            parent = self.fs.dirname(current)
             if parent == current:  # reached the filesystem root — stop
                 break
             current = parent
@@ -249,23 +241,23 @@ class Bundle:
         base ``Folder.resolve()`` chains a single segment (the Concept's own
         name) onto this anchor. See :meth:`_pinned_parent`.
         """
-        return self._pinned_parent(self._fs.dirname(str(child_dir)))
+        return self._pinned_parent(self.fs.dirname(str(child_dir)))
 
     def _pinned_parent(self, directory: PathArg) -> Folder:
         """A path-only base Folder whose ``resolve()`` equals *directory* exactly.
 
         Built without ``__init__`` to bypass name/kind validation — its sole job
-        is to carry ``_fs`` and a fixed ``resolve()`` value into
-        ``concept_from_dir`` as a Concept's parent anchor.
+        is to carry the disk (:attr:`_disk_backend`) and a fixed ``resolve()``
+        value into ``concept_from_dir`` as a Concept's parent anchor.
         """
         directory = str(directory)
         parent = Folder.__new__(Folder)
         parent._parent = None
-        parent._name = self._fs.basename(directory)
+        parent._name = self.fs.basename(directory)
         parent._kind = "bundle.parent"
         # Folder._root_path is molexp.path.Path (not pathlib.Path).
-        parent._root_path = MolPath(self._fs.dirname(directory))  # type: ignore[assignment]
-        parent._fs = self._fs
+        parent._root_path = MolPath(self.fs.dirname(directory))  # type: ignore[assignment]
+        parent._disk_backend = self.fs
         parent._children_cache = {}
         return parent
 
@@ -276,14 +268,14 @@ class Bundle:
         if self._ignore is None:
             from .gitignore import load_gitignore_matcher
 
-            self._ignore = load_gitignore_matcher(self._root, fs=self._fs)
+            self._ignore = load_gitignore_matcher(self._root, fs=self.fs)
         return self._ignore
 
     def walk(self) -> Iterator[Folder]:
         """Yield every Concept under the root, depth-first (preorder).
 
-        A dir is yielded iff it holds ``meta.json``. The ``_ops/`` sidecar (and
-        everything beneath it) is skipped; paths matching the workspace
+        A dir is yielded iff it holds ``meta.json``. The ``ops/`` sidecar
+        (and the pre-rename ``_ops/`` location) is skipped; paths matching the workspace
         ``.gitignore`` cascade (plus a safety-floor denylist for
         ``node_modules`` / ``.git`` / venvs) are skipped entirely; symlink
         cycles are cut by tracking resolved paths. Non-Concept organizational
@@ -295,9 +287,9 @@ class Bundle:
     def _walk_dir(self, directory: str, *, _visited: set[str] | None = None) -> Iterator[Folder]:
         visited = _visited if _visited is not None else set()
         try:
-            if not self._fs.is_dir(directory):
+            if not self.fs.is_dir(directory):
                 return
-            real = self._fs.resolve(directory)
+            real = self.fs.resolve(directory)
         except OSError:
             return
         if real in visited:
@@ -305,21 +297,21 @@ class Bundle:
         visited.add(real)
 
         try:
-            names = self._fs.listdir(directory)
+            names = self.fs.listdir(directory)
         except OSError:
             return
 
         ignore = self._ignore_matcher()
-        root_resolved = self._fs.resolve(str(self._root))
+        root_resolved = self.fs.resolve(str(self._root))
 
         for name in sorted(names):
-            if name == OPS_DIR:
+            if name in {OPS_DIR, LEGACY_OPS_DIR}:
                 continue
-            entry = self._fs.join(directory, name)
+            entry = self.fs.join(directory, name)
             try:
-                if not self._fs.is_dir(entry):
+                if not self.fs.is_dir(entry):
                     continue
-                entry_real = self._fs.resolve(entry)
+                entry_real = self.fs.resolve(entry)
             except OSError:
                 continue
             # Workspace-relative path for gitignore matching.
@@ -330,7 +322,7 @@ class Bundle:
                 continue
             if ignore.is_ignored(rel_s, is_dir=True):
                 continue
-            if _is_concept_dir(entry, self._fs):
+            if _is_concept_dir(entry, self.fs):
                 try:
                     yield self._folder_for(entry)
                 except Exception as exc:
@@ -355,8 +347,8 @@ class Bundle:
             ConceptNotFoundError: if *rel_path* is not a Concept dir.
         """
         rel = PurePosixPath(os.fspath(rel_path))
-        target = self._fs.join(str(self._root), *rel.parts)
-        if not _is_concept_dir(target, self._fs):
+        target = self.fs.join(str(self._root), *rel.parts)
+        if not _is_concept_dir(target, self.fs):
             raise ConceptNotFoundError(str(rel_path))
         return self._folder_for(target)
 
@@ -369,7 +361,7 @@ class Bundle:
         Returns:
             The same *concept* (now backed by a ``meta.json`` on disk).
         """
-        if not _is_concept_dir(concept.resolve(), self._fs):
+        if not _is_concept_dir(concept.resolve(), self.fs):
             concept.write_meta()
         return concept
 
@@ -665,19 +657,19 @@ class Bundle:
             name=REFERENCES_GROUP,
             kind="bundle.references",
             root_path=str(self._root),
-            fs=self._fs,
+            fs=self.fs,
         )
-        if not self._fs.is_dir(group.resolve()):
+        if not self.fs.is_dir(group.resolve()):
             group.materialize()
             group.write_meta()
         return group
 
     def _record_source(self, source: str, path: str, count: int, *, now: datetime | None) -> None:
         """Append (dedup on source+path) a linked-source row into ``sources.json``."""
-        sources_path = self._fs.join(str(self._root), SOURCES_FILENAME)
+        sources_path = self.fs.join(str(self._root), SOURCES_FILENAME)
         existing: list[dict[str, object]] = []
-        if self._fs.is_file(sources_path):
-            raw = json.loads(self._fs.read_text(sources_path))
+        if self.fs.is_file(sources_path):
+            raw = json.loads(self.fs.read_text(sources_path))
             if isinstance(raw, list):
                 existing = [e for e in raw if isinstance(e, dict)]
         existing = [
@@ -691,7 +683,7 @@ class Bundle:
                 "imported_at": (now or _utcnow()).isoformat(),
             }
         )
-        self._fs.atomic_write_json(sources_path, existing)
+        self.fs.atomic_write_json(sources_path, existing)
 
     # ── derived index + search ───────────────────────────────────────────
 
@@ -733,21 +725,21 @@ class Bundle:
             generated_at=now or _utcnow(),
             entries=tuple(self._entry_for(c) for c in self.walk()),
         )
-        self._fs.atomic_write_json(
-            self._fs.join(str(self._root), INDEX_JSON_FILENAME),
+        self.fs.atomic_write_json(
+            self.fs.join(str(self._root), INDEX_JSON_FILENAME),
             index.model_dump(mode="json"),
         )
-        self._fs.atomic_write_text(
-            self._fs.join(str(self._root), INDEX_MD_FILENAME),
+        self.fs.atomic_write_text(
+            self.fs.join(str(self._root), INDEX_MD_FILENAME),
             index.to_markdown(),
         )
         return index
 
     def _load_index(self) -> BundleIndex:
-        path = self._fs.join(str(self._root), INDEX_JSON_FILENAME)
-        if not self._fs.is_file(path):
+        path = self.fs.join(str(self._root), INDEX_JSON_FILENAME)
+        if not self.fs.is_file(path):
             return self.build_index()
-        return BundleIndex.model_validate(json.loads(self._fs.read_text(path)))
+        return BundleIndex.model_validate(json.loads(self.fs.read_text(path)))
 
     def search(
         self,
@@ -836,14 +828,14 @@ class Bundle:
         Size-capped at ``_MAX_BODY_SEARCH_BYTES``; an absent, oversized or
         undecodable body never raises — it just cannot body-match.
         """
-        body_path = self._fs.join(str(self._root), entry_path, INDEX_FILENAME)
+        body_path = self.fs.join(str(self._root), entry_path, INDEX_FILENAME)
         try:
             # stat BEFORE read: the cap must prevent the transfer (one round
             # trip on a remote filesystem), not merely discard it afterwards.
-            st = self._fs.stat(body_path)
+            st = self.fs.stat(body_path)
             if not st.is_file or st.size > _MAX_BODY_SEARCH_BYTES:
                 return None
-            body = self._fs.read_text(body_path)
+            body = self.fs.read_text(body_path)
         except (OSError, UnicodeDecodeError, ValueError):
             return None
         for line in body.splitlines():

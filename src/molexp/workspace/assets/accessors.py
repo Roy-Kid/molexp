@@ -1,8 +1,9 @@
 """Typed accessors used by ``RunContext``.
 
-Three accessors are exposed as ``ctx.artifact``, ``ctx.log``, and
-``ctx.checkpoint``.  Each writes the physical file and registers the
-asset in the run-scope ``assets.json`` manifest — all in one call.
+Internal accessors used by ``RunContext``. ``ctx.log`` and
+``ctx.checkpoint`` are re-exposed on the facade; file products go
+through ``ctx.register_artifact`` (FileStore.put + catalog register).
+Log and checkpoint accessors write via FileStore and register the row.
 
 Producer fields are auto-populated from a caller-provided callable so
 that task-scoped producer info can be set when running inside a task.
@@ -10,20 +11,19 @@ that task-scoped producer info can be set when running inside a task.
 
 from __future__ import annotations
 
-import contextlib
-import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from molexp._typing import TaskOutput
-
-from ..utils import compute_content_hash, generate_asset_id
-from .artifact import ArtifactAsset
-from .base import Asset, AssetScope, Producer
+from ..utils import generate_asset_id
+from .base import AssetScope, Producer
 from .checkpoint import CheckpointAsset
 from .log import LogAsset
 from .manifest import AssetManifest
+
+if TYPE_CHECKING:
+    from ..file_store import FileStore
 
 
 class _AccessorBase:
@@ -48,86 +48,6 @@ class _AccessorBase:
         self._manifest.register(asset)
 
 
-class ArtifactAccessor(_AccessorBase):
-    """Write file outputs into ``<run_dir>/artifacts/<name>``."""
-
-    def save(
-        self,
-        name: str,
-        data: TaskOutput,
-        *,
-        tags: dict[str, str] | None = None,
-        mime: str | None = None,
-        consumed: Sequence[Asset | str] | None = None,
-    ) -> ArtifactAsset:
-        """Persist ``data`` as ``<run_dir>/artifacts/<name>``.
-
-        Args:
-            name: Filename under the run's ``artifacts/`` directory.
-            data: Bytes, ``Path`` (copied), JSON-serializable
-                ``dict``/``list``, or any other value (str-cast).
-            tags: Free-form metadata attached to the asset.
-            mime: Optional MIME type hint.
-            consumed: Optional upstream assets (or raw asset-id strings)
-                whose ids are recorded in :attr:`Producer.inputs` to form
-                lineage edges — one kwarg, two item shapes, no second
-                spelling.
-        """
-        target = self._scope_dir / "artifacts" / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-
-        if isinstance(data, (bytes, bytearray)):
-            target.write_bytes(bytes(data))
-        elif isinstance(data, Path):
-            import shutil
-
-            # Chat / land often write products straight into run/artifacts/
-            # then pass the same path to save — copy2 would raise SameFileError.
-            src = Path(data)
-            try:
-                already = target.exists() and src.resolve().samefile(target.resolve())
-            except OSError:
-                already = False
-            if not already:
-                with contextlib.suppress(shutil.SameFileError):
-                    shutil.copy2(src, target)
-        elif isinstance(data, (dict, list)):
-            with open(target, "w") as f:  # noqa: PTH123
-                json.dump(data, f, indent=2, default=str)
-        else:
-            target.write_text(str(data))
-
-        now = datetime.now()
-        producer = self._producer_provider()
-        if consumed:
-            ids = tuple(item if isinstance(item, str) else item.asset_id for item in consumed)
-            producer = producer.model_copy(update={"inputs": ids})
-        asset = ArtifactAsset(
-            asset_id=generate_asset_id(),
-            name=name,
-            scope=self._scope,
-            path=Path("artifacts") / name,
-            created_at=now,
-            updated_at=now,
-            producer=producer,
-            tags=tags or {},
-            mime=mime,
-            size=target.stat().st_size,
-            content_hash=compute_content_hash(target),
-        )
-        self._register(asset)
-        if self._event_root is not None:
-            from ._events import emit_asset_added
-
-            emit_asset_added(
-                self._event_root,
-                asset,
-                name=name,
-                extra_refs=[producer.run_id] if producer.run_id else (),
-            )
-        return asset
-
-
 class _BoundLog:
     """Thin wrapper returned by ``LogAccessor.__call__`` so callers can
     ``ctx.log("run").append(line)`` in one expression."""
@@ -137,10 +57,12 @@ class _BoundLog:
         asset: LogAsset,
         scope_dir: Path,
         manifest: AssetManifest,
+        files: FileStore,
     ) -> None:
         self._asset = asset
         self._scope_dir = scope_dir
         self._manifest = manifest
+        self._files = files
         self._dirty = False
 
     @property
@@ -153,7 +75,7 @@ class _BoundLog:
         # marked dirty; rewriting the whole manifest on *every* line is
         # O(lines x assets) churn, so the flush is deferred to :meth:`flush`
         # (called once when the run context exits).
-        self._asset.append(self._scope_dir, line)
+        self._files.append(self._asset.path, line)
         self._asset = self._asset.model_copy(
             update={
                 "line_count": self._asset.line_count + 1,
@@ -190,9 +112,11 @@ class LogAccessor(_AccessorBase):
         manifest: AssetManifest,
         producer_provider: Callable[[], Producer],
         execution_id_provider: Callable[[], str | None],
+        files: FileStore,
     ) -> None:
         super().__init__(scope_dir, scope, manifest, producer_provider)
         self._execution_id_provider = execution_id_provider
+        self._files = files
         self._cache: dict[str, _BoundLog] = {}
 
     def __call__(self, name: str) -> _BoundLog:
@@ -231,7 +155,7 @@ class LogAccessor(_AccessorBase):
             )
             self._register(existing)
 
-        bound = _BoundLog(existing, self._scope_dir, self._manifest)
+        bound = _BoundLog(existing, self._scope_dir, self._manifest, self._files)
         self._cache[name] = bound
         return bound
 
@@ -250,8 +174,10 @@ class CheckpointAccessor(_AccessorBase):
         scope: AssetScope,
         manifest: AssetManifest,
         producer_provider: Callable[[], Producer],
+        files: FileStore,
     ) -> None:
         super().__init__(scope_dir, scope, manifest, producer_provider)
+        self._files = files
         self._last_ckpt_id: str | None = None
 
     def __call__(
@@ -262,9 +188,6 @@ class CheckpointAccessor(_AccessorBase):
         tags: dict[str, str] | None = None,
     ) -> CheckpointAsset:
         ckpt_id = f"ckpt_{generate_asset_id()[:12]}"
-        target = self._scope_dir / ".ckpt" / f"{ckpt_id}.json"
-        target.parent.mkdir(parents=True, exist_ok=True)
-
         payload = {
             "ckpt_id": ckpt_id,
             "name": name,
@@ -272,8 +195,7 @@ class CheckpointAccessor(_AccessorBase):
             "data": data or {},
             "timestamp": datetime.now().isoformat(),
         }
-        with open(target, "w") as f:  # noqa: PTH123
-            json.dump(payload, f, indent=2, default=str)
+        self._files.put(Path(".ckpt") / f"{ckpt_id}.json", payload)
 
         now = datetime.now()
         asset = CheckpointAsset(

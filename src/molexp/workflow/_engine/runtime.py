@@ -33,10 +33,10 @@ from typing import TYPE_CHECKING, Any, cast
 import anyio
 from mollog import get_logger
 
-from ..materialization_store import FileMaterializationStore, MaterializationStore
 from ..protocols import JSONMapping, JSONValue, RunContextLike, TaskOutput, UserDeps
 from ..types import WorkflowError, WorkflowExecution, WorkflowResult
 from .engine import run_plan
+from .node import _workdir_for
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
@@ -151,14 +151,14 @@ def _resolve_run_dir(
     run_context: RunContextLike | None, explicit_run_dir: str | Path | None
 ) -> Path | None:
     """Pick the run directory: explicit ``run_dir=`` wins, else duck-type
-    ``run_context.work_dir``."""
+    ``run_context.run_dir``."""
     if explicit_run_dir is not None:
         return Path(explicit_run_dir)
     if run_context is None:
         return None
-    work_dir = getattr(run_context, "work_dir", None)
-    if work_dir is not None:
-        return Path(work_dir)
+    run_dir = getattr(run_context, "run_dir", None)
+    if run_dir is not None:
+        return Path(run_dir)
     return None
 
 
@@ -250,15 +250,14 @@ def request_fresh_execution(run_dir: str | Path, execution_id: str) -> Path:
     """
     from datetime import UTC, datetime
 
-    from molexp.atomicio import atomic_write_json
+    from molexp.workspace.file_store import FileStore
 
-    target = Path(run_dir) / "executions" / execution_id / FRESH_MARKER_FILENAME
-    target.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(
-        target,
+    rel = Path("executions") / execution_id / FRESH_MARKER_FILENAME
+    FileStore(run_dir).put(
+        rel,
         {"bypass_cache": True, "requested_at": datetime.now(UTC).isoformat()},
     )
-    return target
+    return Path(run_dir) / rel
 
 
 def fresh_requested(run_dir: str | Path, execution_id: str) -> bool:
@@ -383,35 +382,6 @@ class WorkflowRuntime:
             par.body: anyio.CapacityLimiter(par.max_concurrency) for par in compiled._parallels
         }
 
-        # Engine materialization layer: content-addressed workdir derivation +
-        # task return-value persistence. Rooted at a WORKSPACE-shared
-        # ``.materialize`` dir (run-independent) so a content-addressed workdir is
-        # identical across runs — that is what makes cross-run reuse a byproduct
-        # of content addressing and keeps root-task cache keys stable. Falls back
-        # to the run dir only when the workspace root is unreachable (duck-typed
-        # stub run_context); active only for a workspace run.
-        materialization: MaterializationStore | None = None
-        if run_context is not None:
-            ws = getattr(
-                getattr(getattr(run_for_deps, "experiment", None), "project", None),
-                "workspace",
-                None,
-            )
-            ws_root = getattr(ws, "root", None)
-            mat_root = (
-                Path(ws_root) / ".materialize"
-                if ws_root is not None
-                else (Path(run_dir) / ".materialize" if run_dir is not None else None)
-            )
-            if mat_root is not None:
-                materialization = FileMaterializationStore(mat_root)
-        elif scratch_root is not None:
-            # Bare execution (no tracked Run) with an explicitly mounted
-            # scratch location — the plan-materialized driver's channel for
-            # honouring the ctx.workdir contract. Never defaulted: a cwd
-            # fallback would litter every embedder's working directory.
-            materialization = FileMaterializationStore(scratch_root)
-
         return WorkflowDeps(
             run=run_for_deps,
             run_context=run_context,
@@ -427,7 +397,7 @@ class WorkflowRuntime:
             cache=cache,
             bypass_cache=bypass_cache,
             snapshots=compiled.snapshots,
-            materialization=materialization,
+            scratch_root=scratch_root,
         )
 
     @staticmethod
@@ -442,10 +412,9 @@ class WorkflowRuntime:
 
         For each ROOT task (no upstream deps, not a ``wf.parallel`` body, not
         seeded) of a *workspace* run the engine pre-sets ``ctx.inputs = {"params":
-        <run params>, "workdir": <content-addressed Path>}``. The workdir is a bare
-        ``pathlib.Path`` (NEVER a navigable handle), derived from the node's
-        content identity (``snapshot.key``) via the materialization layer; this
-        half is a no-op without a ``run_context`` so non-workspace runs are
+        <run params>, "workdir": <task scratch Path>}``. The workdir is a bare
+        ``pathlib.Path`` (NEVER a navigable handle) under the execution slot;
+        this half is a no-op without a ``run_context`` so non-workspace runs are
         unaffected.
 
         When ``root_input`` is provided (a :class:`SubWorkflow` forwarding its node
@@ -460,16 +429,11 @@ class WorkflowRuntime:
         body_names = {par.body for par in compiled._parallels}
         if run_context is not None:
             params = getattr(run_context, "params", None) or {}
-            snapshots = compiled.snapshots
             for reg in compiled._tasks:
                 name = reg.name
                 if reg.depends_on or name in body_names or name in state.seeded:
                     continue
-                workdir = None
-                if deps.materialization is not None:
-                    snap = snapshots.get(name)
-                    content_id = snap.key if snap is not None else name
-                    workdir = deps.materialization.workdir_for(content_id)
+                workdir = _workdir_for(deps, name)
                 state.root_inputs[name] = {"params": dict(params), "workdir": workdir}
         if root_input is not _NO_ROOT_INPUT:
             entry = _resolve_single_root(compiled)
@@ -500,14 +464,10 @@ class WorkflowRuntime:
     ) -> WorkflowResult:
         """Run the workflow to completion and return a WorkflowResult.
 
-        ``scratch_root`` (optional) mounts the content-addressed
-        materialization store at an explicit location for a BARE execution
-        (no tracked Run), so ``ctx.workdir`` is available to task bodies —
-        the plan-materialized ``run_workflow.py`` driver passes
-        ``scratch_root=".materialize"`` (under its ``generated/`` cwd).
-        Ignored when the execution carries a ``run_context`` (the workspace
-        ``.materialize`` root wins); without either, ``ctx.workdir`` stays
-        ``None`` — never silently defaulted to the caller's cwd.
+        ``scratch_root`` (optional) gives task bodies a ``ctx.workdir`` for a
+        BARE execution (no tracked Run). Ignored when a ``run_context`` is
+        attached (the execution ``work/<task>/`` slot wins). Without either,
+        ``ctx.workdir`` stays ``None`` — never silently defaulted to cwd.
 
         ``seed_outputs`` (optional) pre-populates the initial state with
         already-known task outputs; see :meth:`Workflow.execute` for the

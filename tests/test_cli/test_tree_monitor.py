@@ -1,7 +1,7 @@
 """Unit tests for the molexp.cli.tui data/layout primitives.
 
 Covers tree build, flatten + expansion, target collection, the dialog
-classification path, and the deprecated ``molexp.tree_monitor`` shim.
+classification path.
 TUI loop and key handling are out of scope — validated manually.
 """
 
@@ -135,21 +135,3 @@ class TestPrepareDialog:
         dialog = _prepare_dialog([run])
         assert dialog.plan_lines[0][0] == "!"
         assert "uncancellable" in dialog.plan_lines[0][2]
-
-
-class TestDeprecatedShim:
-    def test_legacy_import_path_warns_and_reexports(self):
-        import importlib
-        import sys
-
-        sys.modules.pop("molexp.tree_monitor", None)
-        with pytest.warns(DeprecationWarning, match="molexp.cli.tui"):
-            shim = importlib.import_module("molexp.tree_monitor")
-
-        import molexp.cli.tui as tui
-
-        assert shim.TreeMonitor is tui.TreeMonitor
-        assert shim.TreeNode is tui.TreeNode
-        assert shim.build_tree is tui.build_tree
-        assert shim.flatten is tui.flatten
-        assert shim.node_path_str is tui.node_path_str

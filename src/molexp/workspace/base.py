@@ -4,12 +4,9 @@ Provides shared JSON persistence, metadata loading, child reconstruction,
 and child listing for Workspace, Project, Experiment, and Run.
 
 The atomic write helpers ``atomic_write_json`` / ``atomic_write_text``
-(and the legacy private alias ``_atomic_write_json``) are re-exported from
-the cross-layer primitive :mod:`molexp.atomicio` — they live there so the
-OKF ``knowledge`` bottom layer can cite them without importing workspace.
-These names remain importable from ``molexp.workspace.base`` (same function
-objects) for back-compat; new code may reach for ``molexp.atomicio``
-directly.
+are re-exported from the cross-layer primitive :mod:`molexp.atomicio` —
+they live there so the OKF ``knowledge`` bottom layer can cite them
+without importing workspace.
 """
 
 from __future__ import annotations
@@ -26,10 +23,6 @@ if TYPE_CHECKING:
     from .fs import FileSystem
 
 T = TypeVar("T")
-
-# Backwards-compatible private alias — many existing call sites use the
-# underscore name. New code should reach for ``atomic_write_json``.
-_atomic_write_json = atomic_write_json
 
 
 def _save_metadata(metadata: BaseModel, path: str | Path, *, fs: FileSystem | None = None) -> None:
@@ -73,6 +66,4 @@ def _reconstruct[T](
     return obj
 
 
-# Re-export surface (back-compat): the atomic writers live in
-# ``molexp.atomicio`` now but stay importable from here as the same objects.
 __all__ = ["atomic_write_json", "atomic_write_text"]

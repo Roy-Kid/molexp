@@ -150,7 +150,7 @@ def rm(workspace: Workspace, path: str, *, recursive: bool = False) -> None:
 
 
 def _fs(workspace: Workspace) -> FileSystem:
-    return workspace._fs
+    return workspace.fs
 
 
 def _abs(workspace: Workspace, path: str) -> str:

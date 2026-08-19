@@ -34,7 +34,7 @@ class TestValidateWorkspace:
         assert report.errors == ()
 
     def test_never_executed_run_warns_but_still_conforms(self, tmp_path: Path) -> None:
-        # _ops/run.json is created lazily at execution; its absence is legal.
+        # ops/run.json is created lazily at execution; its absence is legal.
         ws = _workspace(tmp_path)
         report = ws.validate()
         assert [v.rule for v in report.warnings] == ["run.ops"]
@@ -124,6 +124,32 @@ class TestValidateWorkspace:
         assert not (exp / "run.json").exists()
         run_dirs = list((exp / "runs").iterdir())
         assert run_dirs and (run_dirs[0] / "run.json").is_file()
+
+    def test_leftover_singular_index_is_flagged_and_not_read(self, tmp_path: Path) -> None:
+        """A leftover singular file on the parent is never the children index."""
+        ws = _workspace(tmp_path)
+        root = Path(ws.resolve())
+        plural = root / "projects.json"
+        leftover = root / "project.json"
+        leftover.write_text(plural.read_text())
+        plural.unlink()
+
+        ws2 = Workspace(root=root)
+        assert [p.name for p in ws2.list_projects()] == ["alpha"]
+        assert plural.is_file()
+
+        report = ws2.validate()
+        assert "index.legacy_name" in {v.rule for v in report.errors}
+
+    def test_meta_yaml_is_not_a_concept_marker(self, tmp_path: Path) -> None:
+        """Concept identity is meta.json only — a yaml leftover is not a marker."""
+        ws = _workspace(tmp_path)
+        proj = Path(ws.get_project("alpha").resolve())
+        (proj / "meta.json").unlink()
+        (proj / "meta.yaml").write_text("type: workspace.project\n")
+
+        report = ws.validate()
+        assert "concept.marker" in {v.rule for v in report.errors}
 
     def test_project_dir_that_is_not_a_slug_is_flagged(self, tmp_path: Path) -> None:
         ws = _workspace(tmp_path)

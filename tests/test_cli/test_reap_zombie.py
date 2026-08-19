@@ -3,7 +3,7 @@
 Sole owner of the reaper's own state transitions (``tests/test_workspace/
 test_lifecycle_ops.py`` explicitly defers the dead-pid / cross-host-heartbeat
 rules here and does not re-test them). Reaper state lives in the typed OKF
-``_ops/run.json`` sidecar (:class:`RunOpsState`): same-host runs are pid-probed
+``ops/run.json`` sidecar (:class:`RunOpsState`): same-host runs are pid-probed
 directly; cross-host runs (molq / SLURM) are reaped only when ``heartbeat_at``
 is stale beyond ``HEARTBEAT_STALE_SECONDS`` — a fresh or absent heartbeat leaves
 them alone.
@@ -17,12 +17,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from molexp.cli._common import (
-    CROSS_HOST_HEARTBEAT_STALE_SECONDS,
-    reap_zombie_run,
-)
+from molexp.cli._common import reap_zombie_run
 from molexp.workspace import Workspace
-from molexp.workspace.run_ops import RunOpsState
+from molexp.workspace.run_ops import HEARTBEAT_STALE_SECONDS, RunOpsState
 
 
 @pytest.fixture
@@ -101,7 +98,7 @@ class TestReapZombieRun:
         assert running_run.status == "running"
 
     def test_cross_host_stale_heartbeat_is_reaped(self, running_run) -> None:
-        stale = datetime.now(UTC) - timedelta(seconds=CROSS_HOST_HEARTBEAT_STALE_SECONDS + 60)
+        stale = datetime.now(UTC) - timedelta(seconds=HEARTBEAT_STALE_SECONDS + 60)
         _mark_running(running_run, pid=12345, host="hpc-login-01", heartbeat_at=stale)
         assert reap_zombie_run(running_run) is True
         assert running_run.status == "failed"

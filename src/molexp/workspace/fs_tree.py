@@ -1,7 +1,7 @@
 """Single filesystem tree walk — local and remote share one implementation.
 
 Routes and UI discovery must not re-implement ``Path.iterdir`` vs
-``workspace._fs.listdir``. Every recursive listing goes through
+``workspace.fs.listdir``. Every recursive listing goes through
 :func:`list_tree_children`.
 """
 

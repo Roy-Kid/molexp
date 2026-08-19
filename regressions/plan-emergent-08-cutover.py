@@ -17,7 +17,7 @@ network, no subprocess, no server, no CLI, no real LLM:
    shared entry point (:func:`~molexp.services.plan_runtime.drive_plan_mode`,
    the single way CLI and server run a plan pipeline) onto the new
    orchestrator, importing NO deleted symbol. A self-contained stub
-   ``PlanLoopRunner`` writes a canned VALID board via ``write_board``; an
+   ``draft`` writes a canned VALID board via ``write_board``; an
    ``auto_grant_approver`` grants the human gate in one pass so the drive
    completes without suspending. The result is a ``ModeResult`` whose phase
    artifacts are present — a content-addressed ``frozen_experiment_plan``
@@ -42,7 +42,6 @@ import tempfile
 from pathlib import Path
 
 import molexp.harness as harness
-from molexp.agent.loops import LoopHooks
 from molexp.harness import (
     FileArtifactStore,
     HarnessRunContext,
@@ -82,30 +81,17 @@ _USER_INPUT = (
 )
 
 
-# ── self-contained stub PlanLoopRunner ───────────────────────────────────────
+# ── self-contained stub draft ───────────────────────────────────────────────
 
 
-class _CannedBoardRunner:
-    """Stub :class:`PlanLoopRunner`: writes one canned board via ``write_board``.
-
-    Stands in for the production ``InteractiveLoopPlanRunner`` (which drives a
-    real Pi loop). It writes its canned board to ``board_path(ctx.workspace_root)``
-    so the orchestrator reads it back — no real LLM, no loop, no subprocess.
-    """
+class _CannedDraft:
+    """Writes one canned board — stands in for the plan-workflow draft ReAct."""
 
     def __init__(self, board: TaskBoard) -> None:
         self._board = board
 
-    async def run_planning(
-        self,
-        *,
-        ctx: HarnessRunContext,
-        board: TaskBoard,
-        tools: tuple[object, ...],
-        hooks: LoopHooks,
-        user_input: str,
-    ) -> None:
-        del board, tools, hooks, user_input
+    async def __call__(self, *, ctx: HarnessRunContext, user_input: str) -> None:
+        del user_input
         write_board(board_path(ctx.workspace_root), self._board)
 
 
@@ -185,7 +171,7 @@ async def _check_shared_path_drive(root: Path) -> None:
     run = _make_run(root, "cutover")
     gateway = _gateway(run)
     orchestrator = PlanOrchestrator(
-        loop_runner=_CannedBoardRunner(_valid_board()),
+        draft=_CannedDraft(_valid_board()),
         approve=auto_grant_approver,
         # Phase 1 only: this script's contract is "offline, no subprocess", and
         # phase-2 realization runs codegen agents through an executor subprocess.

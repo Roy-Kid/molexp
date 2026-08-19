@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
 from .._typing import JSONValue, TaskOutput
 
@@ -240,12 +240,8 @@ class WorkflowResult(BaseModel):
         run_id: Associated workspace Run ID, if any.
         execution_id: Opaque ID for resumption support.
 
-    .. note:: **Status-vocabulary migration (run-recovery, 2026-07).**
-       The workflow-level result status now uses the same terminal vocabulary
-       as ``workspace.Run`` (``succeeded`` instead of the old ``completed``).
-       Writers only emit the new word; for backward compatibility the model
-       normalizes a legacy ``"completed"`` input to ``"succeeded"`` on
-       construction (e.g. when reconstructed from an old persisted document).
+    .. note:: Workflow-level result status uses the same terminal vocabulary
+       as ``workspace.Run`` (``succeeded`` / ``failed`` / ``cancelled``).
        Per-*task* node statuses inside ``workflow.json`` (``pending`` /
        ``running`` / ``completed`` / ``failed`` / ``skipped``) are a different
        axis and are unchanged.
@@ -257,12 +253,6 @@ class WorkflowResult(BaseModel):
     outputs: dict[str, TaskOutput]
     run_id: str | None = None
     execution_id: str | None = None
-
-    @field_validator("status", mode="before")
-    @classmethod
-    def _normalize_legacy_status(cls, value: object) -> object:
-        """Read-side compatibility: legacy ``"completed"`` means ``"succeeded"``."""
-        return "succeeded" if value == "completed" else value
 
     def __repr__(self) -> str:
         return f"WorkflowResult(status={self.status!r}, tasks={list(self.outputs.keys())})"

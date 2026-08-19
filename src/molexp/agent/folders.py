@@ -8,14 +8,14 @@ Concepts — one dir per session, ``meta.json`` for structured identity,
 concept-type registry (``molexp.knowledge.types.concept_type`` — the *only*
 knowledge edge), so ``workspace.folder.concept_from_dir`` / ``list_folders`` /
 ``get_folder`` rebuild the right subclass. All I/O routes through the Folder's
-injectable filesystem (``self._fs``), so a session works against any backend.
+injectable filesystem (``self._disk()``), so a session works against any backend.
 
 Like every workspace Concept, agent dirs use **``meta.json`` as the sole
-concept identity file** (no ``metadata.json``). Agent Concepts put their full
-settled identity in that file (system_prompt/model/tier for Agent;
-goal_summary/status/timestamps for AgentSession) — there is no separate entity
-JSON. ``Agent`` / ``AgentSession`` therefore override ``write_meta`` /
-``materialize`` / ``from_disk`` to make the typed
+concept identity file**. Agent Concepts put their full settled identity in
+that file (system_prompt/model/tier for Agent; goal_summary/status/timestamps
+for AgentSession) — there is no separate entity JSON. ``Agent`` /
+``AgentSession`` therefore override ``write_meta`` / ``materialize`` /
+``from_disk`` to make the typed
 :class:`~molexp.agent.folders_metadata.AgentMeta` /
 :class:`~molexp.agent.folders_metadata.AgentSessionMeta` the meta.json payload.
 
@@ -44,7 +44,6 @@ MESSAGES_FILENAME = "messages.jsonl"
 # (discard it and reseed from the entry tree).
 MESSAGES_LEAF_FILENAME = "messages.leaf"
 META_JSON_FILENAME = "meta.json"
-META_YAML_FILENAME = META_JSON_FILENAME  # back-compat alias
 
 
 def _folder_metadata(slug: str, kind: str) -> FolderMetadata:
@@ -58,7 +57,7 @@ class AgentSession(Folder):
 
     Holds ``meta.json`` (:class:`AgentSessionMeta`, the rich identity authority)
     + ``messages.jsonl`` (the pydantic-ai history, written via
-    :meth:`write_messages` through ``self._fs``).
+    :meth:`write_messages` through ``self._disk()``).
     """
 
     def __init__(
@@ -82,16 +81,16 @@ class AgentSession(Folder):
 
     def write_meta(self) -> str:
         """Write the rich :class:`AgentSessionMeta` as this session's meta.json."""
-        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
-        self._fs.atomic_write_json(fpath, self._session_meta.model_dump(mode="json"))
+        fpath = self._disk().join(self.path(), META_JSON_FILENAME)
+        self._disk().atomic_write_json(fpath, self._session_meta.model_dump(mode="json"))
         return fpath
 
     def read_meta(self) -> dict[str, JSONValue]:
         """Read the raw meta.json dict, or ``{}`` if absent."""
-        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
-        if not self._fs.exists(fpath):
+        fpath = self._disk().join(self.resolve(), META_JSON_FILENAME)
+        if not self._disk().exists(fpath):
             return {}
-        loaded = json.loads(self._fs.read_text(fpath))
+        loaded = json.loads(self._disk().read_text(fpath))
         return loaded if isinstance(loaded, dict) else {}
 
     def read_session_meta(self) -> AgentSessionMeta:
@@ -110,7 +109,7 @@ class AgentSession(Folder):
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> AgentSession:
         """Reconstruct an :class:`AgentSession` from its ``meta.json`` (disk is truth)."""
-        fs = parent._fs
+        fs = parent._disk()
         meta_path = fs.join(child_dir, META_JSON_FILENAME)
         slug = fs.basename(child_dir)
         meta = (
@@ -134,26 +133,26 @@ class AgentSession(Folder):
 
     @property
     def messages_path(self) -> Path:
-        return Path(self._fs.join(self.resolve(), MESSAGES_FILENAME))
+        return Path(self._disk().join(self.resolve(), MESSAGES_FILENAME))
 
     def read_messages(self) -> tuple[object, ...]:
         """Load the persisted ``ModelMessage`` tuple (``()`` if none), via fs."""
         path = self.messages_path
-        if not self._fs.exists(path):
+        if not self._disk().exists(path):
             return ()
         from molexp.agent._pydanticai.messages_codec import load_model_messages
 
-        return load_model_messages(self._fs.read_bytes(path))
+        return load_model_messages(self._disk().read_bytes(path))
 
     def write_messages(self, messages: tuple[object, ...]) -> None:
         """Persist the ``ModelMessage`` tuple via fs (empty ⇒ remove)."""
         path = self.messages_path
         if not messages:
-            self._fs.remove(path)
+            self._disk().remove(path)
             return
         from molexp.agent._pydanticai.messages_codec import dump_model_messages
 
-        self._fs.write_bytes(path, dump_model_messages(messages))
+        self._disk().write_bytes(path, dump_model_messages(messages))
 
 
 @concept_type(AGENT_KIND)
@@ -187,16 +186,16 @@ class Agent(Folder):
 
     def write_meta(self) -> str:
         """Write the rich :class:`AgentMeta` as this agent's meta.json."""
-        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
-        self._fs.atomic_write_json(fpath, self._agent_meta.model_dump(mode="json"))
+        fpath = self._disk().join(self.path(), META_JSON_FILENAME)
+        self._disk().atomic_write_json(fpath, self._agent_meta.model_dump(mode="json"))
         return fpath
 
     def read_meta(self) -> dict[str, JSONValue]:
         """Read the raw meta.json dict, or ``{}`` if absent."""
-        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
-        if not self._fs.exists(fpath):
+        fpath = self._disk().join(self.resolve(), META_JSON_FILENAME)
+        if not self._disk().exists(fpath):
             return {}
-        loaded = json.loads(self._fs.read_text(fpath))
+        loaded = json.loads(self._disk().read_text(fpath))
         return loaded if isinstance(loaded, dict) else {}
 
     def read_agent_meta(self) -> AgentMeta:
@@ -215,7 +214,7 @@ class Agent(Folder):
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Agent:
         """Reconstruct an :class:`Agent` from its ``meta.json`` (disk is truth)."""
-        fs = parent._fs
+        fs = parent._disk()
         meta_path = fs.join(child_dir, META_JSON_FILENAME)
         slug = fs.basename(child_dir)
         meta = (

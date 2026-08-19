@@ -1,7 +1,7 @@
 """``molexp.workspace.assets.lineage`` — ancestors/descendants over the asset DAG.
 
 Owns lineage traversal (``ancestors`` / ``descendants``) and the ``Producer.inputs``
-edge data it walks (recorded via ``artifact.save(consumed=...)``). Asset
+edge data it walks (recorded via ``register_artifact(..., consumed=...)``). Asset
 ``content_hash`` correctness is owned by ``test_ids`` (``compute_content_hash``)
 and ``test_asset_scan`` (``find_by_content_hash``), not here.
 """
@@ -24,8 +24,8 @@ class TestProducerInputs:
 
         run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
-            mid = ctx.artifact.save("mid.json", {"x": 1}, consumed=[upstream])
-            final = ctx.artifact.save("final.json", {"y": 2}, consumed=[upstream, mid])
+            mid = ctx.register_artifact({"x": 1}, name="mid.json", consumed=[upstream])
+            final = ctx.register_artifact({"y": 2}, name="final.json", consumed=[upstream, mid])
 
         assert mid.producer.inputs == (upstream.asset_id,)
         assert final.producer.inputs == (upstream.asset_id, mid.asset_id)
@@ -41,8 +41,8 @@ class TestLineageTraversal:
 
         run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
-            b = ctx.artifact.save("b.json", {"step": "b"}, consumed=[a])
-            c = ctx.artifact.save("c.json", {"step": "c"}, consumed=[b])
+            b = ctx.register_artifact({"step": "b"}, name="b.json", consumed=[a])
+            c = ctx.register_artifact({"step": "c"}, name="c.json", consumed=[b])
 
         assert lineage.ancestors(ws, c.asset_id) == {a.asset_id, b.asset_id}
         assert lineage.descendants(ws, a.asset_id) == {b.asset_id, c.asset_id}
@@ -53,7 +53,7 @@ class TestLineageTraversal:
         ws = Workspace(tmp_path / "lab", name="Lab")
         run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
-            asset = ctx.artifact.save("solo.json", {"x": 1})
+            asset = ctx.register_artifact({"x": 1}, name="solo.json")
 
         # Manually mutate the asset's producer to self-reference and persist.
         asset_loop = asset.model_copy(

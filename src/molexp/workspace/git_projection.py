@@ -23,7 +23,7 @@ What is projected, per run:
   over ``blob_threshold_bytes`` as a small **pointer** blob (the bytes stay in
   the molexp CAS / remote FS, never bloating the object DB).
 
-What is **excluded**: ``_ops/`` (hot machine state), ``cache/``, the
+What is **excluded**: ``ops/`` (hot machine state), ``cache/``, the
 per-attempt ``executions/`` churn, and every derived children-index ``*.json``
 (those live at container level and are rebuildable, not truth).
 

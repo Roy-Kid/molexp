@@ -16,15 +16,28 @@ downstream stages read only the parsed output.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from molexp.harness.schemas import AgentCallResult, AgentCallSpec
+
+if TYPE_CHECKING:
+    from molexp.harness.gateways.call_runtime import AgentCallRuntime
 
 __all__ = ["AgentGateway"]
 
 
 @runtime_checkable
 class AgentGateway(Protocol):
-    """Structural type for any agent-call backend."""
+    """Structural type for any agent-call backend.
 
-    async def call(self, spec: AgentCallSpec) -> AgentCallResult: ...
+    One method: :meth:`call`. Optional ``runtime`` carries tools/hooks for
+    the interactive-loop branch; structured/agentic-without-tools callers
+    omit it.
+    """
+
+    async def call(
+        self,
+        spec: AgentCallSpec,
+        *,
+        runtime: AgentCallRuntime | None = None,
+    ) -> AgentCallResult: ...

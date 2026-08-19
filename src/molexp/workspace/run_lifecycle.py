@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 from mollog import get_logger
 
 from .models import ErrorInfo, ExecutionMetadata, ExecutionRecord, RunStatus
+from .run_ops import RUN_OPS_NAME
 
 if TYPE_CHECKING:
     from .runcontext import RunContext
@@ -108,7 +109,7 @@ class RunLifecycle:
 
     def enter(self) -> None:
         ctx = self._ctx
-        ctx.work_dir.mkdir(parents=True, exist_ok=True)
+        ctx.run_dir.mkdir(parents=True, exist_ok=True)
         ctx._ctx_store.load_existing_results()
         ctx._ctx_store.reset_write_tracking()
         self._apply_profile_metadata()
@@ -148,7 +149,7 @@ class RunLifecycle:
                 started_at=ctx._start_time,
             )
             new_executions = (*history, new_record)
-        # Record the active execution id + history in the OKF ``_ops`` hot-state
+        # Record the active execution id + history in the OKF ``ops`` hot-state
         # sidecar (wsokf-10). ``run.json`` (identity) carries no hot-state field.
         active_execution_id = ctx._execution_id
         ctx.run.update_ops(
@@ -245,7 +246,7 @@ class RunLifecycle:
         # succeeded nor failed; the run-level status stays what it was.
         record_status = "aborted" if noop else final.value
         # Terminal hot-state — status / finished_at / closed executions / cleared
-        # ownership — is written solely to the OKF ``_ops`` sidecar (wsokf-10).
+        # ownership — is written solely to the OKF ``ops`` sidecar (wsokf-10).
         closed_executions = tuple(ctx._executions.close_record(execution_id, record_status, now))
         ctx.run.update_ops(
             lambda state: state.model_copy(
@@ -319,7 +320,7 @@ class RunLifecycle:
         )
 
     def _claim_ownership(self) -> None:
-        """Stamp the run with the current process identity in the ``_ops`` sidecar.
+        """Stamp the run with the current process identity in the ``ops`` sidecar.
 
         Stored as ``owner_pid`` / ``owner_host`` / ``heartbeat_at`` (aware-UTC)
         on :class:`RunOpsState` (wsokf-10).  A later ``molexp run`` invocation
@@ -380,19 +381,18 @@ class RunLifecycle:
                 logger.debug(f"heartbeat refresh failed for run {self._ctx.run.id}", exc_info=True)
 
     def refresh_heartbeat(self) -> None:
-        """Re-stamp the run's heartbeat in the OKF ``_ops`` sidecar (aware-UTC).
+        """Re-stamp the run's heartbeat in the OKF ``ops`` sidecar (aware-UTC).
 
         The live-run heartbeat lives on :attr:`RunOpsState.heartbeat_at` (an
         aware-UTC timestamp) so cross-host staleness comparisons are tz-correct
         (wsokf-07/wsokf-10) — a single ``update_ops`` read-modify-write of
-        ``_ops/run.json``. ``run.json`` (identity) is never touched.
+        ``ops/run.json``. ``run.json`` (identity) is never touched.
 
-        A run whose ``_ops/run.json`` has not been written yet (first beat
+        A run whose ``ops/run.json`` has not been written yet (first beat
         before the lifecycle claimed ownership) is left untouched.
         """
         run = self._ctx.run
-        ops_path = run._fs.join(run.run_dir, "_ops", "run.json")
-        if not run._fs.exists(ops_path):
+        if run.read_ops_json(RUN_OPS_NAME) is None:
             return
         now = datetime.now(UTC)
         run.update_ops(lambda state: state.model_copy(update={"heartbeat_at": now}))

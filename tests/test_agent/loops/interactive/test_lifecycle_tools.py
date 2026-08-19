@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from molexp.agent.loops.interactive.lifecycle_tools import (
+from molexp.agent.ops.lifecycle import (
     LIFECYCLE_TOOL_NAMES,
     lifecycle_tools,
 )

@@ -10,7 +10,7 @@ Stage wiring, mirroring the canonical ``ValidateWorkflowSource`` shape:
 - ``raise_on_failure=False`` returns the failing ref without raising;
 - a ``workflow_ir`` artifact, when present, cross-checks the TestSpec target;
 - every member of a ``TestSpecBundle`` is validated (an empty bundle is itself
-  a violation), and a bare ``TestSpec`` is accepted as a one-element bundle.
+  a violation).
 """
 
 from __future__ import annotations
@@ -67,6 +67,15 @@ def _test_spec_dict(
     return json.loads(spec.model_dump_json())
 
 
+def _test_spec_bundle(
+    *,
+    target_task_id: str | None = "task-square",
+    target_workflow_id: str | None = None,
+) -> dict:
+    spec = _test_spec_dict(target_task_id=target_task_id, target_workflow_id=target_workflow_id)
+    return {"id": "tsb-001", "bound_workflow_id": "wf-x", "specs": [spec]}
+
+
 def _workflow_ir_dict(task_id: str) -> dict:
     from molexp.harness.schemas import PlanTaskIR, PlanWorkflowIR
 
@@ -100,7 +109,7 @@ class TestValidateTestSpec:
         from molexp.harness.schemas import PlanValidationReport
         from molexp.harness.stages import ValidateTestSpec
 
-        spec_ref = _seed(ctx, "test_spec", _test_spec_dict())
+        spec_ref = _seed(ctx, "test_spec", _test_spec_bundle())
         report_ref = asyncio.run(ValidateTestSpec().run(ctx))
 
         assert report_ref.kind == "validation_report"
@@ -120,7 +129,7 @@ class TestValidateTestSpec:
         from molexp.harness.stages import ValidateTestSpec
 
         _seed(ctx, "workflow_ir", _workflow_ir_dict(task_id="task-other"))
-        _seed(ctx, "test_spec", _test_spec_dict(target_task_id="task-square"))
+        _seed(ctx, "test_spec", _test_spec_bundle(target_task_id="task-square"))
 
         with pytest.raises(StagePersistedFailureError) as exc_info:
             asyncio.run(ValidateTestSpec().run(ctx))
@@ -167,7 +176,9 @@ class TestValidateTestSpec:
         from molexp.harness.stages import ValidateTestSpec
 
         spec_ref = _seed(
-            ctx, "test_spec", _test_spec_dict(target_task_id=None, target_workflow_id=None)
+            ctx,
+            "test_spec",
+            _test_spec_bundle(target_task_id=None, target_workflow_id=None),
         )
         report_ref = asyncio.run(ValidateTestSpec(raise_on_failure=False).run(ctx))
 

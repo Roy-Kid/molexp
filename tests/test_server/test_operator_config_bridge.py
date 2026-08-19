@@ -17,13 +17,12 @@ import pytest
 import molexp
 from molexp.services.operator_config import (
     AGENT_MODEL_KEY,
-    LEGACY_AGENT_MODEL_KEY,
     bridge_operator_config,
     configured_agent_model,
     load_operator_config,
 )
 
-_BRIDGED_KEYS = (AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY, "deepseek_api_key")
+_BRIDGED_KEYS = (AGENT_MODEL_KEY, "deepseek_api_key")
 
 
 @pytest.fixture(autouse=True)
@@ -130,9 +129,3 @@ class TestRouteResolution:
 
         bridge_operator_config(config_file)
         assert _configured_model() == "deepseek:deepseek-chat"
-
-    def test_agent_route_falls_back_to_legacy_key(self):
-        from molexp.server.routes.agent import _configured_model
-
-        molexp.config[LEGACY_AGENT_MODEL_KEY] = "legacy:model"
-        assert _configured_model() == "legacy:model"

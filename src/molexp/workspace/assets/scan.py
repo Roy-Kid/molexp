@@ -18,14 +18,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from datetime import datetime
 from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..utils import generate_asset_id
 from ._adapter import parse_asset
-from .base import Asset, AssetScope, Producer
+from .base import Asset, AssetScope
 from .manifest import MANIFEST_FILENAME, AssetManifest
 
 if TYPE_CHECKING:
@@ -298,52 +296,3 @@ def find_by_content_hash(
         if asset.content_hash == content_hash:
             return asset
     return None
-
-
-def reregister_artifact(
-    root: str | PathLike[str],
-    scope_dir: str | PathLike[str],
-    *,
-    name: str | None,
-    content_hash: str,
-    target_scope: AssetScope,
-    producer_task: str | None = None,
-    inputs: tuple[str, ...] = (),
-) -> Asset | None:
-    """Idempotently re-register a content-addressed artifact into ``target_scope``.
-
-    Looks the artifact up by ``content_hash`` across the workspace; if found,
-    writes a fresh artifact row into ``scope_dir``'s manifest pointing at the
-    SAME path + ``content_hash`` (no recompute, no byte recopy). Returns the new
-    asset, or ``None`` when the bytes are absent (fresh workspace) so the caller
-    can skip gracefully. Idempotent on ``(name, content_hash)`` within the scope.
-    """
-    source = find_by_content_hash(root, content_hash)
-    if source is None:
-        return None
-    manifest = AssetManifest(scope_dir)
-    for existing in manifest.load().values():
-        if (
-            getattr(existing, "kind", None) == "artifact"
-            and existing.content_hash == content_hash
-            and existing.scope == target_scope
-            and existing.name == name
-        ):
-            return existing
-    now = datetime.now()
-    clone = source.model_copy(
-        update={
-            "asset_id": generate_asset_id(),
-            "name": name,
-            "scope": target_scope,
-            "created_at": now,
-            "updated_at": now,
-            "producer": Producer(
-                run_id=target_scope.ids[-1] if target_scope.ids else None,
-                task_id=producer_task,
-                inputs=inputs,
-            ),
-        }
-    )
-    manifest.register(clone)
-    return clone

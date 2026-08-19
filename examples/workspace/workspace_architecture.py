@@ -39,7 +39,7 @@ async def main() -> None:
     run = exp.list_runs()[0]
     with run.start() as ctx:
         result = await WorkflowRuntime().execute(compiled, run_context=ctx)
-        ctx.artifact.save("metrics.json", result.outputs["task"])
+        ctx.register_artifact(result.outputs["task"], name="metrics.json")
         ctx.log("train").append("epoch 1 complete")
         ctx.checkpoint("epoch-1", data={"step": 1})
 

@@ -379,8 +379,6 @@ def _provider_response() -> ProviderResponse:
         section = raw_section if isinstance(raw_section, dict) else {}
         raw_models = section.get("models")
         models = raw_models if isinstance(raw_models, dict) else {}
-        # Legacy single model → fill only the active provider's card.
-        legacy = model if name == provider else ""
         key_name = f"{name.replace('-', '_')}_api_key"
         key = agent.get(key_name)
         key_set = isinstance(key, str) and bool(key)
@@ -388,9 +386,9 @@ def _provider_response() -> ProviderResponse:
             ProviderConfigurationResponse(
                 provider=name,
                 models=TierModelsResponse(
-                    cheap=str(models.get("cheap") or legacy),
-                    default=str(models.get("default") or legacy),
-                    heavy=str(models.get("heavy") or legacy),
+                    cheap=str(models.get("cheap") or ""),
+                    default=str(models.get("default") or ""),
+                    heavy=str(models.get("heavy") or ""),
                 ),
                 baseUrl=str(
                     section.get("base_url")
@@ -484,19 +482,9 @@ def update_provider(request: ProviderUpdateRequest) -> ProviderResponse:
                     "or a top-level provider field",
                 )
             updates[f"agent.models.{tier}"] = qualified[tier]
-        # Legacy default-model surface + default-provider marker for CLI.
         default_id = qualified["default"]
         updates["agent.model"] = default_id
         updates["agent.provider"] = _provider_of(default_id, None) or provider or ""
-        # Mirror under the default provider's legacy section so older readers
-        # still see a complete map when all three share that provider.
-        default_provider = updates["agent.provider"]
-        if default_provider and all(
-            q.startswith(f"{default_provider}:") for q in qualified.values()
-        ):
-            for tier, qid in qualified.items():
-                local = qid.split(":", 1)[1]
-                updates[f"agent.providers.{default_provider}.models.{tier}"] = local
         touched_config_keys.extend((AGENT_MODEL_KEY, AGENT_MODELS_KEY))
     if request.api_key is not None:
         if not provider:

@@ -71,7 +71,7 @@ async def main() -> None:
         ctx.checkpoint("epoch-3", data={"step": 3, "loss": 0.08})
 
         # 4. Artifacts and logs
-        ctx.artifact.save("result.json", result.outputs)
+        ctx.register_artifact(result.outputs, name="result.json")
         log = ctx.log("train")
         log.append("training complete")
 

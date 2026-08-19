@@ -2,7 +2,7 @@
 
 These exercise the runtime subsystem in isolation (no FastAPI): a scripted
 :class:`~molexp.agent.router.Router` drives a real :class:`AgentRunner` +
-:class:`InteractiveLoop` so a background turn produces a live ``AgentEvent``
+one ReAct so a background turn produces a live ``AgentEvent``
 stream the runtime collects — no LLM, no network.
 """
 
@@ -15,7 +15,6 @@ from typing import Any
 
 import pytest
 
-from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
 from molexp.agent.router import (
     AgenticChunk,
     FinalChunk,
@@ -92,8 +91,11 @@ class _BlockingRouter(_ScriptedRouter):
 
 
 def _runner(tmp: Path, router: object | None = None) -> AgentRunner:
-    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp))
-    return AgentRunner(loop=loop, router=router or _ScriptedRouter())  # type: ignore[arg-type]
+    return AgentRunner(
+        router=router or _ScriptedRouter(),  # type: ignore[arg-type]
+        workspace=tmp,
+        mode="agentic",
+    )
 
 
 def _session(session_id: str) -> Session:

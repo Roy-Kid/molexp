@@ -141,6 +141,23 @@ class FileCacheStore:
             return 0
         return sum(p.stat().st_size for p in self._store_dir.glob("*.json"))
 
+    def _blob_path(self, content_hash: str) -> Path:
+        safe = content_hash.replace(":", "-")
+        return self._store_dir / "blobs" / safe
+
+    def put_blob(self, content_hash: str, data: bytes) -> None:
+        path = self._blob_path(content_hash)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            return
+        path.write_bytes(data)
+
+    def get_blob(self, content_hash: str) -> bytes | None:
+        path = self._blob_path(content_hash)
+        if not path.exists():
+            return None
+        return path.read_bytes()
+
     def clear(self) -> int:
         if not self._store_dir.exists():
             return 0
@@ -148,6 +165,12 @@ class FileCacheStore:
         for p in self._store_dir.glob("*.json"):
             p.unlink(missing_ok=True)
             count += 1
+        blobs = self._store_dir / "blobs"
+        if blobs.is_dir():
+            for p in blobs.iterdir():
+                if p.is_file():
+                    p.unlink(missing_ok=True)
+                    count += 1
         return count
 
 

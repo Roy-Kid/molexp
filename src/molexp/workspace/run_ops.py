@@ -1,7 +1,7 @@
-"""``RunOpsState`` — typed model for a Run's OKF ``_ops/run.json`` sidecar.
+"""``RunOpsState`` — typed model for a Run's OKF ``ops/run.json`` sidecar.
 
 Hot machine state (status / ownership / heartbeat / executions) lives in the
-``_ops/`` operational sidecar, physically isolated from the knowledge-layer
+``ops/`` operational sidecar, physically isolated from the knowledge-layer
 ``meta.json`` (the OKF identity-vs-runtime split). Reuses the existing
 ``workspace.models`` ``RunStatus`` / ``ExecutionRecord``; timestamps are
 aware-UTC so heartbeat staleness compares correctly across hosts.
@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from .models import ExecutionRecord, RunStatus
 
-#: Name of the Run operational document → ``_ops/run.json``.
+#: Name of the Run operational document → ``ops/run.json``.
 RUN_OPS_NAME = "run"
 
 #: Cadence at which a live run re-stamps its heartbeat (seconds).
@@ -39,7 +39,7 @@ def _utcnow() -> datetime:
 
 
 class RunOpsState(BaseModel, frozen=True):
-    """The Run-level operational document persisted at ``_ops/run.json``."""
+    """The Run-level operational document persisted at ``ops/run.json``."""
 
     status: RunStatus = RunStatus.PENDING
     owner_pid: int | None = None

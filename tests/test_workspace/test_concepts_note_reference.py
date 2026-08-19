@@ -12,8 +12,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-import pytest
-
 from molexp.workspace import (
     Note,
     ReferenceConcept,
@@ -30,13 +28,13 @@ def _mount[F: Folder](parent: Folder, child: F) -> F:
 class TestReferenceMeta:
     """The typed bib payload (``reference_meta``)."""
 
-    def test_yaml_round_trip_preserves_bib_fields(self) -> None:
+    def test_json_round_trip_preserves_bib_fields(self) -> None:
         m = ReferenceMeta(
             title="Deep Learning", authors=("LeCun", "Bengio"), year=2015, doi="10.1/x"
         )
         assert m.type == "reference"
         assert m.source == "manual"
-        back = ReferenceMeta.from_yaml(m.to_yaml())
+        back = ReferenceMeta.from_json(m.to_json())
         assert isinstance(back, ReferenceMeta)
         assert back.title == "Deep Learning"
         assert back.authors == ("LeCun", "Bengio")
@@ -114,13 +112,3 @@ class TestReferenceConcept:
 
         ref.set_citation("Smith et al. 2024")
         assert ref.citation() == "Smith et al. 2024"
-
-    def test_write_ref_meta_is_deprecated_alias(self, tmp_path: Path) -> None:
-        root = Folder(name="bundle", kind="bundle.concept", root_path=str(tmp_path))
-        root.materialize()
-        ref = _mount(root, ReferenceConcept(parent=root, name="smith2024"))
-
-        with pytest.warns(DeprecationWarning, match="write_reference_meta"):
-            ref.write_ref_meta(ReferenceMeta(title="Alias", year=2024))
-
-        assert ref.read_ref_meta().title == "Alias"

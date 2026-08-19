@@ -8,25 +8,16 @@ it carries:
   task outputs; for a root task, whatever the engine injects: the run's sweep
   params and a content-addressed working-directory ``Path``);
 * ``config`` — the build-time static configuration declared at ``add()`` time
-  (part of the node's content identity);
-* ``state`` — **DEPRECATED** (staged removal): emits a ``DeprecationWarning``
-  and returns a read-only snapshot.
+  (part of the node's content identity).
 
-There is **no** ``run_context`` and **no** ``deps``: a task cannot climb up from
-its context to the Run, the workspace, or injected services. Engine capabilities
-that used to be reached through ``run_context`` — a content-addressed workdir,
-artifact persistence, running a sub-workflow — are delivered *as inputs* by the
-engine, or handled by the engine's materialization layer after the body returns.
-
-``state`` is in **staged removal** (pure-task-context state-elimination): the
-values-on-edges engine now delivers loop-back and branch-routed values as
-**named task parameters** (declared ``depends_on`` wins; trigger-carried values
-reach dep-less targets), so the patterns that used to read ``state.results`` no
-longer need it. Accessing ``ctx.state`` emits a ``DeprecationWarning`` and
-returns a READ-ONLY snapshot of the underlying state (a ``MappingProxyType``
-copy for mappings; a frozen :class:`ReadOnlyStateView` for engine
-``WorkflowState``-shaped objects) — user code can still read legacy values but
-can no longer mutate engine state. Hard removal is the remaining step.
+There is **no** ``run_context``, **no** ``deps``, and **no** ``state``: a task
+cannot climb up from its context to the Run, the workspace, or engine
+workflow state. Loop-back and branch-routed values arrive as named task
+parameters (declared ``depends_on`` wins; trigger-carried values reach
+dep-less targets). Engine capabilities that used to be reached through
+``run_context`` — a content-addressed workdir, artifact persistence, running
+a sub-workflow — are delivered *as inputs* by the engine, or handled by the
+engine's materialization layer after the body returns.
 
 The context is frozen: it is a plain class (NOT a pydantic model — ``inputs``
 carries arbitrary live task outputs such as numpy arrays or PyO3 objects that a
@@ -36,107 +27,11 @@ are plain classes). Attribute assignment raises.
 
 from __future__ import annotations
 
-import warnings
-from collections.abc import Mapping
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Protocol, cast
+import json
+from pathlib import Path
 
+from .outputs import RegisterArtifact, RegisterMetric
 from .protocols import JSONMapping
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
-class _WorkflowStateLike(Protocol):
-    """Duck-typed read surface of the engine's ``WorkflowState``.
-
-    Only ``results`` is required; the remaining fields are read defensively
-    via ``getattr`` so any state-shaped object qualifies.
-    """
-
-    results: dict[str, Any]
-
-
-_STATE_DEPRECATION_MSG = (
-    "TaskContext.state is deprecated: values now bind to named task parameters "
-    "(the values-on-edges engine delivers loop-back and branch-routed values as "
-    "the body's named args); ctx.state will be removed."
-)
-
-
-class ReadOnlyStateView:
-    """Frozen, point-in-time snapshot of an engine ``WorkflowState``'s read surface.
-
-    Built lazily by :attr:`TaskContext.state` so legacy ``ctx.state.results``
-    reads keep returning correct values during the deprecation window, while
-    mutation of engine state through the context is impossible: ``results`` is
-    a ``MappingProxyType`` over a *copy*, ``completed`` / ``seeded`` are
-    ``frozenset``s, and attribute assignment raises.
-    """
-
-    _completed: frozenset[str]
-    _error: str | None
-    _failed: bool
-    _results: Mapping[str, Any]
-    _seeded: frozenset[str]
-    __slots__ = ("_completed", "_error", "_failed", "_results", "_seeded")
-
-    def __init__(self, state: _WorkflowStateLike) -> None:
-        object.__setattr__(self, "_results", MappingProxyType(dict(state.results)))
-        object.__setattr__(self, "_completed", frozenset(getattr(state, "completed", ())))
-        object.__setattr__(self, "_seeded", frozenset(getattr(state, "seeded", ())))
-        object.__setattr__(self, "_failed", bool(getattr(state, "failed", False)))
-        object.__setattr__(self, "_error", getattr(state, "error", None))
-
-    @property
-    def results(self) -> Mapping[str, Any]:
-        """Read-only ``task_name → output`` snapshot (copy at access time)."""
-        return self._results
-
-    @property
-    def completed(self) -> frozenset[str]:
-        """Names of tasks that finished at least once (snapshot)."""
-        return self._completed
-
-    @property
-    def seeded(self) -> frozenset[str]:
-        """Names seeded via ``execute(seed_outputs=...)`` (snapshot)."""
-        return self._seeded
-
-    @property
-    def failed(self) -> bool:
-        """Terminal failure flag (snapshot)."""
-        return self._failed
-
-    @property
-    def error(self) -> str | None:
-        """Terminal failure message (snapshot)."""
-        return self._error
-
-    def __setattr__(self, name: str, value: object) -> None:
-        raise AttributeError(f"ReadOnlyStateView is frozen; cannot set {name!r}")
-
-    def __repr__(self) -> str:
-        return f"ReadOnlyStateView(results={dict(self._results)!r})"
-
-
-def _freeze_state[StateT](state: StateT) -> StateT | ReadOnlyStateView | Mapping[Any, Any] | None:
-    """Build the read-only snapshot :attr:`TaskContext.state` returns.
-
-    * ``None`` → ``None``;
-    * a ``Mapping`` → ``MappingProxyType`` over a copy;
-    * an engine ``WorkflowState``-shaped object (dict ``results`` attribute)
-      → :class:`ReadOnlyStateView`;
-    * anything else is returned unchanged (opaque user object — the
-      deprecation warning still fires).
-    """
-    if state is None:
-        return None
-    if isinstance(state, Mapping):
-        return MappingProxyType(dict(state))
-    if isinstance(getattr(state, "results", None), dict):
-        return ReadOnlyStateView(cast("_WorkflowStateLike", state))
-    return state
 
 
 class TaskContext[StateT, InputT]:
@@ -146,12 +41,10 @@ class TaskContext[StateT, InputT]:
     typed parameters by name (``async def task(ctx, sigma: float = 1.0)``; the
     engine fills ``sigma`` from {upstream task outputs keyed by task name} |
     {run sweep params} | {build config}, falling back to the declared default).
-    ``ctx`` exposes only ``workdir`` (there is no ``ctx.inputs`` / ``ctx.config``).
+    ``ctx`` exposes ``workdir`` plus the deferred ``register_artifact`` /
+    ``register_metric`` verbs (there is no ``ctx.inputs`` / ``ctx.config``).
 
     Attributes:
-        state: DEPRECATED — emits a ``DeprecationWarning`` and returns a
-            read-only snapshot; loop / branch values now arrive as named task
-            parameters (see module docstring).
         workdir: Content-addressed scratch directory for THIS task — a bare
             ``pathlib.Path`` the engine derives from the task's content identity
             (its ``TaskSnapshot.key``) via the materialization layer. It is the
@@ -164,48 +57,94 @@ class TaskContext[StateT, InputT]:
 
     _inputs: InputT
     _config: JSONMapping
-    _state: StateT | None
     _workdir: Path | None
-    __slots__ = ("_config", "_inputs", "_state", "_workdir")
+    _pending: list[RegisterArtifact | RegisterMetric]
+    __slots__ = ("_config", "_inputs", "_pending", "_workdir")
 
     def __init__(
         self,
         inputs: InputT,
         config: JSONMapping | None = None,
-        state: StateT | None = None,
         workdir: Path | None = None,
     ) -> None:
         object.__setattr__(self, "_inputs", inputs)
         object.__setattr__(self, "_config", config if config is not None else {})
-        object.__setattr__(self, "_state", state)
         object.__setattr__(self, "_workdir", workdir)
+        object.__setattr__(self, "_pending", [])
 
     @property
     def workdir(self) -> Path | None:
         """Content-addressed scratch directory for this task (``None`` if absent).
 
-        This is the **only** data surface a task body reads off ``ctx``. Runtime
-        inputs are no longer reached through the context — they are bound to the
-        body's own typed parameters by name (``def task(ctx, sigma: float = 1.0)``;
-        the engine fills ``sigma`` from {upstream outputs} | {run params}). The
-        former ``ctx.inputs`` / ``ctx.config`` are gone from the public surface;
-        the underlying values survive as private slots only so engine-internal
-        adapters (SubWorkflow / capability injection) can read them.
+        Runtime inputs are not reached through the context — they bind to the
+        body's own typed parameters by name. The former ``ctx.inputs`` /
+        ``ctx.config`` are gone from the public surface; the underlying values
+        survive as private slots only so engine-internal adapters can read them.
         """
         return self._workdir
 
-    @property
-    def state(self) -> StateT | ReadOnlyStateView | Mapping[Any, Any] | None:
-        """DEPRECATED read-only snapshot of shared workflow state.
+    def register_artifact(
+        self,
+        data: Path | bytes | dict | list | str,
+        *,
+        name: str | None = None,
+        mime: str | None = None,
+        tags: dict[str, str] | None = None,
+    ) -> RegisterArtifact:
+        """Record intent to publish *data* as a run artifact.
 
-        Emits a ``DeprecationWarning`` on every access: loop-back and
-        branch-routed values now arrive as named task parameters; ``ctx.state``
-        will be removed. The returned object is a point-in-time, read-only
-        snapshot (see :func:`_freeze_state`) — engine state cannot be
-        mutated through it.
+        Does **not** touch the Run. The engine promotes the returned
+        :class:`RegisterArtifact` after the body returns. In-memory payloads
+        are written under :attr:`workdir` first (``name`` required).
         """
-        warnings.warn(_STATE_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
-        return _freeze_state(self._state)
+        path = data if isinstance(data, Path) else self._write_pending_file(data, name)
+        marker = RegisterArtifact(
+            path,
+            name=name if name is not None else path.name,
+            tags=tags,
+            mime=mime,
+        )
+        self._pending.append(marker)
+        return marker
+
+    def register_metric(
+        self,
+        key: str,
+        value: float,
+        *,
+        step: int | None = None,
+        tags: dict[str, str] | None = None,
+    ) -> RegisterMetric:
+        """Record intent to append a scalar metric on the run.
+
+        Does **not** touch the Run. The engine promotes the returned
+        :class:`RegisterMetric` after the body returns.
+        """
+        marker = RegisterMetric(key, value, step=step, tags=tags)
+        self._pending.append(marker)
+        return marker
+
+    def _write_pending_file(
+        self,
+        data: bytes | dict | list | str,
+        name: str | None,
+    ) -> Path:
+        if name is None:
+            raise ValueError("register_artifact: name is required when data is not a Path")
+        if self._workdir is None:
+            raise RuntimeError(
+                "register_artifact: in-memory data requires ctx.workdir; "
+                "pass a Path or run under a workspace"
+            )
+        target = self._workdir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(data, (bytes, bytearray)):
+            target.write_bytes(bytes(data))
+        elif isinstance(data, (dict, list)):
+            target.write_text(json.dumps(data, indent=2, default=str))
+        else:
+            target.write_text(str(data))
+        return target
 
     def __setattr__(self, name: str, value: object) -> None:
         raise AttributeError(f"TaskContext is frozen; cannot set {name!r}")

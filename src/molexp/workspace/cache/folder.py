@@ -16,63 +16,85 @@ class CacheFolder(Folder):
     """Single-instance folder rooted at ``<workspace_root>/cache/``."""
 
     def entry_path(self, key: str) -> Path:
-        return Path(self._fs.join(self.path(), f"{key}.json"))
+        return Path(self._disk().join(self.path(), f"{key}.json"))
 
     def read_entry(self, key: str) -> str | None:
         p = self.entry_path(key)
-        if not self._fs.exists(p):
+        if not self._disk().exists(p):
             return None
         try:
-            return self._fs.read_text(p)
+            return self._disk().read_text(p)
         except OSError:
             return None
 
     def write_entry(self, key: str, content: str) -> None:
         p = self.entry_path(key)
         payload = json.loads(content)
-        self._fs.atomic_write_json(p, payload)
+        self._disk().atomic_write_json(p, payload)
 
     def remove_entry(self, key: str) -> bool:
         p = self.entry_path(key)
-        if not self._fs.exists(p):
+        if not self._disk().exists(p):
             return False
-        self._fs.remove(p)
+        self._disk().remove(p)
         return True
 
     def keys(self) -> Iterable[str]:
         dir_path = self.resolve()
-        if not self._fs.is_dir(dir_path):
+        if not self._disk().is_dir(dir_path):
             return ()
         return tuple(
-            self._fs.basename(p).removesuffix(".json") for p in self._fs.glob(dir_path, "*.json")
+            self._disk().basename(p).removesuffix(".json")
+            for p in self._disk().glob(dir_path, "*.json")
         )
 
     def access_time(self, key: str) -> float:
         p = self.entry_path(key)
-        if not self._fs.exists(p):
+        if not self._disk().exists(p):
             return 0.0
-        return self._fs.stat(p).mtime
+        return self._disk().stat(p).mtime
 
     def touch(self, key: str) -> None:
         p = self.entry_path(key)
-        if self._fs.exists(p):
-            self._fs.touch(p)
+        if self._disk().exists(p):
+            self._disk().touch(p)
 
     def total_bytes(self) -> int:
         dir_path = self.resolve()
-        if not self._fs.is_dir(dir_path):
+        if not self._disk().is_dir(dir_path):
             return 0
-        return sum(self._fs.stat(p).size for p in self._fs.glob(dir_path, "*.json"))
+        return sum(self._disk().stat(p).size for p in self._disk().glob(dir_path, "*.json"))
 
     def clear(self) -> int:
         dir_path = self.resolve()
-        if not self._fs.is_dir(dir_path):
+        if not self._disk().is_dir(dir_path):
             return 0
         count = 0
-        for p in self._fs.glob(dir_path, "*.json"):
-            self._fs.remove(p)
+        for p in self._disk().glob(dir_path, "*.json"):
+            self._disk().remove(p)
             count += 1
         return count
+
+    def blob_path(self, content_hash: str) -> Path:
+        safe = content_hash.replace(":", "-")
+        return Path(self._disk().join(self.path(), "blobs", safe))
+
+    def put_blob(self, content_hash: str, data: bytes) -> None:
+        p = self.blob_path(content_hash)
+        parent = Path(self._disk().dirname(p)) if hasattr(self._disk(), "dirname") else p.parent
+        self._disk().mkdir(str(parent), parents=True, exist_ok=True)
+        if self._disk().exists(p):
+            return
+        self._disk().write_bytes(p, data)
+
+    def get_blob(self, content_hash: str) -> bytes | None:
+        p = self.blob_path(content_hash)
+        if not self._disk().exists(p):
+            return None
+        try:
+            return self._disk().read_bytes(p)
+        except OSError:
+            return None
 
     def as_cache_store(self) -> _CacheFolderAdapter:
         return _CacheFolderAdapter(self)
@@ -111,6 +133,12 @@ class _CacheFolderAdapter:
 
     def clear(self) -> int:
         return self._folder.clear()
+
+    def put_blob(self, content_hash: str, data: bytes) -> None:
+        self._folder.put_blob(content_hash, data)
+
+    def get_blob(self, content_hash: str) -> bytes | None:
+        return self._folder.get_blob(content_hash)
 
 
 __all__ = [

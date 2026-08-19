@@ -43,7 +43,7 @@ HARNESS_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "harness
 # CLAUDE.md pinned exactly one sanctioned harness → agent import target
 # (``molexp.agent.router``). Spec ``plan-emergent-05c-orchestrator`` widens it
 # to an ALLOWLIST: the emergent-planning orchestrator's private
-# ``InteractiveLoopPlanRunner`` must construct a phase-02 Pi loop on the harness
+# Plan nodes call the agent through ``AgentGateway``; the sanctioned harness
 # side (loop construction is the driver's job per phase-02), so the loop /
 # runtime / session / events / hook modules join the sanctioned set. The
 # runtime invariant is unchanged and still enforced by the subprocess probes
@@ -53,13 +53,8 @@ HARNESS_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "harness
 SANCTIONED_AGENT_MODULES: frozenset[str] = frozenset(
     {
         "molexp.agent.router",
-        "molexp.agent.loops",
         "molexp.agent.loops.hooks",
-        "molexp.agent.loops.interactive",
-        "molexp.agent.runtime",
         "molexp.agent.session",
-        "molexp.agent.events",
-        "molexp.agent.execution_env",
     }
 )
 
@@ -96,13 +91,10 @@ class TestImportGuard:
     def test_import_plan_orchestrator_module_does_not_pull_forbidden_modules(self) -> None:
         """ac-008: ``import molexp.harness.modes.plan_orchestrator`` stays SDK-free.
 
-        ``InteractiveLoopPlanRunner.run_planning`` imports ``molexp.agent.loops``
-        *inside the method body* (mirroring ``agent.AgentRunner.run()`` deferring
-        ``pydantic_ai``). Merely importing the ``molexp.harness.modes.plan_orchestrator``
-        module must therefore leave ``molexp.workflow`` — and the ``pydantic_ai`` /
-        ``pydantic_graph`` SDKs it transitively loads — out of ``sys.modules``. Run
-        in a fresh subprocess so a stale ``sys.modules`` from another test cannot
-        poison the assertion.
+        Plan orchestration imports ``molexp.workflow`` *inside* ``_run_on_host``.
+        Merely importing ``molexp.harness.modes.plan_orchestrator`` must leave
+        ``molexp.workflow`` / ``pydantic_ai`` / ``pydantic_graph`` out of
+        ``sys.modules``.
         """
         probe = (
             "import sys, importlib;"
@@ -122,6 +114,25 @@ class TestImportGuard:
         assert loaded == [], (
             f"forbidden modules imported transitively by plan_orchestrator: {loaded}"
         )
+
+    def test_import_host_module_does_not_pull_forbidden_modules(self) -> None:
+        """``import molexp.harness.host`` stays workflow- and SDK-free."""
+        probe = (
+            "import sys, importlib;"
+            "importlib.import_module('molexp.harness.host');"
+            "loaded = [m for m in sys.modules if m in " + repr(list(_FORBIDDEN)) + "];"
+            "print('LOADED:' + ','.join(loaded))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        output = result.stdout.strip()
+        assert output.startswith("LOADED:"), output
+        loaded = [m for m in output.removeprefix("LOADED:").split(",") if m]
+        assert loaded == [], f"forbidden modules imported transitively by host: {loaded}"
 
     @pytest.mark.parametrize(
         "module",
@@ -162,12 +173,9 @@ class TestImportGuard:
     def test_harness_agent_imports_stay_within_the_sanctioned_allowlist(self) -> None:
         """Every ``molexp.agent.*`` import under harness/ is in the sanctioned allowlist.
 
-        ``from molexp.agent.router import …`` remains the canonical spelling; the
-        loop-construction surface (``molexp.agent.loops`` / ``.runtime`` /
-        ``.session`` / ``.events`` / the hook modules) is admitted for the
-        emergent-planning orchestrator's private ``InteractiveLoopPlanRunner``.
-        Any other ``molexp.agent.*`` target (e.g. ``molexp.agent.runner``, which
-        would drag the SDK-bearing runner in) is still a violation.
+        ``from molexp.agent.router import …`` remains the canonical spelling;
+        ``agent.loops.hooks`` / ``agent.session`` are admitted for AgentCallRuntime
+        type hints. Any other ``molexp.agent.*`` target is a violation.
         """
         hits = _imports_with_prefix("molexp.agent", HARNESS_ROOT)
         bad = [

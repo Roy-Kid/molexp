@@ -21,6 +21,6 @@
 
 - **[工作流模型](workflow.md)** — 计算模型：任务、依赖、编译、执行。哪些东西*不在*工作流层内。
 - **[工作区模型](workspace.md)** — 磁盘层级以及实验（定义）与运行（结果）之间的区别。
-- **[智能体](agent.md)** — LLM 对话层：pydantic-ai 外观、两种循环（ChatLoop 和 InteractiveLoop）、会话和事件。
+- **[智能体](agent.md)** — LLM 对话层：pydantic-ai 外观、一次调用或一轮 ReAct、会话和事件。
 - **[资产与可复现性](assets-and-reproducibility.md)** — 为什么可复用数据需要一等名称和作用域。工作区内的 FAIR 意味着什么。
 - **[插件](plugins.md)** — 超越本地执行的可选传输层。

@@ -162,11 +162,8 @@ class KnowledgeItem(Folder):
         Raises loudly (``ValidationError``) if the on-disk head is not a valid
         KnowledgeMeta — e.g. missing ``kind`` or an empty ``sources`` list.
         """
-        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
-        if not self._fs.exists(fpath):
-            legacy = self._fs.join(self.resolve(), "meta.json")
-            return cast("KnowledgeMeta", KnowledgeMeta.from_yaml(self._fs.read_text(legacy)))
-        return cast("KnowledgeMeta", KnowledgeMeta.from_json(self._fs.read_text(fpath)))
+        fpath = self._disk().join(self.resolve(), META_JSON_FILENAME)
+        return cast("KnowledgeMeta", KnowledgeMeta.from_json(self._disk().read_text(fpath)))
 
     def write_knowledge_meta(self, meta: KnowledgeMeta) -> None:
         """Atomically write this item's typed ``meta.json``.
@@ -176,8 +173,8 @@ class KnowledgeItem(Folder):
         :func:`concept_from_dir` rebuilds a :class:`KnowledgeItem`.
         """
         meta = meta.model_copy(update={"type": self._kind, "id": self._name})
-        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
-        self._fs.atomic_write_text(fpath, meta.to_json())
+        fpath = self._disk().join(self.path(), META_JSON_FILENAME)
+        self._disk().atomic_write_text(fpath, meta.to_json())
 
     # ── typed provenance edge (reuse P0.1) ────────────────────────────────
 

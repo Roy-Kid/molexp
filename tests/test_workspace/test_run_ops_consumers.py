@@ -1,11 +1,11 @@
-"""Run hot-state read accessors resolve from the OKF ``_ops/run.json`` sidecar (wsokf-07).
+"""Run hot-state read accessors resolve from the OKF ``ops/run.json`` sidecar (wsokf-07).
 
 After wsokf-07/10 a Run's hot machine state — status, retryable domain, and
 execution history — is sourced from :class:`molexp.workspace.run_ops.RunOpsState`
-in ``_ops/run.json`` through :meth:`Run.read_ops`, not from ``RunMetadata`` in
+in ``ops/run.json`` through :meth:`Run.read_ops`, not from ``RunMetadata`` in
 ``run.json``. This file owns the **read** side: ``Run.status`` /
 ``Run.is_retryable`` / ``Run.execution_history`` consume the sidecar. (The
-lifecycle *write* side + the run.json/_ops split live in
+lifecycle *write* side + the run.json/ops split live in
 ``test_runmetadata_single_source``; ownership + heartbeat in ``test_run_heartbeat``.)
 """
 

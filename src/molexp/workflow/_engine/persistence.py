@@ -21,11 +21,8 @@ those by design) — never the terminal state. Callers that never open the
 document (standalone tooling/tests) keep the legacy synchronous
 read-modify-write semantics.
 
-Atomic writes route through the cross-layer
-:func:`molexp.atomicio.atomic_write_json` primitive (the source that
-``workspace.atomic_write_json`` itself re-exports), so the atomicity guarantee
-is shared infra, not a workflow-layer reinvention — and the workflow layer no
-longer needs a runtime import of ``workspace`` for it.
+Atomic writes route through :class:`~molexp.workspace.file_store.FileStore`
+(the run-scoped byte exit; ``put`` uses :mod:`molexp.atomicio`).
 
 .. note:: **Status-vocabulary migration (run-recovery, 2026-07).** The
    document's TOP-LEVEL ``status`` (the workflow *result* status written by
@@ -52,8 +49,6 @@ from typing import TYPE_CHECKING, Any
 
 from mollog import get_logger
 
-from molexp.atomicio import atomic_write_json
-
 from ..._typing import JSONValue
 
 if TYPE_CHECKING:
@@ -68,6 +63,17 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _LOCK = threading.Lock()
+
+
+def _put_under_run(run_dir: Path, relpath: Path, data: dict | list) -> None:
+    """Write *data* via the run's FileStore (the one byte-exit)."""
+    from molexp.workspace.file_store import FileStore
+
+    FileStore(run_dir).put(relpath, data)
+
+
+def _workflow_relpath(execution_id: str) -> Path:
+    return Path("executions") / execution_id / "workflow.json"
 
 
 def _iter_dicts(value: JSONValue) -> Iterator[dict[str, JSONValue]]:
@@ -198,7 +204,7 @@ def last_resumable_execution_id(run: Run) -> str | None:
     persisted there. Returns ``None`` when the run has no execution to reopen —
     the caller errors (no fallback to a fresh execution).
 
-    Execution history is read from the OKF ``_ops`` hot-state sidecar
+    Execution history is read from the OKF ``ops`` hot-state sidecar
     (``run.read_ops().executions``) per wsokf-07 — the same ``ExecutionRecord``
     shape, the same "most-recent non-succeeded" rule.
     """
@@ -372,9 +378,11 @@ def write_initial_workflow_json(
     compiled: CompiledWorkflow | None = None,
 ) -> None:
     """Create ``executions/<execution_id>/`` and write initial ``workflow.json``."""
-    exec_dir = run_dir / "executions" / execution_id
-    exec_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(exec_dir / "workflow.json", _initial_document(execution_id, compiled))
+    _put_under_run(
+        run_dir,
+        _workflow_relpath(execution_id),
+        _initial_document(execution_id, compiled),
+    )
 
 
 # ── Coalescing execution-document writer ─────────────────────────────────────
@@ -405,12 +413,14 @@ class _ExecutionDocumentWriter:
 
     All mutation and serialization happen under ``self._lock``: marks arrive
     on the event-loop thread, the staleness timer fires on its own daemon
-    thread. Disk writes go through workspace's :func:`atomic_write_json`
-    (tmp + rename), so readers never observe a torn document.
+    thread. Disk writes go through :class:`~molexp.workspace.file_store.FileStore`
+    (atomic put), so readers never observe a torn document.
     """
 
-    def __init__(self, path: Path, document: dict[str, JSONValue]) -> None:
-        self._path = path
+    def __init__(self, run_dir: Path, execution_id: str, document: dict[str, JSONValue]) -> None:
+        self._run_dir = run_dir
+        self._relpath = _workflow_relpath(execution_id)
+        self._path = run_dir / self._relpath
         self._document = document
         self._lock = threading.Lock()
         self._dirty = False
@@ -449,7 +459,7 @@ class _ExecutionDocumentWriter:
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
-        atomic_write_json(self._path, self._document)
+        _put_under_run(self._run_dir, self._relpath, self._document)
         self._dirty = False
 
     def close(self) -> None:
@@ -515,17 +525,15 @@ def open_execution_document(
     same execution id) discards the superseded writer without flushing it —
     the fresh initial document is the new truth.
     """
-    exec_dir = run_dir / "executions" / execution_id
-    exec_dir.mkdir(parents=True, exist_ok=True)
-    path = exec_dir / "workflow.json"
+    path = _workflow_json_path(run_dir, execution_id)
     document = _initial_document(execution_id, compiled)
     with _REGISTRY_LOCK:
         prior = _WRITERS.pop(path, None)
     if prior is not None:
         prior.discard()
-    atomic_write_json(path, document)
+    _put_under_run(run_dir, _workflow_relpath(execution_id), document)
     with _REGISTRY_LOCK:
-        _WRITERS[path] = _ExecutionDocumentWriter(path, document)
+        _WRITERS[path] = _ExecutionDocumentWriter(run_dir, execution_id, document)
 
 
 def close_execution_document(run_dir: Path | None, execution_id: str | None) -> None:
@@ -577,7 +585,7 @@ def _mutate_document(
         if not isinstance(data, dict):
             return
         mutate(data)
-        atomic_write_json(wf_path, data)
+        _put_under_run(run_dir, _workflow_relpath(execution_id), data)
 
 
 def mark_task_status(

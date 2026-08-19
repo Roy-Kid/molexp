@@ -5,7 +5,7 @@ rebuildable view of the authoritative workspace: entities map onto the real
 git objects from spec 02, refs land under ``refs/molexp/*``, and a
 ``rebuild`` from the authoritative files reproduces byte-identical OIDs
 (proving git is a projection target, never a second truth). Hot state
-(``_ops/``), ``cache/`` and derived indexes are excluded; ``molexp.ids`` and
+(``ops/``), ``cache/`` and derived indexes are excluded; ``molexp.ids`` and
 the content-addressed cache keys are never perturbed.
 """
 
@@ -40,10 +40,10 @@ def _seed_two_runs(ws_root: Path) -> tuple[Workspace, object, object]:
     exp = ws.add_project("demo").add_experiment("baseline", params={"lr": 1e-3})
     run_a = exp.add_run(params={"seed": 0})
     with run_a.start() as ctx:
-        ctx.artifact.save("metrics.json", {"loss": 0.1})
+        ctx.register_artifact({"loss": 0.1}, name="metrics.json")
     run_b = exp.add_run(params={"seed": 1})
     with run_b.start() as ctx:
-        ctx.artifact.save("metrics.json", {"loss": 0.2})
+        ctx.register_artifact({"loss": 0.2}, name="metrics.json")
     return ws, run_a, run_b
 
 
@@ -84,7 +84,7 @@ class TestGitProjection:
         exp = ws.add_project("demo").add_experiment("baseline", params={})
         run = exp.add_run(params={"seed": 0})
         with run.start() as ctx:
-            ctx.artifact.save("m.json", {"v": 1})
+            ctx.register_artifact({"v": 1}, name="m.json")
         # Two more (rerun) attempts with fixed dates → a 3-commit chain.
         _append_execution(
             run, f"exec-{run.id}-2", datetime(2026, 1, 1, 10, 0, 0), datetime(2026, 1, 1, 10, 5, 0)
@@ -121,10 +121,11 @@ class TestGitProjection:
         db = await ensure_object_db(tmp_path / "odb")
         res = await GitProjection(ws, db).project()
         paths = _git(db.path, "ls-tree", "-r", "--name-only", res.workspace_tree.hex).split("\n")
-        joined = "\n".join(paths)
-        assert "_ops" not in joined
-        assert "cache" not in joined
-        assert "executions" not in joined
+        parts = {part for path in paths if path for part in path.split("/")}
+        assert "ops" not in parts
+        assert "_ops" not in parts
+        assert "cache" not in parts
+        assert "executions" not in parts
         # The run ENTITY file is projected (identity), the index files are not.
         assert any(p.endswith("run.json") for p in paths)
         # No plural children-index at a parent level (projects/experiments/runs.json).
@@ -160,8 +161,8 @@ class TestGitProjection:
         run = exp.add_run(params={"seed": 0})
         big = b"X" * 4096
         with run.start() as ctx:
-            ctx.artifact.save("metrics.json", {"loss": 0.1})  # small → blob
-            ctx.artifact.save("traj.bin", big)  # large → pointer
+            ctx.register_artifact({"loss": 0.1}, name="metrics.json")  # small → blob
+            ctx.register_artifact(big, name="traj.bin")  # large → pointer
 
         db = await ensure_object_db(tmp_path / "odb")
         res = await GitProjection(ws, db, blob_threshold_bytes=64).project()

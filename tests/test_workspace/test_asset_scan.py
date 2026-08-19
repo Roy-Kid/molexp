@@ -25,7 +25,7 @@ def _seed_workspace(root: Path, n_runs: int = 3) -> Workspace:
     for i in range(n_runs):
         r = exp.add_run(params={"seed": i})
         with r.start() as ctx:
-            ctx.artifact.save("metrics.json", {"loss": 0.1 * i})
+            ctx.register_artifact({"loss": 0.1 * i}, name="metrics.json")
             ctx.log("train").append(f"run {i} starting")
             ctx.checkpoint("epoch1", data={"step": 1})
     return ws

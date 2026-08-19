@@ -4,7 +4,7 @@ Matches ``docs/guide/assets.md``.
 
 Walks through:
 
-1. ``ctx.artifact.save`` — writes a file and registers an ``ArtifactAsset``.
+1. ``ctx.register_artifact`` — writes a file and registers an ``ArtifactAsset``.
 2. ``ctx.log(name).append`` — appends to a ``LogAsset`` scoped to the run.
 3. ``ctx.checkpoint`` — writes a ``CheckpointAsset`` with parent chaining.
 4. ``ws.data_assets.import_asset`` — pulls external data into the workspace.
@@ -57,7 +57,7 @@ async def main() -> None:
         result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 
         # 1. Artifact — arbitrary payload written to run_dir/artifacts/.
-        ctx.artifact.save("metrics.json", result.outputs["train"])
+        ctx.register_artifact(result.outputs["train"], name="metrics.json")
 
         # 2. Log — line-oriented, appendable, scoped to this run.
         log = ctx.log("train")
@@ -72,7 +72,7 @@ async def main() -> None:
         # 5. find_asset walks run → experiment → project → workspace.
         dataset = ctx.find_asset("toy-dataset")
         if dataset is not None:
-            ctx.artifact.save("dataset-path.txt", str(dataset.path))
+            ctx.register_artifact(str(dataset.path), name="dataset-path.txt")
 
     # 6. Asset queries — flat view over the whole workspace, scanned from the
     #    authoritative on-disk manifests.

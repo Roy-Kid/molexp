@@ -112,9 +112,8 @@ class TestRuntimeCaching:
 
         @wf.task
         async def produce(ctx: TaskContext) -> str:
-            # Pure contract: the task RETURNS its product; the engine's
-            # materialization layer persists it as a content-hashed artifact.
             _bump("produce")
+            ctx.register_artifact("produced", name="produce.txt")
             return "produced"
 
         compiled = wf.compile()

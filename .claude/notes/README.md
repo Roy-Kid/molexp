@@ -7,8 +7,9 @@ repository. Its contents outlive any single feature or spec.
 |---|---|
 | `notes.md` | Evolving architectural decisions, captured by `/mol:note`. Stable entries are promoted to `CLAUDE.md` and pruned here. |
 | `architecture.md` | Project blueprint — modules, public surfaces, layer roles. Built/refreshed by `/mol:map`; consumed by the `librarian` agent at spec time. |
-| `harness-goal.md` | North-star spec for the provenance-first scientific-workflow harness (internals). |
-| `integration.md` | Layer-integration & AI-assisted operation spec — how Workspace / Workflow / Experiment / Run / Artifact / Knowledge / Agent cooperate. Companion to `harness-goal.md`. |
+| `harness-plugins.md` | Live harness discipline: plugin host, **AgentCall** atom, lifecycle, seams. Workspace / workflow / agent / science adapters are plugins. |
+| `harness-goal.md` | What those plugins persist and validate (artifacts, IR, tests, audit). Plan/run are bundles on the host, not the kernel. |
+| `integration.md` | How plugins cooperate — the WorkspaceContext → KnowledgeDelta loop as a bundle composition. Companion to `harness-plugins.md` + `harness-goal.md`. |
 | `open-questions.md` | Uncertainties recorded over time; resolved as answers become clear. |
 | `vision-gap-2026-07.md` | Snapshot of vision ↔ code gaps (July 2026); passive reference, not a live spec. |
 

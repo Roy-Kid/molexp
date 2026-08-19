@@ -1,7 +1,7 @@
 """Harness mode orchestrators.
 
-* :class:`ChatMode` — InteractiveLoop, scratch-only, no default land
-* :class:`PlanOrchestrator` — two-phase planning → workflow realization
+* :class:`ChatMode` — one-shot structured AgentCall, scratch-only
+* :class:`PlanOrchestrator` — plan workflow (ReAct draft ⟲ form) then realize
 """
 
 from molexp.harness.modes.chat import ChatMode, chat_loop_config

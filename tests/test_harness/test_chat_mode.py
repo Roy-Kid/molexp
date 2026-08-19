@@ -1,4 +1,4 @@
-"""ChatMode — peer of Plan; InteractiveLoop, scratch-only, no default land."""
+"""ChatMode — one-shot structured AgentCall, scratch-only, no default land."""
 
 from __future__ import annotations
 
@@ -14,12 +14,8 @@ def test_chat_loop_config_is_chat_surface() -> None:
     assert cfg.workspace_root == Path("/tmp/ws")
 
 
-def test_chat_mode_build_loop_uses_interactive_chat() -> None:
-    mode = ChatMode()
-    assert mode.name == "chat"
-    loop = mode.build_loop(workspace_root=Path("/tmp/ws"))
-    assert loop.config.operation_mode == "chat"
-    assert loop.name == "agent"
+def test_chat_mode_name() -> None:
+    assert ChatMode().name == "chat"
 
 
 def test_chat_scratch_prefix() -> None:

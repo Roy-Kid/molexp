@@ -100,13 +100,9 @@ class HttpSpec(BaseModel):
 
     Two transports are accepted:
 
-    - ``http`` — modern streamable HTTP wire format, matching Claude Code's
-      ``.mcp.json`` convention. Use this for any new server.
-    - ``sse`` — legacy long-poll transport, kept only for older servers
-      that haven't migrated to streamable HTTP yet.
-
-    The historical ``streamable-http`` value is normalized to ``http`` on
-    read (see :func:`_read_servers`); it is not accepted on write.
+    - ``http`` — streamable HTTP wire format, matching Claude Code's
+      ``.mcp.json`` convention.
+    - ``sse`` — SSE transport.
     """
 
     type: Literal["http", "sse"]
@@ -643,14 +639,7 @@ class McpStore:
 
 
 def _read_servers(path: Path) -> dict[str, JSONValue]:
-    """Return the ``mcpServers`` map from ``path``, or empty dict on error.
-
-    Performs a one-shot normalization for legacy values: ``streamable-http``
-    in older configs is rewritten to ``http`` so the new schema (which only
-    accepts ``http`` / ``sse`` / ``stdio``) can validate. Read-only — the
-    mutation only affects the in-memory dict; the file on disk stays as-is
-    until a subsequent :func:`_write_servers` call.
-    """
+    """Return the ``mcpServers`` map from ``path``, or empty dict on error."""
     if not path.exists():
         return {}
     try:
@@ -660,12 +649,7 @@ def _read_servers(path: Path) -> dict[str, JSONValue]:
     raw = content.get("mcpServers") if isinstance(content, dict) else None
     if not isinstance(raw, dict):
         return {}
-    out: dict[str, JSONValue] = {}
-    for name, spec in raw.items():
-        if isinstance(spec, dict) and spec.get("type") == "streamable-http":
-            spec = {**spec, "type": "http"}
-        out[name] = spec
-    return out
+    return dict(raw)
 
 
 def _write_servers(path: Path, servers: dict[str, JSONValue]) -> None:

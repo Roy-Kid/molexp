@@ -43,7 +43,7 @@ def _seed_workspace(root: Path, n_runs: int = 2) -> Workspace:
     for i in range(n_runs):
         r = exp.add_run(params={"seed": i})
         with r.start() as ctx:
-            ctx.artifact.save("metrics.json", {"loss": 0.1 * i})
+            ctx.register_artifact({"loss": 0.1 * i}, name="metrics.json")
             ctx.log("train").append(f"run {i} starting")
             ctx.checkpoint("epoch1", data={"step": 1})
     return ws
@@ -87,7 +87,10 @@ class TestAssetManifest:
         run = ws.add_project("p").add_experiment("e").add_run()
         n = 20
         with run.start() as ctx, ThreadPoolExecutor(max_workers=4) as pool:
-            futs = [pool.submit(ctx.artifact.save, f"a{i}.json", {"i": i}) for i in range(n)]
+            futs = [
+                pool.submit(lambda i=i: ctx.register_artifact({"i": i}, name=f"a{i}.json"))
+                for i in range(n)
+            ]
             results = [f.result() for f in as_completed(futs)]
 
         assert len(results) == n
@@ -166,7 +169,7 @@ class TestProducer:
         run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
             ctx.set_active_task("train")
-            asset = ctx.artifact.save("m.json", {"x": 1})
+            asset = ctx.register_artifact({"x": 1}, name="m.json")
         assert asset.producer.task_id == "train"
 
 

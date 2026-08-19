@@ -99,7 +99,7 @@ def model_messages_from_messages(messages: Iterable[Message]) -> tuple[Any, ...]
 
     The *reseed bridge*: when the lossless ``model_messages`` blob is
     discarded (a branch/resume moved the session tip, or the blob was
-    deleted), :class:`~molexp.agent.loops.interactive.InteractiveLoop`
+    deleted), a ReAct turn
     rebuilds LLM history from the canonical entry tree
     (``session.build_context()``) through this function. The rebuild is
     *semantic* — it carries role + text only, so tool-call detail the lossless

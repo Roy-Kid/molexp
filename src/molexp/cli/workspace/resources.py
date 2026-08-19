@@ -686,7 +686,7 @@ def run_info(
 
     # Event log is a local SQLite file; remote workspaces skip the timeline
     # rather than probing a non-existent local path under the remote root.
-    if isinstance(ws._fs, LocalFileSystem):
+    if isinstance(ws.fs, LocalFileSystem):
         events = read_workspace_events(ws.root, ref=r.id, limit=5)
         if events:
             rprint("  Recent events:")
@@ -747,7 +747,7 @@ def asset_list(
 
     from molexp.workspace.assets import scan
 
-    assets = scan.scan_assets(ws.root, fs=ws._fs)
+    assets = scan.scan_assets(ws.root, fs=ws.fs)
     total = len(assets)
     if scope is not None:
         assets = [a for a in assets if a.scope.kind == scope]
@@ -792,7 +792,7 @@ def asset_info(
 
     ws = _open_ws(target_spec)
 
-    asset = asset_scan.get_asset(ws.root, asset_id, fs=ws._fs)
+    asset = asset_scan.get_asset(ws.root, asset_id, fs=ws.fs)
     if asset is None:
         rprint(f"[red]Error:[/red] no asset with id {asset_id!r} in this workspace.")
         raise typer.Exit(1)
@@ -830,7 +830,7 @@ def asset_lineage(
         raise typer.Exit(1)
     ws = _open_ws(target_spec)
 
-    if asset_scan.get_asset(ws.root, asset_id, fs=ws._fs) is None:
+    if asset_scan.get_asset(ws.root, asset_id, fs=ws.fs) is None:
         rprint(f"[red]Error:[/red] no asset with id {asset_id!r} in this workspace.")
         raise typer.Exit(1)
 
@@ -840,7 +840,7 @@ def asset_lineage(
             rprint("  (none)")
             return
         for related_id in sorted(ids):
-            related = asset_scan.get_asset(ws.root, related_id, fs=ws._fs)
+            related = asset_scan.get_asset(ws.root, related_id, fs=ws.fs)
             suffix = (
                 f"  {related.name} ({related.kind if hasattr(related, 'kind') else '?'})"
                 if related is not None

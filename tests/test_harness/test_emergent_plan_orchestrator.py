@@ -1,7 +1,7 @@
 """Tests for :class:`PlanOrchestrator` (plan-emergent-05c + phase-2 wiring).
 
 Offline, stub-driven: a ``StubAgentGateway`` plus a local stub
-``PlanLoopRunner`` that writes a canned board. Phase 2 is disabled
+``draft=`` seam that writes a canned board. Phase 2 is disabled
 (``realize=False``) so these unit tests do not require codegen agents.
 """
 
@@ -14,7 +14,6 @@ from typing import Any
 
 import pytest
 
-from molexp.agent.loops import LoopHooks, LoopState
 from molexp.harness import (
     ApprovalPendingError,
     FileArtifactStore,
@@ -22,10 +21,7 @@ from molexp.harness import (
     SQLiteApprovalStore,
 )
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.plan_orchestrator import (
-    PlanLoopRunner,
-    PlanOrchestrator,
-)
+from molexp.harness.modes.plan_orchestrator import PlanOrchestrator
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -71,20 +67,14 @@ def _malformed_board() -> TaskBoard:
     )
 
 
-class _CannedBoardRunner:
+class _CannedDraft:
     def __init__(self, board: TaskBoard) -> None:
         self._board = board
         self.calls = 0
-        self.captured_hooks: LoopHooks | None = None
-        self.captured_tools: tuple[Any, ...] = ()
 
-    async def run_planning(
-        self, *, ctx: Any, board: Any, tools: Any, hooks: LoopHooks, user_input: str
-    ) -> None:
-        del board, user_input
+    async def __call__(self, *, ctx: Any, user_input: str) -> None:
+        del user_input
         self.calls += 1
-        self.captured_hooks = hooks
-        self.captured_tools = tuple(tools)
         write_board(board_path(ctx.workspace_root), self._board)
 
 
@@ -113,15 +103,10 @@ def _approvals(run: Any) -> SQLiteApprovalStore:
     return SQLiteApprovalStore(run.run_dir / "harness.sqlite")
 
 
-class TestPlanLoopRunnerProtocol:
-    def test_stub_runner_satisfies_the_runtime_checkable_protocol(self) -> None:
-        assert isinstance(_CannedBoardRunner(_valid_board()), PlanLoopRunner)
-
-
 class TestStoreBundle:
     async def test_run_reproduces_the_build_ctx_store_bundle(self, run: Any) -> None:
         orch = PlanOrchestrator(
-            loop_runner=_CannedBoardRunner(_valid_board()),
+            draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )
@@ -141,7 +126,7 @@ class TestStoreBundle:
 class TestGuardFailSteersBack:
     async def test_malformed_final_board_never_reaches_the_gate(self, run: Any) -> None:
         orch = PlanOrchestrator(
-            loop_runner=_CannedBoardRunner(_malformed_board()),
+            draft=_CannedDraft(_malformed_board()),
             approve=auto_grant_approver,
             realize=False,
         )
@@ -153,27 +138,29 @@ class TestGuardFailSteersBack:
         assert store.latest_by_kind(FROZEN_PLAN_KIND) is None
         assert _approvals(run).pending(run.id) == []
 
-    async def test_injected_should_stop_guard_denies_a_malformed_board(self, run: Any) -> None:
-        stub = _CannedBoardRunner(_valid_board())
+    async def test_form_loop_retries_until_board_is_valid(self, run: Any) -> None:
+        """Malformed first draft is a workflow continue, not a review subject."""
+        boards = [_malformed_board(), _valid_board()]
+
+        async def draft(*, ctx: Any, user_input: str) -> None:
+            del user_input
+            write_board(board_path(ctx.workspace_root), boards.pop(0) if boards else _valid_board())
+
         orch = PlanOrchestrator(
-            loop_runner=stub,
+            draft=draft,
             approve=auto_grant_approver,
             realize=False,
+            board_max_iters=4,
         )
-        await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
-
-        assert stub.captured_hooks is not None
-        guard = stub.captured_hooks.should_stop
-        assert guard is not None
-        write_board(board_path(run.run_dir), _malformed_board())
-        outcome = await guard(state=LoopState(step=1))
-        assert outcome.is_deny
+        result = await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
+        assert isinstance(result, ModeResult)
+        assert _store(run).latest_by_kind(FROZEN_PLAN_KIND) is not None
 
 
 class TestStoreFirstSuspend:
     async def test_valid_board_suspends_store_first_without_approver(self, run: Any) -> None:
         orch = PlanOrchestrator(
-            loop_runner=_CannedBoardRunner(_valid_board()),
+            draft=_CannedDraft(_valid_board()),
             approve=None,
             realize=False,
         )
@@ -194,7 +181,7 @@ class TestStoredGrantReplay:
     async def test_stored_grant_replays_into_freeze_and_render(self, run: Any) -> None:
         gw = _gateway(run)
         orch = PlanOrchestrator(
-            loop_runner=_CannedBoardRunner(_valid_board()),
+            draft=_CannedDraft(_valid_board()),
             approve=None,
             realize=False,
         )
@@ -228,7 +215,7 @@ class TestStoredGrantReplay:
 class TestModeLikeShape:
     async def test_drive_plan_mode_returns_a_mode_result(self, run: Any) -> None:
         orch = PlanOrchestrator(
-            loop_runner=_CannedBoardRunner(_valid_board()),
+            draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )
@@ -242,7 +229,7 @@ class TestPriorKnowledgeWire:
 
     async def test_assembles_knowledge_context_and_lineages_experiment_plan(self, run: Any) -> None:
         orch = PlanOrchestrator(
-            loop_runner=_CannedBoardRunner(_valid_board()),
+            draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )
@@ -278,7 +265,7 @@ class TestPriorKnowledgeWire:
         item.write_index("grid too coarse near r_min — unique-fa-marker")
 
         orch = PlanOrchestrator(
-            loop_runner=_CannedBoardRunner(_valid_board()),
+            draft=_CannedDraft(_valid_board()),
             approve=auto_grant_approver,
             realize=False,
         )

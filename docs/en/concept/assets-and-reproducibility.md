@@ -32,7 +32,7 @@ Beyond outputs, MolExp persists the metadata that makes a run interpretable late
 |---|---|---|
 | Workflow snapshot | `run.json` | The exact graph identity (`workflow_id`) |
 | Config hash | `run.json` | The resolved profile's `config_hash` |
-| Execution history | `_ops/run.json` | Status transitions, timestamps, attempt count |
+| Execution history | `ops/run.json` | Status transitions, timestamps, attempt count |
 | Per-task outputs | `executions/<exec_id>/workflow.json` | Each task's return value |
 
 Together, these turn a run directory into a scientific record — not just a pile of output files.

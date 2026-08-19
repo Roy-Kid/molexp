@@ -1,7 +1,7 @@
 """Package-private ``asset.added`` emitter shared by the asset write verbs.
 
 One spelling for the actor + payload vocabulary (vision-loop-12), used by
-``ArtifactAccessor.save`` and the ``DataAssetLibrary`` import/register verbs.
+``register_artifact`` and the ``DataAssetLibrary`` import/register verbs.
 Non-fatal by ``emit_workspace_event``'s contract — callers emit only after
 their write is durable.
 """

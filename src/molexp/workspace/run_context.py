@@ -29,7 +29,7 @@ class ContextStore:
 
     def __init__(self, run: Run, work_dir: Path) -> None:
         self._run = run
-        self._work_dir = work_dir
+        self._run_dir = work_dir
         self._wrote_results = False
         self._context: Context = Context(
             run_id=run.id,
@@ -74,7 +74,7 @@ class ContextStore:
     def load_existing_results(self) -> None:
         from .schema_version import read_versioned_json
 
-        run_json = self._work_dir / "run.json"
+        run_json = self._run_dir / "run.json"
         if not run_json.exists() or run_json.stat().st_size == 0:
             return
         data = read_versioned_json(run_json)
@@ -83,12 +83,15 @@ class ContextStore:
                 self._context.results[key] = value
 
     def save(self) -> None:
-        from .schema_version import write_versioned_json
+        from .file_store import FileStore
+        from .schema_version import versioned_payload
 
-        write_versioned_json(
-            self._work_dir / "run.json",
-            {
-                **self._run.metadata.model_dump(mode="json"),
-                "context": self._context.model_dump(mode="json"),
-            },
+        FileStore(self._run_dir, fs=self._run._disk()).put(
+            "run.json",
+            versioned_payload(
+                {
+                    **self._run.metadata.model_dump(mode="json"),
+                    "context": self._context.model_dump(mode="json"),
+                }
+            ),
         )

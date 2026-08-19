@@ -1,4 +1,4 @@
-"""Builtin tool adapter — molexp-owned tools mounted on InteractiveLoop.
+"""Builtin tool adapter — molexp-owned tools mounted on one ReAct.
 
 Tool **names** here are the only hard-coded agent-facing identifiers.
 Surfaces: ``chat`` (default) vs ``full`` (archive: ensure + land).
@@ -12,7 +12,6 @@ from molexp.agent.ops.builtins import (
     BUILTIN_TOOL_NAMES,
     CHAT_TOOL_NAMES,
     FULL_TOOL_NAMES,
-    OPS_TOOL_NAMES,
     builtin_tool_specs,
     tool_names_for_surface,
 )
@@ -22,7 +21,6 @@ __all__ = [
     "BUILTIN_TOOL_NAMES",
     "CHAT_TOOL_NAMES",
     "FULL_TOOL_NAMES",
-    "OPS_TOOL_NAMES",
     "build_ops_tools",
     "render_discovery_catalog",
 ]

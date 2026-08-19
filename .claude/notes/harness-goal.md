@@ -2,34 +2,48 @@
 
 **Status**: target architecture. Today's `architecture.md` describes current state; this file describes what we are building toward. Reconcile incrementally as each Phase (§16) lands.
 
-> **Companion:** this file owns the harness *internals* (artifacts, events,
-> WorkflowIR/BoundWorkflow split, executors, validators, audit). The **cross-layer
-> coordination** — how Workspace / Workflow / Experiment / Run / Artifact /
-> Knowledge / Agent cooperate, plus the `WorkspaceContext → Intent → Plan →
-> ChangeProposal → Action → Run/Artifact → KnowledgeDelta` operation loop and the
-> AI-assisted features — is specified in **`integration.md`**, which consumes the
-> models below. New coordination types (`WorkspaceContext`, `WorkspaceEvent`,
-> typed `KnowledgeItem`, `ChangeProposal`) live there; see §4.9.
+> **Kernel first:** the host, the atom (**AgentCall**), plugin lifecycle, and
+> the "everything is a plugin" discipline live in **`harness-plugins.md`**.
+> This file owns what *plugins* persist and validate (artifacts, events,
+> WorkflowIR/BoundWorkflow, executors, tests, audit). The **`plan` / `run` /
+> interpret bundles** — and the
+> `WorkspaceContext → Intent → Plan → ChangeProposal → Action → Run/Artifact →
+> KnowledgeDelta` loop — are specified in **`integration.md`**. Those are
+> compositions mounted on the kernel, not a second definition of the harness.
 
 ## 0. 目标
 
-本系统的目标不是做一个"会写实验流程的 agent"，而是做一个 **provenance-first scientific workflow harness**。
+Harness 的最小形态是 **一次 pydantic-ai 模型调用**（`AgentGateway.call`）。Chat 是 one-shot，禁止自己 loop。带工具的工作是一次 ReAct。Plan 是 `molexp.workflow` 图，每个节点一次 call/ReAct，产物落盘。不要再往 `ChatLoop` / `InteractiveLoop` 加功能。
 
-它接收用户口语化的实验计划，将其转化为规范实验报告、结构化 workflow 中间表示、绑定到 Molcrafts 生态的可执行任务图、可运行测试和可审计执行记录。
+整个 molexp 是插件互相组合。workspace、workflow、agent、knowledge、科学适配器（molpy / molvis / molq / molmcp）、编排（plan / curate / realize）和 CLI/UI 都是插件。层 DAG 是默认 profile 的 **inject 图**，不是「这些包不是插件」的理由。
 
-系统中 agent 只负责生成候选内容。harness 拥有状态、校验、审批、执行、日志、版本、测试、回放和追踪。
+在这个内核上，默认科学 bundle 仍然是 provenance-first：agent 只生成候选；状态、校验、审批、执行、日志、测试、回放由相应插件处置。
 
 一句话定义：
 
-> Molcrafts Harness is a provenance-first scientific workflow harness that uses agents to transform informal experimental intent into validated reports, workflow IRs, Molcrafts-bound executable tasks, test specifications, and auditable execution records.
+> Molcrafts Harness is the plugin host whose atom is one AgentCall. Workspace, workflow, agent, and science adapters mount as plugins. Provenance-first plan/run/interpret bundles compose those plugins to turn informal experimental intent into validated reports, workflow IRs, bound tasks, tests, and auditable records.
 
 中文定义：
 
-> Molcrafts Harness 是一个以可追踪性为中心的科学工作流 harness，用 agent 将口语化实验意图转成规范实验报告、可校验 workflow IR、绑定到 Molcrafts 生态的可执行任务图、测试规范和完整审计记录。
+> Molcrafts Harness 是以 **AgentCall** 为原子的插件宿主。workspace / workflow / agent / 科学适配器都是插件。科学 plan/run/interpret 是装在宿主上的 bundle，把口语化实验意图变成可校验的报告、workflow IR、绑定任务、测试和审计记录。
 
 ---
 
 ## 1. 核心原则
+
+### 1.0 Everything is a plugin
+
+纪律全文见 `harness-plugins.md`。这里只钉四条，避免本文件把「9 步 pipeline」重新说成内核：
+
+```text
+原子是一次 pydantic-ai call（one-shot 或 ReAct），不是 ChatLoop / InteractiveLoop
+Plan 是 workflow，不是 PlanOrchestrator 特权管道
+新行为 = 挂插件 / 注册 effect
+seam = Definition + Provider + Consumer，缺一角就不是 seam
+注册可卸载：unload 必须把 tool / capability / listener / executor 卸干净
+```
+
+workspace 与 workflow 按同一纪律视作插件：它们对外发布 `ctx.workspace` / `ctx.workflow`，对内仍守自己的磁盘契约与动词法。科学 API 走 capability / molmcp 插件，不编进宿主。
 
 ### 1.1 Agent proposes, harness disposes
 
@@ -166,55 +180,51 @@ regression behavior
 
 ## 2. 系统边界
 
-### 2.1 本系统负责什么
+### 2.1 宿主负责什么
 
-系统负责：
-
-```text
-理解用户实验意图
-扩写成规范实验报告
-抽取 workflow IR
-校验 workflow IR
-将 IR 绑定到 Molcrafts 工具生态
-生成测试规范
-执行 dry-run 或 full-run
-记录所有 artifact
-记录所有事件
-生成 provenance graph
-支持 replay / resume / audit
-生成最终实验报告和审计报告
-```
-
-### 2.2 本系统不应该负责什么
-
-系统不应该让 agent 任意完成以下事情：
+宿主（harness kernel）只负责：
 
 ```text
-直接写入最终文件
-直接执行 shell
-直接提交 HPC 作业
-直接修改项目配置
-直接覆盖已有结果
-直接选择未注册工具
-直接使用未校验参数
-直接把推断当事实
+plugin context（服务表）
+lifecycle（compose / load / apply / unload）
+typed events（含 waterfall）
+AgentCall 分发与「模型可见 ⟺ 已落盘」
 ```
 
-这些动作必须由 harness 控制。
+默认 bundle 在宿主之上负责（仍是插件，不是内核）：
+
+```text
+chat          一次或一串 AgentCall
+plan          意图 → 报告 → IR → 绑定 → 测试 → 冻结
+run           compile / execute / resume（inject ctx.workflow + ctx.workspace）
+interpret     Run/artifact → 带 SourceRef 的 KnowledgeItem
+curate        ChangeProposal + 审批后的 workspace 变更
+audit/replay  事件与血缘的只读消费
+```
+
+### 2.2 宿主不应该负责什么
+
+```text
+拥有 Run 身份或 ops/run.json（workspace 插件）
+实现 DAG 调度或 cache key（workflow 插件）
+直接 import pydantic_ai（agent 插件）
+把 molpy/molvis/molq 符号编成宿主工具
+让 agent 插件自己写最终文件、跑 shell、提交作业、改配置、覆盖结果
+绕过 ctx.capabilities 选择未注册工具
+把推断写成用户事实
+```
+
+副作用必须走拥有该 seam 的插件，通常再经过 `ctx.approval`。
 
 ---
 
 ## 3. 端到端流程
 
-> **Shipped (reconciled):** the implemented pipeline is the **single 9-step
-> `PlanMode`** — idea → (1) draft proposal → (2) concrete spec → (3) resolve
-> capabilities → (4) workflow IR → (5) tasks + per-task tests → (6) input set →
-> (7) compile/dry-run → (8) review → (9) execution report. The nine steps end
-> at a descriptive execution report (never submits); real scientific execution
-> is the **opt-in `--execute` tail** (`ExecuteWorkflow → GenerateFinalReport →
-> ApprovalGate → GenerateAuditReport`). The earlier separate `RunMode` is
-> retired/folded into that tail. The conceptual pipeline below still holds; the
-> shipped stage names + the spec/capabilities/input-set steps refine it.
+> **Shipped (reconciled):** the implemented **`plan` bundle** is the two-phase
+> `PlanOrchestrator` (interactive board → freeze → realize) plus leftover
+> stage inventory. That bundle is not the host. The host's atom is one
+> AgentCall (`harness-plugins.md`). The conceptual pipeline below is what the
+> `plan` / `run` bundles compose; real scientific execution stays opt-in.
 
 完整 pipeline：
 
@@ -909,6 +919,10 @@ workflow 从 dry-run 进入 full-run
 
 ## 8. Stage 和 Orchestrator
 
+Stage 与 Orchestrator 是 **编排插件**，不是原子。原子是 §10 的 AgentCall。`PlanOrchestrator` 是 `plan` bundle 的驱动器：它可以发多次 AgentCall、跑多次 Stage，但宿主在没有它时仍然成立（`chat` profile = 宿主 + llm + 一次 AgentCall）。
+
+新的科学步骤（解释、收获、下一轮 plan）是新 bundle 或新 Stage 插件，挂到已有 seam 上。不要把它们写进 AgentCall 驱动，也不要扩 `PlanOrchestrator` 成「科研 ReAct」。
+
 ### 8.1 Stage 抽象
 
 ```python
@@ -1138,7 +1152,11 @@ class ProvenanceStore:
 
 ---
 
-## 10. Agent Gateway
+## 10. AgentCall（原子）
+
+一次模型调用的名字是 **AgentCall**。契约是 `AgentCallSpec` → `AgentGateway.call` → `AgentCallResult`。agent 插件里同一最小形态是 `ChatLoop`。`call_mode="agentic"` 仍是一次 AgentCall，只是内部走 tool seam（DeepSeek 的 turn）。
+
+生命周期与拦截点见 `harness-plugins.md` §3.3。下面保留审计信封。
 
 ### 10.1 统一 agent 调用接口
 
@@ -2085,48 +2103,42 @@ Agent 可以建议工具，但不能直接拼接和执行最终命令。
 但第一版不能牺牲：
 
 ```text
+AgentCall 信封（Spec + raw/parsed artifacts）
+插件可卸载的注册（effect）
 ArtifactRef
 EventLog
 Provenance edge
 WorkflowIR / BoundWorkflow 分离
 Parameter source
-StageRunner
+StageRunner（作为 bundle，不是原子）
 Validation
 TestSpec
 AuditReport
 ```
 
-这些是 harness 的骨架。
+宿主骨架是 AgentCall + context/lifecycle/events。其余是默认科学 bundle 不能卸掉的插件契约。
 
 ---
 
 ## 22. 结论
 
-你的系统要成为完全意义上的 harness，关键不是让 agent 更强，而是把 agent 降级为 proposal generator。
-
-真正的中心应该是：
+Harness 的中心不是更强的 agent，也不是更长的 plan 管道。中心是：
 
 ```text
-ArtifactStore
-EventLog
-ProvenanceStore
-WorkflowIR
-BoundWorkflow
-CapabilityRegistry
-Validator
-Executor
-TestSpec
-AuditReport
+一次 AgentCall
+可组合、可卸载的插件
+模型看见的东西都能从 log/artifact 重建
 ```
 
-系统的硬边界是：
+workspace、workflow、审批、IR、测试、审计都是挂在这上面的插件或 bundle。agent 插件只产生 proposal；处置权在拥有该 seam 的插件，通常再经过 approval。
+
+硬边界：
 
 ```text
-agent 不能拥有状态
-agent 不能拥有副作用
-agent 不能绕过 schema
-agent 不能绕过 policy
-agent 不能绕过 provenance
+原子是 AgentCall，不是 cycle，不是 Stage
+新行为挂插件，不改驱动
+agent 不能拥有状态或副作用
+agent 不能绕过 schema / policy / provenance / ctx.capabilities
 ```
 
-只要这些边界守住，Molcrafts Harness 就会从一个高级 prompt pipeline 变成真正的科学工作流基础设施。
+守住这些，molexp 才是一个插件生态，而不是一个写死的科学流水线外加几个可选 extra。

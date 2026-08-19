@@ -1,7 +1,7 @@
 """Runtime catalog discovery — builtins + MCP tool list + workspace knowledge.
 
-* **Builtin** tools (``workspace_ensure``, ``run_land``, …) are always
-  enumerated from :mod:`molexp.agent.ops.builtins`.
+* **Builtin** tools are enumerated from :mod:`molexp.agent.ops.builtins`
+  for the active surface (chat omits archive names).
 * **MCP** tool names come only from the *live* toolset objects passed in at
   session/turn open — never a hand-maintained third-party table.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from molexp.agent.ops.builtins import builtin_tool_specs  # full catalog for search
+from molexp.agent.ops.builtins import builtin_tool_specs
 from molexp.agent.ops.protocols import Hit, ToolSpec
 
 
@@ -24,11 +24,13 @@ class CatalogDiscovery:
         workspace_root: Path,
         mcp_toolsets: tuple[Any, ...] = (),
         mcp_tool_specs: tuple[ToolSpec, ...] = (),
+        builtin_surface: str = "chat",
     ) -> None:
         self._root = Path(workspace_root).resolve()
         self._toolsets = mcp_toolsets
         # Prefer explicit specs (from async list); else probe toolsets sync.
         self._specs = mcp_tool_specs
+        self._builtin_surface = builtin_surface
 
     def tools(self) -> tuple[ToolSpec, ...]:
         """MCP-only catalog (builtins are separate — see :meth:`search`)."""
@@ -43,7 +45,7 @@ class CatalogDiscovery:
         q = query.strip().lower()
         hits: list[Hit] = []
         if kind in (None, "builtin", "tool"):
-            for spec in builtin_tool_specs():
+            for spec in builtin_tool_specs(surface=self._builtin_surface):
                 blob = f"{spec.name} {spec.description}".lower()
                 if not q or q in blob:
                     hits.append(
@@ -74,7 +76,7 @@ class CatalogDiscovery:
         return tuple(hits[:40])
 
     def describe(self, ref: str) -> str:
-        for spec in builtin_tool_specs():
+        for spec in builtin_tool_specs(surface=self._builtin_surface):
             if spec.name == ref:
                 return f"# tool {spec.name}\nsource: {spec.source}\n\n{spec.description}"
         for spec in self.tools():

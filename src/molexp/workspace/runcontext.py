@@ -13,6 +13,7 @@ function-local import, so there is no module-level import cycle.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,9 +23,11 @@ from pydantic import BaseModel
 from molexp._typing import JSONValue, TaskOutput
 from molexp.profile import ProfileConfig
 
-from .assets import AssetScope, ImportAction, Producer
+from .assets import ArtifactAsset, Asset, AssetScope, Producer
+from .assets.base import AssetKind
 from .base import _load_metadata, _reconstruct
 from .context import Context
+from .metrics import MetricRecord
 from .models import RunMetadata, RunStatus
 from .run_assets import RunAssets
 from .run_context import ContextStore
@@ -63,15 +66,14 @@ class RunContext:
     construction time via ``profile_config``.  Late-binding after
     construction is not permitted.
 
-    ``work_dir`` is the run's on-disk root as a :class:`~pathlib.Path` —
-    callers may use ``/`` to descend into ``artifacts/``, ``logs/`` etc.
-    without re-wrapping. (``Run.run_dir`` returns the same path as
-    ``str`` for FileSystem-API compatibility; RunContext coerces at the
-    boundary so consumers don't each have to.)
+    ``run_dir`` is the run's on-disk root as a :class:`~pathlib.Path`
+    (same path as :attr:`Run.run_dir`). ``workdir`` is the execution-scoped
+    scratch directory where the driver writes files
+    (``<run_dir>/executions/<exec_id>/work``).
     """
 
     run: Run
-    work_dir: Path
+    run_dir: Path
 
     def __init__(
         self,
@@ -81,7 +83,7 @@ class RunContext:
         execution_id: str | None = None,
     ) -> None:
         self.run = run
-        self.work_dir = Path(run.run_dir)
+        self.run_dir = Path(run.run_dir)
         self._profile_config = (
             profile_config if profile_config is not None else ProfileConfig({}, name=None)
         )
@@ -104,13 +106,14 @@ class RunContext:
             kind="run",
             ids=(run.experiment.project.id, run.experiment.id, run.id),
         )
-        self._ctx_store = ContextStore(run, self.work_dir)
-        self._executions = ExecutionStore(run, self.work_dir)
-        self._assets = RunAssets(run, self.work_dir, scope, self._producer, self._get_execution_id)
+        self._ctx_store = ContextStore(run, self.run_dir)
+        self._executions = ExecutionStore(run, self.run_dir)
+        self._assets = RunAssets(run, self.run_dir, scope, self._producer, self._get_execution_id)
         self._lifecycle = RunLifecycle(self)
 
-        # Re-expose the typed accessor handles on the facade (public surface).
-        self.artifact = self._assets.artifact
+        # Stream / chain accessors stay on the facade. File products go
+        # through :meth:`register_artifact` — there is no ``ctx.artifact``.
+        self.files = self._assets.files
         self.log = self._assets.log
         self.checkpoint = self._assets.checkpoint
         self.metrics = self._assets.metrics
@@ -131,18 +134,21 @@ class RunContext:
 
     # ── Working directories ─────────────────────────────────────────────
 
-    def folder(self, subpath: str | Path) -> Path:
-        """Create and return a working directory under this execution.
+    @property
+    def workdir(self) -> Path:
+        """Execution-scoped scratch directory for this attempt.
 
-        Delegates to :class:`RunAssets`; see its ``folder`` for the full
-        contract (``<run>/executions/<execution_id>/<subpath>``, created
-        for the caller).
+        ``<run_dir>/executions/<execution_id>/work``, created on access.
+        Write files here, then :meth:`register_artifact` to publish them.
 
         Raises:
             RuntimeError: if no execution is active.
-            ValueError: if *subpath* is absolute or escapes the slot.
         """
-        return self._assets.folder(subpath)
+        return self._assets.workdir
+
+    def task_workdir(self, task_name: str) -> Path:
+        """Scratch directory for one workflow task under this execution."""
+        return self._assets.task_workdir(task_name)
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -196,6 +202,61 @@ class RunContext:
         """Resolve a data directory path (delegates to :class:`RunAssets`)."""
         return self._assets.get_data_dir(asset_name, fallback=fallback)
 
+    def register_artifact(
+        self,
+        data: TaskOutput,
+        *,
+        name: str | None = None,
+        mime: str | None = None,
+        tags: dict[str, str] | None = None,
+        consumed: Sequence[Asset | str] | None = None,
+    ) -> ArtifactAsset:
+        """Publish ``data`` as a run artifact under ``<run_dir>/artifacts/``.
+
+        Args:
+            data: A :class:`~pathlib.Path` (copied), bytes, JSON-serializable
+                ``dict``/``list``, or any other value (str-cast).
+            name: Filename under ``artifacts/``. Defaults to ``data.name``
+                when *data* is a Path; required otherwise.
+            mime: Optional MIME type hint.
+            tags: Free-form metadata attached to the asset.
+            consumed: Optional upstream assets (or asset-id strings) recorded
+                as :attr:`Producer.inputs` lineage.
+
+        Returns:
+            The registered :class:`~molexp.workspace.assets.ArtifactAsset`.
+        """
+        return self._assets.register_artifact(
+            data, name=name, mime=mime, tags=tags, consumed=consumed
+        )
+
+    def register(
+        self,
+        path: Path,
+        *,
+        kind: AssetKind = "artifact",
+        name: str | None = None,
+        mime: str | None = None,
+        tags: dict[str, str] | None = None,
+        consumed: Sequence[Asset | str] | None = None,
+        **extra: object,
+    ) -> Asset:
+        """Catalog an existing file under this run. Does not rewrite the payload."""
+        return self._assets.register(
+            path, kind=kind, name=name, mime=mime, tags=tags, consumed=consumed, **extra
+        )
+
+    def register_metric(
+        self,
+        key: str,
+        value: float,
+        *,
+        step: int | None = None,
+        tags: dict | None = None,
+    ) -> MetricRecord:
+        """Append a scalar metric to this run's metrics WAL."""
+        return self.metrics.scalar(key, value, step, tags=tags)
+
     def set_result(self, key: str, value: TaskOutput) -> None:
         self._ctx_store.set_result(key, value)
 
@@ -230,16 +291,6 @@ class RunContext:
         self._ctx_store.set_workflow(workflow)
 
     # ── Asset access ────────────────────────────────────────────────────
-
-    def register_asset(  # noqa: ANN201
-        self,
-        name: str,
-        src: Path | str,
-        action: ImportAction = "copy",
-        meta: dict | None = None,
-    ):
-        """Import a ``DataAsset`` into this run's experiment scope."""
-        return self._assets.register_asset(name, src, action, meta)
 
     def get_asset(self, name: str, scope: str = "project"):  # noqa: ANN201
         return self._assets.get_asset(name, scope)

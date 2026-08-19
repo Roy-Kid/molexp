@@ -9,11 +9,8 @@ both the agent loop *and* a harness-injected gate can speak without either
 side dragging the other's dependencies in.
 
 The vocabulary is deliberately **domain-neutral**: a ``BeforeToolHook`` knows
-only a tool name and its opaque args, never *why* a caller might veto it. In
-phase 02 the emergent loop (:class:`~molexp.agent.loops.InteractiveLoop`) and
-harness-injected approval gates plug concrete policies into these Protocols;
-phase 01 only pins the shapes and the honor semantics of the ``invoke_*``
-helpers.
+only a tool name and its opaque args, never *why* a caller might veto it.
+A ReAct turn and a harness-injected gate both speak this contract.
 
 Modeled on :mod:`molexp.agent.router` — frozen :class:`pydantic.BaseModel`
 data, a :class:`enum.StrEnum` decision axis, and ``@runtime_checkable``

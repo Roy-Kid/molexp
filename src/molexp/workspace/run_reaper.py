@@ -50,7 +50,7 @@ def pid_alive(pid: int) -> bool:
 def reap_zombie_run(run: Run) -> bool:
     """Mark a stale ``RUNNING`` run as ``FAILED`` if its owner is dead.
 
-    Reads the run's hot state from the OKF ``_ops/run.json`` sidecar
+    Reads the run's hot state from the OKF ``ops/run.json`` sidecar
     (:class:`~molexp.workspace.run_ops.RunOpsState`) per wsokf-07. Same-host
     runs are pid-probed directly: a recorded ``owner_pid`` that no longer
     exists on this host means the owner died and the run is reaped.
@@ -93,7 +93,7 @@ def reap_zombie_run(run: Run) -> bool:
             "Automatically marked FAILED."
         )
 
-    # Status / finished / cleared-ownership are hot state → the OKF ``_ops``
+    # Status / finished / cleared-ownership are hot state → the OKF ``ops``
     # sidecar (wsokf-10). The ``error`` diagnostic stays in run.json (identity).
     naive_now = datetime.now()
     run.update_ops(

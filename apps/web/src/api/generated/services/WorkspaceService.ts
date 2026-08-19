@@ -266,7 +266,7 @@ export class WorkspaceService {
      * Read Workspace File
      * Read a text file from the workspace.
      *
-     * Routes through ``workspace._fs`` so remote workspaces (and the
+     * Routes through ``workspace.fs`` so remote workspaces (and the
      * :class:`CachedRemoteFileSystem` mirror) take effect.
      * @param path Workspace-relative path to read
      * @param molexpSession
@@ -295,7 +295,7 @@ export class WorkspaceService {
      * Read Workspace File Blob
      * Read a binary file from the workspace.
      *
-     * Routes through ``workspace._fs`` so remote workspaces (and the
+     * Routes through ``workspace.fs`` so remote workspaces (and the
      * :class:`CachedRemoteFileSystem` mirror) take effect.
      * @param path Workspace-relative path to read
      * @param molexpSession
@@ -324,7 +324,7 @@ export class WorkspaceService {
      * List Workspace Files
      * Return a nested file tree rooted at the requested path.
      *
-     * Routes through ``workspace._fs`` so remote workspaces (and the
+     * Routes through ``workspace.fs`` so remote workspaces (and the
      * :class:`CachedRemoteFileSystem` mirror) work the same as local ones.
      *
      * With ``include=catalog``, file nodes that match a registered asset

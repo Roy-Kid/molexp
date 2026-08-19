@@ -1,8 +1,9 @@
 """``Router`` — unified LLM dispatch protocol for ``molexp.agent``.
 
-Every :class:`AgentLoop` reaches the LLM through a :class:`Router`.
-ChatLoop wants a single text completion; PlanMode wants tier-routed
-structured output. Both methods share one configuration surface
+Every model call reaches the LLM through a :class:`Router`.
+One-shot chat uses ``complete_text``; structured nodes use
+``complete_structured``; tool-using turns use ``stream_agentic``.
+All three share one configuration surface
 (:class:`AgentRunner` ``model=`` / ``models=`` kwargs) and one cache.
 
 This module is the *protocol*, not the *implementation*. The concrete
@@ -194,7 +195,7 @@ class FinalChunk(BaseModel):
 
     ``model_messages_json`` is the pydantic-ai ``ModelMessage`` list as
     canonical JSON bytes (produced only inside ``_pydanticai``). Stubs omit
-    it; production routers set it so :class:`~molexp.agent.loops.InteractiveLoop`
+    it; production routers set it so a ReAct turn
     can persist multiturn context without importing pydantic-ai.
     """
 
@@ -209,8 +210,7 @@ AgenticChunk = TextDeltaChunk | ThinkingDeltaChunk | ToolCallChunk | ToolResultC
 """SDK-free union of every chunk :meth:`Router.stream_agentic` yields.
 
 Defined in this protocol module — *not* importing ``pydantic_ai`` — so
-test fakes and the emergent
-:class:`~molexp.agent.loops.interactive.InteractiveLoop` consume the
+test fakes and :mod:`molexp.agent.react` consume the
 agentic loop without paying the SDK load cost. A :class:`ThinkingDeltaChunk`
 (reasoning models only) precedes the answer's :class:`TextDeltaChunk`\\ s;
 the terminal yield is always a :class:`FinalChunk`."""
@@ -228,13 +228,12 @@ class Router(Protocol):
 
     Three keyword-only dispatch methods:
 
-    * :meth:`complete_text` — one free-form text round trip
-      (``ChatLoop`` and any future single-shot mode).
+    * :meth:`complete_text` — one free-form text round trip (Chat).
     * :meth:`complete_structured` — schema-typed dispatch with retry
-      and event hooks (``PlanMode`` per-task LLM calls).
-    * :meth:`stream_agentic` — the emergent tool-using loop
-      (``InteractiveLoop``): the model autonomously decides → calls a
-      tool → observes → loops, streamed as an :data:`AgenticChunk` flow.
+      and event hooks (plan nodes that only need a schema).
+    * :meth:`stream_agentic` — one ReAct: the model autonomously
+      decides → calls a tool → observes → stops, streamed as an
+      :data:`AgenticChunk` flow.
 
     All honor the ``tier`` axis: ``complete_text`` / ``stream_agentic``
     default to :attr:`ModelTier.DEFAULT`, ``complete_structured``
@@ -374,9 +373,8 @@ class Router(Protocol):
 
     def clear_usage(self) -> None:
         """Forget any accumulated :class:`~molexp.agent.types.CallUsage`
-        records. Modes call this at the start of each
-        :meth:`AgentLoop.run` so the snapshot at the end reflects only
-        that one run."""
+        records. A turn calls this at start so the snapshot at the end
+        reflects only that one call."""
         ...
 
     def snapshot_usage(self) -> UsageBreakdown:

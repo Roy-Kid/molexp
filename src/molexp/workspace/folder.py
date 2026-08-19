@@ -4,13 +4,12 @@ Introduces ``Folder``: a plain Python class providing the contract every
 directory under a workspace satisfies — lazy mkdir, atomic JSON, id /
 name / kind validation, parent pointer, generic five-verb CRUD
 (``add_folder`` / ``get_folder`` / ``has_folder`` / ``list_folders`` /
-``remove_folder``), auto-derived per-class index filenames, lifecycle
+``remove_folder``), one plural JSON children-index per class, lifecycle
 metadata, and delete / move operations.
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
@@ -21,14 +20,12 @@ from pathlib import Path as _StdPath
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, TypeVar, cast
 
-import yaml
-
 from molexp._typing import JSONValue
 from molexp.atomicio import file_lock
 from molexp.knowledge.types import resolve_concept_type
 from molexp.path import Path
 
-from .base import _load_metadata, _reconstruct
+from .base import _reconstruct
 from .edges import DEFAULT_EDGE_ROLE, Edge, EdgeRole, encode_label, parse_role, validate_role
 from .errors import FolderMoveCollisionError
 from .fs import FileSystem, PathArg
@@ -37,7 +34,7 @@ from .models import FolderMetadata
 from .utils import slugify
 
 if TYPE_CHECKING:
-    pass
+    from .file_store import FileStore
 
 F = TypeVar("F", bound="Folder")
 
@@ -48,9 +45,6 @@ WORKSPACE_RUN_KIND = "workspace.run"
 
 _KIND_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*$")
 
-# Legacy filenames — read-only fallbacks; never written.
-_LEGACY_METADATA_FILENAME = "metadata.json"  # pre-unification base Folder entity
-_LEGACY_META_YAML_FILENAME = "meta.yaml"  # pre-JSON concept marker
 _FORBIDDEN_FILE_NAMES = {".", ".."}
 _CAMEL_TO_SNAKE = re.compile(r"(?<!^)(?=[A-Z])")
 
@@ -61,10 +55,8 @@ _CAMEL_TO_SNAKE = re.compile(r"(?<!^)(?=[A-Z])")
 # stays in ``index.md`` (Markdown is not a data format for structured fields).
 INDEX_FILENAME = "index.md"
 META_JSON_FILENAME = "meta.json"  # sole concept identity file (type → registry)
-# Back-compat import alias — callers that still import META_YAML_FILENAME get
-# the canonical *filename constant for the concept marker* (now ``meta.json``).
-META_YAML_FILENAME = META_JSON_FILENAME
-OPS_DIR = "_ops"  # OKF operational sidecar — hot machine state, NOT knowledge
+OPS_DIR = "ops"  # operational sidecar — hot machine state, not knowledge
+LEGACY_OPS_DIR = "_ops"  # read fallback for workspaces written before the rename
 _MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")  # [label](target) — both captured
 
 
@@ -107,17 +99,13 @@ def _folder_metadata_from_marker(
 
 
 def _load_concept_marker_dict(fs: FileSystem, concept_dir: PathArg) -> dict[str, object] | None:
-    """Load concept identity dict from ``meta.json`` (or legacy ``meta.yaml``)."""
+    """Load concept identity dict from ``meta.json``."""
     primary = fs.join(concept_dir, META_JSON_FILENAME)
-    if fs.exists(primary):
-        with fs.open(primary) as fh:
-            raw: object = json.load(fh)
-        return cast("dict[str, object]", raw) if isinstance(raw, dict) else None
-    legacy_yaml = fs.join(concept_dir, _LEGACY_META_YAML_FILENAME)
-    if fs.exists(legacy_yaml):
-        raw_y = yaml.safe_load(fs.read_text(legacy_yaml)) or {}
-        return cast("dict[str, object]", raw_y) if isinstance(raw_y, dict) else None
-    return None
+    if not fs.exists(primary):
+        return None
+    with fs.open(primary) as fh:
+        raw: object = json.load(fh)
+    return cast("dict[str, object]", raw) if isinstance(raw, dict) else None
 
 
 class LinkScan(NamedTuple):
@@ -194,15 +182,16 @@ def _validate_target_registered(workspace: object, target: str | None) -> None:
 
 
 class Folder:
-    """Base class for every workspace-managed directory.
+    """A location on a workspace disk.
+
+    The disk itself is :attr:`Workspace.fs` (a :class:`FileSystem`: local,
+    remote, or cached). A Folder does not own a disk — it resolves I/O
+    through the workspace it is attached to. User byte writes go through
+    :attr:`files` (a :class:`FileStore` rooted here).
 
     Carries a ``parent`` pointer, lazy materialization, atomic JSON IO,
     children listing, lifecycle metadata, delete / move operations, and
     the generic ``attach`` / ``create_child`` / ``get_child`` triplet.
-
-    All I/O goes through the :class:`FileSystem` Protocol — when ``fs`` is
-    a :class:`RemoteFileSystem`, the folder tree lives on a remote host
-    with no code duplication.
     """
 
     _exists_error_cls: ClassVar[type[Exception]] = ValueError
@@ -228,7 +217,12 @@ class Folder:
         self._name = derived_id
         self._kind = kind
         self._root_path: Path | None = Path(os.fspath(root_path)) if root_path is not None else None
-        self._fs = fs or (parent._fs if parent else LocalFileSystem())
+        if fs is not None:
+            self._disk_backend = fs
+        elif parent is None:
+            self._disk_backend = LocalFileSystem()
+        else:
+            self._disk_backend = None
         self._metadata = FolderMetadata(id=derived_id, name=name, kind=kind)
         self._children_cache: dict[str, Folder] = {}
 
@@ -254,13 +248,30 @@ class Folder:
     def folder_metadata(self) -> FolderMetadata:
         return self._metadata
 
+    def _disk(self) -> FileSystem:
+        """The disk this location lives on (walks to the workspace root)."""
+        node: Folder | None = self
+        while node is not None:
+            backend = getattr(node, "_disk_backend", None)
+            if backend is not None:
+                return backend
+            node = node._parent
+        return LocalFileSystem()
+
+    @property
+    def files(self) -> FileStore:
+        """Byte-exit rooted at this folder. Does not own the disk."""
+        from .file_store import FileStore
+
+        return FileStore(self.path(), fs=self._disk())
+
     # ── Path resolution ──────────────────────────────────────────────────
     #
     # ``resolve`` and ``path`` return :class:`molexp.Path` — a subclass of
     # :class:`pathlib.PurePosixPath`.  It is a *pure* path: no ``.exists``,
     # ``.read_text`` or other I/O methods, so it cannot accidentally
     # short-circuit to the local filesystem on a remote-backed folder.
-    # All I/O must still flow through ``self._fs``.
+    # All I/O flows through :meth:`_disk` (the workspace FileSystem).
 
     def path(self) -> Path:
         """Return the on-disk path; create only if missing (lazy, idempotent).
@@ -271,9 +282,9 @@ class Folder:
         permission even when the path is already a directory).
         """
         target = self.resolve()
-        if self._fs.is_dir(target):
+        if self._disk().is_dir(target):
             return target
-        self._fs.mkdir(target, parents=True, exist_ok=True)
+        self._disk().mkdir(target, parents=True, exist_ok=True)
         return target
 
     def resolve(self) -> Path:
@@ -284,17 +295,16 @@ class Folder:
                     f"folder {self._name!r} (kind={self._kind!r}) is unmounted — "
                     "construct via parent.add_folder(child) or pass root_path="
                 )
-            return Path(self._fs.join(self._root_path, self._name))
-        return Path(self._fs.join(self._parent.resolve(), self._name))
+            return Path(self._disk().join(self._root_path, self._name))
+        return Path(self._disk().join(self._parent.resolve(), self._name))
 
     # ── Index filename ───────────────────────────────────────────────────
     #
     # Children-index lives on the PARENT and lists children of *this* class.
-    # It is always the **plural** of the child kind (``experiments.json``,
-    # ``runs.json``, ``projects.json``) so it never collides with the
-    # **singular** entity file on the child dir (``experiment.json``,
-    # ``run.json``, ``project.json``). Pre-plural singular basenames are
-    # legacy read fallbacks only — writers always emit the plural form.
+    # One file, JSON only: the **plural** of the child kind
+    # (``experiments.json``, ``runs.json``, ``projects.json``) so it never
+    # collides with the **singular** entity file on the child dir
+    # (``experiment.json``, ``run.json``, ``project.json``).
 
     @classmethod
     def _index_filename(cls) -> str:
@@ -302,39 +312,16 @@ class Folder:
         singular = _CAMEL_TO_SNAKE.sub("_", cls.__name__).lower()
         return f"{singular}s.json"
 
-    @classmethod
-    def _legacy_index_filename(cls) -> str:
-        """Pre-plural children-index basename (singular). Read-only fallback."""
-        return _CAMEL_TO_SNAKE.sub("_", cls.__name__).lower() + ".json"
-
     def _index_path_for(self, cls: type[Folder]) -> str:
-        """Resolved path of the children-index for *cls* under this folder.
-
-        Prefers the plural filename; falls back to a legacy singular file when
-        the plural is absent (one-release read compat).
-        """
-        primary = self._fs.join(self.resolve(), cls._index_filename())
-        if self._fs.exists(primary):
-            return primary
-        legacy = self._fs.join(self.resolve(), cls._legacy_index_filename())
-        if self._fs.exists(legacy):
-            return legacy
-        return primary
-
-    def _drop_legacy_index(self, cls: type[Folder]) -> None:
-        """Remove a singular legacy index after writing the plural form."""
-        legacy = self._fs.join(self.resolve(), cls._legacy_index_filename())
-        primary = self._fs.join(self.resolve(), cls._index_filename())
-        if legacy != primary and self._fs.exists(legacy) and self._fs.exists(primary):
-            with contextlib.suppress(OSError):
-                self._fs.remove(legacy)
+        """Resolved path of the children-index for *cls* under this folder."""
+        return self._disk().join(self.resolve(), cls._index_filename())
 
     # ── Atomic JSON IO ───────────────────────────────────────────────────
 
     def read_json(self, name: str) -> dict[str, JSONValue]:
         _validate_file_name(name)
-        fpath = self._fs.join(self.path(), name)
-        with self._fs.open(fpath) as fh:
+        fpath = self._disk().join(self.path(), name)
+        with self._disk().open(fpath) as fh:
             raw: object = json.load(fh)
         if not isinstance(raw, dict):
             raise ValueError(f"{fpath} top-level JSON must be an object, got {type(raw).__name__}")
@@ -342,8 +329,8 @@ class Folder:
 
     def write_json(self, name: str, data: object) -> str:
         _validate_file_name(name)
-        fpath = self._fs.join(self.path(), name)
-        self._fs.atomic_write_json(fpath, data)
+        fpath = self._disk().join(self.path(), name)
+        self._disk().atomic_write_json(fpath, data)
         return fpath
 
     # ── OKF meta.json (sole concept identity; type → knowledge registry) ──
@@ -368,26 +355,26 @@ class Folder:
         }
         if self._metadata.extra:
             data["extra"] = self._metadata.extra
-        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
-        self._fs.atomic_write_json(fpath, data)
+        fpath = self._disk().join(self.path(), META_JSON_FILENAME)
+        self._disk().atomic_write_json(fpath, data)
         return fpath
 
     def read_meta(self) -> dict[str, JSONValue]:
-        """Read the OKF ``meta.json`` marker (or legacy ``meta.json``), or ``{}``."""
-        raw = _load_concept_marker_dict(self._fs, self.resolve())
+        """Read the OKF ``meta.json`` marker, or ``{}`` if absent."""
+        raw = _load_concept_marker_dict(self._disk(), self.resolve())
         return cast("dict[str, JSONValue]", raw) if raw is not None else {}
 
     # ── OKF narrative + markdown-link knowledge graph ─────────────────────
 
     def read_index(self) -> str:
         """Return the OKF ``index.md`` narrative, or ``""`` if absent."""
-        fpath = self._fs.join(self.resolve(), INDEX_FILENAME)
-        return self._fs.read_text(fpath) if self._fs.exists(fpath) else ""
+        fpath = self._disk().join(self.resolve(), INDEX_FILENAME)
+        return self._disk().read_text(fpath) if self._disk().exists(fpath) else ""
 
     def write_index(self, text: str) -> str:
         """Atomically write the OKF ``index.md`` narrative + markdown links."""
-        fpath = self._fs.join(self.path(), INDEX_FILENAME)
-        self._fs.atomic_write_text(fpath, text)
+        fpath = self._disk().join(self.path(), INDEX_FILENAME)
+        self._disk().atomic_write_text(fpath, text)
         return fpath
 
     def links(self) -> LinkScan:
@@ -408,7 +395,7 @@ class Folder:
                 continue
             norm = PurePosixPath(os.path.normpath(base / target))
             concept_dir = norm.parent if norm.name == INDEX_FILENAME else norm
-            if self._fs.is_dir(str(concept_dir)):
+            if self._disk().is_dir(str(concept_dir)):
                 concepts.append(str(concept_dir))
                 role, _human = parse_role(raw_label)
                 typed_concepts.append(Edge(target=str(concept_dir), role=role))
@@ -435,39 +422,56 @@ class Folder:
         """
         return self.links().typed_concepts
 
-    # ── OKF _ops/ operational sidecar (hot machine state, never in meta.json) ─
+    # ── ops/ operational sidecar (hot machine state, never in meta.json) ─
+
+    def _ops_json_path(self, name: str) -> str:
+        """Return the existing ops JSON path (``ops/`` first, then ``_ops/``).
+
+        Writes always go to :data:`OPS_DIR`. Reads fall back to the pre-rename
+        ``_ops/`` location so existing workspaces still load.
+        """
+        canonical = self._disk().join(self.resolve(), OPS_DIR, f"{name}.json")
+        if self._disk().exists(canonical):
+            return canonical
+        legacy = self._disk().join(self.resolve(), LEGACY_OPS_DIR, f"{name}.json")
+        if self._disk().exists(legacy):
+            return legacy
+        return canonical
 
     def ops_dir(self) -> str:
-        """Return the per-Folder ``_ops/`` sidecar dir, creating it if absent."""
-        d = self._fs.join(self.path(), OPS_DIR)
-        self._fs.mkdir(d, parents=True, exist_ok=True)
+        """Return the per-Folder ``ops/`` sidecar dir, creating it if absent."""
+        d = self._disk().join(self.path(), OPS_DIR)
+        self._disk().mkdir(d, parents=True, exist_ok=True)
         return d
 
     def read_ops_json(self, name: str) -> dict[str, JSONValue] | None:
-        """Read ``_ops/<name>.json``, or ``None`` if absent."""
-        fpath = self._fs.join(self.resolve(), OPS_DIR, f"{name}.json")
-        if not self._fs.exists(fpath):
+        """Read ``ops/<name>.json`` (or legacy ``_ops/<name>.json``)."""
+        fpath = self._ops_json_path(name)
+        if not self._disk().exists(fpath):
             return None
-        with self._fs.open(fpath) as fh:
+        with self._disk().open(fpath) as fh:
             return cast("dict[str, JSONValue]", json.load(fh))
 
     def write_ops_json(self, name: str, data: object) -> None:
-        """Atomically write ``_ops/<name>.json`` (operational state)."""
-        self._fs.atomic_write_json(self._fs.join(self.ops_dir(), f"{name}.json"), data)
+        """Atomically write ``ops/<name>.json`` (operational state)."""
+        if isinstance(data, (dict, list, str, bytes)):
+            self.files.put(f"{OPS_DIR}/{name}.json", data)
+        else:
+            self._disk().atomic_write_json(self._disk().join(self.ops_dir(), f"{name}.json"), data)
 
     def update_ops_json(
         self, name: str, fn: Callable[[dict[str, JSONValue]], dict[str, JSONValue]]
     ) -> dict[str, JSONValue]:
-        """Read-modify-write ``_ops/<name>.json`` under an advisory file lock.
+        """Read-modify-write ``ops/<name>.json`` under an advisory file lock.
 
         The lock is a local file lock (``molexp.atomicio.file_lock``); concurrent
         same-host RMW is safe. (Remote-backend locking is a future refinement.)
         """
         ops = self.ops_dir()
-        with file_lock(_StdPath(self._fs.join(ops, f"{name}.json.lock"))):
+        with file_lock(_StdPath(self._disk().join(ops, f"{name}.json.lock"))):
             current = self.read_ops_json(name) or {}
             updated = fn(current)
-            self._fs.atomic_write_json(self._fs.join(ops, f"{name}.json"), updated)
+            self.files.put(f"{OPS_DIR}/{name}.json", updated)
         return updated
 
     # ── Lifecycle ────────────────────────────────────────────────────────
@@ -485,25 +489,22 @@ class Folder:
     # ── Children ─────────────────────────────────────────────────────────
 
     def _try_child_folder_metadata(self, entry_path: PathArg) -> FolderMetadata | None:
-        """Load in-memory FolderMetadata from ``meta.json`` (or legacy files)."""
-        raw = _load_concept_marker_dict(self._fs, entry_path)
-        if raw is not None:
-            return _folder_metadata_from_marker(entry_path, raw)
-        legacy = self._fs.join(entry_path, _LEGACY_METADATA_FILENAME)
-        if self._fs.exists(legacy):
-            return _load_metadata(FolderMetadata, legacy, fs=self._fs)
-        return None
+        """Load in-memory FolderMetadata from ``meta.json``."""
+        raw = _load_concept_marker_dict(self._disk(), entry_path)
+        if raw is None:
+            return None
+        return _folder_metadata_from_marker(entry_path, raw)
 
     def children(self, kind: str | None = None) -> list[Folder]:
         self_path = self.resolve()
-        if not self._fs.is_dir(self_path):
+        if not self._disk().is_dir(self_path):
             return []
         result: list[Folder] = []
-        for entry_name in sorted(self._fs.listdir(self_path)):
+        for entry_name in sorted(self._disk().listdir(self_path)):
             if entry_name in _FORBIDDEN_FILE_NAMES:
                 continue
-            entry_path = self._fs.join(self_path, entry_name)
-            if not self._fs.is_dir(entry_path):
+            entry_path = self._disk().join(self_path, entry_name)
+            if not self._disk().is_dir(entry_path):
                 continue
             child_meta = self._try_child_folder_metadata(entry_path)
             if child_meta is None:
@@ -519,7 +520,6 @@ class Folder:
                     "_root_path": None,
                     "_metadata": child_meta,
                     "_children_cache": {},
-                    "_fs": self._fs,
                 },
             )
             result.append(child)
@@ -533,10 +533,10 @@ class Folder:
     # to wire children to disk. Subclasses override them.
     #
     # Invariants every override MUST hold (failure modes have bitten us in
-    # the past, see git history for ``_fs``-drop bugs at every level):
+    # the past, see git history for ``fs``-drop bugs at every level):
     #
-    #   * Always inherit ``_fs`` from ``parent`` so children share the
-    #     workspace's filesystem (local / remote). Use
+    #   * Never store a FileSystem on the child — the disk lives on
+    #     Workspace and :meth:`_disk` walks to it. Use
     #     :meth:`base_from_disk_attrs` instead of hand-rolling the attrs
     #     dict — it bakes the invariants in.
     #   * Carry ``FolderMetadata`` (kind, id, *human* name, timestamps)
@@ -551,7 +551,7 @@ class Folder:
     # arithmetic is available (``/`` operator, ``.parent``, ``.name``);
     # I/O methods are deliberately absent so a remote-backed folder cannot
     # silently short-circuit to the local filesystem.  All I/O routes
-    # through ``self._fs``.  This unifies the workspace layer (was: ``str``)
+    # through ``self._disk()``.  This unifies the workspace layer (was: ``str``)
     # and the agent layer (was: ``pathlib.Path``, local-only) — agent
     # subclasses now inherit remote-compat for free.
     #
@@ -569,7 +569,7 @@ class Folder:
         and must not trigger lazy mkdir on the parent (remote workspaces would
         otherwise attempt writes during list/get).
         """
-        return Path(parent._fs.join(parent.resolve(), derived_id))
+        return Path(parent._disk().join(parent.resolve(), derived_id))
 
     @classmethod
     def base_from_disk_attrs(
@@ -578,7 +578,7 @@ class Folder:
         meta: FolderMetadata,
     ) -> dict[str, object]:
         """Common attrs dict for ``_reconstruct`` — call this from every
-        subclass ``from_disk`` to guarantee ``_fs`` + parent link are set."""
+        subclass ``from_disk`` to guarantee the parent link (and thus the disk)."""
         return {
             "_parent": parent,
             "_name": meta.id,
@@ -586,7 +586,6 @@ class Folder:
             "_root_path": None,
             "_metadata": meta,
             "_children_cache": {},
-            "_fs": parent._fs,
         }
 
     @classmethod
@@ -594,20 +593,14 @@ class Folder:
         """Generic loader: reconstruct *child_dir* from ``meta.json``.
 
         Concept identity is ``meta.json`` (``type`` → kind; dir name → id).
-        Legacy ``meta.json`` / ``metadata.json`` are accepted only when the
-        canonical marker is absent (read compat; never written). A dir with
-        no marker is not a Folder: ``FileNotFoundError``.
+        A dir with no marker is not a Folder: ``FileNotFoundError``.
         """
-        fs = parent._fs
+        fs = parent._disk()
         raw = _load_concept_marker_dict(fs, child_dir)
-        if raw is not None:
-            child_meta = _folder_metadata_from_marker(child_dir, raw)
-            return _reconstruct(cls, cls.base_from_disk_attrs(parent, child_meta))
-        legacy = fs.join(child_dir, _LEGACY_METADATA_FILENAME)
-        if fs.exists(legacy):
-            child_meta = _load_metadata(FolderMetadata, legacy, fs=fs)
-            return _reconstruct(cls, cls.base_from_disk_attrs(parent, child_meta))
-        raise FileNotFoundError(fs.join(child_dir, META_JSON_FILENAME))
+        if raw is None:
+            raise FileNotFoundError(fs.join(child_dir, META_JSON_FILENAME))
+        child_meta = _folder_metadata_from_marker(child_dir, raw)
+        return _reconstruct(cls, cls.base_from_disk_attrs(parent, child_meta))
 
     # ── Generic five-verb CRUD ───────────────────────────────────────────
 
@@ -645,15 +638,16 @@ class Folder:
             # return type is truthful (add_folder is generic like get_folder).
             return cast("F", cached)
         child_dir = target_cls.child_dir(self, slug)
-        if self._fs.is_dir(child_dir):
+        if self._disk().is_dir(child_dir):
             existing = target_cls.from_disk(child_dir, self)
             self._children_cache[slug] = existing
             return cast("F", existing)
         child._parent = self
         child._root_path = None
-        child._fs = self._fs
+        if getattr(child, "_disk_backend", None) is not None:
+            del child._disk_backend
         child.materialize()  # base: meta.json; WPER subclasses: entity json + write_meta
-        if _load_concept_marker_dict(self._fs, child.resolve()) is None:
+        if _load_concept_marker_dict(self._disk(), child.resolve()) is None:
             child.write_meta()
         self._children_cache[slug] = child
         self._upsert_index_row(child)
@@ -667,7 +661,7 @@ class Folder:
             if isinstance(cached, cls):
                 return cached
             child_dir = cls.child_dir(self, candidate)
-            if self._fs.is_dir(child_dir):
+            if self._disk().is_dir(child_dir):
                 loaded = cls.from_disk(child_dir, self)
                 if isinstance(loaded, cls):
                     self._children_cache[loaded._name] = loaded
@@ -681,21 +675,23 @@ class Folder:
             cached = self._children_cache.get(candidate)
             if isinstance(cached, cls):
                 return True
-            if cls.child_dir(self, candidate) and self._fs.is_dir(cls.child_dir(self, candidate)):
+            if cls.child_dir(self, candidate) and self._disk().is_dir(
+                cls.child_dir(self, candidate)
+            ):
                 return True
         return False
 
     def list_folders(self, *, cls: type[F] | None = None) -> list[F]:
         self_path = self.resolve()
-        if not self._fs.is_dir(self_path):
+        if not self._disk().is_dir(self_path):
             return []
         out: list[F] = []
         if cls is None:
-            for entry_name in sorted(self._fs.listdir(self_path)):
+            for entry_name in sorted(self._disk().listdir(self_path)):
                 if entry_name in _FORBIDDEN_FILE_NAMES:
                     continue
-                entry_path = self._fs.join(self_path, entry_name)
-                if not self._fs.is_dir(entry_path):
+                entry_path = self._disk().join(self_path, entry_name)
+                if not self._disk().is_dir(entry_path):
                     continue
                 child_meta = self._try_child_folder_metadata(entry_path)
                 if child_meta is None:
@@ -709,19 +705,18 @@ class Folder:
                         "_root_path": None,
                         "_metadata": child_meta,
                         "_children_cache": {},
-                        "_fs": self._fs,
                     },
                 )
                 out.append(cast(F, child))
             return out
         index_path = self._index_path_for(cls)
-        if not self._fs.exists(index_path):
+        if not self._disk().exists(index_path):
             self.sync_folders(cls=cls)
             index_path = self._index_path_for(cls)
-            if not self._fs.exists(index_path):
+            if not self._disk().exists(index_path):
                 return []
         try:
-            with self._fs.open(index_path) as fh:
+            with self._disk().open(index_path) as fh:
                 raw: object = json.load(fh)
         except (OSError, json.JSONDecodeError):
             return []
@@ -733,7 +728,7 @@ class Folder:
                 out.append(cached)
                 continue
             child_dir = cls.child_dir(self, str(slug))
-            if not self._fs.is_dir(child_dir):
+            if not self._disk().is_dir(child_dir):
                 continue
             try:
                 loaded = cls.from_disk(child_dir, self)
@@ -746,21 +741,17 @@ class Folder:
 
     def sync_folders(self, *, cls: type[Folder]) -> None:
         container = cls._container_dir(self)
-        # Always write the plural (canonical) form.
-        index_path = self._fs.join(self.resolve(), cls._index_filename())
-        if not self._fs.is_dir(container):
-            if self._fs.exists(index_path):
-                self._fs.remove(index_path)
-            legacy = self._fs.join(self.resolve(), cls._legacy_index_filename())
-            if legacy != index_path and self._fs.exists(legacy):
-                self._fs.remove(legacy)
+        index_path = self._index_path_for(cls)
+        if not self._disk().is_dir(container):
+            if self._disk().exists(index_path):
+                self._disk().remove(index_path)
             return
         rows: dict[str, dict[str, JSONValue]] = {}
-        for entry_name in sorted(self._fs.listdir(container)):
+        for entry_name in sorted(self._disk().listdir(container)):
             if entry_name in _FORBIDDEN_FILE_NAMES:
                 continue
-            entry_path = self._fs.join(container, entry_name)
-            if not self._fs.is_dir(entry_path):
+            entry_path = self._disk().join(container, entry_name)
+            if not self._disk().is_dir(entry_path):
                 continue
             try:
                 child = cls.from_disk(entry_path, self)
@@ -768,16 +759,15 @@ class Folder:
                 continue
             if isinstance(child, cls):
                 rows[child._name] = child._to_index_row()
-        self._fs.atomic_write_json(index_path, rows)
-        self._drop_legacy_index(cls)
+        self._disk().atomic_write_json(index_path, rows)
 
     def remove_folder(self, name: str, *, cls: type[Folder]) -> None:
         for candidate in (name, slugify(name)):
             if not candidate:
                 continue
             child_dir = cls.child_dir(self, candidate)
-            if self._fs.is_dir(child_dir):
-                self._fs.remove(child_dir, recursive=True)
+            if self._disk().is_dir(child_dir):
+                self._disk().remove(child_dir, recursive=True)
                 self._children_cache.pop(candidate, None)
                 self._remove_index_row(cls, candidate)
                 return
@@ -792,18 +782,15 @@ class Folder:
 
     @classmethod
     def _container_dir(cls, parent: Folder) -> Path:
-        return Path(parent._fs.dirname(cls.child_dir(parent, "_probe_")))
+        return Path(parent._disk().dirname(cls.child_dir(parent, "_probe_")))
 
     def _upsert_index_row(self, child: Folder) -> None:
         child_cls = type(child)
-        # Seed from whichever index is currently on disk (plural or legacy).
-        existing = self._index_path_for(child_cls)
-        # Always write the plural (canonical) form.
-        fpath = self._fs.join(self.resolve(), child_cls._index_filename())
+        fpath = self._index_path_for(child_cls)
         rows: dict[str, dict[str, JSONValue]] = {}
-        if self._fs.exists(existing):
+        if self._disk().exists(fpath):
             try:
-                with self._fs.open(existing) as fh:
+                with self._disk().open(fpath) as fh:
                     raw: object = json.load(fh)
             except (OSError, json.JSONDecodeError):
                 raw = None
@@ -812,15 +799,14 @@ class Folder:
                     if isinstance(v, dict):
                         rows[str(k)] = cast("dict[str, JSONValue]", v)
         rows[child._name] = child._to_index_row()
-        self._fs.atomic_write_json(fpath, rows)
-        self._drop_legacy_index(child_cls)
+        self._disk().atomic_write_json(fpath, rows)
 
     def _remove_index_row(self, cls: type[Folder], slug: str) -> None:
-        existing = self._index_path_for(cls)
-        if not self._fs.exists(existing):
+        fpath = self._index_path_for(cls)
+        if not self._disk().exists(fpath):
             return
         try:
-            with self._fs.open(existing) as fh:
+            with self._disk().open(fpath) as fh:
                 raw: object = json.load(fh)
         except (OSError, json.JSONDecodeError):
             return
@@ -830,10 +816,7 @@ class Folder:
         if slug not in rows:
             return
         rows.pop(slug)
-        # Rewrite to the plural form (and drop legacy).
-        fpath = self._fs.join(self.resolve(), cls._index_filename())
-        self._fs.atomic_write_json(fpath, rows)
-        self._drop_legacy_index(cls)
+        self._disk().atomic_write_json(fpath, rows)
 
     def _to_index_row(self) -> dict[str, JSONValue]:
         return cast("dict[str, JSONValue]", self._metadata.model_dump(mode="json"))
@@ -842,8 +825,8 @@ class Folder:
 
     def delete(self) -> None:
         target = self.resolve()
-        if self._fs.exists(target):
-            self._fs.remove(target, recursive=True)
+        if self._disk().exists(target):
+            self._disk().remove(target, recursive=True)
         if self._parent is not None:
             self._parent._children_cache.pop(self._name, None)
 
@@ -856,8 +839,8 @@ class Folder:
         # move_to uses OS-level ``shutil.move`` (local paths only). On a
         # remote-backed folder that would silently operate on the wrong (local)
         # path, so refuse it with a clear error instead.
-        if not isinstance(self._fs, LocalFileSystem) or not isinstance(
-            new_parent._fs, LocalFileSystem
+        if not isinstance(self._disk(), LocalFileSystem) or not isinstance(
+            new_parent._disk(), LocalFileSystem
         ):
             raise NotImplementedError(
                 "move_to is only supported for local-filesystem folders "
@@ -869,19 +852,22 @@ class Folder:
         # uses — a naive ``new_parent.path()/id`` join would strand the moved
         # folder outside its container and hide it from ``list_folders``.
         target_dir = Path(type(self).child_dir(new_parent, target_id))
-        if new_parent._fs.exists(target_dir):
+        if new_parent._disk().exists(target_dir):
             raise FolderMoveCollisionError(str(self.resolve()), str(target_dir))
         src = self.resolve()
         old_parent = self._parent
         # ``shutil.move`` only creates the final path component, so ensure the
         # container dir (``runs/``, ``projects/``, …) exists under the new parent.
-        new_parent._fs.mkdir(new_parent._fs.dirname(target_dir), parents=True, exist_ok=True)
+        new_parent._disk().mkdir(
+            new_parent._disk().dirname(target_dir), parents=True, exist_ok=True
+        )
         shutil.move(str(src), str(target_dir))
         if old_parent is not None:
             old_parent._children_cache.pop(self._name, None)
         self._parent = new_parent
         self._root_path = None
-        self._fs = new_parent._fs
+        if getattr(self, "_disk_backend", None) is not None:
+            del self._disk_backend
         self._name = target_id
         self._metadata = self._metadata.model_copy(
             update={
@@ -892,11 +878,6 @@ class Folder:
         )
         new_parent._children_cache[target_id] = self
         self.write_meta()
-        # Drop legacy dual-file identity if present after the move.
-        legacy = new_parent._fs.join(target_dir, _LEGACY_METADATA_FILENAME)
-        if new_parent._fs.exists(legacy):
-            with contextlib.suppress(OSError):
-                new_parent._fs.remove(legacy)
         # Children indexes are derived; rebuild both endpoints from on-disk truth
         # so a typed ``list_folders(cls=…)`` on either parent reflects the move.
         if old_parent is not None:
@@ -953,7 +934,7 @@ def concept_from_dir(child_dir: PathArg, parent: Folder) -> Folder:
     concept-type registry (unknown/absent → base :class:`Folder`), then
     delegates to that class's ``from_disk``.
     """
-    fs = parent._fs
+    fs = parent._disk()
     marker = _load_concept_marker_dict(fs, child_dir) or {}
     type_str = str(marker.get("type", ""))
     cls = resolve_concept_type(type_str, Folder)
@@ -962,8 +943,9 @@ def concept_from_dir(child_dir: PathArg, parent: Folder) -> Folder:
 
 __all__ = [
     "INDEX_FILENAME",
+    "LEGACY_OPS_DIR",
     "META_JSON_FILENAME",
-    "META_YAML_FILENAME",  # alias of META_JSON_FILENAME
+    "OPS_DIR",
     "WORKSPACE_EXPERIMENT_KIND",
     "WORKSPACE_PROJECT_KIND",
     "WORKSPACE_ROOT_KIND",

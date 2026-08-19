@@ -2,37 +2,33 @@
 
 The agent layer turns natural-language research intent into LLM conversations that can read a workspace and call tools. It is a thin façade over [pydantic-ai](https://github.com/pydantic/pydantic-ai) plus the session, event, and on-disk plumbing that pydantic-ai does not provide.
 
-**Loop vs Mode.** The agent-layer LLM-conversation concept is a **Loop**. **Mode** is reserved for the harness layer, which owns the multi-stage Plan pipeline (see [Plan Mode](../guide/plan-mode.md)).
+There is no molexp-owned conversation loop. Chat is one `Router.complete_text`. Tool-using work is one ReAct (`Router.stream_agentic`). Plan is a harness workflow (see [Plan Mode](../guide/plan-mode.md)).
 
 ## Public surface
 
-Five names plus two concrete loops:
+Four names:
 
 ```python
 from molexp.agent import (
-    AgentRunner,      # entry point — construct with loop + model, call .run()
-    AgentLoop,        # abstract base — async def run(*, runtime, sink, user_input)
-    AgentRunResult,   # returned by .run() — text, token usage, optional failure
-    AgentRuntime,     # frozen bundle a loop receives: session + router + execution_env
+    AgentRunner,      # entry point — model + mode="text"|"agentic", call .run()
+    AgentRunResult,   # returned by .run() — text, token usage, events
+    AgentRuntime,     # frozen bundle: session + router + execution_env
     AgentSession,     # on-disk handle for a conversation
 )
-from molexp.agent.loops import ChatLoop, InteractiveLoop
 ```
 
-| Loop | Behavior | Use case |
+| `AgentRunner.mode` | Behavior | Use case |
 |---|---|---|
-| `ChatLoop` | One round-trip: user message → LLM response | Quick questions, single-turn generation |
-| `InteractiveLoop` | Open-ended tool loop: LLM calls tools, sees results, continues | Planning, multi-step creation, exploration |
+| `"text"` | One `complete_text` — must not loop | Single-turn generation |
+| `"agentic"` | One ReAct (`stream_agentic`) | Tool-using REPL / `molexp agent` |
 
 ## Quick example
 
 ```python
 # docs: skip — requires an LLM API key
 from molexp.agent import AgentRunner
-from molexp.agent.loops import ChatLoop, ChatLoopConfig
 
-config = ChatLoopConfig(system_prompt="You are a helpful research assistant.")
-runner = AgentRunner(loop=ChatLoop(config=config), model="anthropic:claude-sonnet-4-5")
+runner = AgentRunner(model="anthropic:claude-sonnet-4-5", mode="text")
 session = runner.session("chat-demo")  # persisted on disk
 result = await runner.run(session, "summarize this dataset")
 print(result.text)

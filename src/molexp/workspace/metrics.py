@@ -13,7 +13,7 @@ Default writer stem is ``metrics`` → ``metrics.mlp.jsonl`` / ``metrics.mlp.zar
 * Foreign dialects (event JSONL, CSV, LAMMPS log, TensorBoard, …) are equal
   *sources*. They convert into this module's writer and land in the WAL, then
   densify into Zarr on :meth:`MetricsWriter.flush`.
-* A molexp Run is a workspace host (``run.json`` / ``_ops/run.json``), not a
+* A molexp Run is a workspace host (``run.json`` / ``ops/run.json``), not a
   MolRec record. ``*.mlp.index.json`` is host-only.
 * Molrec L4: closed metrics curves live as Zarr arrays; JSONL is live WAL only.
 
@@ -30,7 +30,7 @@ import json
 import math
 import re
 import threading
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -52,7 +52,7 @@ from molexp.workspace.mlp_names import (
     mlp_zarr_name,
 )
 
-from .base import _atomic_write_json
+from .base import atomic_write_json
 
 # Re-export naming constants so existing ``from metrics import …`` call sites
 # and docs can cite one module. Prefer :mod:`mlp_names` for new code.
@@ -545,7 +545,7 @@ def materialize_metrics_zarr(
     }
     target = _index_path(run_dir)
     target.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_json(target, index)
+    atomic_write_json(target, index)
     return index
 
 
@@ -577,12 +577,13 @@ def _records_from_zarr(
         return None
 
     root = zarr.open_group(local_store, mode="r")
-    catalog = root.attrs.get("series")
-    if not isinstance(catalog, dict):
+    catalog_raw = root.attrs.get("series")
+    if not isinstance(catalog_raw, dict):
         return MetricReadResult()
+    catalog = cast("dict[str, object]", catalog_raw)
 
     expanded: list[MetricRecord] = []
-    for series_key in sorted(catalog.keys()):
+    for series_key in sorted(catalog):
         if key is not None and series_key != key:
             continue
         entry = catalog[series_key]
@@ -706,7 +707,7 @@ def read_run_metrics(
     """Read metrics for the UI / API.
 
     Prefer the dense Zarr SoT when present; fall back to the JSONL WAL (live
-    runs that have not flushed yet). Pass *fs* (``workspace._fs``) so remote
+    runs that have not flushed yet). Pass *fs* (``workspace.fs``) so remote
     roots use the same code path as local ones.
     """
     fs = fs or _default_fs()
@@ -745,10 +746,16 @@ def read_run_metrics(
 class MetricsWriter:
     """Append metrics to the JSONL WAL; densify into Zarr on :meth:`flush`."""
 
-    def __init__(self, run_dir: Path) -> None:
+    def __init__(
+        self,
+        run_dir: Path,
+        *,
+        append: Callable[[str | Path, str], object] | None = None,
+    ) -> None:
         self._run_dir = Path(run_dir)
         self._lock = threading.Lock()
         self._index_dirty = False
+        self._append = append
 
     def scalar(
         self,
@@ -849,11 +856,14 @@ class MetricsWriter:
         line = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
 
         with self._lock:
-            wal = _metrics_path(self._run_dir)
-            wal.parent.mkdir(parents=True, exist_ok=True)
-            with wal.open("a", encoding="utf-8") as fh:
-                fh.write(line)
-                fh.write("\n")
+            if self._append is not None:
+                self._append(mlp_jsonl_name(), line)
+            else:
+                wal = _metrics_path(self._run_dir)
+                wal.parent.mkdir(parents=True, exist_ok=True)
+                with wal.open("a", encoding="utf-8") as fh:
+                    fh.write(line)
+                    fh.write("\n")
             # Dense Zarr rebuilt once on :meth:`flush` (run-context exit).
             self._index_dirty = True
 
@@ -880,12 +890,16 @@ class MetricsWriter:
                     if tags is not None:
                         payload["tags"] = tags
                     payload = _validate_record(payload)
-                    if handle is None:
-                        wal = _metrics_path(self._run_dir)
-                        wal.parent.mkdir(parents=True, exist_ok=True)
-                        handle = wal.open("a", encoding="utf-8")
-                    handle.write(json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
-                    handle.write("\n")
+                    line = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+                    if self._append is not None:
+                        self._append(mlp_jsonl_name(), line)
+                    else:
+                        if handle is None:
+                            wal = _metrics_path(self._run_dir)
+                            wal.parent.mkdir(parents=True, exist_ok=True)
+                            handle = wal.open("a", encoding="utf-8")
+                        handle.write(line)
+                        handle.write("\n")
                     count += 1
             finally:
                 if handle is not None:

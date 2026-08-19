@@ -190,7 +190,7 @@ def scripted(tmp_path: Path):
     _seed_workspace(fs, root)
     cached = CachedRemoteFileSystem(fs, mirror_root=tmp_path / "mirror", ttl_seconds=300)
     # Synthesize a Workspace-shaped object with just the attributes prefetch needs.
-    ws = SimpleNamespace(root=root, _fs=cached)
+    ws = SimpleNamespace(root=root, fs=cached)
     return ws, cached, fs
 
 
@@ -230,7 +230,7 @@ class TestPrefetchWorkspaceIndices:
         fs.dirs.add(f"{root}/projects/gamma")
 
         cached = CachedRemoteFileSystem(fs, mirror_root=tmp_path / "mirror", ttl_seconds=300)
-        ws = SimpleNamespace(root=root, _fs=cached)
+        ws = SimpleNamespace(root=root, fs=cached)
 
         warnings = prefetch_workspace_indices(ws)
         # No warnings — missing children-index is normal for a fresh hierarchy.
@@ -271,7 +271,7 @@ class TestPrefetchWorkspaceIndices:
         cached = CachedRemoteFileSystem(
             LocalFileSystem(), mirror_root=tmp_path / "mirror", ttl_seconds=300
         )
-        nav = SimpleNamespace(root=str(root), _fs=cached)
+        nav = SimpleNamespace(root=str(root), fs=cached)
         warnings = prefetch_workspace_indices(nav)
         assert warnings == [], warnings
 

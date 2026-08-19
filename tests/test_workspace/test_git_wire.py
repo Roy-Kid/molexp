@@ -40,7 +40,7 @@ class TestPush:
         ws = Workspace(root=tmp_path / "lab", name="Lab")
         run = ws.add_project("demo").add_experiment("baseline", params={}).add_run(params={})
         with run.start() as ctx:
-            ctx.artifact.save("m.json", {"v": 1})
+            ctx.register_artifact({"v": 1}, name="m.json")
         await gp.checkpoint(ws)  # local materialization builds the refs
 
         remote = tmp_path / "remote.git"

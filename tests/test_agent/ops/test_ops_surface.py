@@ -12,7 +12,6 @@ from molexp.agent.ops import (
     BUILTIN_TOOL_NAMES,
     CHAT_TOOL_NAMES,
     FULL_TOOL_NAMES,
-    OPS_TOOL_NAMES,
     build_ops_tools,
     build_session_context,
     builtin_tool_specs,
@@ -40,7 +39,7 @@ class TestBuildOpsTools:
             execution_env=LocalExecutionEnv(scratch_dir=tmp_path / "scratch"),
         )
         names = {t.__name__ for t in build_ops_tools(ctx, surface="full")}
-        assert names == FULL_TOOL_NAMES == BUILTIN_TOOL_NAMES == OPS_TOOL_NAMES
+        assert names == FULL_TOOL_NAMES == BUILTIN_TOOL_NAMES
         assert names >= ARCHIVE_TOOL_NAMES
 
     def test_chat_code_write_confines_to_scratch(self, tmp_path: Path) -> None:

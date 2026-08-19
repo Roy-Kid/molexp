@@ -6,7 +6,6 @@ Locks the contract per spec §SQLiteArtifactLineageStore:
 - ``add_edge`` is idempotent on ``(parent_id, child_id, relation)``
 - an edge records its pipeline context (``stage`` + ``run_id``), backfilling
   missing fields on a duplicate write but never clobbering the first writer
-- a legacy v1 DB (no ``stage`` / ``run_id`` columns) is migrated in place
 """
 
 from __future__ import annotations
@@ -108,48 +107,3 @@ class TestSQLiteArtifactLineageStore:
         edges = provenance.lineage_graph(a.id)["edges"]
         assert edges[0]["stage"] == "report"
         assert edges[0]["run_id"] == "run-9"
-
-    def test_v1_schema_db_is_migrated_in_place(self, tmp_path: Path, artifact_store) -> None:
-        """A pre-existing v1 harness.sqlite (no stage/run_id columns) still opens.
-
-        ``open_db`` adds the missing ``artifact_edges`` columns; rows written by
-        the old schema read back with ``stage`` / ``run_id`` as None.
-        """
-        import sqlite3
-
-        db = tmp_path / "legacy.sqlite"
-        conn = sqlite3.connect(db)
-        conn.executescript(
-            """
-            CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
-            INSERT INTO schema_version (version) VALUES (1);
-            CREATE TABLE events (
-                id TEXT PRIMARY KEY, run_id TEXT NOT NULL, seq INTEGER NOT NULL,
-                type TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL,
-                payload_json TEXT NOT NULL, artifact_ids_json TEXT NOT NULL
-            );
-            CREATE TABLE artifact_edges (
-                parent_id TEXT NOT NULL, child_id TEXT NOT NULL,
-                relation TEXT NOT NULL, created_at TEXT NOT NULL,
-                PRIMARY KEY (parent_id, child_id, relation)
-            );
-            INSERT INTO artifact_edges VALUES ('p1', 'c1', 'derived_from', '2026-01-01T00:00:00');
-            """
-        )
-        conn.commit()
-        conn.close()
-
-        store = SQLiteArtifactLineageStore(path=db, artifact_store=artifact_store)
-        a = artifact_store.put_json(
-            kind="user_plan", obj={"m": 1}, created_by="user", parent_ids=[]
-        )
-        b = artifact_store.put_json(
-            kind="experiment_report", obj={"m": 2}, created_by="harness", parent_ids=[]
-        )
-        store.add_edge(parent_id=a.id, child_id=b.id, stage="report", run_id="run-2")
-
-        graph = store.lineage_graph("p1")
-        legacy_edge = next(e for e in graph["edges"] if e["parent_id"] == "p1")
-        assert legacy_edge["stage"] is None and legacy_edge["run_id"] is None
-        new_edge = store.lineage_graph(a.id)["edges"][0]
-        assert new_edge["stage"] == "report" and new_edge["run_id"] == "run-2"

@@ -18,7 +18,7 @@ from pathlib import Path
 from molexp.workspace import Bundle, Note, Workspace
 from molexp.workspace.folder import Folder
 
-# The spec's body-read cap (mirrors agent/loops/interactive/tools.py).
+# The spec's body-read cap (mirrors agent ops tools).
 MAX_BODY_SEARCH_BYTES = 512 * 1024
 
 # Needles chosen to never collide with a concept dir name or H1 title unless a

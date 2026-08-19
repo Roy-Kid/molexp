@@ -55,6 +55,15 @@ class StubAgentGateway:
             str, Callable[[AgentCallSpec, ArtifactStore], _RegisteredResponse]
         ] = {}
 
+    @property
+    def artifact_store(self) -> ArtifactStore:
+        """The store this stub persists canned artifacts through."""
+        return self._artifacts
+
+    def bind_artifact_store(self, store: ArtifactStore) -> None:
+        """Point persist at the host's artifact store (one object per run)."""
+        self._artifacts = store
+
     def register(
         self,
         agent_name: str,
@@ -131,7 +140,13 @@ class StubAgentGateway:
             output=output, output_kind=output_kind, raw_text=raw_text, model=model
         )
 
-    async def call(self, spec: AgentCallSpec) -> AgentCallResult:
+    async def call(
+        self,
+        spec: AgentCallSpec,
+        *,
+        runtime: object | None = None,
+    ) -> AgentCallResult:
+        del runtime
         queue = self._sequences.get(spec.agent_name)
         responder = self._responders.get(spec.agent_name)
         if queue is not None:

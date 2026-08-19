@@ -1,17 +1,13 @@
 """``molexp agent`` — the interactive agent REPL.
 
-A multi-turn REPL on top of the emergent
-:class:`~molexp.agent.loops.interactive.InteractiveLoop`. Each turn
-drives :meth:`AgentRunner.run_events` and hands the live
-:data:`~molexp.agent.events.AgentEvent` stream to the
-:class:`~molexp.cli.agent_render.AgentEventRenderer`; a ``finally``
-calls :meth:`~molexp.cli.agent_render.AgentEventRenderer.finish` so an
-interrupted stream never leaves the terminal mid-render.
+A multi-turn REPL. Each user line is one ReAct
+(:meth:`AgentRunner.run_events`). The live
+:data:`~molexp.agent.events.AgentEvent` stream goes to
+:class:`~molexp.cli.agent_render.AgentEventRenderer`.
 
 Slash-command split: **REPL-meta** commands (``/help``, ``/exit``,
-``/quit``) are handled here and never reach the runner; **agent-semantic**
-commands (notably ``/plan``) are passed straight through — InteractiveLoop
-routes ``/plan`` deterministically to the structured planning pipeline.
+``/quit``) stay here; **agent-semantic** commands (notably ``/plan``)
+are the next ReAct prompt.
 
 Heavy imports (``molexp.agent`` …) are deferred into the command body so
 plain ``molexp --help`` stays fast.
@@ -31,7 +27,6 @@ if TYPE_CHECKING:
     from rich.panel import Panel
 
     from molexp.agent import AgentRunner
-    from molexp.agent.loops import InteractiveLoop
     from molexp.agent.session import Session
 
 __all__ = ["agent", "agent_app"]
@@ -68,10 +63,10 @@ def _configured_model() -> str | None:
 
 def _make_runner(
     *,
-    loop: InteractiveLoop,
     model: str,
     workspace: Path,
     session_anchor: Path | None = None,
+    context_block: str = "",
 ) -> AgentRunner:
     """Build the :class:`AgentRunner` driving the REPL.
 
@@ -80,7 +75,14 @@ def _make_runner(
     """
     from molexp.agent import AgentRunner
 
-    return AgentRunner(loop=loop, model=model, workspace=workspace, session_anchor=session_anchor)
+    return AgentRunner(
+        model=model,
+        workspace=workspace,
+        session_anchor=session_anchor,
+        context_block=context_block,
+        operation_mode="chat",
+        mode="agentic",
+    )
 
 
 def _short_path(path: Path) -> str:
@@ -184,8 +186,7 @@ def _run_repl(
     experiment: str | None,
     run: str | None,
 ) -> None:
-    """Start an interactive molexp agent REPL (emergent InteractiveLoop)."""
-    from molexp.agent.loops import InteractiveLoop
+    """Start an interactive molexp agent REPL (one ReAct per user line)."""
     from molexp.cli._common import rprint
 
     workspace_root = (workspace or Path.cwd()).resolve()
@@ -214,14 +215,11 @@ def _run_repl(
             rprint(f"[red]Mount scope failed to resolve:[/red] {exc}")
             raise typer.Exit(1) from exc
 
-    # Chat Mode (default): InteractiveLoop + scratch surface, no default land.
-    from molexp.harness.modes.chat import chat_loop_config
-
-    loop = InteractiveLoop(
-        config=chat_loop_config(workspace_root=workspace_root, context_block=context_block)
-    )
     runner = _make_runner(
-        loop=loop, model=resolved_model, workspace=workspace_root, session_anchor=session_anchor
+        model=resolved_model,
+        workspace=workspace_root,
+        session_anchor=session_anchor,
+        context_block=context_block,
     )
     repl_session = runner.session(session)
     ctx = _ReplContext(model=resolved_model, session_name=session, workspace=workspace_root)

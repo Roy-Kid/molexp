@@ -2,7 +2,7 @@
 
 Absorbs the duties of the deleted ``PydanticAIHarness`` (text path) and
 ``PydanticAIProvider`` (tier-routed structured path) into one class.
-Every :class:`AgentLoop` reaches the LLM through this router; no other
+Every model call reaches the LLM through this router; no other
 file under ``src/molexp/agent/`` may import ``pydantic_ai``.
 
 Design notes
@@ -244,8 +244,7 @@ class PydanticAIRouter:
     # ── Usage accounting ────────────────────────────────────────────────────
 
     def clear_usage(self) -> None:
-        """Reset the per-call accounting log. Modes call this at the
-        start of :meth:`AgentLoop.run`."""
+        """Reset the per-call accounting log. Turns call this at start."""
         self._usage_log = []
         self._usage_started = time.monotonic()
 

@@ -39,9 +39,6 @@ AGENT_MODEL_KEY = "agent.model"
 #: Per-tier model mapping consumed by ``AgentRunner(models=...)``.
 AGENT_MODELS_KEY = "agent.models"
 
-#: Legacy flat in-code key, still honoured for backward compatibility.
-LEGACY_AGENT_MODEL_KEY = "agent_model"
-
 
 def load_operator_config(path: Path | None = None) -> dict[str, Any]:
     """Load the operator config file as a plain dict (``{}`` when absent/bad).
@@ -97,36 +94,17 @@ def _tier_map_from_raw(
 def configured_agent_models(config: dict[str, Any]) -> dict[str, str] | None:
     """Extract the cheap/default/heavy mapping used by :class:`AgentRunner`.
 
-    Preference order:
-
-    1. **Global** ``agent.models`` — each value is a full ``provider:model`` id so
-       the three tiers may come from *different* providers.
-    2. **Legacy** per-active-provider map under
-       ``agent.providers.<active>.models`` (same provider for all three tiers).
+    Reads the global ``agent.models`` table — each value is a full
+    ``provider:model`` id so the three tiers may come from different providers.
     """
     agent = config.get("agent")
     if not isinstance(agent, dict):
         return None
 
-    # 1. Global cross-provider tier table (Settings "Model tiers").
     global_raw = agent.get("models")
     if isinstance(global_raw, dict):
-        global_map = _tier_map_from_raw(global_raw)
-        if global_map is not None:
-            return global_map
-
-    # 2. Legacy: one active provider owns all three tiers.
-    provider = agent.get("provider")
-    providers = agent.get("providers")
-    if not isinstance(provider, str) or not isinstance(providers, dict):
-        return None
-    section = providers.get(provider)
-    if not isinstance(section, dict):
-        return None
-    raw = section.get("models")
-    if not isinstance(raw, dict):
-        return None
-    return _tier_map_from_raw(raw, default_provider=provider)
+        return _tier_map_from_raw(global_raw)
+    return None
 
 
 def configured_api_keys(config: dict[str, Any]) -> dict[str, str]:
@@ -217,7 +195,7 @@ def bridge_operator_config(path: Path | None = None) -> None:
 
     config = load_operator_config(path)
 
-    already = molexp.config.get(AGENT_MODEL_KEY) or molexp.config.get(LEGACY_AGENT_MODEL_KEY)
+    already = molexp.config.get(AGENT_MODEL_KEY)
     if not (isinstance(already, str) and already):
         model = configured_agent_model(config)
         if model is not None:
@@ -236,7 +214,6 @@ def bridge_operator_config(path: Path | None = None) -> None:
 __all__ = [
     "AGENT_MODELS_KEY",
     "AGENT_MODEL_KEY",
-    "LEGACY_AGENT_MODEL_KEY",
     "OPERATOR_CONFIG_PATH",
     "bridge_operator_config",
     "configured_agent_model",

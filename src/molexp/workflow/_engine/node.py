@@ -272,7 +272,6 @@ async def run_task_body(
     task_ctx: TaskContext[Any, TaskInput] = TaskContext(
         inputs=inputs,
         config=effective_config,
-        state=state,
         workdir=_workdir_for(deps, name),
     )
 
@@ -295,48 +294,88 @@ async def run_task_body(
     # Parameter binding treats an absent config as an empty one; the body-call
     # helpers below take a non-optional mapping.
     raw = await _invoke_body_with_ctx(registration, task_ctx, inputs, effective_config or {})
-    return _promote_outputs(raw, deps.run_context)
+    from .node_cache import _upstream_asset_ids
+
+    try:
+        consumed = _upstream_asset_ids(deps, registration)
+    except Exception:
+        consumed = ()
+    return _promote_outputs(raw, deps.run_context, task_ctx, consumed=consumed)
 
 
-def _promote_outputs(output: TaskOutput, run_context: object) -> TaskOutput:
-    """Resolve ``RegisterArtifact`` / ``RegisterMetric`` markers in a task output.
+def _promote_outputs(
+    output: TaskOutput,
+    run_context: object,
+    task_ctx: TaskContext | None = None,
+    *,
+    consumed: tuple[str, ...] = (),
+) -> TaskOutput:
+    """Resolve ``RegisterArtifact`` / ``RegisterMetric`` markers.
 
-    A task stays pure (writes only under ``ctx.workdir``); to surface a file or
-    metric as a run-scoped product it returns the marker as an output value.
-    Here — where the engine still holds ``run_context`` — we perform the side
-    effect (copy+register the artifact under ``<run_dir>/artifacts/``; append the
-    scalar to the run's metrics) and replace the marker with a plain value (the
-    artifact's run path / the metric number) so downstream tasks bind cleanly.
+    Markers come from the returned value **and** from ``ctx.register_*``
+    pending calls. The engine performs the side effect (copy+register under
+    ``<run_dir>/artifacts/``; append the scalar) and replaces markers in the
+    recorded output with a plain value (artifact run path / metric number).
     Without a workspace ``run_context`` the markers degrade to their bare value.
     """
-    if not isinstance(output, dict) or not any(
+    pending: list[RegisterArtifact | RegisterMetric] = list(
+        getattr(task_ctx, "_pending", None) or []
+    )
+
+    def _ids_in_output(value: object) -> set[int]:
+        if isinstance(value, (RegisterArtifact, RegisterMetric)):
+            return {id(value)}
+        if isinstance(value, dict):
+            return {
+                id(v) for v in value.values() if isinstance(v, (RegisterArtifact, RegisterMetric))
+            }
+        return set()
+
+    in_output = _ids_in_output(output)
+
+    def _promote_one(marker: RegisterArtifact | RegisterMetric) -> object:
+        if isinstance(marker, RegisterArtifact):
+            path = Path(marker.path)
+            register = getattr(run_context, "register_artifact", None)
+            if callable(register):
+                asset = register(
+                    path,
+                    name=marker.name,
+                    tags=marker.tags,
+                    mime=marker.mime,
+                    consumed=list(consumed) or None,
+                )
+                run_dir = getattr(run_context, "run_dir", None)
+                asset_path = getattr(asset, "path", None)
+                if run_dir is not None and asset_path is not None:
+                    return str(Path(run_dir) / asset_path)
+                return str(path)
+            return str(path)
+        register_metric = getattr(run_context, "register_metric", None)
+        if callable(register_metric):
+            register_metric(marker.key, marker.value, step=marker.step, tags=marker.tags)
+        else:
+            metrics = getattr(run_context, "metrics", None)
+            if metrics is not None:
+                metrics.scalar(marker.key, marker.value, marker.step, tags=marker.tags)
+        return marker.value
+
+    for marker in pending:
+        if id(marker) not in in_output:
+            _promote_one(marker)
+
+    if isinstance(output, (RegisterArtifact, RegisterMetric)):
+        return _promote_one(output)
+    if isinstance(output, dict) and any(
         isinstance(v, (RegisterArtifact, RegisterMetric)) for v in output.values()
     ):
-        return output
-
-    artifact = getattr(run_context, "artifact", None)
-    metrics = getattr(run_context, "metrics", None)
-    run_dir = getattr(run_context, "run_dir", None)
-    promoted: dict = {}
-    for key, value in output.items():
-        if isinstance(value, RegisterArtifact):
-            path = Path(value.path)
-            if artifact is not None:
-                asset = artifact.save(
-                    value.name or path.name, path, tags=value.tags, mime=value.mime
-                )
-                promoted[key] = (
-                    str(Path(run_dir) / asset.path) if run_dir is not None else str(path)
-                )
-            else:
-                promoted[key] = str(path)
-        elif isinstance(value, RegisterMetric):
-            if metrics is not None:
-                metrics.scalar(value.key, value.value, value.step, tags=value.tags)
-            promoted[key] = value.value
-        else:
-            promoted[key] = value
-    return promoted
+        return {
+            key: _promote_one(value)
+            if isinstance(value, (RegisterArtifact, RegisterMetric))
+            else value
+            for key, value in output.items()
+        }
+    return output
 
 
 class MissingTaskInputError(TypeError):
@@ -575,19 +614,23 @@ async def _invoke_body_with_ctx(
 
 
 def _workdir_for(deps: WorkflowDeps, name: str):  # noqa: ANN202
-    """Content-addressed scratch ``Path`` for task *name* (``None`` if no materialization).
+    """Scratch ``Path`` for task *name* (``None`` if no run / scratch root).
 
-    Mirrors the root-input workdir injection in
-    :meth:`WorkflowRuntime._populate_root_inputs`, but applies to EVERY task so
-    ``ctx.workdir`` is always available (not just root tasks). Keyed on the task's
-    ``TaskSnapshot.key`` so the location is stable across runs (content-addressed).
+    Under a tracked run this is ``executions/<id>/work/<task>/``. A bare
+    execution with ``scratch_root`` uses ``<scratch_root>/<task>/``.
     """
-    materialization = getattr(deps, "materialization", None)
-    if materialization is None:
-        return None
-    snap = deps.snapshots.get(name)
-    content_id = snap.key if snap is not None else name
-    return materialization.workdir_for(content_id)
+    task_workdir = getattr(deps.run_context, "task_workdir", None)
+    if callable(task_workdir):
+        try:
+            return task_workdir(name)
+        except RuntimeError:
+            pass
+    scratch = getattr(deps, "scratch_root", None)
+    if scratch is not None:
+        path = Path(scratch) / name
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    return None
 
 
 def _make_sub_runner(deps: WorkflowDeps, *, root_input: TaskInput, forward: bool):  # noqa: ANN202

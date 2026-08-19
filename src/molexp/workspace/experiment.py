@@ -28,14 +28,12 @@ the same slug already exists, it is loaded and returned).
 from __future__ import annotations
 
 import json
-import warnings
 from pathlib import Path as _LocalPath
 from typing import TYPE_CHECKING, Protocol, cast
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from .folder import Folder
     from .knowledge_item import KnowledgeItem, KnowledgeKind, SourceRef
     from .param import ParamSpace
     from .project import Project
@@ -157,8 +155,6 @@ class Experiment(Folder):
         default_target: str | None = None,
         _entity_metadata: ExperimentMetadata | None = None,
     ) -> None:
-        from .fs_local import LocalFileSystem
-
         resolved_parent = parent if parent is not None else project
         if resolved_parent is None:
             raise ValueError("Experiment: parent (or project) is required")
@@ -185,7 +181,7 @@ class Experiment(Folder):
         self._name = meta.id
         self._kind = kind
         self._root_path = None
-        self._fs = getattr(resolved_parent, "_fs", None) or LocalFileSystem()
+        # Disk is resolved via the parent chain (:meth:`Folder._disk`).
         self._metadata = FolderMetadata(
             id=meta.id,
             name=meta.name,
@@ -208,7 +204,7 @@ class Experiment(Folder):
     def child_dir(cls, parent: Folder, derived_id: str) -> Path:
         """Folder hook — experiments live under ``experiments/<id>/``."""
         # resolve() not path() — pure layout math must not mkdir on remote.
-        return Path(parent._fs.join(parent.resolve(), "experiments", derived_id))
+        return Path(parent._disk().join(parent.resolve(), "experiments", derived_id))
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Experiment:
@@ -220,11 +216,11 @@ class Experiment(Folder):
         externalized on-disk layout.
         """
         meta = _load_metadata(
-            ExperimentMetadata, parent._fs.join(child_dir, "experiment.json"), fs=parent._fs
+            ExperimentMetadata, parent._disk().join(child_dir, "experiment.json"), fs=parent._disk()
         )
-        doc_path = parent._fs.join(child_dir, WORKFLOW_DOC_FILENAME)
-        if parent._fs.is_file(doc_path):
-            with parent._fs.open(doc_path) as fh:
+        doc_path = parent._disk().join(child_dir, WORKFLOW_DOC_FILENAME)
+        if parent._disk().is_file(doc_path):
+            with parent._disk().open(doc_path) as fh:
                 ir = json.load(fh)
             meta = meta.model_copy(update={"workflow_source": json.dumps(ir, sort_keys=True)})
         folder_meta = FolderMetadata(
@@ -304,7 +300,7 @@ class Experiment(Folder):
 
     @property
     def experiment_dir(self) -> Path:
-        return Path(self._fs.join(self.project.project_dir, "experiments", self.id))
+        return Path(self._disk().join(self.project.project_dir, "experiments", self.id))
 
     @property
     def scope(self) -> AssetScope:
@@ -338,9 +334,9 @@ class Experiment(Folder):
     def materialize(self) -> None:
         """Create filesystem structure and persist metadata (non-recursive)."""
         d = self.experiment_dir
-        self._fs.mkdir(d, parents=True, exist_ok=True)
+        self._disk().mkdir(d, parents=True, exist_ok=True)
         disk_meta = self._persist_workflow_doc()
-        _save_metadata(disk_meta, self._fs.join(d, "experiment.json"), fs=self._fs)
+        _save_metadata(disk_meta, self._disk().join(d, "experiment.json"), fs=self._disk())
         self.write_meta()
 
     def save(self) -> None:
@@ -348,14 +344,14 @@ class Experiment(Folder):
         disk_meta = self._persist_workflow_doc()
         _save_metadata(
             disk_meta,
-            self._fs.join(self.experiment_dir, "experiment.json"),
-            fs=self._fs,
+            self._disk().join(self.experiment_dir, "experiment.json"),
+            fs=self._disk(),
         )
 
     @property
     def _workflow_doc_path(self) -> str:
         """Path of the standalone :data:`WORKFLOW_DOC_FILENAME` IR file."""
-        return self._fs.join(self.experiment_dir, WORKFLOW_DOC_FILENAME)
+        return self._disk().join(self.experiment_dir, WORKFLOW_DOC_FILENAME)
 
     def _persist_workflow_doc(self) -> ExperimentMetadata:
         """Externalize an IR ``workflow_source`` and return the metadata for disk.
@@ -373,10 +369,10 @@ class Experiment(Folder):
         ir = _parse_ir_document(self._entity_metadata.workflow_source)
         doc_path = self._workflow_doc_path
         if ir is not None:
-            self._fs.atomic_write_json(doc_path, ir)
+            self._disk().atomic_write_json(doc_path, ir)
             return self._entity_metadata.model_copy(update={"workflow_source": None})
-        if self._fs.is_file(doc_path):
-            self._fs.remove(doc_path)
+        if self._disk().is_file(doc_path):
+            self._disk().remove(doc_path)
         return self._entity_metadata
 
     # ── Run CRUD: typed semantic sugar over generic Folder CRUD ────────────
@@ -385,7 +381,6 @@ class Experiment(Folder):
         self,
         params: dict[str, JSONValue] | None = None,
         *,
-        parameters: dict[str, JSONValue] | None = None,
         id: str | None = None,
         target: str | None = None,
         workflow_snapshot: dict[str, JSONValue] | None = None,
@@ -395,21 +390,7 @@ class Experiment(Folder):
         ``params`` may be positional; ``id=`` sets the run slug. Re-adding the
         same id returns the existing run. To change params of an existing run,
         use :meth:`set_run`.
-
-        ``parameters=`` is a deprecated alias; passing both raises ``TypeError``.
         """
-        if parameters is not None:
-            if params is not None:
-                raise TypeError(
-                    "add_run() got both 'params' and its deprecated alias "
-                    "'parameters'; pass only 'params'"
-                )
-            warnings.warn(
-                "Experiment.add_run(parameters=...) is deprecated; use params=...",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            params = parameters
         resolved_id = id if id is not None else generate_id()
         resolved_target = target if target is not None else self._entity_metadata.default_target
         _validate_target_registered(self.workspace, resolved_target)
@@ -470,8 +451,7 @@ class Experiment(Folder):
         """Define that this experiment executes *workflow* over *params*.
 
         Seeds one content-addressed :class:`Run` per param cell (idempotent)
-        and binds *workflow* through the workflow executor seam. Prefer this
-        over the deprecated :meth:`run` when the first argument is a workflow.
+        and binds *workflow* through the workflow executor seam.
 
         Returns:
             ``self`` for chaining (``.list_runs()`` …).
@@ -497,20 +477,13 @@ class Experiment(Folder):
         *,
         params: ParamSpace | Mapping[str, JSONValue] | None = None,
     ) -> Run | Experiment:
-        """Get a run by id, or (deprecated) define a workflow.
+        """Get a run by id, or define a workflow.
 
         * **str** → :meth:`get_run` (must exist).
-        * **workflow object** → :meth:`define` (deprecated spelling; prefer
-          ``define(workflow, params=...)``).
+        * **workflow object** → :meth:`define`.
         """
         if isinstance(id_or_workflow, str):
             return self.get_run(id_or_workflow)
-        warnings.warn(
-            "Experiment.run(workflow, ...) is deprecated; use "
-            "Experiment.define(workflow, params=...)",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         return self.define(id_or_workflow, params=params)
 
     def sweep(
@@ -703,13 +676,13 @@ class Experiment(Folder):
     def list_runs(self) -> list[Run]:
         """List all runs by scanning the ``runs/`` directory."""
         result: list[Run] = []
-        runs_dir = self._fs.join(self.experiment_dir, "runs")
-        if not self._fs.is_dir(runs_dir):
+        runs_dir = self._disk().join(self.experiment_dir, "runs")
+        if not self._disk().is_dir(runs_dir):
             return result
-        for entry_name in sorted(self._fs.listdir(runs_dir)):
-            entry_path = self._fs.join(runs_dir, entry_name)
-            if self._fs.is_dir(entry_path) and self._fs.exists(
-                self._fs.join(entry_path, "run.json")
+        for entry_name in sorted(self._disk().listdir(runs_dir)):
+            entry_path = self._disk().join(runs_dir, entry_name)
+            if self._disk().is_dir(entry_path) and self._disk().exists(
+                self._disk().join(entry_path, "run.json")
             ):
                 result.append(Run.from_disk(entry_path, self))
         return result

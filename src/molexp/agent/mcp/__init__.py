@@ -25,6 +25,7 @@ What used to live here and was deleted by ``agent-pydanticai-rectification``:
 
 from __future__ import annotations
 
+from molexp.agent.mcp.catalog import McpCatalog, filter_toolsets, list_mcp_tool_specs
 from molexp.agent.mcp.defaults import (
     MCP_DEFAULTS,
     MCP_SEEDED_FILENAME,
@@ -61,6 +62,7 @@ __all__ = [
     "MOLMCP_USAGE_INSTRUCTIONS",
     "START_TIMEOUT_SECONDS",
     "FileTokenStorage",
+    "McpCatalog",
     "McpScope",
     "McpSecretsStore",
     "McpServerEntry",
@@ -70,6 +72,8 @@ __all__ = [
     "UnresolvedSecretError",
     "build_oauth_provider",
     "default_redirect_uri",
+    "filter_toolsets",
+    "list_mcp_tool_specs",
     "seed_user_defaults",
     "session_registry",
     "storage_for",

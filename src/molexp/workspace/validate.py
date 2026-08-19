@@ -14,11 +14,12 @@ merely incomplete one:
 
 * ``error``   — the layout law is violated; readers may mis-resolve the tree.
 * ``warning`` — legal but lazily-created state is absent (a Run that has
-  never executed has no ``_ops/run.json`` yet, which is normal).
+  never executed has no ``ops/run.json`` yet, which is normal).
 
 Derived indexes are checked *against* the authoritative entity dirs, never
-the other way round: the One-source-of-truth law makes ``<child>.json`` a
-rebuildable cache, so a disagreement is always the index's fault.
+the other way round: the One-source-of-truth law makes the plural
+children-index (``projects.json`` / ``experiments.json`` / ``runs.json``)
+a rebuildable cache, so a disagreement is always the index's fault.
 """
 
 from __future__ import annotations
@@ -41,8 +42,6 @@ Severity = Literal["error", "warning"]
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 META_JSON = "meta.json"
-_LEGACY_META_YAML = "meta.yaml"
-META_YAML = META_JSON  # back-compat alias
 RUN_DIR_PREFIX = "run-"
 
 #: Structural container subdirs per level — directories that hold children or
@@ -52,7 +51,17 @@ _CONTAINERS: dict[str, frozenset[str]] = {
     "project": frozenset({"experiments", "assets", "cache"}),
     "experiment": frozenset({"runs", "assets", "cache"}),
     "run": frozenset(
-        {"artifacts", "assets", "cache", "executions", "metrics", "logs", "jobs", "_ops"}
+        {
+            "artifacts",
+            "assets",
+            "cache",
+            "executions",
+            "metrics",
+            "logs",
+            "jobs",
+            "ops",
+            "_ops",  # pre-rename sidecar; still legal so old trees are not strays
+        }
     ),
 }
 
@@ -70,8 +79,9 @@ _INDEX_FILE: dict[str, str] = {
     "experiment": "experiments.json",
     "run": "runs.json",
 }
-#: Pre-plural singular index basenames (one-release read/warn only).
-_LEGACY_INDEX_FILE: dict[str, str] = {
+#: Singular basenames that used to be children indexes. They collide with
+#: the child entity file and are never a valid index on the parent.
+_SINGULAR_INDEX_FILE: dict[str, str] = {
     "project": "project.json",
     "experiment": "experiment.json",
     "run": "run.json",
@@ -120,10 +130,9 @@ _RULE_HINTS: dict[str, str] = {
         "through the Folder API (disk is authoritative)."
     ),
     "index.legacy_name": (
-        "Children index must be plural (projects.json / experiments.json / "
-        "runs.json), not the singular entity basename. Call "
-        "parent.sync_folders(cls=…) to rewrite the plural form and drop the "
-        "legacy singular file."
+        "Children index is the plural JSON only (projects.json / "
+        "experiments.json / runs.json). Delete the singular file on the "
+        "parent; it is the child entity basename, never an index."
     ),
     "run.entity": (
         "Missing run.json. Scaffold with create_run / experiment.add_run(params=…); "
@@ -134,7 +143,7 @@ _RULE_HINTS: dict[str, str] = {
         "(the run- prefix is mandatory)."
     ),
     "run.ops": (
-        "No _ops/run.json yet — normal for a run that never executed. "
+        "No ops/run.json yet — normal for a run that never executed. "
         "Ignore, or execute the run so the hot-state sidecar is created."
     ),
     "concept.marker": (
@@ -192,7 +201,7 @@ class ValidationReport(BaseModel):
 
     Serializes cleanly for MCP / agent tools via :meth:`model_dump` /
     :meth:`to_dict`. ``ok`` is True when there are no ``error`` severity
-    findings; warnings (e.g. missing ``_ops``) never fail the tree.
+    findings; warnings (e.g. missing ``ops``) never fail the tree.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -319,9 +328,7 @@ class _Checker:
     # -- per-level checks ------------------------------------------------
 
     def _has_concept_marker(self, path: str) -> bool:
-        return self._fs.is_file(self._fs.join(path, META_JSON)) or self._fs.is_file(
-            self._fs.join(path, _LEGACY_META_YAML)
-        )
+        return self._fs.is_file(self._fs.join(path, META_JSON))
 
     def _check_concept(self, path: str, level: str) -> None:
         """Entity file + OKF marker for one concept directory."""
@@ -351,25 +358,16 @@ class _Checker:
         child_level = _CHILD_OF[level]
         index_name = _INDEX_FILE[child_level]
         index_path = self._fs.join(path, index_name)
-        legacy_name = _LEGACY_INDEX_FILE[child_level]
-        legacy_path = self._fs.join(path, legacy_name)
+        singular_name = _SINGULAR_INDEX_FILE[child_level]
+        singular_path = self._fs.join(path, singular_name)
 
         on_disk = {d[len(RUN_DIR_PREFIX) :] if child_level == "run" else d for d in child_dirs}
 
-        # Prefer the plural (canonical) index; fall back to legacy singular
-        # for the stale check but always flag the wrong basename.
-        if self._fs.is_file(legacy_path) and not self._fs.is_file(index_path):
+        if self._fs.is_file(singular_path):
             self._add(
-                legacy_path,
+                singular_path,
                 "index.legacy_name",
-                f"children index uses singular {legacy_name!r}; rename to {index_name!r}",
-            )
-            index_path = legacy_path
-        elif self._fs.is_file(legacy_path) and self._fs.is_file(index_path):
-            self._add(
-                legacy_path,
-                "index.legacy_name",
-                f"legacy singular {legacy_name!r} still present alongside {index_name!r}; remove it",
+                f"children index must be {index_name!r}, not singular {singular_name!r}",
             )
 
         if not self._fs.is_file(index_path):
@@ -401,11 +399,13 @@ class _Checker:
     def _check_run(self, path: str) -> None:
         self._check_concept(path, "run")
         self._check_strays(path, "run")
-        if not self._fs.is_file(self._fs.join(path, "_ops", "run.json")):
+        has_ops = self._fs.is_file(self._fs.join(path, "ops", "run.json"))
+        has_legacy = self._fs.is_file(self._fs.join(path, "_ops", "run.json"))
+        if not has_ops and not has_legacy:
             self._add(
                 path,
                 "run.ops",
-                "no _ops/run.json hot-state sidecar (normal for a run that never executed)",
+                "no ops/run.json hot-state sidecar (normal for a run that never executed)",
                 severity="warning",
             )
 

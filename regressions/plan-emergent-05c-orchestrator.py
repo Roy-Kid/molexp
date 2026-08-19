@@ -3,7 +3,7 @@
 Binding runtime example for spec ``plan-emergent-05c-orchestrator``. A
 library-external user drives the **public** emergent-planning orchestrator
 (:class:`~molexp.harness.modes.plan_orchestrator.PlanOrchestrator`) through
-its documented run-shape, injecting a SELF-CONTAINED stub ``PlanLoopRunner``
+its documented run-shape, injecting a SELF-CONTAINED stub ``draft``
 (writes a canned board via ``write_board`` — no real Pi loop) and a
 :class:`~molexp.harness.gateways.stub.StubAgentGateway` carrying a canned
 ``plan_report_renderer`` response. No network, no subprocess, no server, no CLI,
@@ -45,7 +45,6 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from molexp.agent.loops import LoopHooks
 from molexp.harness import (
     ApprovalPendingError,
     FileArtifactStore,
@@ -54,7 +53,7 @@ from molexp.harness import (
     SQLiteApprovalStore,
 )
 from molexp.harness.gateways.stub import StubAgentGateway
-from molexp.harness.modes.plan_orchestrator import PlanLoopRunner, PlanOrchestrator
+from molexp.harness.modes.plan_orchestrator import PlanOrchestrator
 from molexp.harness.plan import (
     FROZEN_PLAN_KIND,
     BoardTask,
@@ -103,30 +102,17 @@ def _malformed_board() -> TaskBoard:
     return TaskBoard(version=1, tasks=(BoardTask(id="t1", name="build", acceptance=()),))
 
 
-# ── self-contained stub PlanLoopRunner ───────────────────────────────────────
+# ── self-contained stub draft ───────────────────────────────────────────────
 
 
-class _CannedBoardRunner:
-    """Stub :class:`PlanLoopRunner`: writes one canned board via ``write_board``.
-
-    Stands in for the production ``InteractiveLoopPlanRunner`` (which drives a
-    real Pi loop). It writes its canned board to ``board_path(ctx.workspace_root)``
-    so the orchestrator reads it back — no real LLM, no loop, no subprocess.
-    """
+class _CannedDraft:
+    """Writes one canned board — stands in for the plan-workflow draft ReAct."""
 
     def __init__(self, board: TaskBoard) -> None:
         self._board = board
 
-    async def run_planning(
-        self,
-        *,
-        ctx: HarnessRunContext,
-        board: TaskBoard,
-        tools: tuple[object, ...],
-        hooks: LoopHooks,
-        user_input: str,
-    ) -> None:
-        del board, tools, hooks, user_input
+    async def __call__(self, *, ctx: HarnessRunContext, user_input: str) -> None:
+        del user_input
         write_board(board_path(ctx.workspace_root), self._board)
 
 
@@ -166,15 +152,9 @@ def _approvals(run: Run) -> SQLiteApprovalStore:
 
 async def _check_guard_no_human_surface(root: Path) -> None:
     """(a) A malformed final board is rejected before any human gate is opened."""
-    # The self-contained stub is a structural ``PlanLoopRunner`` — the seam the
-    # orchestrator depends on (production injects ``InteractiveLoopPlanRunner``).
-    assert isinstance(_CannedBoardRunner(_valid_board()), PlanLoopRunner), (
-        "the stub runner must satisfy the runtime-checkable PlanLoopRunner Protocol"
-    )
-
     run = _make_run(root, "guard")
     orch = PlanOrchestrator(
-        loop_runner=_CannedBoardRunner(_malformed_board()),
+        draft=_CannedDraft(_malformed_board()),
         approve=auto_grant_approver,
         realize=False,
     )
@@ -196,9 +176,7 @@ async def _check_guard_no_human_surface(root: Path) -> None:
 async def _check_store_first_suspend(root: Path) -> None:
     """(b) No approver + no grant ⇒ ApprovalPendingError + a pending request."""
     run = _make_run(root, "suspend")
-    orch = PlanOrchestrator(
-        loop_runner=_CannedBoardRunner(_valid_board()), approve=None, realize=False
-    )
+    orch = PlanOrchestrator(draft=_CannedDraft(_valid_board()), approve=None, realize=False)
     suspended = False
     try:
         await orch.run(run=run, user_input=_USER_INPUT, gateway=_gateway(run))
@@ -227,9 +205,7 @@ async def _check_stored_grant_replay(root: Path) -> None:
     """(c) A recorded grant replays store-first → freeze (stable id) + render."""
     run = _make_run(root, "replay")
     gw = _gateway(run)
-    orch = PlanOrchestrator(
-        loop_runner=_CannedBoardRunner(_valid_board()), approve=None, realize=False
-    )
+    orch = PlanOrchestrator(draft=_CannedDraft(_valid_board()), approve=None, realize=False)
     # First run suspends store-first; obtain the gate's request id publicly.
     with contextlib.suppress(ApprovalPendingError):
         await orch.run(run=run, user_input=_USER_INPUT, gateway=gw)

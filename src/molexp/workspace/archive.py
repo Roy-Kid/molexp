@@ -1,7 +1,8 @@
 """``archive_folder_zip`` — Folder directory → zip bytes (single writer).
 
 The one workspace-layer zip archiver shared by agent export, server
-``export_run``, and any future CLI. All I/O goes through ``folder._fs``
+``export_run``, and any future CLI. All I/O goes through the workspace
+disk (``folder._disk()``)
 (local and remote backends). Consumers import this module directly
 (``from molexp.workspace.archive import archive_folder_zip``) — not
 re-exported from ``molexp.workspace`` (same pattern as ``git_projection``).
@@ -30,13 +31,13 @@ def archive_folder_zip(folder: Folder) -> bytes:
 
     Args:
         folder: Any :class:`Folder` (Run, AgentSession, …). Uses
-            :meth:`Folder.resolve` (no lazy mkdir) and ``folder._fs``.
+            :meth:`Folder.resolve` (no lazy mkdir) and the workspace disk.
 
     Returns:
         Zip file bytes. Missing or non-directory roots yield an empty but
         valid zip (no exception, no directory creation).
     """
-    fs = folder._fs
+    fs = folder._disk()
     root = str(folder.resolve())
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:

@@ -1,9 +1,8 @@
-"""Invariant lock: workflow persistence routes through ``workspace.atomic_write_json``.
+"""Invariant lock: workflow persistence routes through ``FileStore.put``.
 
-The CLAUDE.md atomic-persistence law requires workflow-layer JSON writes to go
-through workspace's public ``atomic_write_json`` (temp-file + ``os.rename``),
-never raw ``tmp.write_text`` + ``tmp.replace``. This source scan pins that wiring
-in ``_engine.persistence.write_initial_workflow_json``.
+The run-scoped byte exit is :class:`~molexp.workspace.file_store.FileStore`
+(atomic via :mod:`molexp.atomicio`). This source scan pins that wiring in
+``_engine.persistence.write_initial_workflow_json``.
 """
 
 from __future__ import annotations
@@ -21,8 +20,8 @@ PERSISTENCE_FILE = (
 )
 
 
-def test_persistence_uses_atomic_write_json_for_workflow_json() -> None:
-    """The body of ``write_initial_workflow_json`` calls ``atomic_write_json``."""
+def test_persistence_uses_filestore_for_workflow_json() -> None:
+    """``write_initial_workflow_json`` writes through ``_put_under_run`` / FileStore."""
     text = PERSISTENCE_FILE.read_text()
     tree = ast.parse(text)
     target_func = next(
@@ -36,6 +35,7 @@ def test_persistence_uses_atomic_write_json_for_workflow_json() -> None:
     assert target_func is not None, "expected write_initial_workflow_json function"
 
     func_src = ast.get_source_segment(text, target_func) or ""
-    assert "atomic_write_json" in func_src, (
-        "write_initial_workflow_json must call atomic_write_json, not raw tmp.write_text"
+    assert "_put_under_run" in func_src, (
+        "write_initial_workflow_json must write via FileStore, not raw tmp.write_text"
     )
+    assert "write_text" not in func_src

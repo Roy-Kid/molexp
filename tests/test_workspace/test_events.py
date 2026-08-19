@@ -151,7 +151,7 @@ class TestAssetAddedEmits:
     def test_artifact_save_emits_exactly_one_asset_added(self, tmp_path: Path) -> None:
         ws, run = _lab_run(tmp_path)
         with run.start() as ctx:
-            asset = ctx.artifact.save("result.json", {"x": 1})
+            asset = ctx.register_artifact({"x": 1}, name="result.json")
 
         events = read_workspace_events(ws.resolve(), type="asset.added")
         assert len(events) == 1
@@ -203,7 +203,7 @@ class TestAssetAddedEmits:
         monkeypatch.setattr(ev, "WorkspaceEventLog", _BoomEventLog)
 
         with run.start() as ctx:
-            asset = ctx.artifact.save("result.json", {"x": 1})
+            asset = ctx.register_artifact({"x": 1}, name="result.json")
 
         assert (Path(str(run.run_dir)) / "artifacts" / "result.json").exists()
         assert asset.content_hash is not None

@@ -25,7 +25,6 @@ via the :class:`~molexp.workspace.bundle.Bundle` façade.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterable
 from typing import ClassVar, cast
 
@@ -100,14 +99,10 @@ class Note(Folder):
         -- reads back with the additive defaults (``tags == []`` /
         ``status == "active"``), so no migration is needed.
         """
-        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
-        if not self._fs.exists(fpath):
-            # legacy meta.json
-            legacy = self._fs.join(self.resolve(), "meta.json")
-            if self._fs.exists(legacy):
-                return cast("NoteMeta", NoteMeta.from_yaml(self._fs.read_text(legacy)))
+        fpath = self._disk().join(self.resolve(), META_JSON_FILENAME)
+        if not self._disk().exists(fpath):
             return NoteMeta(type=self._kind, id=self._name)
-        return cast("NoteMeta", NoteMeta.from_json(self._fs.read_text(fpath)))
+        return cast("NoteMeta", NoteMeta.from_json(self._disk().read_text(fpath)))
 
     def write_note_meta(self, meta: NoteMeta) -> None:
         """Atomically write this note's typed document ``meta.json``.
@@ -119,8 +114,8 @@ class Note(Folder):
         on *meta* are preserved verbatim (``ConceptMeta`` is ``extra="allow"``).
         """
         meta = meta.model_copy(update={"type": self._kind, "id": self._name})
-        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
-        self._fs.atomic_write_text(fpath, meta.to_json())
+        fpath = self._disk().join(self.path(), META_JSON_FILENAME)
+        self._disk().atomic_write_text(fpath, meta.to_json())
 
     def tags(self) -> list[str]:
         """Return this note's categorical tags (``[]`` when untagged)."""
@@ -168,11 +163,8 @@ class ReferenceConcept(Folder):
 
     def read_ref_meta(self) -> ReferenceMeta:
         """Load this reference's typed bib ``meta.json`` as a :class:`ReferenceMeta`."""
-        fpath = self._fs.join(self.resolve(), META_JSON_FILENAME)
-        if not self._fs.exists(fpath):
-            legacy = self._fs.join(self.resolve(), "meta.json")
-            return cast("ReferenceMeta", ReferenceMeta.from_yaml(self._fs.read_text(legacy)))
-        return cast("ReferenceMeta", ReferenceMeta.from_json(self._fs.read_text(fpath)))
+        fpath = self._disk().join(self.resolve(), META_JSON_FILENAME)
+        return cast("ReferenceMeta", ReferenceMeta.from_json(self._disk().read_text(fpath)))
 
     def write_reference_meta(self, meta: ReferenceMeta) -> None:
         """Atomically write this reference's typed bib ``meta.json``.
@@ -184,22 +176,8 @@ class ReferenceConcept(Folder):
         ``"reference"`` for the OKF bib payload).
         """
         meta = meta.model_copy(update={"type": self._kind, "id": self._name})
-        fpath = self._fs.join(self.path(), META_JSON_FILENAME)
-        self._fs.atomic_write_text(fpath, meta.to_json())
-
-    def write_ref_meta(self, meta: ReferenceMeta) -> None:
-        """Deprecated alias for :meth:`write_reference_meta`.
-
-        Renamed to the full-word spelling that matches
-        :meth:`Note.write_note_meta`; this alias warns and delegates.
-        """
-        warnings.warn(
-            "ReferenceConcept.write_ref_meta is deprecated; "
-            "use ReferenceConcept.write_reference_meta instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.write_reference_meta(meta)
+        fpath = self._disk().join(self.path(), META_JSON_FILENAME)
+        self._disk().atomic_write_text(fpath, meta.to_json())
 
     def citation(self) -> str:
         """Return the human-readable citation text (its ``index.md``)."""

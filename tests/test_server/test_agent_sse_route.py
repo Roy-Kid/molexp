@@ -20,7 +20,6 @@ from fastapi import HTTPException
 
 import molexp.server.deps.agent_runtime as agent_runtime_deps
 from molexp.agent.events import TokenDeltaEvent
-from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
 from molexp.agent.router import (
     AgenticChunk,
     FinalChunk,
@@ -91,25 +90,43 @@ class _GatedRouter(_ScriptedRouter):
 def _runner(tmp: Path, router: object | None = None) -> AgentRunner:
     # Empty workspace root is fine; pin MCP open/list to no-ops so tests never
     # wait on a live molmcp stdio process during stream_agentic setup.
-    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp))
-    return AgentRunner(loop=loop, router=router or _ScriptedRouter())  # type: ignore[arg-type]
+    return AgentRunner(
+        router=router or _ScriptedRouter(),  # type: ignore[arg-type]
+        workspace=tmp,
+        mode="agentic",
+    )
+
+
+class _EmptyMcpCatalog:
+    """Turn catalog that opens nothing — isolates tests from live MCP."""
+
+    def __init__(self, _root: object) -> None:
+        del _root
+
+    @property
+    def toolsets(self) -> tuple[object, ...]:
+        return ()
+
+    async def open(self) -> None:
+        return None
+
+    async def list_specs(self) -> tuple[()]:
+        return ()
+
+    async def aclose(self) -> None:
+        return None
 
 
 @pytest.fixture(autouse=True)
 def _stub_mcp_toolsets(monkeypatch: pytest.MonkeyPatch) -> None:
-    """InteractiveLoop opens MCP toolsets before streaming; stub for speed.
+    """ReAct opens MCP toolsets before streaming; stub for speed.
 
-    Patch the names bound in ``loop`` (not the source module) so the turn
+    Patch the name bound in ``loop`` (not the source module) so the turn
     never waits on a live molmcp stdio process.
     """
-    import molexp.agent.loops.interactive.loop as loop_mod
+    import molexp.agent.react as react_mod
 
-    monkeypatch.setattr(loop_mod, "open_mcp_toolsets", lambda _root: ())
-
-    async def _no_specs(_toolsets: object) -> tuple:
-        return ()
-
-    monkeypatch.setattr(loop_mod, "list_mcp_tool_specs", _no_specs)
+    monkeypatch.setattr(react_mod, "McpCatalog", _EmptyMcpCatalog)
 
 
 def _ws(tmp: Path) -> SimpleNamespace:

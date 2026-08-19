@@ -101,10 +101,10 @@ class AssetManifest:
         return dict(data.get("assets", {}))
 
     def _save_raw(self, assets: dict) -> None:
-        from ..base import _atomic_write_json
+        from ..base import atomic_write_json
 
         payload = {"schema_version": SCHEMA_VERSION, "assets": assets}
-        _atomic_write_json(self.path, payload)
+        atomic_write_json(self.path, payload)
 
 
 def _dump(asset: Asset) -> dict:

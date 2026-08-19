@@ -12,6 +12,7 @@ will fail loudly.
 
 from __future__ import annotations
 
+from molexp.harness.gateways.call_runtime import AgentCallRuntime
 from molexp.harness.gateways.gateway import AgentGateway
 from molexp.harness.gateways.llm_trace import LlmCallObserver, LlmCallTrace
 from molexp.harness.gateways.plan_agents import (
@@ -24,6 +25,7 @@ from molexp.harness.gateways.plan_agents import (
 from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
 
 __all__ = [
+    "AgentCallRuntime",
     "AgentGateway",
     "LlmCallObserver",
     "LlmCallTrace",

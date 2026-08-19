@@ -1,12 +1,15 @@
 # molexp Layer-Integration & AI-Assisted Operation Spec
 
 **Status**: target architecture (coordination layer). Companion to
-`harness-goal.md` (which defines *what the harness is* — provenance-first, agent
-proposes / harness disposes) and `architecture.md` (which maps *current state*).
-This file defines *how the existing layers cooperate* and *how the agent operates
-over them*. It does **not** redefine Workspace / Workflow / Experiment / Run /
-Artifact / Knowledge / AgentTask — those exist (see `architecture.md`). It adds
-the **coordination contracts** between them. Reconcile incrementally; each slice
+`harness-plugins.md` (the **plugin host**; atom = **AgentCall**; workspace /
+workflow / agent / science adapters are plugins) and `harness-goal.md`
+(what those plugins persist and validate — artifacts, IR, tests, audit)
+and `architecture.md` (current module map). The loop below is a **bundle
+composition** mounted on that host, not a second kernel. This file defines
+*how the plugins cooperate* and *how AgentCalls operate over them*. It does
+**not** redefine Workspace / Workflow / Experiment / Run / Artifact /
+Knowledge / AgentTask — those exist (see `architecture.md`). It adds the
+**coordination contracts** between them. Reconcile incrementally; each slice
 in §9 lands a piece.
 
 > **Hard rule — no parallel architecture.** Everything below is expressed in
@@ -19,9 +22,14 @@ in §9 lands a piece.
 
 ## 0. The coordination loop
 
+This loop is what the `plan` + `run` + interpret + knowledge **bundles**
+compose out of AgentCalls and plugin services. The host's atom remains one
+AgentCall (see `harness-plugins.md`). A process that only mounts `chat` is
+still a valid harness.
+
 The product thesis — *a scientific work system bounded by Workspace, structured
 by Workflow / Experiment / Run, grounded by Artifact and Knowledge, operated
-through Agent-assisted actions* — reduces to one loop the whole system must
+through Agent-assisted actions* — reduces to one loop those bundles must
 support:
 
 ```text
@@ -41,8 +49,8 @@ those contracts and which existing module owns each side.
 **Ownership stance carried throughout** (these resolve the gaps in
 `architecture.md`'s audit):
 
-- Canonical state is **workspace on disk** (entity `*.json`, `_ops/run.json`,
-  `assets.json`, OKF `meta.yaml`/`index.md`). Agent memory and frontend state are
+- Canonical state is **workspace on disk** (entity `*.json`, `ops/run.json`,
+  `assets.json`, OKF `meta.json`/`index.md`). Agent memory and frontend state are
   **never** canonical.
 - The agent **proposes**; the harness **disposes**. High-risk mutations go
   through a `ChangeProposal` + approval gate before any executor runs.
@@ -243,13 +251,13 @@ Experiment ──references──► Workflow (IR)         Experiment.workflow.j
 - `Experiment.add_run(params=…)` / `add_runs(space)` create content-addressed
   Runs (`derive_run_id`). A `Run` binds: the referenced workflow, concrete
   `params`, environment (`profile`/`config_hash`), and time
-  (`_ops/run.json` started/finished). This is the existing model — reuse as-is.
+  (`ops/run.json` started/finished). This is the existing model — reuse as-is.
 - Execution persists node-level outputs under `executions/<exec_id>/workflow.json`
   (resume seed) — unchanged.
 
 ### 3.3 Run → Artifact → Knowledge
 
-- Run outputs become `ArtifactAsset`s via `ctx.artifact.save(...)`
+- Run outputs become `ArtifactAsset`s via `ctx.register_artifact(...)`
   (`workspace/assets/accessors.py`) with `Producer(run_id, execution_id,
   task_id, inputs)` lineage — **this linkage already exists**; the gap is only
   that nothing consumes it for knowledge.
@@ -330,7 +338,7 @@ ad-hoc bridge with a typed concept.
 
 `KnowledgeItem` is a new OKF concept type (`@concept_type("knowledge.item")`,
 registered in `knowledge/types.py`, stored as a `Folder` with
-`meta.yaml`+`index.md` exactly like `Note`). It does **not** introduce a new
+`meta.json`+`index.md` exactly like `Note`). It does **not** introduce a new
 storage substrate — it is a `Note` with a typed head:
 
 ```python
@@ -348,7 +356,7 @@ class KnowledgeMeta(ConceptMeta):              # extends workspace/concept_meta.
     created_by: str                            # user / agent:name
 ```
 
-The body (`index.md`) holds the human-readable content; `meta.yaml` holds the
+The body (`index.md`) holds the human-readable content; `meta.json` holds the
 typed head. Reuse `Bundle` for traversal/index.
 
 ### 5.2 Source attribution (mandatory invariant)
@@ -415,7 +423,7 @@ Record = workspace assets + `WorkspaceEvent` log + KnowledgeItems.
 
 | Mode | Existing basis | Can write? | Gate |
 |---|---|---|---|
-| **read-only analysis** | `ChatLoop` / `InteractiveLoop` with `readonly_tools` (`agent/loops/interactive/tools.py`) — *already exists* | no | none |
+| **read-only analysis** | `InteractiveLoop` with `operation_mode="chat"` (ops surface: inspect / scratch / discover) | no | none |
 | **advisory proposal** | agent loop emitting a `ChangeProposal`, no executor | proposal artifact only | human reads, may discard |
 | **guarded execution** | `ChangeProposal` → `ApprovalGate` (`harness/stages/approval_gate.py`) → executor | yes, post-approval | explicit approval |
 | **autonomous low-risk maintenance** | policy-gated auto-approver (`harness/policy/`, `auto_grant_approver`) restricted to a low-risk op allow-list | yes, bounded | policy auto-approves, still recorded |

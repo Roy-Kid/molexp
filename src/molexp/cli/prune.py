@@ -144,7 +144,7 @@ def prune_runs(
 
     Descends project → experiment → run → executions, letting the user
     pick at each step.  Only the ``execution/{exec_id}/`` directories and
-    matching ``_ops`` execution-history entries are touched; run status /
+    matching ``ops`` execution-history entries are touched; run status /
     parameters / artifacts are left alone.
     """
     from . import _common

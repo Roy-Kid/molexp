@@ -11,7 +11,7 @@ Two contracts of the services proposal mapping:
   scope refs (``source: "experiment:exp-a"``, ``target: "project:demo"``).
 
 Gating end-to-end: a proposal denied by the approver mutates NOTHING — run
-status, ``_ops`` history and disk are untouched; the outcome records ``rejected``
+status, ``ops`` history and disk are untouched; the outcome records ``rejected``
 and never raises through the flow.
 """
 
@@ -59,7 +59,7 @@ def _audit_run(ws: Workspace) -> Run:
 
 
 def _seed_failed_execution(run: Run) -> str:
-    """One failed on-disk attempt + matching ``_ops`` history entry."""
+    """One failed on-disk attempt + matching ``ops`` history entry."""
     run.materialize()
     exec_id = f"exec-{run.id}"
     (Path(str(run.run_dir)) / "executions" / exec_id).mkdir(parents=True)

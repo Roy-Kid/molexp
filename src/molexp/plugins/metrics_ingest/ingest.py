@@ -1,6 +1,6 @@
 """Ingest foreign run logs into a run's host metrics buffer.
 
-A molexp **Run is a host**, not a MolRec record: ``run.json`` / ``_ops/run.json``
+A molexp **Run is a host**, not a MolRec record: ``run.json`` / ``ops/run.json``
 are not molrec ``meta`` / ``status``, and nothing here writes those sections.
 Scientific packages follow the external molrec spec; molexp does not re-host it.
 

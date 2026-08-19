@@ -19,8 +19,8 @@ from .concept_meta import ConceptMeta
 class ReferenceMeta(ConceptMeta):
     """Bibliographic ``meta.json`` payload of a Reference Concept.
 
-    Inherits :class:`ConceptMeta` (frozen, ``extra="allow"``, ``from_yaml`` /
-    ``to_yaml``); ``type`` defaults to ``"reference"``.
+    Inherits :class:`ConceptMeta` (frozen, ``extra="allow"``,
+    ``from_json`` / ``to_json``); ``type`` defaults to ``"reference"``.
 
     Attributes:
         type: Concept discriminator (defaults to ``"reference"``).

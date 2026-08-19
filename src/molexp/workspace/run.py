@@ -179,9 +179,7 @@ class Run(Folder):
         self._name = meta.id
         self._kind = kind
         self._root_path = None
-        from molexp.workspace.fs_local import LocalFileSystem
-
-        self._fs = getattr(resolved_parent, "_fs", None) or LocalFileSystem()
+        # Disk is resolved via the parent chain (:meth:`Folder._disk`).
         self._metadata = FolderMetadata(
             id=meta.id,
             name=meta.id,  # Run has no separate display name
@@ -203,12 +201,14 @@ class Run(Folder):
     def child_dir(cls, parent: Folder, derived_id: str) -> MolexpPath:
         """Folder hook — runs live under ``runs/run-<id>/``."""
         # resolve() not path() — pure layout math must not mkdir on remote.
-        return MolexpPath(parent._fs.join(parent.resolve(), "runs", f"run-{derived_id}"))
+        return MolexpPath(parent._disk().join(parent.resolve(), "runs", f"run-{derived_id}"))
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Run:
         """Load ``run.json`` and rebuild entity state. See Folder.from_disk hook docs."""
-        meta = _load_metadata(RunMetadata, parent._fs.join(child_dir, "run.json"), fs=parent._fs)
+        meta = _load_metadata(
+            RunMetadata, parent._disk().join(child_dir, "run.json"), fs=parent._disk()
+        )
         # Runs have no separate human name — ``RunMetadata`` only carries ``id``.
         folder_meta = FolderMetadata(
             id=meta.id,
@@ -254,10 +254,10 @@ class Run(Folder):
 
     @property
     def status(self) -> str:
-        """Current run status, sourced from the ``_ops/run.json`` hot sidecar.
+        """Current run status, sourced from the ``ops/run.json`` hot sidecar.
 
         Hot machine state (status / ownership / heartbeat / executions) lives
-        solely in the OKF ``_ops/`` sidecar per the identity-vs-runtime split
+        solely in the OKF ``ops/`` sidecar per the identity-vs-runtime split
         (wsokf-07/wsokf-10); ``run.json`` carries no status field.
         """
         return self.read_ops().status.value
@@ -269,27 +269,27 @@ class Run(Folder):
 
     @property
     def execution_history(self) -> list[ExecutionRecord]:
-        """Run-level execution history, read from the ``_ops`` sidecar (wsokf-07)."""
+        """Run-level execution history, read from the ``ops`` sidecar (wsokf-07)."""
         return list(self.read_ops().executions)
 
     @property
     def finished_at(self) -> datetime | None:
-        """Terminal timestamp, read from the ``_ops`` sidecar (wsokf-07)."""
+        """Terminal timestamp, read from the ``ops`` sidecar (wsokf-07)."""
         return self.read_ops().finished_at
 
     @property
     def current_execution_id(self) -> str | None:
-        """Active/last execution id, read from the ``_ops`` sidecar (wsokf-07)."""
+        """Active/last execution id, read from the ``ops`` sidecar (wsokf-07)."""
         return self.read_ops().current_execution_id
 
-    # ── OKF _ops/run.json hot-state sidecar (typed; isolated from run.json) ─
+    # ── OKF ops/run.json hot-state sidecar (typed; isolated from run.json) ─
 
     def read_ops(self) -> RunOpsState:
-        """Load the typed Run ops state from ``_ops/run.json`` (default if none)."""
+        """Load the typed Run ops state from ``ops/run.json`` (default if none)."""
         return RunOpsState.model_validate(self.read_ops_json(RUN_OPS_NAME) or {})
 
     def write_ops(self, state: RunOpsState) -> None:
-        """Persist the typed Run ops state to ``_ops/run.json`` (atomic)."""
+        """Persist the typed Run ops state to ``ops/run.json`` (atomic)."""
         self.write_ops_json(RUN_OPS_NAME, state.model_dump(mode="json"))
 
     def update_ops(self, fn: Callable[[RunOpsState], RunOpsState]) -> RunOpsState:
@@ -302,7 +302,9 @@ class Run(Folder):
 
     @property
     def run_dir(self) -> MolexpPath:
-        return MolexpPath(self._fs.join(self.experiment.experiment_dir, "runs", f"run-{self.id}"))
+        return MolexpPath(
+            self._disk().join(self.experiment.experiment_dir, "runs", f"run-{self.id}")
+        )
 
     @property
     def scope(self):  # noqa: ANN201
@@ -318,34 +320,6 @@ class Run(Folder):
         from .assets import AssetsView
 
         return AssetsView(self.experiment.project.workspace.root, self.scope)
-
-    def reregister_artifact(  # noqa: ANN201
-        self,
-        *,
-        name: str | None,
-        content_hash: str,
-        producer_task: str | None = None,
-        inputs: tuple[str, ...] = (),
-    ):
-        """Re-register a content-addressed artifact into this run's manifest.
-
-        Used by the workflow cache when a cached task output is reused: the
-        bytes already live in the content-addressed store, so only a fresh
-        manifest entry pointing at the same path + ``content_hash`` is written
-        (no recompute, no recopy). Returns the new asset, or ``None`` when the
-        bytes are absent in this workspace.
-        """
-        from .assets import scan
-
-        return scan.reregister_artifact(
-            self.experiment.project.workspace.root,
-            self.run_dir,
-            name=name,
-            content_hash=content_hash,
-            target_scope=self.scope,
-            producer_task=producer_task,
-            inputs=inputs,
-        )
 
     def get_result(self, key: str) -> TaskOutput:
         """Read a result value for *key*.
@@ -385,7 +359,7 @@ class Run(Folder):
     def _latest_execution_node_output(self, key: str) -> TaskOutput:
         """Fallback for :meth:`get_result` — read *key* from the latest execution.
 
-        The execution history (newest last) is sourced from the OKF ``_ops``
+        The execution history (newest last) is sourced from the OKF ``ops``
         sidecar (wsokf-10); its last entry names the most recent attempt.
         Read-only: nothing is written back to disk.
         """
@@ -416,12 +390,12 @@ class Run(Folder):
 
     def materialize(self) -> None:
         d = self.run_dir
-        self._fs.mkdir(d, parents=True, exist_ok=True)
-        _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)
+        self._disk().mkdir(d, parents=True, exist_ok=True)
+        _save_metadata(self.metadata, self._disk().join(self.run_dir, "run.json"), fs=self._disk())
         self.write_meta()
 
     def save(self) -> None:
-        _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)
+        _save_metadata(self.metadata, self._disk().join(self.run_dir, "run.json"), fs=self._disk())
 
     @classmethod
     def load(cls, run_dir: PathArg) -> Run:
@@ -493,7 +467,7 @@ class Run(Folder):
         Folds the driver dance — ``run.start()`` context, workflow-runtime
         dispatch, asyncio plumbing — into a single synchronous call on the
         same execution path ``molexp run`` uses (RunContext lifecycle: status
-        machine, ``_ops`` sidecar, heartbeat). *workflow* is a
+        machine, ``ops`` sidecar, heartbeat). *workflow* is a
         ``CompiledWorkflow`` or an uncompiled ``WorkflowCompiler``
         (auto-compiled). Returns a ``molexp.workflow.WorkflowResult`` whose
         ``.outputs`` maps task name → output.
@@ -546,10 +520,10 @@ class Run(Folder):
         return await ctx.__aexit__(exc_type, exc_val, exc_tb)
 
     def cancel(self) -> None:
-        """Mark the run as cancelled in the OKF ``_ops`` hot-state sidecar.
+        """Mark the run as cancelled in the OKF ``ops`` hot-state sidecar.
 
         Sets ``status=cancelled`` + ``finished_at`` and clears the ownership
-        stamp (pid/host/heartbeat) in one read-modify-write of ``_ops/run.json``;
+        stamp (pid/host/heartbeat) in one read-modify-write of ``ops/run.json``;
         ``run.json`` (identity/provenance) is untouched (wsokf-10).
         """
         now = datetime.now()
@@ -618,16 +592,16 @@ class Run(Folder):
         writes. Missing or unreadable files keep the in-memory copy
         (first write before ``materialize()``, remote filesystems).
         """
-        path = self._fs.join(self.run_dir, "run.json")
+        path = self._disk().join(self.run_dir, "run.json")
         try:
-            if not self._fs.exists(path):
+            if not self._disk().exists(path):
                 return
-            self._entity_metadata = _load_metadata(RunMetadata, path, fs=self._fs)
+            self._entity_metadata = _load_metadata(RunMetadata, path, fs=self._disk())
         except Exception:
             _logger.debug(f"run {self.id}: could not reload run.json; keeping in-memory copy")
 
     #: Hot machine-state fields that left ``RunMetadata`` in wsokf-10 — they
-    #: now live solely in the OKF ``_ops/run.json`` sidecar
+    #: now live solely in the OKF ``ops/run.json`` sidecar
     #: (:class:`RunOpsState`). Writers must route them through
     #: :meth:`update_ops`, never :meth:`_update_metadata`.
     _OPS_ONLY_KEYS: frozenset[str] = frozenset(
@@ -649,7 +623,7 @@ class Run(Folder):
 
         ``run.json`` holds identity / provenance only (wsokf-10). Hot
         machine state — ``status`` / ``finished_at`` / ``execution_history`` /
-        ownership ``labels`` — lives in the ``_ops`` sidecar and must be
+        ownership ``labels`` — lives in the ``ops`` sidecar and must be
         written through :meth:`update_ops`; passing one of those keys here is
         a programming error and raises :class:`ValueError`.
 
@@ -660,7 +634,7 @@ class Run(Folder):
         if offending:
             raise ValueError(
                 f"_update_metadata received hot-state key(s) {sorted(offending)!r}; "
-                "these live in the _ops/run.json sidecar — write them via update_ops()"
+                "these live in the ops/run.json sidecar — write them via update_ops()"
             )
         with self._metadata_lock():
             self._reload_metadata_from_disk()

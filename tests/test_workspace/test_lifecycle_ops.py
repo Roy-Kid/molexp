@@ -10,7 +10,7 @@ once here:
 * **running only** — any non-``running`` status after reaping refuses loudly
   (``ValueError``);
 * a genuine cancel flips status to ``cancelled`` and clears the ownership stamp
-  in the ``_ops`` sidecar (the low-level ``Run.cancel`` flip reached through the guard).
+  in the ``ops`` sidecar (the low-level ``Run.cancel`` flip reached through the guard).
 
 The reaper's own rules (dead-pid clears ownership, cross-host stale-heartbeat) are
 owned by ``tests/test_cli/test_reap_zombie.py``; ``is_retryable`` by

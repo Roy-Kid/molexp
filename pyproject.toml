@@ -23,9 +23,9 @@ dependencies = [
     "molcrafts-mollog>=1.0.0",
     "molcrafts-molcfg>=1.2.0",
     "molcrafts-molq>=0.2.0",
-    # molpy is a hard dependency (Frame/Block and the io readers); molrs is
-    # reached ONLY through molpy — never import molrs directly.
-    "molcrafts-molpy>=0.11.2",
+    # Science plugins (molexp.plugins.molpy / molvis / submit_molq) import
+    # these products directly. molrs is reached only through molpy.
+    "molcrafts-molpy>=0.13.1",
     "zarr>=3",
 ]
 
