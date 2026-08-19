@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from molexp.harness.plan_tools.tool import PlanTool, PlanToolFn, PlanToolResult
-from molexp.harness.policy import enforce_side_effect_approvals
 
 if TYPE_CHECKING:
     from molexp.harness.core.run_context import HarnessRunContext
@@ -63,7 +62,8 @@ def as_loop_tool(
     The returned coroutine carries ``tool.name`` as ``__name__`` and
     ``tool.description`` as ``__doc__``. On each call it:
 
-    1. Gates declared ``side_effects`` (empty ⇒ read-only bypass).
+    1. Copies ``side_effects`` onto the wrapper so ``ctx.tools`` /
+       ``tools/pre-execute`` can see them (the host approval plugin gates).
     2. Injects ``ctx`` / ``board`` into the tool body (stripping any
        LLM-supplied values for those names).
     3. Records ``tool_completed`` / ``tool_failed`` on ``ctx.event_log``.
@@ -80,7 +80,7 @@ def as_loop_tool(
     public_params = _public_parameters(tool.fn)
 
     async def _adapted(**kwargs: object) -> PlanToolResult:
-        await enforce_side_effect_approvals([gate_item], ctx=ctx, approve=approve)
+        _ = approve  # kept on the adapter signature; host pipeline gates
         # Never let the model invent harness internals.
         clean = {k: v for k, v in kwargs.items() if k not in {"ctx", "board"}}
         call: dict[str, Any] = dict(clean)
@@ -131,6 +131,7 @@ def as_loop_tool(
     # Keep tool.description as the docstring (pydantic-ai / tests pin it).
     # Public parameters are exposed via annotations for schema derivation.
     _adapted.__doc__ = tool.description
+    setattr(_adapted, "side_effects", list(gate_item.side_effects))  # noqa: B010
     if public_params:
         ann: dict[str, Any] = dict.fromkeys(public_params, object)
         ann["return"] = PlanToolResult

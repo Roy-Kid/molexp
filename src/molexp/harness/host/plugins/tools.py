@@ -57,6 +57,13 @@ class ToolBelt:
                 return tool
         raise KeyError(f"tool {name!r} is not registered")
 
+    def get(self, name: str) -> object | None:
+        """Registered tool named *name*, or ``None``."""
+        try:
+            return self._lookup(name)
+        except KeyError:
+            return None
+
     async def execute(self, name: str, args: dict[str, Any]) -> object:
         """Run ``tools/pre-execute`` → body → ``tools/post-execute``."""
         ctx = self._ctx

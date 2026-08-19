@@ -2,6 +2,15 @@
 
 One line per **live** spec. `/mol:spec` adds entries; `/mol:impl` ticks the spec's tasks and prunes the entry (with the spec file) on completion.
 
+## host-approval (chain)
+
+_Closed 01–02 on `dev` (2026-08-19) — store-first `approval/request` hung on `tools/pre-execute`._
+
+| # | Spec | Commit theme |
+|---|---|---|
+| 01 | host-approval-01-request | `approval/request` waterfall |
+| 02 | host-approval-02-tools | side-effect tools + compose mount |
+
 ## host-align (chain)
 
 _Closed 01–04 on `dev` (2026-08-19) — DeepSeek/Cordis `ctx.xxx`: attribute access, `ctx.llm`, `tools/*` pipeline, workspace/workflow plugins._

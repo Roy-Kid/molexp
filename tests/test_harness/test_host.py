@@ -267,7 +267,14 @@ class TestCompose:
             run_dir=tmp_path,
             gateway=_FakeGateway(),
         )
-        assert host.dump() == ["run_stores", "tools", "workspace", "workflow", "llm"]
+        assert host.dump() == [
+            "run_stores",
+            "tools",
+            "approval_policy",
+            "workspace",
+            "workflow",
+            "llm",
+        ]
         assert host.ctx.tools is host.ctx.require(Keys.TOOLS)
         cfg = host.dump_config()
         assert "tools" in cfg["services"]
@@ -407,6 +414,143 @@ class TestToolBeltExecute:
         wrapped = belt.snapshot()[0]
         assert await wrapped() == "wrapped"
         assert ran["n"] == 0
+
+
+class _FakeApprovalStore:
+    def __init__(self) -> None:
+        self.grants: dict[str, object] = {}
+        self.pending_calls: list[tuple[str, object]] = []
+        self.decisions: list[object] = []
+
+    def granted_decision_for(self, request_id: str) -> object | None:
+        return self.grants.get(request_id)
+
+    def record_pending(self, run_id: str, request: object) -> None:
+        self.pending_calls.append((run_id, request))
+
+    def record_decision(self, decision: object) -> None:
+        self.decisions.append(decision)
+
+    def pending(self, run_id: str) -> list[object]:
+        del run_id
+        return []
+
+
+def _approval_request(request_id: str = "req-1") -> object:
+    from datetime import UTC, datetime
+
+    from molexp.harness.schemas import ApprovalRequest
+
+    return ApprovalRequest(
+        id=request_id,
+        intent="overwrite",
+        reason="test",
+        triggered_by_policy="side_effects_present",
+        metadata={},
+        created_at=datetime.now(tz=UTC),
+    )
+
+
+class TestApprovalRequest:
+    async def test_stored_grant_skips_later_listener(self) -> None:
+        from datetime import UTC, datetime
+
+        from molexp.harness.host.plugins.approval import ApprovalPlugin
+        from molexp.harness.schemas import ApprovalDecision
+
+        ctx = Context()
+        store = _FakeApprovalStore()
+        grant = ApprovalDecision(
+            request_id="req-1",
+            granted=True,
+            decided_by="tester",
+            decided_at=datetime.now(tz=UTC),
+        )
+        store.grants["req-1"] = grant
+        ctx.provide(Keys.APPROVAL, store)
+        ctx.provide(Keys.RUN_ID, "run-1")
+        Host_ = Host
+        host = Host_()
+        host.ctx = ctx
+        host.mount(ApprovalPlugin())
+        ran = {"n": 0}
+
+        async def late(value: object, nxt: object) -> object:
+            ran["n"] += 1
+            return await nxt(value)  # type: ignore[misc,operator]
+
+        ctx.on("approval/request", late, mode="waterfall")
+        result = await ctx.waterfall("approval/request", _approval_request())
+        assert result is grant
+        assert ran["n"] == 0
+
+    async def test_missing_decision_records_pending(self) -> None:
+        from molexp.harness.errors import ApprovalPendingError
+        from molexp.harness.host.plugins.approval import ApprovalPlugin
+
+        ctx = Context()
+        store = _FakeApprovalStore()
+        ctx.provide(Keys.APPROVAL, store)
+        ctx.provide(Keys.RUN_ID, "run-1")
+        host = Host()
+        host.ctx = ctx
+        host.mount(ApprovalPlugin())
+        with pytest.raises(ApprovalPendingError):
+            await ctx.waterfall("approval/request", _approval_request())
+        assert len(store.pending_calls) == 1
+
+
+class TestToolApproval:
+    async def test_side_effect_tool_pending_skips_body(self) -> None:
+        from molexp.harness.errors import ApprovalPendingError
+        from molexp.harness.host.plugins.approval import ApprovalPlugin
+        from molexp.harness.host.plugins.tools import ToolBelt
+
+        ctx = Context()
+        store = _FakeApprovalStore()
+        ctx.provide(Keys.APPROVAL, store)
+        ctx.provide(Keys.RUN_ID, "run-1")
+        belt = ToolBelt()
+        belt.bind(ctx)
+        ctx.provide(Keys.TOOLS, belt)
+        host = Host()
+        host.ctx = ctx
+        host.mount(ApprovalPlugin())
+        ran = {"n": 0}
+
+        async def boom() -> str:
+            ran["n"] += 1
+            return "nope"
+
+        boom.__name__ = "boom"
+        boom.side_effects = ["overwrite"]  # type: ignore[attr-defined]
+        belt.register(boom, ctx)
+        with pytest.raises(ApprovalPendingError):
+            await belt.execute("boom", {})
+        assert ran["n"] == 0
+
+    async def test_read_only_tool_skips_approval(self) -> None:
+        from molexp.harness.host.plugins.approval import ApprovalPlugin
+        from molexp.harness.host.plugins.tools import ToolBelt
+
+        ctx = Context()
+        store = _FakeApprovalStore()
+        ctx.provide(Keys.APPROVAL, store)
+        ctx.provide(Keys.RUN_ID, "run-1")
+        belt = ToolBelt()
+        belt.bind(ctx)
+        ctx.provide(Keys.TOOLS, belt)
+        host = Host()
+        host.ctx = ctx
+        host.mount(ApprovalPlugin())
+
+        async def ping() -> str:
+            return "ok"
+
+        ping.__name__ = "ping"
+        belt.register(ping, ctx)
+        assert await belt.execute("ping", {}) == "ok"
+        assert store.pending_calls == []
 
 
 class TestDomainPlugins:

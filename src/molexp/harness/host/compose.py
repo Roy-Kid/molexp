@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from molexp.harness.host.host import Host
 from molexp.harness.host.plugins.agent_call import AgentCallPlugin
+from molexp.harness.host.plugins.approval import ApprovalPlugin
 from molexp.harness.host.plugins.capabilities import CapabilitiesPlugin
 from molexp.harness.host.plugins.executor import ExecutorPlugin
 from molexp.harness.host.plugins.stores import RunStoresPlugin
@@ -57,7 +58,7 @@ def compose_plan(
     workspace_root: Path | None = None,
     extra: tuple[Plugin, ...] = (),
 ) -> Host:
-    """``plan`` bundle: run stores + tools + workspace + workflow + llm."""
+    """``plan`` bundle: stores + tools + approval + workspace + workflow + llm."""
     from molexp.workspace.plugin import WorkspacePlugin
 
     host = Host()
@@ -72,6 +73,7 @@ def compose_plan(
     if capability_registry is not None:
         host.mount(CapabilitiesPlugin(capability_registry))
     host.mount(ToolsPlugin())
+    host.mount(ApprovalPlugin())
     host.mount(WorkspacePlugin(root))
     host.mount(WorkflowPlugin())
     host.mount(AgentCallPlugin(gateway))
@@ -101,6 +103,7 @@ def compose_curate(
         host.mount(CapabilitiesPlugin(capability_registry))
     if gateway is not None:
         host.mount(ToolsPlugin())
+        host.mount(ApprovalPlugin())
         host.mount(AgentCallPlugin(gateway))
     _mount_extra(host, extra)
     return host

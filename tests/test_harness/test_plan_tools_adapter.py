@@ -18,13 +18,9 @@ import inspect
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.plan_tools import PlanTool, PlanToolResult, as_loop_tool
-from molexp.harness.policy import enforce_side_effect_approvals
 from molexp.harness.schemas.approval import ApprovalDecision, ApprovalRequest
-from molexp.harness.stages import auto_grant_approver
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
@@ -131,15 +127,10 @@ class TestAsLoopToolReadOnlyBypass:
 
 
 class TestAsLoopToolSideEffectGate:
-    """A side-effect PlanTool gates before its body and records the outcome."""
+    """A side-effect PlanTool copies side_effects for the host pipeline."""
 
-    async def test_side_effect_tool_gates_before_body(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        order: list[str] = []
-
+    async def test_side_effect_tool_copies_effects_and_runs_body(self, tmp_path: Path) -> None:
         async def fn(**kwargs: object) -> PlanToolResult:
-            order.append("body")
             return PlanToolResult(ok=True, summary="did it", data={}, artifact_ref=None)
 
         tool = PlanTool(
@@ -150,18 +141,10 @@ class TestAsLoopToolSideEffectGate:
             fn=fn,
         )
         ctx = _make_ctx(tmp_path)
-        real_enforce = enforce_side_effect_approvals
-
-        async def _spy(*args: object, **kwargs: object) -> object:
-            order.append("gate")
-            return await real_enforce(*args, **kwargs)  # type: ignore
-
-        monkeypatch.setattr("molexp.harness.plan_tools.adapter.enforce_side_effect_approvals", _spy)
-        adapted = as_loop_tool(tool, ctx=ctx, approve=auto_grant_approver)
+        adapted = as_loop_tool(tool, ctx=ctx)
 
         result = await adapted()
 
-        assert order == ["gate", "body"]
+        assert adapted.side_effects == ["delete"]
         assert isinstance(result, PlanToolResult)
-        # The granted gate persisted its side_effect_approval summary.
-        assert ctx.artifact_store.list_by_kind("side_effect_approval") != []
+        assert ctx.artifact_store.list_by_kind("side_effect_approval") == []
